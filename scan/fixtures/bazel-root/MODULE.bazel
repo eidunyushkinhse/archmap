@@ -1,0 +1,2 @@
+# С12: C++ на Bazel, Cargo.toml и go.mod в корне — SDK и утилиты.
+module(name = "proxy")

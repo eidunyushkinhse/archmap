@@ -210,3 +210,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `mysql`, `mariadb`, `postgres`, `postgresql`, `pgsql`, `mssql`, `sqlserver`, `oracle`) с
     серверным среди них — одна база по первому в алфавите серверному диалекту, остальные в
     подсказках «встроенная база для разработки и тестов» и «несколько диалектов» (С11);
+  - маркер сборки в корне (`WORKSPACE`, `WORKSPACE.bazel`, `MODULE.bazel`, `BUILD.bazel` —
+    «C++ (Bazel)», `CMakeLists.txt` — «C/C++ (CMake)», `buildfiles.root_stack`): `Cargo.toml` и
+    `go.mod` тогда SDK и утилиты (ни неявного контейнера, ни процессов `cmd/`, ни языка
+    корневым контейнерам), стек первым в `stacks` и в `unsupported` (С12);

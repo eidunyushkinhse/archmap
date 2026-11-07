@@ -144,6 +144,9 @@ class Model:
     # Контейнеры определены по файлам сборки (ТЗ §13.4) и стеки сборки без разборщика.
     by_buildfiles: bool = False
     build_unsupported: list[str] = field(default_factory=list)
+    # Стек по маркеру сборки в корне (ТЗ §15 п. 12 С12): первым в stacks и в unsupported
+    # семьи containers.
+    root_stack: str | None = None
     # Боевых манифестов нет, объекты собраны из манифестов разработки (ТЗ §15 п. 10 Б3,
     # ступень 2): имена таких объектов, запись о каждом — в hints.dev_manifest_objects.
     dev_objects: set[str] = field(default_factory=set)

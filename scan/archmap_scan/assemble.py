@@ -558,14 +558,20 @@ def _code_packages(obj: Obj, packages: list[Package]) -> list[Package]:
     return [p for p in packages if p.dir == obj.code_dir]
 
 
-def _classify(obj: Obj, packages: list[Package], free: list[Package] | None = None) -> None:
+def _classify(
+    obj: Obj, packages: list[Package], free: list[Package] | None = None,
+    root_stack: str | None = None,
+) -> None:
     """Вид, технология и роль объекта по кандидатам, Dockerfile и манифестам сборки.
     free — манифесты свободных подкаталогов корня (_free_packages): у корневого контейнера
     без манифестов в корне или только со служебным package.json (_service_root) язык
     берётся из них по stack_of среди манифестов не Node.js (ТЗ §15 п. 12 С7а: в корне eShop
     package.json с одними devDependencies, а код .NET лежит в src/*/*.csproj). Только когда
     эти манифесты одного языка: несколько языков значат чужие манифесты (утилиты, тесты,
-    мобильное приложение). Язык, названный базовым образом Dockerfile, они не меняют."""
+    мобильное приложение). Язык, названный базовым образом Dockerfile, они не меняют.
+    root_stack — стек маркера сборки корня у контейнера с корневым каталогом кода (ТЗ §15
+    п. 12 С12): Cargo.toml и go.mod тогда SDK, язык не задают, а без языка контейнер
+    получает сам стек маркера (CI-матрица Envoy — «C++ (Bazel)», а не Rust)."""
     units = obj.units
     image = next((u.image for u in units if u.image), None)
     shape_hint = next((u.shape for u in units if u.shape), None)
@@ -584,8 +590,11 @@ def _classify(obj: Obj, packages: list[Package], free: list[Package] | None = No
         return
     pkgs = [
         p for p in _code_packages(obj, packages)
-        if obj.language is None or p.language == obj.language
+        if (obj.language is None or p.language == obj.language)
+        and not (root_stack and p.kind in vocab.SDK_MANIFESTS)
     ]
+    if root_stack and free:
+        free = [p for p in free if p.kind not in vocab.SDK_MANIFESTS]
     language, server, front = stack_of(pkgs)
     base_language = _dockerfile_language(obj.dockerfile) if obj.dockerfile else None
     if language is None:
@@ -606,6 +615,8 @@ def _classify(obj: Obj, packages: list[Package], free: list[Package] | None = No
             obj.locs.add(lead.name_loc or Loc(lead.path, 1))
     if language is None:
         language = next((u.language for u in units if u.language), None)
+    if language is None:
+        language = root_stack
     if obj.language is None:
         obj.language = language
     if obj.technology is None:
@@ -798,7 +809,10 @@ def _objects(
     # Второй проход: свободные пакеты корневого контейнера считаются, когда каталоги кода
     # всех объектов уже известны (ТЗ §15 п. 12 С7а).
     for obj in objs:
-        _classify(obj, findings.packages, _free_packages(obj, objs, findings.packages, ctx.scope))
+        _classify(
+            obj, findings.packages, _free_packages(obj, objs, findings.packages, ctx.scope),
+            findings.root_stack if obj.code_dir == ctx.scope else None,
+        )
     return objs
 
 
@@ -975,14 +989,22 @@ def _merge_duplicates(model: Model) -> None:
 
 
 def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
-    """Репозиторий без манифестов контейнеров: один контейнер с именем корня (ТЗ §7)."""
-    roots = [p for p in findings.packages if p.dir == ctx.scope]
+    """Репозиторий без манифестов контейнеров: один контейнер с именем корня (ТЗ §7). При
+    маркере сборки в корне Cargo.toml и go.mod — SDK и утилиты, контейнера не дают (ТЗ §15
+    п. 12 С12)."""
+    roots = [
+        p for p in findings.packages if p.dir == ctx.scope
+        and not (findings.root_stack and p.kind in vocab.SDK_MANIFESTS)
+    ]
     if not roots:
         return None
     obj = Obj(name=model.system, code_dir=ctx.scope, parsers=["implicit"])
     obj.units.append(Unit(name=model.system, parser="implicit", loc=roots[0].name_loc
                           or Loc(roots[0].path, 1)))
-    _classify(obj, findings.packages, _free_packages(obj, [obj], findings.packages, ctx.scope))
+    _classify(
+        obj, findings.packages, _free_packages(obj, [obj], findings.packages, ctx.scope),
+        findings.root_stack,
+    )
     return obj
 
 
@@ -1118,8 +1140,16 @@ def _sources(model: Model, ctx: Context) -> None:
 
 
 def assemble(findings: Findings, ctx: Context) -> Model:
-    system, system_locs = system_name(ctx, findings.packages)
-    model = Model(system=system, system_locs=system_locs, objects=[], links=[])
+    # Имя системы по Cargo.toml или go.mod SDK не берётся (ТЗ §15 п. 12 С12).
+    named = [
+        p for p in findings.packages
+        if not (findings.root_stack and p.kind in vocab.SDK_MANIFESTS)
+    ]
+    system, system_locs = system_name(ctx, named)
+    model = Model(
+        system=system, system_locs=system_locs, objects=[], links=[],
+        root_stack=findings.root_stack,
+    )
     for hint in findings.hints:
         model.hint(hint.section, hint.data)
     model.objects = _objects(list(findings.units), findings, model, ctx)

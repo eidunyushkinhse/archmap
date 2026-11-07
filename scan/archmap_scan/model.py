@@ -266,6 +266,8 @@ class Findings:
     # не дал ни одного контейнера; тогда же в покрытии названы непрочитанные файлы сборки.
     build_units: list[Unit] = field(default_factory=list)
     build_unsupported: list[str] = field(default_factory=list)
+    # Стек по маркеру сборки в корне (vocab.STACK_BAZEL, STACK_CMAKE; ТЗ §15 п. 12 С12).
+    root_stack: str | None = None
 
     def extend(self, other: Findings) -> None:
         self.units.extend(other.units)
@@ -291,3 +293,4 @@ class Findings:
         for stack in other.build_unsupported:
             if stack not in self.build_unsupported:
                 self.build_unsupported.append(stack)
+        self.root_stack = self.root_stack or other.root_stack

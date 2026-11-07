@@ -488,10 +488,18 @@ def technology(language: str | None, framework: str | None) -> str | None:
     return language or framework
 
 
+# Стек по маркеру сборки в корне (ТЗ §15 п. 12 С12): Bazel (WORKSPACE, WORKSPACE.bazel,
+# MODULE.bazel, BUILD.bazel) и CMake (CMakeLists.txt). Cargo.toml и go.mod при таком маркере —
+# SDK и утилиты, а не код контейнеров (Envoy: C++ на Bazel, Cargo.toml и go.mod в корне).
+STACK_BAZEL = "C++ (Bazel)"
+STACK_CMAKE = "C/C++ (CMake)"
+SDK_MANIFESTS = frozenset({"Cargo.toml", "go.mod"})
+
 # Языки, которые называет сборщик: манифесты сборки, базовые образы Dockerfile, Gradle на
-# Kotlin, исходники рядом с Makefile.am.
+# Kotlin, исходники рядом с Makefile.am, маркеры сборки корня.
 LANGUAGES = frozenset({
     *MANIFEST_LANGUAGE.values(), *(lang for _, lang in _LANG_PREFIXES), ".NET", "Kotlin", "C", "C++",
+    STACK_BAZEL, STACK_CMAKE,
 })
 _STACK_NAMES = frozenset({
     *LANGUAGES,

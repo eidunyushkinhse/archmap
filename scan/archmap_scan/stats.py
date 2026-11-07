@@ -122,6 +122,12 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
                 p.name for p in registry.PARSERS
                 if p.code and fam in p.families and p.name not in errors
             ]
+    if model.root_stack:
+        # Цели сборки Bazel и CMake и код C++ сборщик не читает: стек маркера первым в
+        # unsupported контейнеров и семей яруса кода (ТЗ §15 п. 12 С12).
+        for fam in ("containers", *_ROOT_STACK_FAMILIES):
+            items = [s for s in out[fam].unsupported if s != model.root_stack]
+            out[fam].unsupported = [model.root_stack, *items]
     for note in model.dev_notes:
         if note not in out["containers"].notes:
             out["containers"].notes.append(note)
@@ -146,6 +152,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     )
     return out
 
+
+# Семьи яруса кода, где стек маркера сборки корня назван непрочитанным (ТЗ §15 п. 12 С12).
+_ROOT_STACK_FAMILIES = ("config", "channels", "http_routes", "workers", "schedules")
 
 # Вид записи подсказки по семье кода.
 _FAMILY_KINDS = {
@@ -214,8 +223,8 @@ def _code_family(stat: FamilyStat, model: Model, kind: str, found: int) -> None:
 def stacks(model: Model) -> list[str]:
     """Технологии объектов в порядке схемы, без повторов: только языки, фреймворки и виды
     из словаря (vocab.is_stack, ТЗ §15 п. 12 С7б). Имя образа остаётся технологией объекта,
-    но стеком репозитория не считается."""
-    out: list[str] = []
+    но стеком репозитория не считается. Стек маркера сборки корня первым (С12)."""
+    out: list[str] = [model.root_stack] if model.root_stack else []
     for obj in model.objects:
         if obj.technology and vocab.is_stack(obj.technology) and obj.technology not in out:
             out.append(obj.technology)
@@ -259,6 +268,9 @@ def code_unsupported(
 
     for pkg in sorted(findings.packages, key=lambda p: p.path):
         if containers is not None and not owners.file_owners(pkg.path, containers, pkg.language):
+            continue
+        # Cargo.toml и go.mod при маркере сборки корня — SDK и утилиты (ТЗ §15 п. 12 С12).
+        if findings.root_stack and pkg.kind in vocab.SDK_MANIFESTS:
             continue
         for fam, table in tables:
             for lib in vocab.frameworks_in(pkg.deps, table):

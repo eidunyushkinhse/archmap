@@ -16,14 +16,16 @@ Zabbix не держит манифестов развёртывания: про
 Результат лежит отдельно (Findings.build_units): сборка берёт его только вместо
 единственного неявного контейнера корня, если манифестов нет (assemble.py). Сборку Java
 (build.xml) сборщик не читает: стек назван в покрытии контейнеров. Каталоги для разработки
-(walk.is_dev_code) не читаются; tests и подобные исключены обходом.
+(walk.is_dev_code) не читаются; tests и подобные исключены обходом. Маркер Bazel или CMake
+в корне (root_stack) даёт стек репозитория, и тогда каталоги cmd/ модулей Go процессами не
+считаются (ТЗ §15 п. 12 С12).
 """
 
 from __future__ import annotations
 
 import re
 
-from archmap_scan import paths, texts
+from archmap_scan import paths, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Loc, Unit
 from archmap_scan.walk import Files, is_dev_code
@@ -129,10 +131,27 @@ def _go(files: Files, found: Findings) -> None:
         ))
 
 
+_BAZEL_MARKERS = ("WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel", "BUILD.bazel")
+_CMAKE_MARKER = "CMakeLists.txt"
+
+
+def root_stack(files: Files, scope: str) -> str | None:
+    """Стек по маркеру сборки в корне (ТЗ §15 п. 12 С12): Bazel старше CMake."""
+    present = set(files.paths)
+    if any((paths.join(scope, name) or name) in present for name in _BAZEL_MARKERS):
+        return vocab.STACK_BAZEL
+    if (paths.join(scope, _CMAKE_MARKER) or _CMAKE_MARKER) in present:
+        return vocab.STACK_CMAKE
+    return None
+
+
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
+    found.root_stack = root_stack(files, ctx.scope)
     _autotools(files, found)
-    _go(files, found)
+    # Модули Go при маркере Bazel или CMake в корне — SDK и утилиты: процессов не дают.
+    if found.root_stack is None:
+        _go(files, found)
     if any(paths.name(p) == "build.xml" and not is_dev_code(p) for p in files.paths):
         found.build_unsupported.append(texts.STACK_ANT)
     return found
