@@ -366,3 +366,45 @@ def test_module_constants_registry() -> None:
         ("Ярмарка", "Kafka", "публикует", "events_ingestion"),
         ("Kafka", "Ярмарка", "доставляет", "events_ingestion"),
     }
+
+
+def test_consumer_registry() -> None:
+    """Реестр консьюмеров (ТЗ §15 п. 13 В4): Sentry src/sentry/consumers/__init__.py:307
+    KAFKA_CONSUMERS: {"ingest-events": {"topic": Topic.INGEST_EVENTS, "dlq_topic": …,
+    "stale_topic": …}, …}, файл без клиента Kafka, но с Topic из kafka_definition. topic и
+    synchronize_commit_log_topic_default — потребление, dlq_topic — публикация процессом по
+    ключу; объект ищется по имени (ingest-events) или по «consumer <имя>» в команде
+    (post-process). Ловушки: процесса metrics-last-seen-updater в манифестах нет (подсказка,
+    объект не заводится), stale_topic: None не канал, значение выражением — подсказка,
+    KAFKA_TOPIC_TO_CLUSTER и LEGACY_CONSUMERS без topic не консьюмеры."""
+    ctx, files = files_of(FIXTURES / "kafka-consumers")
+    found = kafka.parse(files, ctx)
+    rows = sorted(
+        (u.name, u.direction, u.process, str(u.loc)) for u in found.channels if u.process
+    )
+    assert rows == [
+        ("events", "consume", "post-process-forwarder-errors", "app/consumers.py:13"),
+        ("ingest-events", "consume", "ingest-events", "app/consumers.py:8"),
+        ("ingest-events-dlq", "publish", "ingest-events", "app/consumers.py:9"),
+        ("snuba-commit-log", "consume", "post-process-forwarder-errors", "app/consumers.py:14"),
+        ("snuba-metrics", "consume", "metrics-last-seen-updater", "app/consumers.py:16"),
+    ]
+    assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
+        ("settings.CONSUMER_TOPIC", "app/consumers.py:17"),
+    ]
+    model = model_of(FIXTURES / "kafka-consumers")
+    links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
+    assert links == {
+        ("kafka", "ingest-events", "доставляет", "ingest-events"),
+        ("ingest-events", "kafka", "публикует", "ingest-events-dlq"),
+        ("kafka", "post-process", "доставляет", "events"),
+        ("kafka", "post-process", "доставляет", "snuba-commit-log"),
+    }
+    assert sorted(o.name for o in model.objects) == ["ingest-events", "kafka", "post-process"]
+    assert [c.channel for c in model.consumers["post-process"]] == ["events", "snuba-commit-log"]
+    edges = [h for h in model.hints["unassigned"] if h["kind"] == "edge"]
+    assert edges == [{
+        "kind": "edge", "name": "snuba-metrics", "object": "kafka",
+        "reason": texts.REASON_NO_PROCESS.format(name="metrics-last-seen-updater"),
+        "source": "app/consumers.py:16",
+    }]

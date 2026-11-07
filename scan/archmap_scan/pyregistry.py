@@ -36,6 +36,14 @@ INGEST_EVENTS = "ingest-events" и словарь KAFKA_TOPIC_TO_CLUSTER, Zulip 
   dead_letter_queue.py у PostHog держат имена таблиц и ключей Redis, а не очереди.
   Голое ИМЯ в вызове клиента, определённое так в том же файле или импортированное
   «from <модуль> import ИМЯ» из такого модуля, раскрывается в строку (Registries.value).
+- реестр консьюмеров (ТЗ §15 п. 13 В4: KAFKA_CONSUMERS Sentry в
+  src/sentry/consumers/__init__.py): словарь уровня модуля, у имени которого последнее слово
+  consumers, со значениями-словарями, где есть ключ topic. Ключ словаря — имя
+  процесса-потребителя, topic и другие ключи со словом topic
+  (synchronize_commit_log_topic_default) дают потребление канала этим процессом,
+  dlq_topic и stale_topic — публикацию (consumer_registry). Словарь …_CONSUMERS без topic в
+  значениях и KAFKA_TOPIC_TO_CLUSTER реестром консьюмеров не считаются. Объект процесса
+  ищет сборка по имени среди объектов из манифестов (codefacts), из кода объекты не заводятся.
 
 Только литералы и ast: код не выполняется и не импортируется (инвариант 1).
 """
@@ -277,6 +285,55 @@ def _module_registries(tree: ast.Module, words: frozenset[str]) -> dict[str, _Re
                     members = _dict_members(value)
         if name and members:
             out[name] = _Registry(name=name, members=members)
+    return out
+
+
+_CONSUMERS_WORD = "consumers"
+_PUBLISH_KEYS = frozenset({"dlq_topic", "stale_topic"})
+
+
+@dataclass(frozen=True)
+class ConsumerKey:
+    """Ключ записи реестра консьюмеров: процесс, направление, значение канала и строка."""
+
+    process: str
+    direction: str
+    node: ast.AST
+    line: int
+
+
+def consumer_registry(tree: ast.Module) -> list[ConsumerKey]:
+    """Записи реестров консьюмеров уровня модуля (KAFKA_CONSUMERS: {"имя": {"topic": …}}):
+    по ключу со словом topic в значении каждой записи. Словарь, у значений которого ключа
+    topic нет вовсе, реестром не считается."""
+    out: list[ConsumerKey] = []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+            target, value = stmt.targets[0], stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            target, value = stmt.target, stmt.value
+        else:
+            continue
+        if not isinstance(target, ast.Name) or not isinstance(value, ast.Dict):
+            continue
+        words = name_words(target.id)
+        if not words or words[-1] != _CONSUMERS_WORD:
+            continue
+        rows: list[ConsumerKey] = []
+        has_topic = False
+        for key, item in zip(value.keys, value.values, strict=False):
+            process = pycode.string(key)
+            if not process or not isinstance(item, ast.Dict):
+                continue
+            for field_key, field_value in zip(item.keys, item.values, strict=False):
+                name = pycode.string(field_key)
+                if field_key is None or not name or "topic" not in name_words(name):
+                    continue
+                has_topic = has_topic or name == "topic"
+                direction = "publish" if name in _PUBLISH_KEYS else "consume"
+                rows.append(ConsumerKey(process, direction, field_value, field_key.lineno))
+        if has_topic:
+            out.extend(rows)
     return out
 
 

@@ -28,7 +28,10 @@ hints.unassigned, а канал при этом пишется.
 Воркеров из кода сборщик не заводит: только из манифестов. Запись с программой-исполнителем
 (runner: классы воркеров и расписание Sidekiq) получает среди контейнеров файла тот, чья
 команда запускает эту программу (bundle exec sidekiq), а не контейнер по роли (ТЗ §15 п. 13
-В3: у Mastodon web и sidekiq собраны из одного каталога).
+В3: у Mastodon web и sidekiq собраны из одного каталога). Запись реестра консьюмеров с
+процессом (process: KAFKA_CONSUMERS Sentry) получает объект схемы с этим именем или с
+«consumer <имя>» в команде; нет такого — связь в hints.unassigned, объект из кода не
+заводится (В4).
 
 Записи разборщиков кода из служебных каталогов и конфигов инструментов
 (codebase.tooling_reason) и переменные операционной системы или CI (vocab.is_os_variable)
@@ -76,6 +79,7 @@ _WEB_WORDS = frozenset({
     "waitress-serve",
 })
 _WORDS = re.compile(r"[a-z][a-z-]*")
+_CONSUMER_ARG = re.compile(r"(?<![\w-])consumer[ \t]+([A-Za-z0-9][\w.:-]{0,199})")
 # Разборщики яруса кода: только их записи бывают из служебных каталогов (файл crontab и
 # команды воркеров из манифестов — не код).
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
@@ -99,6 +103,23 @@ def _runner(
     if file_owners:
         return None, texts.REASON_NO_RUNNER.format(program=program)
     return None, owners.missing_reason(rel, containers)
+
+
+def _consumer_args(command: str | None) -> list[str]:
+    """Имена после слова consumer в команде (sentry run consumer ingest-events …)."""
+    return _CONSUMER_ARG.findall(command or "")
+
+
+def _process_owner(containers: Sequence[Obj], process: str) -> Obj | None:
+    """Объект процесса из реестра консьюмеров (ТЗ §15 п. 13 В4): контейнер с этим именем,
+    иначе единственный, чья команда запускает consumer <имя>; объекты из кода не заводятся."""
+    named = [o for o in containers if o.name == process]
+    if named:
+        return named[0] if len(named) == 1 else None
+    by_arg = [
+        o for o in containers if any(process in _consumer_args(u.command) for u in o.units)
+    ]
+    return by_arg[0] if len(by_arg) == 1 else None
 
 
 def _serves_http(obj: Obj) -> bool:
@@ -360,7 +381,10 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
         if use.direction is None:
             continue
         prefer = vocab.ROLE_WORKER if use.direction == "consume" else vocab.ROLE_SERVICE
-        if use.runner:
+        if use.process:
+            container = _process_owner(containers, use.process)
+            reason = texts.REASON_NO_PROCESS.format(name=use.process)
+        elif use.runner:
             container, reason = _runner(use.loc.path, use.runner, file_owners, containers)
         else:
             container = owners.primary(file_owners, prefer)

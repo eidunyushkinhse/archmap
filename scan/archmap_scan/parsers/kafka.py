@@ -15,7 +15,8 @@ hints.dynamic_names. Python: реестры топиков (class Topic(Enum), �
 имени файла topics (kafka-topics.ts) в пакете с kafkajs, export const ИМЯ = 'строка' или
 `шаблон` (подстановки ${…} отбрасываются), даёт топики без направления, а «import { ИМЯ }
 from '…/kafka-topics'» в файле с kafkajs раскрывает topic: ИМЯ и topics: [ИМЯ] (ТЗ §15 п. 13
-В1).
+В1). Реестр консьюмеров KAFKA_CONSUMERS ({"имя": {"topic": Topic.X, "dlq_topic": …}}) в
+таком файле даёт потребление и публикацию каналов процессом по имени ключа (ТЗ §15 п. 13 В4).
 """
 
 from __future__ import annotations
@@ -127,11 +128,27 @@ def _py_host(call: ast.Call) -> str | None:
     return hosts[0][0] if hosts else None
 
 
+def _consumers(py: _Py, found: Findings) -> None:
+    """Реестр консьюмеров (KAFKA_CONSUMERS Sentry): потребление и публикация каналов
+    процессом по имени ключа; Topic.X раскрывается по реестру, нелитерал — подсказка."""
+    for row in pyregistry.consumer_registry(py.tree):
+        if isinstance(row.node, ast.Constant) and row.node.value is None:
+            continue
+        name = py.regs.string(py.rel, py.imps, row.node)
+        if name is None:
+            _hint(found, pycode.short(row.node), py.rel, row.line)
+        elif name:
+            use = _use(name, row.direction, py.rel, row.line)
+            use.process = row.process
+            found.channels.append(use)
+
+
 def _python(py: _Py, found: Findings) -> None:
     if not pycode.imports_any(py.imps, _PY_MODULES):
         if not py.regs.imports_registry(py.rel, py.imps):
             return
         py.only_registry = True
+    _consumers(py, found)
     uses: list[ChannelUse] = []
     host: str | None = None
     for node in ast.walk(py.tree):

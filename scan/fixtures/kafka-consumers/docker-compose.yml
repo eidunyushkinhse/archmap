@@ -1,0 +1,9 @@
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+  ingest-events:
+    build: .
+    command: app run consumer ingest-events --consumer-group ingest
+  post-process:
+    build: .
+    command: app run consumer post-process-forwarder-errors
