@@ -149,3 +149,47 @@ def test_devservices_on_hostile_description(tmp_path: Path) -> None:
     found = _parse(tmp_path)
     assert len(found.units) == len(names)
     assert time.perf_counter() - started < time_limit()
+
+
+def test_x_programs_are_processes() -> None:
+    """Блок x-programs (ТЗ §15 п. 13 В5): Sentry devservices/config.yml:409–451, 21 программа
+    {имя: {command: …}}. Роль как у Procfile: devserver — сервис (слово workers в ключе
+    команды ролью воркера не делает), cron — планировщик, остальные — воркеры; команда в
+    entrypoints.workers; код в корне (Python + Django по корневому pyproject.toml); файл
+    devservices — манифест разработки, объекты на ступени 2 с пометкой. Программа worker
+    склеивается с сервисом worker того же файла. Ловушки: x-common-env и программа без
+    command процессами не становятся."""
+    from tests.helpers import FIXTURES
+
+    model = model_of(FIXTURES / "compose-programs")
+    assert [(o.name, o.role, o.technology) for o in model.objects] == [
+        ("cleanup", "планировщик", "Python + Django"), ("devserver", "сервис", "Python + Django"),
+        ("ingest-events", "воркер", "Python + Django"), ("worker", "воркер", "Python + Django"),
+        ("postgres", "БД", "PostgreSQL"),
+    ]
+    assert sorted(model.dev_objects) == ["cleanup", "devserver", "ingest-events", "postgres",
+                                         "worker"]
+    assert {name: [w.command for w in ws] for name, ws in model.workers.items()} == {
+        "cleanup": ["app run cron cleanup"],
+        "ingest-events": ["app run consumer ingest-events --consumer-group=app"],
+        "worker": ["app run worker -Q default"],
+    }
+    assert next(o for o in model.objects if o.name == "worker").host == "worker"
+
+
+def test_x_programs_in_dev_file_beside_prod(tmp_path: Path) -> None:
+    """x-programs в docker-compose.dev.yml при боевом compose рядом (ступень 1) дают только
+    подсказки о манифесте разработки, а не объекты."""
+    model = model_of(tree(tmp_path, {
+        "pyproject.toml": '[project]\nname = "app"\ndependencies = ["django"]\n',
+        "Dockerfile": "FROM python:3.12\n",
+        "docker-compose.yml": "services:\n  api:\n    build: .\n",
+        "docker-compose.dev.yml": (
+            "x-programs:\n  devserver:\n    command: app devserver\n"
+            "services:\n  api:\n    build: .\n"
+        ),
+    }))
+    assert [o.name for o in model.objects] == ["api"]
+    assert [(h["name"], h["reason"]) for h in model.hints["profiles"]] == [
+        ("devserver", "манифест разработки: имя файла docker-compose.dev.yml"),
+    ]

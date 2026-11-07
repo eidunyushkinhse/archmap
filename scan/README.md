@@ -235,3 +235,6 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - реестр консьюмеров `KAFKA_CONSUMERS` (`pyregistry.consumer_registry`): ключ — процесс,
     `topic` и ключи со словом topic — потребление, `dlq_topic` и `stale_topic` — публикация;
     объект процесса по имени или по `consumer <имя>` в команде, без объекта — подсказка (В4);
+  - блок `x-programs` compose (`compose._programs`): программа с `command` — процесс как строка
+    Procfile (роль `vocab.role_by_program`, код в корне обхода), признак разработки файла,
+    режимы devservices к программам не применяются, склейка с сервисом того же имени (В5);

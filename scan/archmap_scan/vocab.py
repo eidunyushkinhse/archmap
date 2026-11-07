@@ -402,6 +402,22 @@ def is_shell(command: str | None) -> bool:
     return bool(tokens) and _base(tokens[0]) in _SHELLS
 
 
+# Слова команды программы x-programs, по которым она сервис (ТЗ §15 п. 13 В5).
+_SERVICE_WORDS = frozenset({"devserver", "runserver", "web", "server"})
+
+
+def role_by_program(name: str, command: str) -> str:
+    """Роль программы блока x-programs compose, как у Procfile: web или команда со словом
+    devserver, runserver, web, server — сервис; со словом scheduler, beat, cron —
+    планировщик; остальные — воркер."""
+    words = set(_WORDS.findall(command.lower()))
+    if name == "web" or words & _SERVICE_WORDS:
+        return ROLE_SERVICE
+    if words & _SCHEDULER_WORDS:
+        return ROLE_SCHEDULER
+    return ROLE_WORKER
+
+
 def role_by_command(command: str | None) -> str | None:
     if not command:
         return None

@@ -22,6 +22,13 @@ devservices/config.yml), читается по тем же правилам; п�
 строку «services:» с начала строки. Записи с repo_link или repo_name где угодно в документе
 compose (расширения x-*, dependencies) — сервисы других репозиториев: объектов из них нет, они
 лежат в hints.external_repos для агента.
+
+Блок x-programs верхнего уровня (ТЗ §13.3, ч. 2 В5: devservices/config.yml Sentry, 21
+программа) {имя: {command: строка}} даёт процессы, как Procfile: роль по имени и словам
+команды (vocab.role_by_program), команда в entrypoints.workers, каталог кода — корень
+обхода. Признак разработки у программ тот же, что у файла, режимы devservices к ним не
+применяются (программы перечислены только в режимах, кроме default). Программа с именем
+сервиса того же файла склеивается с ним. Блоки x-* без command процессов не дают.
 """
 
 from __future__ import annotations
@@ -292,6 +299,30 @@ def _unit(
     return unit
 
 
+def _programs(doc: LineDict) -> list[tuple[str, LineDict, int]]:
+    """Программы блока x-programs верхнего уровня с командой: (имя, запись, строка)."""
+    block = doc.get("x-programs")
+    if not isinstance(block, LineDict):
+        return []
+    out: list[tuple[str, LineDict, int]] = []
+    for key, entry in block.items():
+        if not isinstance(entry, LineDict) or _command(entry)[0] is None:
+            continue
+        out.append((str(key), entry, block.line_of(key)))
+    return out
+
+
+def _program_unit(name: str, entry: LineDict, rel: str, line: int, scope: str) -> Unit:
+    """Процесс программы x-programs (ТЗ §15 п. 13 В5): как строка Procfile с кодом в корне."""
+    command, cmd_line = _command(entry)
+    text = command or ""
+    return Unit(
+        name=name, parser=NAME, loc=Loc(rel, line), command=text,
+        command_loc=Loc(rel, cmd_line) if cmd_line else None,
+        role=vocab.role_by_program(name, text), home_dir=scope,
+    )
+
+
 def _merge(into: Unit, other: Unit) -> None:
     """Поздний файл перекрывает поля раннего, переменные и зависимости складываются."""
     into.image = other.image or into.image
@@ -393,11 +424,13 @@ def parse(files: Files, ctx: Context) -> Findings:
     signs = {rel: manifest_sign(rel) for rel in ordered}
     dev_files = {rel for rel in ordered if signs[rel]}
     docs: dict[str, LineDict] = {}
+    programs: dict[str, list[tuple[str, LineDict, int]]] = {}
     modes: dict[str, dict[str, tuple[str, list[str]]]] = {}
     for rel in [r for r in ordered if r not in dev_files] + [r for r in ordered if r in dev_files]:
         loaded = _load_services(files, rel, found, by_content=rel in content)
         if loaded is not None:
             docs[rel] = loaded[0]
+            programs[rel] = _programs(loaded[1])
             if rel in dev_files:
                 modes[rel] = _devservices(loaded[1], loaded[0], rel)
     # Файл Laravel Sail целиком окружение разработки (ТЗ §15 п. 12 С6в): его базы и
@@ -418,11 +451,26 @@ def parse(files: Files, ctx: Context) -> Findings:
         note = texts.compose_by_content(rel) if rel in content else None
         if note is not None and not dev:
             found.notes.setdefault("containers", []).append(note)
-        for key, svc in services.items():
+        entries = [(str(k), v, services.line_of(k), False) for k, v in services.items()]
+        entries += [(name, entry, line, True) for name, entry, line in programs.get(rel, [])]
+        for name, svc, line, program in entries:
             if not isinstance(svc, LineDict):
                 continue
-            name = str(key)
-            line = services.line_of(key)
+            if program:
+                unit = _program_unit(name, svc, rel, line, ctx.scope)
+                if dev is None:
+                    if name in units:
+                        _merge(units[name], unit)
+                    else:
+                        units[name] = unit
+                elif name not in units:
+                    unit.dev = dev
+                    unit.dev_notes = [note] if note is not None else []
+                    if name in dev_units:
+                        _merge(dev_units[name], unit)
+                    else:
+                        dev_units[name] = unit
+                continue
             if _profiles(svc):
                 found.hints.append(Hint("profiles", {
                     "kind": "container", "name": name, "reason": texts.REASON_PROFILE,

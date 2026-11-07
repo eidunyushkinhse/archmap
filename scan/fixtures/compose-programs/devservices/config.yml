@@ -1,0 +1,18 @@
+x-common-env:
+  DJANGO_SETTINGS_MODULE: app.settings
+x-programs:
+  devserver:
+    command: app devserver --workers
+  ingest-events:
+    command: app run consumer ingest-events --consumer-group=app
+  cleanup:
+    command: app run cron cleanup
+  worker:
+    command: app run worker -Q default
+  docs:
+    description: программа без команды
+services:
+  postgres:
+    image: postgres:16
+  worker:
+    build: ..
