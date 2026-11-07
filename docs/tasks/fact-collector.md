@@ -261,7 +261,7 @@ archmap-scan/
 | | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
 | | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`; Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"` | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
-| каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject` | имя дословно; направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
+| каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), `node-cron`/`schedule`-литералы не ищутся | имя, расписание как написано, задача |
 
 ### 6.3 Миграции → `facts/*.tables.yaml`
@@ -933,3 +933,28 @@ unread: {too_large: 3, binary: 0}
      Demo на Java (в клоне build.gradle), а не на Python; `http_routes` Petclinic пишет
      «Java: Spring Boot» по правилу А12; stacks Kubernetes пусты (у контейнеров на образах
      язык не известен); подсказка Sentry о `api-docs/openapi.json` ушла с С3а.
+13. **Решения исполнителя части 2** (2026-11-07, ветка feat/scan-3c, сборщик 0.3.0 без выпуска;
+   реестры каналов и связи с брокером, блок В п. 10, кандидаты п. 9 (а) и (б), мелкие правила
+   по дыму; владелец может отменить, числа перемера в отчёте исполнителя).
+   - В1 (решение исполнителя): модуль-реестр констант опознаётся по ПОСЛЕДНЕМУ слову имени
+     файла во множественном числе (`topics`, `queues`, `subjects`), а не по любому слову:
+     у PostHog `dead_letter_queue.py`, `cleanup_queue.py`, `activity_summary/queue.py`
+     держат имена таблиц ClickHouse, ключей Redis и источников (`events_dead_letter_queue`,
+     `activity_log`), и правило по любому слову дало бы ложные очереди Celery. Файл, который
+     клиента Kafka не подключает, но импортирует имя из реестра топиков и зовёт обёртку
+     проекта (`posthog/api/metalytics.py`: `get_producer(…).produce(topic=KAFKA_APP_METRICS2)`),
+     читается разборщиком Kafka, и в счёт идут только аргументы, раскрытые по реестру (прочие
+     `send` и `produce` не подсказки): без этого места записи PostHog через обёртку
+     оставались без связи с каналом. Правило голого имени в Celery, RabbitMQ и NATS действует
+     в файлах, которые их разборщики читают и раньше. TypeScript: модуль констант ищется по
+     тому же правилу имени в пакетах с kafkajs; импорт `from '~/…/kafka-topics'` с
+     псевдонимом пути находится по имени файла, если такой модуль один. У PostHog код на
+     Node.js подключает node-rdkafka, а не kafkajs, поэтому зеркало `kafka-topics.ts` там не
+     читается (каналы те же, что у Python).
+   - В1 (решение исполнителя, стоп-правило брифа): связь с каналом из кода больше не
+     вытесняет связь «использует» той же пары из манифестов (адрес брокера в окружении,
+     depends_on). Прежнее правило убирало бы верные связи корнер-кейсов `web → kafka` и
+     другие у PostHog и `sidekiq → redis` у Mastodon, как только у пары появлялась связь с
+     каналом. В `yarmarka.expected` вернулись `billing-worker → redis` и `orders → events`
+     («использует»), тесты `test_compose_fixture_model`, `test_channel_edges_keep_uses_link` и
+     `test_summary_words` переписаны.

@@ -17,8 +17,10 @@ hints.unassigned. Брокера этого вида в манифестах н�
 схема адреса брокера (redis://, amqp://), без неё брокер не создаётся. Направление даёт
 связь: публикация — контейнер → брокер «публикует», потребление — брокер → контейнер
 «доставляет» (подпись называет действие источника связи), с channel и sync: false; одна
-связь на пару, направление и канал. Связь «использует» той же пары из манифестов при этом
-не рисуется: связь с каналом сильнее. Связь, контейнер которой не определим, уходит в
+связь на пару, направление и канал. Связь «использует» той же пары из манифестов (адрес в
+окружении, depends_on) остаётся рядом: это другой факт со своим основанием, и связи кода
+его не вытесняют (ТЗ §15 п. 13 В1: иначе sidekiq → redis Mastodon и web → kafka PostHog,
+верные связи корнер-кейсов, пропали бы). Связь, контейнер которой не определим, уходит в
 hints.unassigned, а канал при этом пишется.
 
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
@@ -351,13 +353,8 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
                 channel=use.name, kind=use.kind, broker=broker.name, loc=use.loc,
                 parser=use.parser,
             ))
-    # Связь с каналом сильнее «использует» той же пары объектов из манифестов.
-    paired = {frozenset((lk.src.name, lk.dst.name)) for lk in model.links if lk.channel}
-    model.links = sorted(
-        (lk for lk in model.links
-         if lk.channel or frozenset((lk.src.name, lk.dst.name)) not in paired),
-        key=lambda lk: (lk.src.name, lk.dst.name, lk.label, lk.channel or ""),
-    )
+    # Связи кода не вытесняют «использует» той же пары из манифестов: оба факта остаются.
+    model.links.sort(key=lambda lk: (lk.src.name, lk.dst.name, lk.label, lk.channel or ""))
     for items in model.consumers.values():
         items.sort(key=lambda c: (c.channel, c.loc))
 

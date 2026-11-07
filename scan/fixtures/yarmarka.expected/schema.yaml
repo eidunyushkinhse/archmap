@@ -59,6 +59,10 @@ edges:
   technology: HTTP
 - from: billing-worker
   to: redis
+  label: использует
+  technology: Redis
+- from: billing-worker
+  to: redis
   label: публикует
   technology: Redis
   channel: billing
@@ -69,6 +73,10 @@ edges:
   technology: Kafka
   channel: payments.completed
   sync: false
+- from: orders
+  to: events
+  label: использует
+  technology: Kafka
 - from: orders
   to: events
   label: публикует

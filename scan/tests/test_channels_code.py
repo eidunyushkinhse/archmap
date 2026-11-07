@@ -111,7 +111,9 @@ def _compose(brokers: str, env: str = "") -> str:
     )
 
 
-def test_channel_edges_replace_uses_link(tmp_path: Path) -> None:
+def test_channel_edges_keep_uses_link(tmp_path: Path) -> None:
+    """Связи по каналу из кода и «использует» по адресу брокера из манифеста — разные
+    факты: оба остаются (ТЗ §15 п. 13 В1, верная связь sidekiq → redis Mastodon)."""
     tree(tmp_path, {
         "docker-compose.yml": _compose(
             "  bus:\n    image: bitnami/kafka\n",
@@ -123,6 +125,7 @@ def test_channel_edges_replace_uses_link(tmp_path: Path) -> None:
     model = model_of(tmp_path)
     links = [(lk.src.name, lk.dst.name, lk.label, lk.channel, lk.sync) for lk in model.links]
     assert links == [
+        ("api", "bus", "использует", None, None),
         ("api", "bus", "публикует", "orders", False),
         ("bus", "api", "доставляет", "payments", False),
     ]

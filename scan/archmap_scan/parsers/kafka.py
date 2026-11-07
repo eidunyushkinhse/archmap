@@ -9,16 +9,22 @@ Topic: "t" в ProducerMessage, Writer, Message (публикация) и ReaderC
 GroupTopics и Topics, ConsumePartition("t"), Consume(ctx, []string{…}),
 SubscribeTopics([]string{…}). Адрес брокера литералом в том же файле (bootstrap_servers,
 brokers, Brokers) помогает найти брокер-владелец. Имя топика не строкой — в
-hints.dynamic_names. Python: реестры топиков (class Topic(Enum), словарь KAFKA_TOPICS) дают
-топики без направления, а Topic.X в вызове клиента раскрывается в строку (pyregistry.py).
+hints.dynamic_names. Python: реестры топиков (class Topic(Enum), словарь KAFKA_TOPICS, модуль
+констант topics.py) дают топики без направления, а Topic.X и голое имя константы в вызове
+клиента раскрываются в строку (pyregistry.py). kafkajs: модуль констант с последним словом
+имени файла topics (kafka-topics.ts) в пакете с kafkajs, export const ИМЯ = 'строка' или
+`шаблон` (подстановки ${…} отбрасываются), даёт топики без направления, а «import { ИМЯ }
+from '…/kafka-topics'» в файле с kafkajs раскрывает topic: ИМЯ и topics: [ИМЯ] (ТЗ §15 п. 13
+В1).
 """
 
 from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Callable
 
-from archmap_scan import codebase, codetext, pyast, pycode, pyregistry, texts
+from archmap_scan import codebase, codetext, paths, pyast, pycode, pyregistry, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in
@@ -51,6 +57,16 @@ _GO_CONSUME = ("ReaderConfig", "Reader")
 _JS_DIRECTION = {"send": "publish", "sendBatch": "publish", "subscribe": "consume",
                  "createTopics": None}
 _MAX_BLOCK = 2000
+# Модуль констант топиков kafkajs: export const ИМЯ = литерал; импорт имён из модуля.
+_JS_CONST = re.compile(
+    rf"\bexport[ \t]+const[ \t]+([A-Z][A-Z0-9_]{{0,199}})[ \t]*(?::[^=\n]{{0,100}})?={SP}({STR})"
+)
+_JS_IMPORT = re.compile(rf"\bimport[ \t]+(?:type[ \t]+)?\{{([^{{}}]{{0,5000}})\}}{SP}from{SP}({STR})")
+_JS_IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]{0,199}")
+_JS_TEMPLATE = re.compile(r"\$\{[^}]{0,500}\}")
+_JS_EXTS = (".ts", ".mts", ".cts", ".js", ".mjs", ".cjs")
+# Модуль констант файла → ИМЯ → (топик, строка).
+_JsConsts = dict[str, dict[str, tuple[str, int]]]
 
 
 def _hint(
@@ -69,13 +85,17 @@ def _use(name: str, direction: str | None, rel: str, line: int) -> ChannelUse:
 # Python
 
 class _Py:
-    """Файл Python с клиентом Kafka: импорты и реестры для раскрытия Topic.X."""
+    """Файл Python с клиентом Kafka: импорты и реестры для раскрытия Topic.X. only_registry —
+    файл клиента не подключает, а берёт имена из реестра топиков и зовёт обёртку проекта
+    (posthog/api/metalytics.py: producer.produce(topic=KAFKA_APP_METRICS2)): тогда в счёт
+    идут только аргументы-члены реестра, прочие вызовы send и produce не про Kafka."""
 
     def __init__(self, rel: str, tree: ast.Module, regs: pyregistry.Registries) -> None:
         self.rel = rel
         self.tree = tree
         self.imps = pycode.imports(tree)
         self.regs = regs
+        self.only_registry = False
 
 
 def _py_topics(node: ast.AST | None, at: ast.AST, py: _Py, found: Findings,
@@ -83,6 +103,11 @@ def _py_topics(node: ast.AST | None, at: ast.AST, py: _Py, found: Findings,
     if node is None:
         return
     rel = py.rel
+    if py.only_registry:
+        member = py.regs.value(rel, py.imps, node)
+        if member:
+            uses.append(_use(member, direction, rel, getattr(at, "lineno", 1)))
+        return
     names = py.regs.strings(rel, py.imps, node)
     if names is None:
         _hint(found, pycode.short(node), rel, getattr(at, "lineno", 1))
@@ -104,7 +129,9 @@ def _py_host(call: ast.Call) -> str | None:
 
 def _python(py: _Py, found: Findings) -> None:
     if not pycode.imports_any(py.imps, _PY_MODULES):
-        return
+        if not py.regs.imports_registry(py.rel, py.imps):
+            return
+        py.only_registry = True
     uses: list[ChannelUse] = []
     host: str | None = None
     for node in ast.walk(py.tree):
@@ -148,9 +175,28 @@ def _block_end(mask: str, start: int) -> int:
     return stop
 
 
-def _strings_at(code: codetext.Code, pos: int, many: bool) -> tuple[list[str], str | None]:
+def _ident_at(mask: str, pos: int) -> tuple[str, int] | None:
+    """Голое имя в позиции pos и позиция после него; имя с продолжением (config.topic,
+    topic(), topics[0]) голым не считается."""
+    hit = _JS_IDENT.match(mask, pos)
+    if hit is None:
+        return None
+    end = hit.end()
+    nxt = end
+    while nxt < len(mask) and mask[nxt] in " \t":
+        nxt += 1
+    if nxt < len(mask) and mask[nxt] in ".([":
+        return None
+    return hit.group(), end
+
+
+def _strings_at(
+    code: codetext.Code, pos: int, many: bool,
+    resolve: Callable[[str], str | None] | None = None,
+) -> tuple[list[str], str | None]:
     """Строки с позиции pos: одна или список через запятую. Второе — причина подсказки,
-    если встретилось не строковое имя (или литерал в склейке), иначе None."""
+    если встретилось не строковое имя (или литерал в склейке), иначе None. resolve —
+    раскрытие голого имени константы из модуля топиков (kafkajs)."""
     out: list[str] = []
     mask = code.mask
     while True:
@@ -158,6 +204,14 @@ def _strings_at(code: codetext.Code, pos: int, many: bool) -> tuple[list[str], s
             pos += 1
         hit = _STR.match(mask, pos)
         if hit is None:
+            ident = _ident_at(mask, pos) if resolve is not None else None
+            value = resolve(ident[0]) if ident is not None and resolve is not None else None
+            if ident is not None and value is not None:
+                out.append(value)
+                pos = ident[1]
+                if not many:
+                    return out, None
+                continue
             # Имя переменной вместо строки — динамическое; скобка — вложенная структура.
             dynamic = pos < len(mask) and (mask[pos].isalpha() or mask[pos] in "_$")
             return out, texts.REASON_DYNAMIC_CHANNEL if dynamic else None
@@ -170,8 +224,76 @@ def _strings_at(code: codetext.Code, pos: int, many: bool) -> tuple[list[str], s
             return out, None
 
 
-def _js(rel: str, code: codetext.Code, found: Findings) -> None:
+def _js_constants(files: Files, ctx: Context, found: Findings) -> _JsConsts:
+    """Модули констант топиков в пакетах с kafkajs: файл с последним словом имени topics,
+    export const ИМЯ = литерал. Константы — топики без направления; шаблон без литералов —
+    подсказка о динамическом имени."""
+    out: _JsConsts = {}
+    for rel, text in codebase.sources(files, ctx, codebase.NODE, JS_WANTED, ("export",)):
+        if not pyregistry.constants_module(rel, "topic"):
+            continue
+        code = codetext.load(files, rel, text, codetext.JS)
+        if code is None:
+            continue
+        own: dict[str, tuple[str, int]] = {}
+        for m in _JS_CONST.finditer(code.mask):
+            value = code.text[m.start(2) + 1:m.end(2) - 1]
+            if code.text[m.start(2)] == "`":
+                value = _JS_TEMPLATE.sub("", value)
+            line = code.line(m.start())
+            if any(ch.isspace() for ch in value) or code.joined(m.start(2), m.end(2)):
+                continue
+            if not any(ch.isalnum() for ch in value):
+                _hint(found, m.group(1), rel, line)
+                continue
+            own.setdefault(m.group(1), (value, line))
+            found.channels.append(_use(value, None, rel, line))
+        if own:
+            out[rel] = own
+    return out
+
+
+def _js_module(spec: str, rel: str, consts: _JsConsts) -> str | None:
+    """Модуль констант по спецификатору импорта: относительный путь от файла, иначе
+    единственный модуль констант с тем же именем файла (псевдонимы путей вида ~/… и @/…)."""
+    if spec.startswith("."):
+        base = paths.join(paths.parent(rel), spec)
+        if base is not None:
+            for cand in (base, *(base + ext for ext in _JS_EXTS)):
+                if cand in consts:
+                    return cand
+    stem = spec.rstrip("/").rsplit("/", 1)[-1]
+    same = [m for m in consts if paths.name(m).rsplit(".", 1)[0] == stem.rsplit(".", 1)[0]]
+    return same[0] if len(same) == 1 else None
+
+
+def _js_resolver(rel: str, code: codetext.Code, consts: _JsConsts) -> Callable[[str], str | None]:
+    """Голое имя → топик: «import { ИМЯ [as Другое] } from '…'» из модуля констант или
+    константа самого файла, если он модуль констант."""
+    local: dict[str, str] = {name: v for name, (v, _line) in consts.get(rel, {}).items()}
+    for m in _JS_IMPORT.finditer(code.mask):
+        spec = code.text[m.start(2) + 1:m.end(2) - 1]
+        module = _js_module(spec, rel, consts)
+        if module is None:
+            continue
+        for item in m.group(1).split(","):
+            parts = item.split()
+            if parts and parts[0] == "type":
+                parts = parts[1:]
+            if len(parts) == 1:
+                name, alias = parts[0], parts[0]
+            elif len(parts) == 3 and parts[1] == "as":
+                name, alias = parts[0], parts[2]
+            else:
+                continue
+            if name in consts[module]:
+                local[alias] = consts[module][name][0]
+    return local.get
+
+
+def _js(rel: str, code: codetext.Code, found: Findings, consts: _JsConsts | None = None) -> None:
     mask = code.mask
+    resolve = _js_resolver(rel, code, consts) if consts else None
     uses: list[ChannelUse] = []
     host = None
     hit = _JS_BROKERS.search(mask)
@@ -185,7 +307,7 @@ def _js(rel: str, code: codetext.Code, found: Findings) -> None:
         for t in _JS_TOPIC.finditer(mask, m.end(), end):
             if _word_char(mask, t.start() - 1):
                 continue  # subtopic: — не ключ topic
-            names, why = _strings_at(code, t.end(), bool(t.group(1)))
+            names, why = _strings_at(code, t.end(), bool(t.group(1)), resolve)
             line = code.line(t.start())
             uses.extend(_use(n, direction, rel, line) for n in names if n)
             if why:
@@ -277,10 +399,15 @@ def parse(files: Files, ctx: Context) -> Findings:
             continue
         needles = ("topic",) if lang == codebase.NODE else ("Topic", "Consume")
         kind = codetext.JS if lang == codebase.NODE else codetext.GO
+        consts = _js_constants(files, ctx, found) if lang == codebase.NODE else {}
         for rel, text in codebase.sources(files, ctx, lang, wanted, needles):
             if not codetext.imports(text, wanted, kind):
                 continue
             code = codetext.load(files, rel, text, kind)
-            if code is not None:
-                (_js if lang == codebase.NODE else _go)(rel, code, found)
+            if code is None:
+                continue
+            if lang == codebase.NODE:
+                _js(rel, code, found, consts)
+            else:
+                _go(rel, code, found)
     return found

@@ -25,7 +25,17 @@ INGEST_EVENTS = "ingest-events" и словарь KAFKA_TOPIC_TO_CLUSTER, Zulip 
   раскрывается в строку (Registries.value): направление и связь как у строки;
 - декоратор с первым строковым аргументом и частью queue в имени (@assign_queue("q"))
   означает потребителя очереди (RabbitMQ, иначе Celery); именованный аргумент с частью test
-  и значением True (is_test_queue=True) означает тестовую очередь, запись пропускается.
+  и значением True (is_test_queue=True) означает тестовую очередь, запись пропускается;
+- модуль-реестр констант (ТЗ §15 п. 13 В1: posthog/kafka_client/topics.py, 56 топиков):
+  модуль, у имени файла которого последнее слово называет вид брокера во множественном
+  числе (topics, queues, subjects: kafka_topics.py, celery_queues.py). Присваивания уровня
+  модуля ИМЯ = строка | f-строка | get_from_env("…", строка) | os.environ.get("…", …) |
+  os.getenv("…", …) с ИМЕНЕМ в верхнем регистре дают каналы без направления по литеральной
+  части значения: подстановки {…} f-строки отбрасываются, куски склеиваются; пустая
+  литеральная часть уходит в hints.dynamic_names. Единственное число не в счёт: queue.py и
+  dead_letter_queue.py у PostHog держат имена таблиц и ключей Redis, а не очереди.
+  Голое ИМЯ в вызове клиента, определённое так в том же файле или импортированное
+  «from <модуль> import ИМЯ» из такого модуля, раскрывается в строку (Registries.value).
 
 Только литералы и ast: код не выполняется и не импортируется (инвариант 1).
 """
@@ -36,7 +46,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 
-from archmap_scan import codebase, pyast, pycode, texts
+from archmap_scan import codebase, paths, pyast, pycode, texts
 from archmap_scan.context import Context
 from archmap_scan.model import ChannelUse, Findings, Hint, Loc
 from archmap_scan.walk import Files, name_tokens
@@ -48,6 +58,14 @@ _MEMBER = re.compile(r"[A-Z][A-Z0-9_]{0,199}")
 # Слова имени: заглавные подряд (не перед строчной), слово с заглавной или строчной, числа.
 _NAME_WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 _SQS_WORD = "sqs"
+# Реестр констант модуля хранится в индексе файла под этим ключом: он не имя Python, поэтому
+# не совпадёт с классом или словарём.
+_CONSTANTS = "*"
+# Вид брокера → последнее слово имени файла модуля-реестра констант (множественное число).
+_PLURAL = {"topic": "topics", "queue": "queues", "subject": "subjects"}
+# Чтение окружения с дефолтом: get_from_env PostHog и стандартные.
+_ENV_CALLS = frozenset({"os.getenv", "os.environ.get"})
+_ENV_HELPER = "get_from_env"
 _SQS_MODULES = ("boto3", "botocore", "aioboto3", "aiobotocore")
 # Отбор файлов до разбора (только начала строк, без оглядки назад): класс и словарь на
 # уровне модуля, декоратор с вызовом.
@@ -101,11 +119,39 @@ class Registries:
         target = codebase.resolve_module(self.files, rel, module, level)
         return self.by_file.get(target, {}).get(attr) if target else None
 
+    def _constant(self, rel: str, imps: dict[str, pycode.Imported], name: str) -> str | None:
+        """Строка канала для голого ИМЕНИ: константа модуля-реестра этого файла или
+        импортированная из модуля-реестра репозитория («from m import ИМЯ [as Другое]»)."""
+        imp = imps.get(name)
+        if imp is None:
+            reg = self.by_file.get(rel, {}).get(_CONSTANTS)
+            return reg.members[name][0] if reg is not None and name in reg.members else None
+        if not imp.attr:
+            return None
+        target = codebase.resolve_module(self.files, rel, imp.module, imp.level)
+        reg = self.by_file.get(target, {}).get(_CONSTANTS) if target else None
+        return reg.members[imp.attr][0] if reg is not None and imp.attr in reg.members else None
+
+    def imports_registry(self, rel: str, imps: dict[str, pycode.Imported]) -> bool:
+        """Файл импортирует из модуля репозитория реестр или константу модуля-реестра
+        («from posthog.kafka_client.topics import KAFKA_APP_METRICS2»)."""
+        for imp in imps.values():
+            if not imp.attr:
+                continue
+            target = codebase.resolve_module(self.files, rel, imp.module, imp.level)
+            own = self.by_file.get(target, {}) if target else {}
+            consts = own.get(_CONSTANTS)
+            if imp.attr in own or (consts is not None and imp.attr in consts.members):
+                return True
+        return False
+
     def value(
         self, rel: str, imps: dict[str, pycode.Imported], node: ast.AST | None,
     ) -> str | None:
-        """Строка канала для Name.MEMBER, Name.MEMBER.value и Name["MEMBER"]; None — это не
-        член известного реестра."""
+        """Строка канала для Name.MEMBER, Name.MEMBER.value, Name["MEMBER"] и голого
+        ИМЕНИ константы модуля-реестра; None — это не член известного реестра."""
+        if isinstance(node, ast.Name):
+            return self._constant(rel, imps, node.id)
         if isinstance(node, ast.Attribute) and node.attr == "value" and isinstance(
             node.value, ast.Attribute
         ):
@@ -234,6 +280,64 @@ def _module_registries(tree: ast.Module, words: frozenset[str]) -> dict[str, _Re
     return out
 
 
+def constants_module(rel: str, kind: str) -> bool:
+    """Модуль-реестр констант вида kind: последнее слово имени файла во множественном
+    числе (topics.py, kafka_topics.py, kafka-topics.ts, celery_queues.py)."""
+    stem = paths.name(rel).rsplit(".", 1)[0]
+    words = name_words(stem)
+    return bool(words) and words[-1] == _PLURAL.get(kind)
+
+
+def literal_part(node: ast.AST | None, imps: dict[str, pycode.Imported]) -> str | None:
+    """Литеральная часть значения константы-канала: строка, f-строка без подстановок,
+    дефолт чтения окружения (get_from_env, os.environ.get, os.getenv). None — значение не
+    такого вида (число, имя, вызов другой функции); пустая строка — литералов нет."""
+    if isinstance(node, ast.Constant):
+        return node.value if isinstance(node.value, str) else None
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str)
+        )
+    if isinstance(node, ast.Call):
+        qual = pycode.qualname(node.func, imps) or ""
+        if qual not in _ENV_CALLS and pyast.last_name(node) != _ENV_HELPER:
+            return None
+        default = pycode.arg(node, 1, "default")
+        if default is None:
+            return ""
+        return literal_part(default, imps) if not isinstance(default, ast.Call) else None
+    return None
+
+
+def _module_constants(
+    rel: str, tree: ast.Module, imps: dict[str, pycode.Imported], found: Findings | None,
+) -> dict[str, tuple[str, int]]:
+    """Константы модуля-реестра: ИМЯ в верхнем регистре → (канал, строка). Значение без
+    литеральной части — подсказка о динамическом имени (found None — подсказок не писать)."""
+    out: dict[str, tuple[str, int]] = {}
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+            target, value = stmt.targets[0], stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            target, value = stmt.target, stmt.value
+        else:
+            continue
+        if not isinstance(target, ast.Name) or not _MEMBER.fullmatch(target.id):
+            continue
+        text = literal_part(value, imps)
+        if text is None or any(ch.isspace() for ch in text):
+            continue
+        if not any(ch.isalnum() for ch in text):
+            if found is not None:
+                found.hints.append(Hint("dynamic_names", {
+                    "kind": "channel", "name": target.id,
+                    "reason": texts.REASON_DYNAMIC_CHANNEL, "source": str(Loc(rel, stmt.lineno)),
+                }))
+            continue
+        out.setdefault(target.id, (text, stmt.lineno))
+    return out
+
+
 def _candidate(text: str, words: frozenset[str], decorators: bool) -> bool:
     """Дешёвый отбор файла до разбора: класс или словарь модуля с нужной частью имени,
     декоратор с частью queue."""
@@ -297,16 +401,20 @@ def scan(
     regs = Registries(files, spec)
     every = _words(spec, True)
     for rel, text in codebase.sources(files, ctx, codebase.PYTHON, wanted):
-        if not _candidate(text, every, spec.decorators):
+        module = constants_module(rel, spec.kind)
+        if not module and not _candidate(text, every, spec.decorators):
             continue
         tree = pyast.parse(text)
         if tree is None:
             continue
         imps = pycode.imports(tree)
         words = _words(spec, pycode.imports_any(imps, clients))
-        own = {} if spec.kind == "queue" and _sqs_module(rel, imps) else _module_registries(
-            tree, words,
-        )
+        sqs = spec.kind == "queue" and _sqs_module(rel, imps)
+        own = {} if sqs else _module_registries(tree, words)
+        if module and not sqs:
+            members = _module_constants(rel, tree, imps, found if declare else None)
+            if members:
+                own[_CONSTANTS] = _Registry(name=_CONSTANTS, members=members)
         if own:
             regs.by_file[rel] = own
         if not declare:

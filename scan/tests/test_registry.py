@@ -319,3 +319,50 @@ def test_name_words_on_hostile_name() -> None:
     for name in ("A" * 2_000_000 + "b", "aB" * 1_000_000, "_" * 2_000_000):
         pyregistry.name_words(name)
     assert time.perf_counter() - started < time_limit()
+
+
+def test_module_constants_registry() -> None:
+    """Модуль-реестр констант (ТЗ §15 п. 13 В1): PostHog posthog/kafka_client/topics.py
+    (f"{KAFKA_PREFIX}clickhouse_events_json{SUFFIX}", get_from_env с дефолтом) и зеркало
+    nodejs/src/common/config/kafka-topics.ts; голое имя в produce() и subscribe()
+    раскрывается по импорту (posthog/api/metalytics.py:41). Ловушки: KAFKA_PREFIX модуля
+    настроек, константа в dead_letter_queue.py (единственное число), тестовый файл,
+    имя не в верхнем регистре, число, значение с пробелами; в файле без клиента Kafka, но с
+    именем из реестра (обёртка проекта) send("welcome") не канал и не подсказка."""
+    ctx, files = files_of(FIXTURES / "kafka-constants")
+    found = kafka.parse(files, ctx)
+    assert _rows(found) == [
+        ("clickhouse_events_json", "topic", "Kafka", None, "app/kafka_topics.py:7"),
+        ("events_ingestion", "topic", "Kafka", None, "app/kafka_topics.py:8"),
+        ("audit_log", "topic", "Kafka", None, "app/kafka_topics.py:9"),
+        ("events_ingestion", "topic", "Kafka", "publish", "app/metrics.py:6"),
+        ("clickhouse_events_json", "topic", "Kafka", "publish", "app/producer.py:8"),
+        ("audit_log", "topic", "Kafka", "publish", "app/producer.py:9"),
+        ("events_ingestion", "topic", "Kafka", "consume", "app/producer.py:12"),
+        ("clickhouse_events_json", "topic", "Kafka", "consume", "web/src/consumer.ts:5"),
+        ("plugin_log_entries", "topic", "Kafka", "consume", "web/src/consumer.ts:5"),
+        ("clickhouse_events_json", "topic", "Kafka", None, "web/src/kafka-topics.ts:3"),
+        ("plugin_log_entries", "topic", "Kafka", None, "web/src/kafka-topics.ts:4"),
+    ]
+    dynamic = sorted((h.data["name"], h.data["source"]) for h in found.hints)
+    assert dynamic == [
+        ("KAFKA_DYNAMIC", "app/kafka_topics.py:10"),
+        ("KAFKA_EMPTY", "web/src/kafka-topics.ts:5"),
+        ("KAFKA_PREFIX", "app/producer.py:10"),
+        ("localTopic", "web/src/consumer.ts:7"),
+    ]
+    queues = celery.parse(files, ctx)
+    assert _rows(queues) == [
+        ("email", "queue", "Celery", None, "app/celery_queues.py:2"),
+        ("reports", "queue", "Celery", None, "app/celery_queues.py:3"),
+    ]
+    assert pyregistry.constants_module("a/kafka-topics.ts", "topic")
+    assert not pyregistry.constants_module("a/dead_letter_queue.py", "queue")
+    model = model_of(FIXTURES / "kafka-constants")
+    links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
+    assert links == {
+        ("Ярмарка", "Kafka", "публикует", "clickhouse_events_json"),
+        ("Ярмарка", "Kafka", "публикует", "audit_log"),
+        ("Ярмарка", "Kafka", "публикует", "events_ingestion"),
+        ("Kafka", "Ярмарка", "доставляет", "events_ingestion"),
+    }
