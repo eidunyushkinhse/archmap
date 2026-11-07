@@ -77,9 +77,9 @@ def test_code_unsupported_stacks() -> None:
     ]
     # Параметры в коде Python, Node.js и Go читает ярус кода; viper только транзитивный.
     assert stacks["config"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
-    # Каналы Celery, Kafka, RabbitMQ и NATS читает ярус кода; BullMQ на Node.js и Sidekiq
-    # на Ruby — нет, как и любые каналы на языках без чтения кода.
-    assert stacks["channels"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
+    # Каналы Celery, Kafka, RabbitMQ, NATS и BullMQ читает ярус кода; Sidekiq на Ruby — нет,
+    # как и любые каналы на языках без чтения кода. Воркеры BullMQ из кода не заводятся.
+    assert stacks["channels"] == [".NET", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
     assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
     # Расписания Celery beat читает разборщик celery-beat.
     assert stacks["schedules"] == [
@@ -207,8 +207,8 @@ def test_unsupported_only_from_container_code(tmp_path: Path) -> None:
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["http_routes"]["unsupported"] == ["Rust: actix-web"]
     assert families["config"]["unsupported"] == ["Rust"]
-    assert families["channels"] == {"status": "unsupported", "parsers": [],
-                                    "unsupported": ["BullMQ", "Rust"]}
+    assert families["channels"] == {"status": "unsupported", "parsers": ["bullmq"],
+                                    "unsupported": ["Rust"]}
     assert families["workers"]["status"] == "unsupported"
     assert families["workers"]["unsupported"] == ["BullMQ", "Rust"]
     assert families["tables"]["unsupported"] == ["Kysely"]
@@ -243,7 +243,7 @@ def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["channels"]["status"] == "empty"
-    assert families["channels"]["parsers"] == ["celery", "kafka", "rabbitmq", "nats"]
+    assert families["channels"]["parsers"] == ["celery", "kafka", "rabbitmq", "nats", "bullmq"]
     assert families["http_routes"]["status"] == "empty"
 
     images = tree(tmp_path / "img", {"docker-compose.yml": "services:\n  cache:\n    image: redis:7\n"})

@@ -283,11 +283,12 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 )
 
 # Клиенты брокеров, каналы которых ярус кода не читает (ТЗ §6.4: SQS, Pub/Sub). Каналы
-# Kafka, RabbitMQ, NATS и очереди Celery читаются разборщиками kafka, rabbitmq, nats, celery.
+# Kafka, RabbitMQ, NATS, очереди Celery, BullMQ и Bull читаются разборщиками kafka,
+# rabbitmq, nats, celery, bullmq.
 UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
-    ("sidekiq", "Sidekiq"), ("bullmq", "BullMQ"), ("bull", "Bull"),
+    ("sidekiq", "Sidekiq"),
 )
 
 # Библиотеки фоновых обработчиков в коде, которые ярус кода не читает (ТЗ §15 п. 10 А12:

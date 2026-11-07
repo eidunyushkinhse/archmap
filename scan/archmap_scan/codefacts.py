@@ -60,6 +60,7 @@ EnvOf = dict[str, list[tuple[EnvVar, str]]]
 _CLIENT_TECH = {
     "Kafka": frozenset({"Kafka", "Redpanda"}), "RabbitMQ": frozenset({"RabbitMQ"}),
     "NATS": frozenset({"NATS"}), "Celery": frozenset({"Redis", "RabbitMQ"}),
+    "BullMQ": frozenset({"Redis"}),
 }
 # Клиент → технология брокера по клиенту в порядке создания: Celery последним, его брокер
 # бывает тот же RabbitMQ.

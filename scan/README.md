@@ -117,7 +117,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
-  `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, расписания `celerybeat`,
+  `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, расписания `celerybeat`,
   `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -223,3 +223,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     get_from_env(…, дефолт)` даёт канал по литеральной части, голое `ИМЯ` в вызове клиента
     раскрывается по импорту, файл без клиента Kafka, но с именем из реестра читается только
     по таким аргументам; связи кода не вытесняют «использует» той же пары из манифестов (В1);
+  - BullMQ и Bull (`parsers/bullmq.py`): `new Queue('x')` и `@InjectQueue('x')` публикуют,
+    `new Worker('x')` и `@Processor('x')` потребляют, `BullModule.registerQueue({ name })`
+    объявляет; enum с последним словом `queue(s)` или концом `QueueName(s)` и строковыми
+    членами даёт очереди Redis и раскрывает `QueueName.X`, переменная уходит в подсказки (В2);

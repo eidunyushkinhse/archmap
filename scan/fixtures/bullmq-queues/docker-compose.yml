@@ -1,0 +1,6 @@
+services:
+  server:
+    build: ./server
+    depends_on: [redis]
+  redis:
+    image: valkey/valkey:8
