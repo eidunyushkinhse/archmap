@@ -597,3 +597,8 @@ def os_variables_line(n: int) -> str:
         f"Переменных операционной системы и CI: {n}, параметрами они не считаются, перечень"
         " в agent/hints.yaml."
     )
+
+
+def config_choices(values: list[str]) -> str:
+    """Описание параметра со схемой z.enum (ТЗ §15 п. 14 Е3): перечень значений из кода."""
+    return "Одно из значений: " + ", ".join(values) + "."

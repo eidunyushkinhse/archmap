@@ -197,6 +197,8 @@ class CodeParam:
     # Другие основания той же записи: место объявления константы, которой задано имя (ТЗ
     # §15 п. 14 Е1). Владельца выбирают по loc, эти места только идут в evidence.
     extra_locs: list[Loc] = field(default_factory=list)
+    # Описание из кода без пересказа смысла: перечень значений схемы z.enum (ТЗ §15 п. 14 Е3).
+    description: str | None = None
 
 
 @dataclass

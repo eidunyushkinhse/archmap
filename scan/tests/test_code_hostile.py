@@ -33,6 +33,8 @@ KJS, AMQP, NJS = "require('kafkajs');\n", "require('amqplib');\n", "require('nat
 BMQ = "require('bullmq');\n"
 KGO, NGO = 'import "github.com/segmentio/kafka-go"\n', 'import "github.com/nats-io/nats.go"\n'
 
+# Схема zod применяется к окружению (ТЗ §15 п. 14 Е3).
+ZOD = "E.safeParse(process.env);\n"
 # Обёртка чтения окружения Go: строковый параметр уходит в os.Getenv (ТЗ §15 п. 14 Е1).
 GO_WRAP = "func w(k string) string {\n\treturn os.Getenv(k)\n}\n"
 
@@ -68,6 +70,10 @@ STARTS: dict[str, tuple[str, ...]] = {
         BMQ + "new Worker('", BMQ + "new Queue(QueueName.", BMQ + "@Processor({ name: '",
         BMQ + "BullModule.registerQueue({ name: '", BMQ + "BullModule.registerQueue({",
         "enum QueueName {\n  A = '", "enum QueueName {\n  ",
+        # Схема zod, применённая к окружению (ТЗ §15 п. 14 Е3).
+        ZOD + "const E = z.object({", ZOD + "const E = z.object({ A: ",
+        ZOD + "const E = z.object({ A: z.enum([", ZOD + "const E = z.object({ A: v, ",
+        ZOD + "const v = z.string()\nconst E = z.object({ A: v.default(",
     ),
     # Классы воркеров Sidekiq и их наследники (ТЗ §15 п. 13 В3).
     "rb/app.rb": (
@@ -154,6 +160,17 @@ GO_PACKAGE = {
     "named-reads": "os.Getenv(c.X)\n" * (PAYLOAD // 15),
     "const-block": "const (\n" + '\tA = "x"\n' * (PAYLOAD // 9) + ")\nos.Getenv(A)\n",
 }
+# Схема zod с множеством ключей и констант-валидаторов (ТЗ §15 п. 14 Е3).
+JS_ZOD = {
+    "keys": ZOD + "const E = z.object({" + "a: z.string().optional(), " * (PAYLOAD // 26) + "})",
+    "locals": ZOD + "".join(f"const v{i} = z.string()\n" for i in range(300)) + "const E = z.object({"
+    + "".join(f"k{i}: v{i % 300}, " for i in range(PAYLOAD // 20)) + "})",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(JS_ZOD))
+def test_zod_schema(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "js/app.js": JS_ZOD[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(GO_PACKAGE))

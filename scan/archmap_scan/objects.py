@@ -87,6 +87,7 @@ class Param:
     required: bool | None = None
     locs: set[Loc] = field(default_factory=set)
     parsers: set[str] = field(default_factory=set)
+    description: str | None = None  # перечень значений из схемы кода (z.enum), не смысл
 
 
 @dataclass

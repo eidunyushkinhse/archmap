@@ -205,6 +205,8 @@ def _merge(param: Param, reads: list[CodeParam]) -> None:
                 break
     if param.type is None:
         param.type = next((r.type for r in reads if r.type), None)
+    if param.description is None:
+        param.description = next((r.description for r in reads if r.description), None)
     if not any(r.has_default for r in reads) and any(r.required for r in reads):
         param.required = True
 

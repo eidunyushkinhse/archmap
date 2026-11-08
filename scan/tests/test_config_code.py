@@ -126,6 +126,35 @@ def test_go_wrappers_and_constants() -> None:
     assert "NOT_A_PARAM" not in model.params[owner]
 
 
+def test_node_zod_schema() -> None:
+    """Схема zod из process.env (ТЗ §15 п. 14 Е3). Найдено в immich:
+    server/src/dtos/env.dto.ts:37 EnvSchema = z.object({ DB_HOSTNAME: z.string().optional(),
+    … }) и server/src/repositories/config.repository.ts:209 EnvSchema.safeParse(process.env)
+    в другом файле по импорту с псевдонимом src/…. Ловушки: схема тела запроса LoginSchema
+    к окружению не применяется; ключ с вычисляемым именем — подсказка."""
+    rows = _params(nodeenv, FIXTURES / "ts-env-zod")
+    assert rows == [
+        ("API_SECRET", None, False, True, "string", "src/dtos/env.dto.ts:11"),
+        ("DB_HOSTNAME", None, False, None, "string", "src/dtos/env.dto.ts:7"),
+        ("DB_PORT", "5432", True, None, "int", "src/dtos/env.dto.ts:8"),
+        ("DB_SSL", None, False, None, "bool", "src/dtos/env.dto.ts:9"),
+        ("LOG_LEVEL", "info", True, None, "string", "src/dtos/env.dto.ts:10"),
+        ("SAMPLE_RATE", None, False, None, "float", "src/dtos/env.dto.ts:12"),
+        ("WORKER_COUNT", "2", True, None, "int", "src/config.ts:8"),
+    ]
+    ctx, files = files_of(FIXTURES / "ts-env-zod")
+    found = nodeenv.parse(files, ctx)
+    assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
+        ("['DYNAMIC_' + 'KEY']", "src/dtos/env.dto.ts:13"),
+    ]
+    level = next(p for p in found.code_params if p.name == "LOG_LEVEL")
+    assert level.description == texts.config_choices(["debug", "info", "warn"])
+    assert [str(loc) for loc in level.extra_locs] == ["src/config.ts:5"]
+    model = model_of(FIXTURES / "ts-env-zod")
+    (owner,) = model.params
+    assert model.params[owner]["LOG_LEVEL"].description == "Одно из значений: debug, info, warn."
+
+
 def test_python_wrappers() -> None:
     """Обёртка чтения на Python (ТЗ §15 п. 14 Е2). Найдено в PostHog:
     posthog/settings/utils.py get_from_env(key, default=…, type_cast=…) читает os.getenv(key),

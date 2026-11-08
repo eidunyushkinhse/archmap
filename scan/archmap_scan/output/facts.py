@@ -72,6 +72,8 @@ def config_files(model: Model, ctx: Context) -> dict[str, str]:
                 item["required"] = True
             if param.default is not None:
                 item["default"] = param.default
+            if param.description:
+                item["description"] = param.description
             items.append(item)
         out[names[owner]] = _head(model, owner, ctx) + yamlio.dump({"config": items})
     return out

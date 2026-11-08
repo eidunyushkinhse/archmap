@@ -70,14 +70,17 @@ def _stripped(mask: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def split_spans(mask: str, start: int) -> tuple[list[tuple[int, int]], int] | None:
+def split_spans(
+    mask: str, start: int, limit: int = MAX_LIST,
+) -> tuple[list[tuple[int, int]], int] | None:
     """Позиции частей списка в скобках по запятым верхнего уровня (от позиции после «(»,
     без пробелов по краям) и позиция парной «)»; None — скобка не закрылась в пределах
-    MAX_LIST."""
+    limit (по умолчанию MAX_LIST). Маска JavaScript устроена так же, поэтому список
+    объекта «{…}» делится этой же функцией."""
     out: list[tuple[int, int]] = []
     depth = 0
     piece = start
-    for m in _LIST.finditer(mask, start, min(len(mask), start + MAX_LIST)):
+    for m in _LIST.finditer(mask, start, min(len(mask), start + limit)):
         ch, i = m.group(), m.start()
         if ch in "([{":
             depth += 1
