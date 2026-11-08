@@ -183,8 +183,21 @@ class _Repo:
         return self.consts[folder].get(name)
 
     def package(self, folder: str) -> str | None:
+        """Имя пакета каталога: строка package первого файла, где она есть, как в _load, но
+        без разбора остальных файлов каталога (импорт без псевдонима проверяется именем
+        пакета у каждого пакета репозитория, а константы нужны немногим)."""
         if folder not in self.names:
-            self._load(folder)
+            name: str | None = None
+            for rel in self.by_dir.get(folder, []):
+                if rel not in self.parsed:
+                    code = self.code(rel)
+                    if code is None:
+                        continue
+                    self.note(rel, code)
+                name = self.parsed[rel][1]
+                if name:
+                    break
+            self.names[folder] = name
         return self.names[folder]
 
     def target(self, imports: list[tuple[str | None, str]], recv: str) -> str | None:
