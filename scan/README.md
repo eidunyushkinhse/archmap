@@ -119,9 +119,14 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   каталогом кода), склеивается в один контейнер с записью в `hints.merged` (ТЗ §13.5).
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
+- Таблицы: `sql`, `alembic`, `django`, схема Rails `railsschema` и `kysely` (ярус кода), разбор
+  DDL у SQL-файлов и шаблонов Kysely общий (`sqlddl.py`). `openapi_owner.py` отдаёт операции
+  файла OpenAPI маршрутами сервису, который его отдаёт, или оставляет подсказку с причиной.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
-  `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`), `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания `celerybeat`,
-  `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
+  `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
+  `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
+  `celerybeat`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
+  стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
   (`class Topic(Enum)`, словарь, у имени которого последнее слово `topic`/`queue`/`subject`)

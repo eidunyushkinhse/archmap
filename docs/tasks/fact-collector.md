@@ -271,7 +271,6 @@ archmap-scan/
 | SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
 | Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
 | Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
-
 | Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается |
 | Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
@@ -281,11 +280,11 @@ archmap-scan/
 
 Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
 построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
-Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET, ключи viper и Spring
-`@Value`, исходящие HTTP-вызовы в коде, компоненты, внешние SaaS и люди, описания и подписи со
-смыслом, поля сообщений каналов, содержимое OpenAPI (кроме операций как маршрутов владельца, ч. 3,
-З3), Redis/SQS/Pub/Sub как каналы, «мёртвый
-код» и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
+Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET/Rust,
+ключи viper и Spring `@Value`, параметры Kotlin, исходящие HTTP-вызовы в коде, компоненты,
+внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
+(кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
+и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
 
 ### 6.5 Словари (стартовые, пополняются по находкам, один модуль `vocab.py`)
 
@@ -350,6 +349,12 @@ Liquibase (снят владельцем), Helm `templates/`, маршруты S
   строкой называет записи общего кода (Zulip: 26 имён, 140 записей у 8 контейнеров;
   «140 параметров» читалось бы как 140 разных); в coverage `found` остаётся числом записей,
   рядом `distinct` с числом имён, когда они расходятся.
+- **Сервис для файла OpenAPI** (ч. 3, З3). Среди контейнеров с ролью «сервис»: файл в
+  каталоге кода ровно одного из них; иначе среди сервисов, чей каталог кода содержит файл
+  (нет таких — среди всех сервисов), ровно у одного имя или слово команды входит в путь
+  файла, `info.title` или `servers[].url`. Файл в каталоге документации и файл чужого API (все
+  адреса `servers` на внешних доменах) владельца не получают. Владелец не определим —
+  `hints.openapi_files` с причиной и перечнем сервисов, среди которых он искался.
 
 ## 8. Отчёт о покрытии
 
@@ -1172,7 +1177,7 @@ unread: {too_large: 3, binary: 0}
      49,0 и 50,4 с, n8n в среднем 9,3 и 9,3 с), то есть это не код.
 14. **Решения исполнителя части 3** (2026-11-08, ветка feat/scan-3d, сборщик 0.4.0 без выпуска;
    параметры через обёртки, связи второго порядка, таблицы Rails и Kysely, пути OpenAPI,
-   Rust; владелец может отменить, числа перемера в отчёте исполнителя).
+   Rust; владелец может отменить, числа перемера в конце пункта).
    - Е1 (решение исполнителя): обёрткой считается только функция, не метод: вызов метода
      (`cfg.Get("X")`) по импорту файла к пакету не привязать. Параметр-имя должен иметь тип
      `string` и стоять в `os.Getenv`/`os.LookupEnv` целиком (`"OTEL_" + name` не обёртка) или
@@ -1431,3 +1436,35 @@ unread: {too_large: 3, binary: 0}
      `.github/rust-images.yml`, манифестом не читается). Последние два показывают предел
      правила: свой сервис с именем на слово брокера по образу был бы брокером, но у
      контейнера с каталогом кода вид по образу не берётся.
+   - Остаток после части 3 (перемер 2026-11-08 на c99c4591 против выводов судьи части 2б;
+     перемер после блоков Е и Ж дал те же ok и те же новые связи). Регрессий шести вердиктов
+     нет, кроме прежней базы Lemmy под именем `postgres` (теперь объект «база данных»
+     PostgreSQL с 58 таблицами, вердикту нужен `expect: postgres`); «осталось» 4 объекта, как
+     после части 2 (`posthog-metrics-agent`, `immich-grafana`, `immich-prometheus`,
+     `gitops-agent`), ложных связей PostHog 2 (`asyncmigrationscheck → plugins`,
+     `temporal-ui → db`). Новые связи без вердикта: Online Boutique 7 к
+     `opentelemetrycollector` (Ж2), Argo CD 13 (Ж1 и Ж2, среди них `argocd-server →
+     argocd-redis-ha-haproxy`), Lemmy `proxy → lemmy` и `proxy → lemmy-ui`, PostHog 10 от
+     `proxy` по Caddyfile (Ж3); новые объекты без вердикта: 19 бинарных крейтов PostHog (И1).
+     Параметры: Argo CD 354 → 1772, PostHog 2132 → 6151, immich 41 → 86, Lemmy 12 → 23, Online
+     Boutique 78 → 97, Sentry 109 как было. Таблицы: Mastodon 0 → 116, immich 0 → 72. Маршруты
+     Argo CD из swagger не получены, вместо них подсказка с причиной (З3). Кандидаты правил
+     семей config, tables и containers в проверке судьи «есть»; кандидаты связей «нет», хотя
+     все названные связи в выводе: проверка ищет текст «a -> b», а `schema.yaml` пишет связь
+     полями `from` и `to`. Sentry: проверка слоёв проходит, core 24 узла, 30 связей и 52
+     канала, как после части 2б. Дым 15 репозиториев: коды выхода 0, клоны чистые, объекты
+     прежние; связи Loki 0 → 2 (`gateway` по тому nginx, Ж3); параметры eShop 0 → 12 (Е4),
+     Airflow 106 → 115 (Е2), Nomad 43 → 48 (Е1); таблицы Forem из `unsupported` в covered с
+     133 записями без владельца (З1); маршруты Keycloak 0 → 6 (файл
+     `js/libs/keycloak-admin-client/openapi.json` достался `container` по слову `keycloak` в
+     команде, З3). Время рядом со сборкой части 2б на той же машине: PostHog 32,9 → 35,4 с
+     (+7 %, память 444 МБ), n8n 6,9 → 6,9 с, Airflow 5,6 → 6,0 с, Kubernetes 3,4 → 3,9 с
+     (+15 %: второй проход go-env по вызовам обёрток, список файлов Go после перемера
+     отбирается один раз), Keycloak 1,06 → 1,40 с (+32 %, то есть +0,34 с: java-env один раз
+     читает 5,9 тыс. файлов Java, которых раньше не читал никто); память выросла не больше
+     чем на 2 МБ. Не решено: владелец swagger Argo CD (код, который отдаёт файл:
+     `server/`, `util/swagger`); 30 таблиц immich под прежними именами после
+     `StandardizeNames`; таблицы Forem без владельца (две базы, контейнеры из корня);
+     среди новых объектов PostHog похожие на инструменты разработки; параметры Spring Boot
+     (`application.yml`, `@Value`), Kotlin, `config[…]` в C# и собственные форматы Traefik и
+     Envoy не читаются.
