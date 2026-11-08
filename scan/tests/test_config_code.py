@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archmap_scan import texts
+from archmap_scan import clike, texts
 from archmap_scan.parsers import dotnetenv, goenv, javaenv, nodeenv, pyenv, rustenv
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
@@ -399,3 +399,28 @@ def test_go_cmd_programs(tmp_path: Path) -> None:
     assert _go_cmd_model(tmp_path / "c", two, {"a": "A_PORT", "b": "B_PORT"}) == {
         "x": {"A_PORT", "B_PORT"}, "y": {"A_PORT", "B_PORT"},
     }
+
+
+def test_go_named_reads_limit(tmp_path: Path) -> None:
+    """Предел чтений с именем не литералом на файл (ТЗ §15 п. 14 Ф2). Найдено в полном гейте
+    судьи: враждебный файл tests/test_code_hostile.py GO_PACKAGE["named-reads"] из 133 тыс.
+    os.Getenv(c.X) шёл 1,00 с при пределе 1,00 с. Файл сверх 2000 таких чтений непрочитан и
+    не даёт ни параметров, ни подсказок, даже литеральных и найденных до предела. Ловушки:
+    файл ровно на пределе разбирается целиком; соседний файл того же пакета не задет; одна
+    константа раскрывается у всех мест чтения."""
+    limit = clike.MAX_READS
+    head = 'package app\n\nimport "os"\n\nconst Port = "APP_PORT"\n\nfunc f() {\n'
+    root = tree(tmp_path, {
+        "go.mod": "module example.com/app\n\ngo 1.23\n",
+        "over.go": 'package app\n\nimport "os"\n\nfunc g() {\n\t_ = os.Getenv("OVER_LITERAL")\n'
+        + "\t_ = os.Getenv(name)\n" * (limit + 1) + "}\n",
+        "edge.go": head + "\t_ = os.Getenv(Port)\n" * limit + "}\n",
+        "plain.go": 'package app\n\nimport "os"\n\nvar _ = os.Getenv("PLAIN")\n',
+    })
+    ctx, files = files_of(root)
+    found = goenv.parse(files, ctx)
+    names = {(p.name, p.loc.path) for p in found.code_params}
+    assert names == {("APP_PORT", "edge.go"), ("PLAIN", "plain.go")}
+    assert sum(1 for p in found.code_params if p.name == "APP_PORT") == limit
+    assert not [h for h in found.hints if str(h.data["source"]).startswith("over.go")]
+    assert files.too_large == {"over.go"}

@@ -31,7 +31,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from archmap_scan import codebase, codetext, gocode, paths, secrets, texts
+from archmap_scan import clike, codebase, codetext, gocode, paths, secrets, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.model import CodeParam, Findings, Hint, Loc
@@ -60,6 +60,10 @@ _NAME_ARG = re.compile(
 _SCALAR = re.compile(r"-?[0-9]{1,20}(?:\.[0-9]{1,20})?|true|false")
 # Сколько первых вызовов одной обёртки в файле разбирается.
 _MAX_CALLS = 5000
+# Сколько чтений с именем не литералом (идентификатор, выражение, склейка) в файле
+# разбирается (ТЗ §15 п. 14 Ф2): в настоящем коде их единицы, файл сверх предела —
+# враждебный вход, он непрочитан и не даёт ни параметров, ни подсказок.
+_MAX_NAMED = clike.MAX_READS
 _DEFAULT_WORDS = frozenset({"default", "fallback"})
 _STRING = "string"
 
@@ -109,6 +113,25 @@ class _Repo:
     )
     consts: dict[str, dict[str, tuple[str, Loc]]] = field(default_factory=dict)
     names: dict[str, str | None] = field(default_factory=dict)
+    # Чтения с именем не литералом по файлам и файлы сверх _MAX_NAMED (Ф2).
+    odd: dict[str, int] = field(default_factory=dict)
+    refused: set[str] = field(default_factory=set)
+    # Раскрытые имена: (каталог пакета, идентификатор) → значение и место константы.
+    resolved: dict[tuple[str, str], tuple[str, Loc] | None] = field(default_factory=dict)
+
+    def odd_read(self, rel: str) -> bool:
+        """Учесть чтение с именем не литералом; False — файл сверх предела и непрочитан."""
+        count = self.odd.get(rel, 0) + 1
+        self.odd[rel] = count
+        if count <= _MAX_NAMED:
+            return True
+        if rel not in self.refused:
+            self.refused.add(rel)
+            self.files.refuse(rel)
+            if rel in self.parsed:
+                # Константы непрочитанного файла имён не раскрывают.
+                self.parsed[rel] = ({}, self.parsed[rel][1])
+        return False
 
     def code(self, rel: str, text: str | None = None) -> codetext.Code | None:
         """Маска файла: из разобранных с обёртками, иначе чтение и разбор."""
@@ -313,10 +336,6 @@ def _scan(
     named: list[_Named], repo: _Repo,
 ) -> None:
     own, bodies = _wrappers(code, rel)
-    for wrapper in own.values():
-        wrappers.setdefault((wrapper.folder, wrapper.name), wrapper)
-    if own:
-        repo.codes[rel] = code
     repo.note(rel, code)
     imports: list[tuple[str | None, str]] | None = None
     for m in _CALL.finditer(code.mask):
@@ -328,21 +347,32 @@ def _scan(
                 text = arg.group(1)
                 if "." not in text and any(a <= m.start() < b for a, b in bodies):
                     continue  # чтение по параметру внутри обёртки: имена дают её вызовы
+                if not repo.odd_read(rel):
+                    return
                 if imports is None:
                     imports = gocode.imports(code.text, code.mask)
                 named.append(_Named(rel, line, text, imports, required=required))
                 continue
+            if not repo.odd_read(rel):
+                return
             _hint(found, code.expression(m.end()), texts.REASON_DYNAMIC_PARAM, rel, line)
             continue
         name, _dyn = code.literal(m.start(2), m.end(2))
         if code.joined(m.start(2), m.end(2)):
             # os.Getenv("OTEL_" + name): литерал лишь часть имени (ТЗ §15 п. 10 А).
+            if not repo.odd_read(rel):
+                return
             _hint(found, code.expression(m.start(2)), texts.REASON_JOINED_NAME, rel, line)
             continue
         if _VAR.fullmatch(name):
             found.code_params.append(CodeParam(
                 name=name, loc=Loc(rel, line), parser=NAME, required=required,
             ))
+    # Обёртки непрочитанного файла (выход выше) не учитываются.
+    for wrapper in own.values():
+        wrappers.setdefault((wrapper.folder, wrapper.name), wrapper)
+    if own:
+        repo.codes[rel] = code
     if 'env:"' not in code.text and 'envconfig:"' not in code.text:
         return
     for m in _RAW.finditer(code.mask):
@@ -406,12 +436,16 @@ def _calls(
                 ))
                 continue
         elif _IDENT.fullmatch(text) or _QUALIFIED.fullmatch(text):
+            if not repo.odd_read(rel):
+                return
             if imports is None:
                 imports = gocode.imports(code.text, mask)
             named.append(_Named(
                 rel, line, text, imports, default=default, has_default=has_default, type=type_,
             ))
             continue
+        if not repo.odd_read(rel):
+            return
         reason = texts.REASON_JOINED_NAME if "+" in text else texts.REASON_DYNAMIC_PARAM
         _hint(found, code.text[start:end][:80], reason, rel, line)
 
@@ -425,7 +459,12 @@ def _resolve(item: _Named, repo: _Repo, found: Findings) -> None:
         ident = qualified.group(2)
     else:
         folder, ident = paths.parent(item.rel), item.ident
-    hit = repo.constant(folder, ident) if folder is not None else None
+    hit: tuple[str, Loc] | None = None
+    if folder is not None:
+        key = (folder, ident)
+        if key not in repo.resolved:
+            repo.resolved[key] = repo.constant(folder, ident)
+        hit = repo.resolved[key]
     if hit is None or not _VAR.fullmatch(hit[0]):
         _hint(found, item.ident, texts.REASON_DYNAMIC_PARAM, item.rel, item.line)
         return
@@ -455,6 +494,15 @@ def parse(files: Files, ctx: Context) -> Findings:
             if code is not None:
                 repo.note(rel, code)
                 _calls(code, rel, wrappers, repo, found, named)
+    if repo.refused:
+        # Непрочитанный файл (Ф2) не даёт ни параметров, ни подсказок, в том числе из
+        # прохода до того, как предел был достигнут.
+        refused = repo.refused
+        named = [item for item in named if item.rel not in refused]
+        found.code_params = [p for p in found.code_params if p.loc.path not in refused]
+        found.hints = [
+            h for h in found.hints if str(h.data.get("source", "")).rsplit(":", 1)[0] not in refused
+        ]
     for item in named:
         _resolve(item, repo, found)
     return found

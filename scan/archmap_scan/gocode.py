@@ -1,13 +1,12 @@
 """Помощники разборщиков кода Go на маске (codetext.py): тело по парным скобкам,
 определения функций с параметрами и вызовы функций по имени (ТЗ §15 п. 3: префикс группы
-через параметр функции регистрации). Выражения начинаются с литерала («func», «(» в
-перевёрнутой маске) и не перебирают с возвратами; списки и тела ограничены по длине.
+через параметр функции регистрации). Выражения начинаются с литерала («func», имя
+вызова) и не перебирают с возвратами; списки и тела ограничены по длине.
 """
 
 from __future__ import annotations
 
 import re
-from collections import deque
 from collections.abc import Collection
 from dataclasses import dataclass
 
@@ -19,8 +18,8 @@ _DEF = re.compile(
     r"func[ \t]*(?:\([^()\n]{0,300}\)[ \t]*)?([A-Za-z_][A-Za-z0-9_]{0,99})[ \t]*"
     r"(?:\[[^\[\]\n]{0,500}\][ \t]*)?\("
 )
-# Вызов в перевёрнутой маске: «(», пробелы, имя задом наперёд.
-_CALLEE = re.compile(r"\([ \t]{0,50}([A-Za-z0-9_]{1,100})")
+# Имя вызова: знаки идентификатора, не длиннее 100.
+_CALLEE_NAME = re.compile(r"[A-Za-z0-9_]{1,100}")
 # Скобки тела и знаки списка: разбор шагает от знака к знаку, а не по каждому символу.
 _BRACE = re.compile(r"[{}]")
 _LIST = re.compile(r"[()\[\]{},]")
@@ -187,33 +186,47 @@ def calls(
     ]
 
 
+def _callee_pattern(names: Collection[str]) -> re.Pattern[str]:
+    """«имя(» для имён из names: имя литералом в начале выражения (быстрый поиск), пробелы
+    до «(». Имя длиннее 100 знаков вызовом не считается, как у прежнего разбора."""
+    alts = "|".join(re.escape(n) for n in sorted(names, key=lambda n: (-len(n), n)))
+    return re.compile(rf"({alts})[ \t]{{0,50}}\(")
+
+
 def call_spans(
     mask: str, names: Collection[str], skip: Collection[int], budget: int,
 ) -> list[tuple[str, int, list[tuple[int, int]]]]:
     """Как calls, но аргументы — позициями в маске (значение литерала берётся из текста)."""
     out: list[tuple[str, int, list[tuple[int, int]]]] = []
-    if not names:
+    wanted = [n for n in names if _CALLEE_NAME.fullmatch(n)]
+    if not wanted:
         return out
-    rev = mask[::-1]
-    size = len(mask)
-    # Перевёрнутая маска идёт с конца файла: у каждого имени держатся последние budget
-    # найденных, то есть первые в файле (память не растёт на враждебном входе).
-    found: dict[str, deque[tuple[int, int]]] = {n: deque(maxlen=budget) for n in names}
-    for m in _CALLEE.finditer(rev):
-        name = m.group(1)[::-1]
-        if name not in found:
-            continue
-        after = m.end(1)  # в перевёрнутой маске — знак перед именем
-        prev = rev[after] if after < size else ""
+    # Поиск идёт по файлу вперёд только по нужным именам и кончается, когда у каждого имени
+    # набрано budget вызовов: число шагов не растёт с числом прочих вызовов файла (ТЗ §15
+    # п. 14 Ф2). Имя внутри длинного идентификатора (xw( при имени w) и вызов метода у
+    # выражения (f().w() вызовами имени не считаются.
+    found: dict[str, list[tuple[int, int]]] = {n: [] for n in wanted}
+    full = 0
+    for m in _callee_pattern(wanted).finditer(mask):
+        at = m.start(1)
+        prev = mask[at - 1] if at > 0 else ""
         if prev and _ident_char(prev):
-            continue  # имя длиннее найденного куска
-        if prev == "." and not (after + 1 < size and _ident_char(rev[after + 1])):
             continue
-        at = size - after
-        if at not in skip:
-            found[name].append((at, size - m.start()))  # позиция имени и после «(»
+        if prev == "." and not (at >= 2 and _ident_char(mask[at - 2])):
+            continue
+        if at in skip:
+            continue
+        hits = found[m.group(1)]
+        if len(hits) >= budget:
+            continue
+        hits.append((at, m.end()))  # позиция имени и после «(»
+        if len(hits) == budget:
+            full += 1
+            if full == len(found):
+                break
     # Окна аргументов вложенных вызовов перекрываются: просмотр скобок за файл ограничен
     # несколькими длинами маски, дальше вызовы не разбираются (запись тогда как прежде).
+    size = len(mask)
     left = 4 * size + MAX_LIST
     for at, name, args in sorted((at, n, a) for n, q in found.items() for at, a in q):
         parts = split_spans(mask, args)
