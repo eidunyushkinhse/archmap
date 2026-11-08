@@ -1,0 +1,9 @@
+# Д8: стенд замеров с несколькими узлами ClickHouse (как multinode-clickhouse PostHog).
+name: shop-multinode-smoke
+services:
+  clickhouse:  # ловушка: есть в боевом файле и остаётся по нему
+    image: clickhouse/clickhouse-server:25.3
+  clickhouse-aux:
+    image: clickhouse/clickhouse-server:25.3
+  clickhouse-logs:
+    image: clickhouse/clickhouse-server:25.3

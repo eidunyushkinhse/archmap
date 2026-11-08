@@ -58,6 +58,7 @@ class Unit:
     # compose: restart и entrypoint (текстом) — по ним видна разовая задача (ТЗ §15 п. 10 А8).
     restart: str | None = None
     entrypoint: str | None = None
+    job: bool = False  # k8s Job: разовая задача (ТЗ §15 п. 13 Д7)
     # Признак манифеста разработки (walk.dev_sign, ТЗ §15 п. 10 Б): текстом для подсказки.
     # Объектом такой кандидат становится, только если боевых манифестов нет (ступень 2);
     # подсказки, собранные при его разборе, тогда идут в вывод вместе с ним.
@@ -120,6 +121,7 @@ class OpenApi:
     path: str
     operations: int | None  # None — операции не посчитаны, причина в reason
     reason: str | None = None  # None при operations None — файл больше предела разбора
+    in_docs: bool = False  # файл в исключённом каталоге документации (ТЗ §15 п. 13 Д2)
 
 
 @dataclass
@@ -208,6 +210,12 @@ class ChannelUse:
     # Технология брокера по схеме адреса литералом в том же файле (Celery: redis:// →
     # Redis): нужна, когда брокера в манифестах нет (ТЗ §13.2).
     broker_tech: str | None = None
+    # Программа процесса-потребителя (sidekiq): владелец среди контейнеров файла тот, чья
+    # команда её запускает (ТЗ §15 п. 13 В3), а не любой контейнер того же каталога.
+    runner: str | None = None
+    # Процесс-потребитель по имени из реестра консьюмеров (KAFKA_CONSUMERS): владелец связи —
+    # объект схемы с этим именем или с «consumer <имя>» в команде (ТЗ §15 п. 13 В4).
+    process: str | None = None
 
 
 @dataclass
@@ -219,6 +227,7 @@ class CodeSchedule:
     task: str | None
     loc: Loc
     parser: str
+    runner: str | None = None  # программа, которая исполняет расписание (как у ChannelUse)
 
 
 @dataclass

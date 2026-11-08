@@ -30,9 +30,16 @@ DEPENDENCY_DIRS = frozenset({
     "node_modules", "vendor", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".idea",
     ".vscode", "coverage",
 })
+# Каталоги зависимостей, которые с git читаются (ТЗ §15 п. 13 Д5): вывод покрытия тестов
+# обычно в .gitignore и в перечень git не попадает, а закоммиченный coverage/ — код
+# (pkg/util/coverage/ Kubernetes). Без git обход в них по-прежнему не заходит.
+GIT_READ_DIRS = frozenset({"coverage"})
 # Без git: каталоги, в которые обход не заходит (то, что обычно лежит в .gitignore). dist,
 # build и target с git читаются: закоммиченные, они источник (build/ Kubernetes).
 SKIP_DIRS = DEPENDENCY_DIRS | {".git", "dist", "build", "target"}
+# Каталоги, код в которых ярус кода не читает: без git в перечень не попадает ничего из
+# SKIP_DIRS, с git — ни из чего, кроме GIT_READ_DIRS, их код читается.
+CODE_SKIP_DIRS = SKIP_DIRS - GIT_READ_DIRS
 
 # Исключение по соглашению: сегменты пути (сравнение без учёта регистра).
 CONVENTION_DIRS = frozenset({
@@ -50,6 +57,24 @@ _SEGMENT_PARTS = re.compile(r"[-_]")
 def _convention_dir(segment: str) -> bool:
     low = segment.lower()
     return low in CONVENTION_DIRS or bool(_DOC_TOKENS & set(_SEGMENT_PARTS.split(low)))
+
+
+# Каталоги документации (ТЗ §15 п. 13 Д2): файлы OpenAPI в них (Sentry api-docs/openapi.json)
+# всё же видит разборщик openapi ради подсказки, хотя в покрытии каталог исключён. Каталоги
+# тестов, фикстур, примеров и образцов сюда не входят.
+_DOCS_ONLY = frozenset({"docs", "doc"})
+
+
+def docs_only(rel_in_scope: str) -> bool:
+    """Путь исключён по соглашению только каталогами документации (docs, doc, api-docs):
+    ни один каталог пути не тестовый, не фикстуры и не примеры."""
+    hits = [seg.lower() for seg in rel_in_scope.split("/")[:-1] if _convention_dir(seg)]
+    return bool(hits) and all(
+        set(_SEGMENT_PARTS.split(seg)) & _DOCS_ONLY
+        and not (set(_SEGMENT_PARTS.split(seg)) & (_DOC_TOKENS - _DOCS_ONLY))
+        and (seg not in CONVENTION_DIRS or seg in _DOCS_ONLY)
+        for seg in hits
+    )
 
 # Файлы и каталоги CI и служебных инструментов (ТЗ §15 п. 10 А9): верхний services: у
 # .woodpecker.yml Lemmy стал базой, примеры правил .semgrep PostHog дали расписания. Такие
@@ -336,12 +361,14 @@ def template_rule(rel_in_scope: str) -> str | None:
     return None
 
 
-def dependency_rule(rel_in_scope: str) -> str | None:
+def dependency_rule(rel_in_scope: str, git: bool = False) -> str | None:
     """Каталог зависимостей из DEPENDENCY_DIRS в пути (сегмент целиком, с учётом регистра,
-    как у обхода без git): путь каталога с «/» для отчёта или None."""
+    как у обхода без git): путь каталога с «/» для отчёта или None. Перечень git (git=True)
+    каталоги GIT_READ_DIRS не исключает."""
+    dirs = DEPENDENCY_DIRS - GIT_READ_DIRS if git else DEPENDENCY_DIRS
     parts = rel_in_scope.split("/")
     for i, seg in enumerate(parts[:-1]):
-        if seg in DEPENDENCY_DIRS:
+        if seg in dirs:
             return "/".join(parts[: i + 1]) + "/"
     return None
 
@@ -355,6 +382,22 @@ def ci_rule(rel_in_scope: str) -> str | None:
         if (not last and low in CI_DIRS) or low.startswith(CI_PREFIXES):
             return "/".join(parts[: i + 1]) + ("" if last else "/")
     return None
+
+
+# CI на ступени 2 (ТЗ §15 п. 13 Д4): ci/matrix/docker-compose.yml Envoy описывает сборочную
+# матрицу (gcc, llvm, none), а не стенд продукта, но без боевых манифестов давал объекты.
+_CI_TOKEN = "ci"
+
+
+def ci_sign(rel: str) -> bool:
+    """Манифест CI: каталог пути с частью «ci» (ci/, .ci/, ci-matrix/), файл или каталог CI
+    (ci_rule: .github/, .gitlab-ci.yml, .woodpecker.yml, .drone.yml, .circleci/) или compose
+    с частью «ci» в имени. Файлы CI и такой compose обход и так не читает (если их не вернул
+    --include), поэтому на деле признак даёт каталог."""
+    segments = rel.split("/")
+    if ci_rule(rel) is not None or any(_CI_TOKEN in name_tokens(s) for s in segments[:-1]):
+        return True
+    return is_compose_name(segments[-1]) and _CI_TOKEN in name_tokens(segments[-1])
 
 
 def _glob_match(
@@ -456,6 +499,9 @@ class Listing:
     files: tuple[str, ...]
     excluded: tuple[Excluded, ...]
     ignore_file: str | None  # путь .archmapignore, если он был
+    # Файлы, исключённые только каталогами документации (docs_only): их видит лишь
+    # разборщик openapi (ТЗ §15 п. 13 Д2), в покрытии они среди исключённых.
+    docs: tuple[str, ...] = ()
 
 
 def _walk(top: Path, root: Path, skip: Sequence[Path]) -> list[str]:
@@ -494,6 +540,7 @@ def list_files(
 ) -> Listing:
     """Перечень файлов области с исключениями. Пути от корня, отсортированы."""
     raw = git_files(ctx) if ctx.git else None
+    from_git = raw is not None
     if raw is None:
         raw = _walk(ctx.scope_dir, ctx.root, skip)
     else:
@@ -513,6 +560,7 @@ def list_files(
     inc = [Pattern(p) for p in includes if p.strip()]
 
     files: list[str] = []
+    docs: list[str] = []
     counts: Counter[tuple[str, str]] = Counter()
     prefix = ctx.scope + "/" if ctx.scope else ""
     for rel in raw:
@@ -530,7 +578,7 @@ def list_files(
         if ci is not None and not any(p.hits(rel) for p in inc):
             counts[(prefix + ci, "ci")] += 1
             continue
-        dep = dependency_rule(rel[len(prefix):])
+        dep = dependency_rule(rel[len(prefix):], from_git)
         if dep is not None and not any(p.hits(rel) for p in inc):
             counts[(prefix + dep, "dependencies")] += 1
             continue
@@ -539,6 +587,8 @@ def list_files(
             # Каталог и compose-файл отчитываются от корня, шаблон имени — как есть.
             shown, scoped = rule
             counts[(prefix + shown if scoped else shown, "convention")] += 1
+            if docs_only(rel[len(prefix):]):
+                docs.append(rel)
             continue
         template = template_rule(rel[len(prefix):])
         if template is not None:
@@ -549,7 +599,9 @@ def list_files(
         Excluded(path=path, files=n, reason=reason)
         for (path, reason), n in sorted(counts.items())
     )
-    return Listing(files=tuple(files), excluded=excluded, ignore_file=ignore_file)
+    return Listing(
+        files=tuple(files), excluded=excluded, ignore_file=ignore_file, docs=tuple(docs),
+    )
 
 
 def _drop_ours(root: Path, rels: Iterable[str], skip: Sequence[Path]) -> list[str]:
@@ -584,9 +636,11 @@ def _drop_ours(root: Path, rels: Iterable[str], skip: Sequence[Path]) -> list[st
 class Files:
     """Файлы области и их чтение по запросу разборщика (с кэшем и пределами)."""
 
-    def __init__(self, root: Path, paths: Iterable[str]) -> None:
+    def __init__(self, root: Path, paths: Iterable[str], docs: Iterable[str] = ()) -> None:
         self.root = root
         self.paths: tuple[str, ...] = tuple(sorted(paths))
+        # Исключённые каталоги документации (Listing.docs): только для разборщика openapi.
+        self.docs: tuple[str, ...] = tuple(sorted(docs))
         self._cache: dict[str, str | None] = {}
         self._dirs: frozenset[str] | None = None
         # Производное от перечня на время запуска (индекс манифестов, модулей Python):

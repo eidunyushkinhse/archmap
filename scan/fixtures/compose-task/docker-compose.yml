@@ -11,7 +11,9 @@ services:
     image: redpandadata/redpanda:v25.1
     restart: on-failure
     command: [redpanda, start, --overprovisioned]
-  kafka-init:
+  # С части 2 (Д7) tables-ready — задача инициализации в подсказках; topics без признака
+  # задачи в имени и restart остаётся правилу А8 (оболочка и depends_on на тот же образ).
+  topics:
     image: redpandadata/redpanda:v25.1
     entrypoint: /bin/sh
     command: ["-c", "rpk topic create events --brokers kafka:9092"]
@@ -23,4 +25,4 @@ services:
     depends_on: [db]
   api:
     build: api
-    depends_on: [db, kafka, kafka-init, tables-ready]
+    depends_on: [db, kafka, topics, tables-ready]

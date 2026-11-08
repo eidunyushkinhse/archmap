@@ -22,6 +22,13 @@ devservices/config.yml), читается по тем же правилам; п�
 строку «services:» с начала строки. Записи с repo_link или repo_name где угодно в документе
 compose (расширения x-*, dependencies) — сервисы других репозиториев: объектов из них нет, они
 лежат в hints.external_repos для агента.
+
+Блок x-programs верхнего уровня (ТЗ §13.3, ч. 2 В5: devservices/config.yml Sentry, 21
+программа) {имя: {command: строка}} даёт процессы, как Procfile: роль по имени и словам
+команды (vocab.role_by_program), команда в entrypoints.workers, каталог кода — корень
+обхода. Признак разработки у программ тот же, что у файла, режимы devservices к ним не
+применяются (программы перечислены только в режимах, кроме default). Программа с именем
+сервиса того же файла склеивается с ним. Блоки x-* без command процессов не дают.
 """
 
 from __future__ import annotations
@@ -292,6 +299,31 @@ def _unit(
     return unit
 
 
+def _programs(doc: LineDict) -> list[tuple[str, LineDict, int]]:
+    """Программы блока x-programs верхнего уровня с командой: (имя, запись, строка)."""
+    block = doc.get("x-programs")
+    if not isinstance(block, LineDict):
+        return []
+    out: list[tuple[str, LineDict, int]] = []
+    for key, entry in block.items():
+        if not isinstance(entry, LineDict) or _command(entry)[0] is None:
+            continue
+        out.append((str(key), entry, block.line_of(key)))
+    return out
+
+
+def _program_unit(name: str, entry: LineDict, rel: str, line: int, scope: str) -> Unit:
+    """Процесс программы x-programs (ТЗ §15 п. 13 В5): как строка Procfile с кодом в корне
+    (сборка снимает его, если есть контейнер со своей сборкой, Д10)."""
+    command, cmd_line = _command(entry)
+    text = command or ""
+    return Unit(
+        name=name, parser=NAME, loc=Loc(rel, line), command=text,
+        command_loc=Loc(rel, cmd_line) if cmd_line else None,
+        role=vocab.role_by_program(name, text), home_dir=scope,
+    )
+
+
 def _merge(into: Unit, other: Unit) -> None:
     """Поздний файл перекрывает поля раннего, переменные и зависимости складываются."""
     into.image = other.image or into.image
@@ -378,6 +410,24 @@ def _external_repos(doc: LineDict, rel: str, found: Findings) -> None:
             stack.extend((v, [*keys, None]) for v in reversed(node))
 
 
+# Имя стенда (ТЗ §15 п. 13 Д8): верхний ключ name: файла compose со словом из перечня
+# (posthog-multinode-smoke PostHog поднимает кластер ClickHouse для проверки миграций) —
+# файл стенда разработки или замеров. Имя проекта compose — строчные буквы, цифры, «-» и
+# «_», поэтому слова — части между ними (walk.name_tokens); contest-shop не test.
+_STAND_NAME_WORDS = frozenset({
+    "smoke", "test", "tests", "ci", "e2e", "dev", "local", "bench", "benchmark",
+})
+
+
+def _stand_name(doc: LineDict) -> str | None:
+    """Признак «имя стенда» по верхнему ключу name: файла или None."""
+    name = doc.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    shown = expand(name.strip())
+    return texts.dev_sign_stand_name(shown) if name_tokens(shown) & _STAND_NAME_WORDS else None
+
+
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     units: dict[str, Unit] = {}
@@ -393,17 +443,21 @@ def parse(files: Files, ctx: Context) -> Findings:
     signs = {rel: manifest_sign(rel) for rel in ordered}
     dev_files = {rel for rel in ordered if signs[rel]}
     docs: dict[str, LineDict] = {}
+    programs: dict[str, list[tuple[str, LineDict, int]]] = {}
     modes: dict[str, dict[str, tuple[str, list[str]]]] = {}
+    stands: dict[str, str | None] = {}
     for rel in [r for r in ordered if r not in dev_files] + [r for r in ordered if r in dev_files]:
         loaded = _load_services(files, rel, found, by_content=rel in content)
         if loaded is not None:
             docs[rel] = loaded[0]
+            programs[rel] = _programs(loaded[1])
+            stands[rel] = _stand_name(loaded[1])
             if rel in dev_files:
                 modes[rel] = _devservices(loaded[1], loaded[0], rel)
     # Файл Laravel Sail целиком окружение разработки (ТЗ §15 п. 12 С6в): его базы и
-    # кэш поднимаются для того же стенда.
+    # кэш поднимаются для того же стенда. Так же файл с именем стенда (Д8).
     for rel, services in docs.items():
-        sail = None if signs[rel] else _sail(services, rel)
+        sail = None if signs[rel] else stands.get(rel) or _sail(services, rel)
         if sail is not None:
             signs[rel] = sail
             dev_files.add(rel)
@@ -418,11 +472,26 @@ def parse(files: Files, ctx: Context) -> Findings:
         note = texts.compose_by_content(rel) if rel in content else None
         if note is not None and not dev:
             found.notes.setdefault("containers", []).append(note)
-        for key, svc in services.items():
+        entries = [(str(k), v, services.line_of(k), False) for k, v in services.items()]
+        entries += [(name, entry, line, True) for name, entry, line in programs.get(rel, [])]
+        for name, svc, line, program in entries:
             if not isinstance(svc, LineDict):
                 continue
-            name = str(key)
-            line = services.line_of(key)
+            if program:
+                unit = _program_unit(name, svc, rel, line, ctx.scope)
+                if dev is None:
+                    if name in units:
+                        _merge(units[name], unit)
+                    else:
+                        units[name] = unit
+                elif name not in units:
+                    unit.dev = dev
+                    unit.dev_notes = [note] if note is not None else []
+                    if name in dev_units:
+                        _merge(dev_units[name], unit)
+                    else:
+                        dev_units[name] = unit
+                continue
             if _profiles(svc):
                 found.hints.append(Hint("profiles", {
                     "kind": "container", "name": name, "reason": texts.REASON_PROFILE,
@@ -538,7 +607,10 @@ def _sail(services: LineDict, rel: str) -> str | None:
 def _service_dev(name: str, svc: LineDict, rel: str) -> str | None:
     """Признак разработки по форме сервиса (ТЗ §15 п. 12 С6): команда разработки (установка
     зависимостей, посев, сервер разработки, тесты, слежение, заглушка), раннер тестов по
-    имени сервиса или образ инструмента разработчика (vocab.DEV_TOOL_IMAGES)."""
+    имени сервиса, образ инструмента разработчика (vocab.DEV_TOOL_IMAGES) или тег образа
+    разработки (ТЗ §15 п. 13 Д1, vocab.dev_image_tag). Тег считается только у образа, который
+    берётся готовым: у сервиса с build образ — имя результата локальной сборки (Forem:
+    ghcr.io/forem/forem:1.0.0-development у web, rails и sidekiq боевого файла)."""
     for key in ("command", "entrypoint"):
         value = svc.get(key)
         text = " ".join(_scalar(v) for v in value) if isinstance(value, list) else value
@@ -551,6 +623,9 @@ def _service_dev(name: str, svc: LineDict, rel: str) -> str | None:
     tool = vocab.dev_tool(image) if isinstance(image, str) else None
     if tool is not None:
         return texts.dev_sign_tool(tool)
+    tag = vocab.dev_image_tag(expand(image)) if isinstance(image, str) else None
+    if tag is not None and "build" not in svc:
+        return texts.dev_sign_image_tag(tag)
     return None
 
 

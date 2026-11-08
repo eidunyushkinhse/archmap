@@ -1,0 +1,20 @@
+services:
+  web:
+    build: .
+    image: ghcr.io/shop/shop:1.0.0-development
+  api:
+    image: ghcr.io/shop/api:1.4
+  bundle:
+    image: quay.io/shop/shop:development
+  checker:
+    image: shop/checker:main_test
+  queue:
+    image: rabbitmq:local
+  cache:
+    image: redis:7-alpine
+  db:
+    image: postgres:16
+  mc:
+    image: cgr.dev/chainguard/minio-client:latest-dev
+  proxy:
+    image: nginx:latest

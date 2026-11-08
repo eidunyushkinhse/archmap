@@ -48,7 +48,7 @@ def ctx_of(root: Path, system: str | None = None) -> Context:
 def files_of(root: Path) -> tuple[Context, Files]:
     ctx = ctx_of(root)
     listing = list_files(ctx)
-    return ctx, Files(ctx.root, listing.files)
+    return ctx, Files(ctx.root, listing.files, listing.docs)
 
 
 def git(cwd: Path, *args: str) -> None:
@@ -64,7 +64,8 @@ def git(cwd: Path, *args: str) -> None:
 def model_of(root: Path, system: str | None = "Ярмарка") -> Model:
     """Все разборщики реестра и сборка схемы по дереву root (без git)."""
     ctx = ctx_of(root, system)
-    files = Files(ctx.root, list_files(ctx).files)
+    listing = list_files(ctx)
+    files = Files(ctx.root, listing.files, listing.docs)
     findings, errors = registry.collect(files, ctx)
     assert errors == {}
     return assemble(findings, ctx)

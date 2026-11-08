@@ -1,0 +1,6 @@
+# Д6: ledger на Gradle с плагином Kotlin (смешанный: .kt и .java), billing на Gradle без него.
+services:
+  ledger:
+    build: ./ledger
+  billing:
+    build: ./billing

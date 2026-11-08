@@ -1,0 +1,2 @@
+[Service]
+ExecStart=/usr/bin/bundle exec puma -C config/puma.rb

@@ -35,7 +35,14 @@ from archmap_scan.objects import (
     Schedule,
     Worker,
 )
-from archmap_scan.walk import Pattern, dev_sign, manifest_sign, mobile_dir, service_sign
+from archmap_scan.walk import (
+    Pattern,
+    ci_sign,
+    dev_sign,
+    manifest_sign,
+    mobile_dir,
+    service_sign,
+)
 
 # Старшинство манифестов при слиянии кандидатов с одним именем.
 PRIORITY = {
@@ -82,7 +89,9 @@ def _is_task(unit: Unit, image: str, images: dict[str, str]) -> bool:
 
 def _tasks(model: Model) -> None:
     """Задачи на образе базы или брокера — сервисы с ролью «задача»: ни базой, ни брокером
-    они не считаются, а depends_on к ним уходит в подсказки, как к любому сервису."""
+    они не считаются, а depends_on к ним уходит в подсказки, как к любому сервису. Задачи с
+    признаком по имени или restart раньше убрал _init_tasks (Д7), здесь остаются задачи без
+    него (оболочка и depends_on на сервис того же образа)."""
     images: dict[str, str] = {}
     for obj in model.objects:
         image = next((u.image for u in obj.units if u.image), None)
@@ -96,6 +105,43 @@ def _tasks(model: Model) -> None:
             obj.technology = images[obj.name]
 
 
+def _init_task(unit: Unit, kind: str) -> bool:
+    """Сервис compose или k8s Job — задача инициализации (ТЗ §15 п. 13 Д7): своя команда не
+    запускает сервер образа, и есть признак задачи: k8s Job, у compose restart «no» или
+    «on-failure» либо слово задачи в имени (kafka-init, personhog-tables-ready)."""
+    if unit.parser == "k8s":
+        sign = unit.job
+    elif unit.parser == "compose":
+        restart = unit.restart or ""
+        sign = restart == "no" or restart.startswith("on-failure") or vocab.init_task_name(
+            unit.name
+        )
+    else:
+        return False
+    run = " ".join(dict.fromkeys(t for t in (unit.entrypoint, unit.command) if t))
+    return sign and bool(run) and not vocab.starts_server(kind, run)
+
+
+def _init_tasks(model: Model) -> None:
+    """Задачи инициализации на образе базы, брокера или клиента хранилища объектами не
+    становятся: запись в hints.unassigned, а depends_on к ним и от них не рисуются (их нет
+    среди объектов). Задачи без признака по имени, restart или Job остаются правилу _tasks."""
+    kept: list[Obj] = []
+    for obj in model.objects:
+        unit = next((u for u in obj.units if u.image), None)
+        kind = vocab.init_image(unit.image) if unit is not None and unit.image else None
+        if kind is None or obj.code_dir is not None or not any(
+            _init_task(u, kind) for u in obj.units
+        ):
+            kept.append(obj)
+            continue
+        model.hint("unassigned", {
+            "kind": "container", "name": obj.name, "reason": texts.init_task(kind),
+            "source": str(min(u.loc for u in obj.units)),
+        })
+    model.objects = kept
+
+
 def _go_module_name(module: str) -> str:
     parts = [p for p in module.split("/") if p]
     if len(parts) > 1 and parts[-1][:1] == "v" and parts[-1][1:].isdigit():
@@ -103,13 +149,30 @@ def _go_module_name(module: str) -> str:
     return parts[-1] if parts else module
 
 
+_NAME_KINDS = ("package.json", "pyproject.toml", "go.mod")
+
+
 def system_name(ctx: Context, packages: list[Package]) -> tuple[str, list[Loc]]:
-    """Имя корня: --system, имя корневого манифеста сборки, иначе имя каталога."""
+    """Имя корня: --system, имя корневого манифеста сборки, иначе имя каталога. Корневой
+    package.json с серверным фреймворком в зависимостях (koa у Zulip) даёт имя первым, как
+    раньше; иначе имя даёт манифест языка, который stack_of выбирает для корня (ТЗ §15 п. 13
+    Д3): бэкенд не на Node.js старше package.json интерфейса или рабочего пространства. У
+    Nomad go.mod (module github.com/hashicorp/nomad) старше package.json nomad-ui."""
     if ctx.system:
         return ctx.system, []
-    for kind in ("package.json", "pyproject.toml", "go.mod"):
-        for pkg in packages:
-            if pkg.dir == ctx.scope and pkg.kind == kind and pkg.name:
+    roots = [p for p in packages if p.dir == ctx.scope]
+    server = any(
+        p.kind == "package.json" and not p.workspaces
+        and vocab.find_framework(p.deps, vocab.SERVER_FRAMEWORKS) for p in roots
+    )
+    language = None if server else stack_of(
+        [p for p in roots if p.kind != "package.json"] or roots,
+    )[0]
+    for same in (language is not None, False):
+        for kind in _NAME_KINDS:
+            for pkg in roots:
+                if pkg.kind != kind or not pkg.name or (same and pkg.language != language):
+                    continue
                 name = _go_module_name(pkg.name) if kind == "go.mod" else pkg.name
                 return name, [pkg.name_loc] if pkg.name_loc else []
     return ctx.root.name, []
@@ -748,7 +811,10 @@ def _dev_units(
 
     Ступень 2 (Б3): боевых манифестов нет (Sentry devservices). Кандидаты разработки
     становятся объектами вместе с подсказками своего разбора, а пометку «из манифеста
-    разработки» ставит _dev_objects."""
+    разработки» ставит _dev_objects. Кандидаты CI (walk.ci_sign, ТЗ §15 п. 13 Д4) и на
+    ступени 2 объектами не становятся: CI собирает и проверяет продукт, а не поднимает его
+    стенд (ci/ Envoy). Они уходят в hints.profiles, если кандидата с тем же именем нет в
+    стенде разработки."""
     for u in units:
         if u.dev is None and u.parser in _DEV_MANIFESTS:
             sign = dev_sign if u.parser in _NO_SERVICE_SIGN else manifest_sign
@@ -756,11 +822,20 @@ def _dev_units(
     _stands([u for u in units if u.dev is None], findings, root_names)
     kept = [u for u in units if u.dev is None]
     if not any(u.parser in _MANIFEST_PARSERS for u in kept):
+        stand = [u for u in units if u.dev is None or not ci_sign(u.loc.path)]
+        names = {u.name for u in stand}
         for u in units:
+            if u.dev is not None and u.name not in names:
+                model.hint("profiles", {
+                    "kind": "container", "name": u.name, "reason": texts.ci_manifest(u.dev),
+                    "source": str(u.loc), "profiles": [],
+                })
+                names.add(u.name)
+        for u in stand:
             for hint in u.dev_hints:
                 model.hint(hint.section, hint.data)
             model.dev_notes += [n for n in u.dev_notes if n not in model.dev_notes]
-        return units
+        return stand
     names = {u.name for u in kept}
     for u in units:
         if u.dev is not None and u.name not in names:
@@ -978,11 +1053,42 @@ def _absorb(kept: Obj, gone: Obj) -> None:
     kept.language = kept.language or gone.language
 
 
-def _merge_duplicates(model: Model) -> None:
+def _prefixed(
+    objs: list[Obj], prefixes: list[str],
+) -> tuple[Obj, Obj] | None:
+    """Пара по имени с префиксом системы (ТЗ §15 п. 13 Д9): контейнеры разных семей
+    манифестов, имя первого — «<система>-<имя второго>» или «<система>_<имя второго>» без
+    учёта регистра, язык или технология совпадают или у одного технология не задана.
+    Возвращает (короткий, длинный)."""
+    by_name = {o.name.lower(): o for o in objs if o.is_container}
+    for long in objs:
+        if not long.is_container:
+            continue
+        low = long.name.lower()
+        for prefix in prefixes:
+            if len(low) <= len(prefix) + 1 or not low.startswith(prefix) or (
+                low[len(prefix)] not in "-_"
+            ):
+                continue
+            short = by_name.get(low[len(prefix) + 1:])
+            if short is None or short is long or set(short.parsers) & set(long.parsers):
+                continue
+            if (
+                short.technology is None or long.technology is None
+                or short.technology == long.technology
+                or (short.language is not None and short.language == long.language)
+            ):
+                return short, long
+    return None
+
+
+def _merge_duplicates(model: Model, prefixes: list[str] | None = None) -> None:
     """Один процесс, описанный двумя манифестами, даёт один контейнер (ТЗ §13.5). Grafana:
     корневой Dockerfile даёт grafana, а systemd запускает /usr/share/grafana/bin/grafana
     под именем grafana-server. Остаётся контейнер из Dockerfile, иначе с более коротким
-    именем; склейка записана в hints.merged с источниками обоих."""
+    именем; склейка записана в hints.merged с источниками обоих. Затем пары по имени с
+    префиксом системы (_prefixed, Д9: dist/mastodon-web.service и web compose): имя
+    остаётся короткое, у сервиса compose."""
     programs = {id(o): _programs(o) for o in model.objects}
     while (pair := _duplicate(model.objects, programs)) is not None:
         runner, named, command = pair
@@ -997,6 +1103,62 @@ def _merge_duplicates(model: Model) -> None:
             "reason": texts.REASON_MERGED,
             "source": [str(loc) for loc in sorted({min(u.loc for u in named.units), command})],
         })
+    while prefixes and (twin := _prefixed(model.objects, prefixes)) is not None:
+        kept, gone = twin
+        sources = sorted({min(u.loc for u in gone.units), min(u.loc for u in kept.units)})
+        _absorb(kept, gone)
+        model.objects.remove(gone)
+        model.hint("merged", {
+            "kind": "container", "name": gone.name, "object": kept.name,
+            "reason": texts.REASON_MERGED_PREFIX, "source": [str(loc) for loc in sources],
+        })
+
+
+def _command_only(obj: Obj) -> bool:
+    """Процесс, заданный только командой: программа Procfile или x-programs, юнит systemd
+    или supervisor без своего Dockerfile, образа и контекста сборки."""
+    if not obj.is_container or obj.dockerfile is not None:
+        return False
+    return any(u.command for u in obj.units) and not any(
+        u.image or u.build_dir is not None or u.dockerfile for u in obj.units
+    )
+
+
+def _takes_code(builder: Obj, folder: str, language: str | None) -> bool:
+    """Контейнер сборки забирает код процесса из каталога folder: тот же язык, а каталоги
+    вложены один в другой (self-hosted/ Sentry в корне программ), либо язык одного не
+    определён, а сборка охватывает каталог процесса (контекст сборки services/orders и
+    Procfile там же). Сборка без языка во вложенном каталоге (logstash в tools/ AWX) код
+    корня не забирает."""
+    home = builder.code_dir
+    if home is None:
+        return False
+    if builder.language is not None and language is not None:
+        return builder.language == language and (
+            paths.under(home, folder) or paths.under(folder, home)
+        )
+    return paths.under(folder, home)
+
+
+def _program_dirs(model: Model) -> None:
+    """Процесс, заданный только командой, каталога кода не получает (ТЗ §15 п. 13 Д10), если
+    в репозитории есть контейнер со своей сборкой (Dockerfile или контекст сборки) того же
+    языка или без определённого языка (_takes_code). Код тогда остаётся у контейнера сборки
+    (у Sentry src/ у self-hosted, а не у 21 программы x-programs из корня), а процесс даёт
+    воркеры, консьюмеры, расписания из команды и связи. Без контейнеров со сборкой
+    программы владеют своим каталогом, как раньше. Склейки по имени и по команде (§13.5) уже
+    сделаны: склеенный объект — уже не процесс только из команды."""
+    builders = [
+        o for o in model.objects
+        if o.is_container and o.code_dir is not None and not _command_only(o)
+        and (o.dockerfile is not None or any(u.build_dir is not None for u in o.units))
+    ]
+    for obj in model.objects:
+        folder = obj.code_dir
+        if folder is None or not _command_only(obj):
+            continue
+        if any(_takes_code(b, folder, obj.language) for b in builders):
+            obj.code_dir = None
 
 
 def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
@@ -1164,8 +1326,15 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     for hint in findings.hints:
         model.hint(hint.section, hint.data)
     model.objects = _objects(list(findings.units), findings, model, ctx)
+    _init_tasks(model)
     _tasks(model)
-    _merge_duplicates(model)
+    # Префикс имени системы: последняя часть имени (@mastodon/mastodon → mastodon) и каталог
+    # корня, без учёта регистра.
+    prefixes = list(dict.fromkeys(
+        p.lower() for p in (model.system.rsplit("/", 1)[-1], ctx.root.name) if p
+    ))
+    _merge_duplicates(model, prefixes)
+    _program_dirs(model)
     _dev_objects(model)
     if not any(o.is_container for o in model.objects):
         # Манифестов нет: процессы по файлам сборки (ТЗ §13.4), иначе единственный неявный
@@ -1213,7 +1382,7 @@ def _openapi(model: Model, findings: Findings) -> None:
         if spec.operations is None:
             data["reason"] = spec.reason or texts.REASON_OPENAPI_TOO_LARGE
         else:
-            data["reason"] = texts.REASON_OPENAPI_FILE
+            data["reason"] = texts.REASON_OPENAPI_DOCS if spec.in_docs else texts.REASON_OPENAPI_FILE
         data["source"] = spec.path
         if spec.operations is not None:
             data["operations"] = spec.operations

@@ -77,14 +77,13 @@ def test_code_unsupported_stacks() -> None:
     ]
     # Параметры в коде Python, Node.js и Go читает ярус кода; viper только транзитивный.
     assert stacks["config"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
-    # Каналы Celery, Kafka, RabbitMQ и NATS читает ярус кода; BullMQ на Node.js и Sidekiq
-    # на Ruby — нет, как и любые каналы на языках без чтения кода.
-    assert stacks["channels"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
+    # Каналы Celery, Kafka, RabbitMQ, NATS, BullMQ и Sidekiq читает ярус кода; прочий код на
+    # Ruby нет, и язык назван сам, как любые каналы на языках без чтения кода. Воркеры BullMQ и
+    # Sidekiq из кода не заводятся.
+    assert stacks["channels"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
     assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
-    # Расписания Celery beat читает разборщик celery-beat.
-    assert stacks["schedules"] == [
-        ".NET", "Elixir", "Java", "PHP", "Ruby: sidekiq-scheduler", "Rust: clokwerk",
-    ]
+    # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler — sidekiq.
+    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust: clokwerk"]
     assert stacks["tables"] == ["Ecto", "Kysely"]
 
 
@@ -207,8 +206,8 @@ def test_unsupported_only_from_container_code(tmp_path: Path) -> None:
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["http_routes"]["unsupported"] == ["Rust: actix-web"]
     assert families["config"]["unsupported"] == ["Rust"]
-    assert families["channels"] == {"status": "unsupported", "parsers": [],
-                                    "unsupported": ["BullMQ", "Rust"]}
+    assert families["channels"] == {"status": "unsupported", "parsers": ["bullmq"],
+                                    "unsupported": ["Rust"]}
     assert families["workers"]["status"] == "unsupported"
     assert families["workers"]["unsupported"] == ["BullMQ", "Rust"]
     assert families["tables"]["unsupported"] == ["Kysely"]
@@ -243,7 +242,9 @@ def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["channels"]["status"] == "empty"
-    assert families["channels"]["parsers"] == ["celery", "kafka", "rabbitmq", "nats"]
+    assert families["channels"]["parsers"] == [
+        "celery", "kafka", "rabbitmq", "nats", "bullmq", "sidekiq",
+    ]
     assert families["http_routes"]["status"] == "empty"
 
     images = tree(tmp_path / "img", {"docker-compose.yml": "services:\n  cache:\n    image: redis:7\n"})
@@ -251,3 +252,18 @@ def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     run(Options(path=str(images), out=str(out2), system="Ярмарка", use_git=False))
     families = yaml.safe_load((out2 / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["channels"]["status"] == "unknown"
+
+
+def test_system_name_by_root_language(tmp_path: Path) -> None:
+    """Имя системы по манифесту языка корня (ТЗ §15 п. 13 Д3): Nomad go.mod (module
+    github.com/hashicorp/nomad) и package.json рабочего пространства интерфейса nomad-ui.
+    Ловушки: Node-монорепо с go.mod в подкаталоге остаётся по package.json; package.json с
+    серверным фреймворком (koa у Zulip) даёт имя первым; --system старше всего."""
+    assert model_of(FIXTURES / "root-name-go", system=None).system == "nomad"
+    assert model_of(FIXTURES / "root-name-go", system="Ярмарка").system == "Ярмарка"
+    tree(tmp_path, {
+        "package.json": '{"name": "shop", "workspaces": ["web"]}',
+        "tools/go.mod": "module example.com/tools\n",
+        "Dockerfile": "FROM node:22\n",
+    })
+    assert model_of(tmp_path, system=None).system == "shop"

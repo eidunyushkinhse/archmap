@@ -103,6 +103,30 @@ def dev_tool(image: str) -> str | None:
     return None
 
 
+# Теги образа разработки (ТЗ §15 п. 13 Д1): тег целиком или последней частью через «-» или
+# «_» (development, 1.2-dev, main_test). Варианты образов Chainguard с оболочкой
+# (cgr.dev/chainguard/minio-client:latest-dev у Supabase) разработкой не считаются.
+DEV_IMAGE_TAGS = frozenset({"dev", "development", "test", "testing", "ci", "debug", "local"})
+_SHELL_VARIANTS = "cgr.dev/chainguard/"
+_TAG_PARTS = re.compile(r"[-_]")
+
+
+def dev_image_tag(image: str) -> str | None:
+    """Тег образа разработки или None: latest, версии, alpine и slim — не признак."""
+    ref = image.strip().split("@", 1)[0]
+    head, _, last = ref.rpartition("/")
+    _name, colon, tag = last.partition(":")
+    if not colon or not tag:
+        return None
+    tag = tag.lower()
+    word = _TAG_PARTS.split(tag)[-1]
+    if word not in DEV_IMAGE_TAGS:
+        return None
+    if word == "dev" and (head + "/").lower().startswith(_SHELL_VARIANTS):
+        return None
+    return tag
+
+
 # Команды разработки (ТЗ §15 п. 12 С6а): установка зависимостей, посев базы, сервер
 # разработки с перезагрузкой, запуск тестов, сборка в режиме слежения и контейнер-заглушка
 # для работы внутри (sleep infinity у devcontainer Forem). Пары «программа подкоманда» и
@@ -144,6 +168,86 @@ def dev_command(command: str | None) -> str | None:
         if word == "tail" and words[i + 1:i + 3] == ["-f", "null"]:
             return "tail -f /dev/null"
     return None
+
+
+# Задачи инициализации (ТЗ §15 п. 13 Д7): сервис на образе базы, брокера или клиента
+# хранилища со своей командой, которая не запускает сервер образа, создаёт таблицы, топики
+# или корзины и выходит (kafka-init PostHog на redpanda, minio-createbucket Supabase). Вид
+# по технологии образа или по пути образа клиента → программы сервера образа: слово команды
+# с базовым именем первой программы и следующими словами пары (rclone serve). У клиентов
+# MinIO и RustFS сервера нет.
+_INIT_SERVERS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "PostgreSQL": (("postgres",), ("pg_ctl",), ("pg_ctlcluster",), ("postmaster",)),
+    "Redpanda": (("redpanda",),),
+    "Kafka": (("kafka-server-start.sh",), ("kafka-server-start",), ("run",), ("run.sh",)),
+    "Redis": (("redis-server",), ("redis-stack-server",), ("valkey-server",), ("redis-sentinel",)),
+}
+_INIT_CLIENTS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "minio/mc": (), "minio-client": (), "rustfs/rc": (),
+    "rclone": (("rclone", "serve"), ("rclone", "rcd")),
+}
+# Слова имени сервиса, по которым он задача (через «-», «_» или «.»), и create-bucket целиком.
+_INIT_NAME_WORDS = frozenset({
+    "init", "setup", "migrate", "seed", "bootstrap", "createbucket", "ready", "wait",
+})
+_INIT_NAME_PHRASES = ("create-bucket", "create_bucket")
+_NAME_PARTS = re.compile(r"[-_.]")
+# Обёртки, после которых программа образа по умолчанию (docker-entrypoint.sh без команды
+# запускает postgres): команда только из них сервер запускает.
+_INIT_WRAPPERS = frozenset({"docker-entrypoint.sh", "entrypoint.sh", "tini", "dumb-init", "--"})
+# Сколько слов команды просматривается: дальше команда считается запускающей сервер, и
+# сервис остаётся по прежним правилам.
+_MAX_INIT_WORDS = 4096
+
+
+def init_image(image: str) -> str | None:
+    """Вид образа задачи инициализации (технология базы или брокера, путь образа клиента)
+    или None."""
+    kind = image_kind(image)
+    if kind is not None and kind.technology in _INIT_SERVERS:
+        return kind.technology
+    parts = image_path(image).split("/")
+    for key in (parts[-1], "/".join(parts[-2:])):
+        if key in _INIT_CLIENTS:
+            return key
+    return None
+
+
+def starts_server(kind: str, command: str) -> bool:
+    """Команда запускает сервер образа вида kind: программа сервера на месте программы, а не
+    значением ключа (psql -U postgres сервер не запускает). Команда из одних обёрток
+    запускает программу образа по умолчанию, то есть сервер."""
+    servers = _INIT_SERVERS.get(kind) or _INIT_CLIENTS.get(kind, ())
+    words = [w.strip("'\"();&|") for w in command.split()[: _MAX_INIT_WORDS + 1]]
+    if len(words) > _MAX_INIT_WORDS:
+        return True
+    bases = [_base(w) for w in words]
+    if all(b in _INIT_WRAPPERS for b in bases if b):
+        return bool(_INIT_SERVERS.get(kind))
+    for i in range(len(bases)):
+        prev = words[i - 1] if i else ""
+        if prev.startswith("-") and not (
+            _shell_flag(prev) and i > 1 and bases[i - 2] in _SHELLS
+        ):
+            continue
+        if any(tuple(bases[i:i + len(spec)]) == spec for spec in servers):
+            return True
+    return False
+
+
+def _shell_flag(word: str) -> bool:
+    """Ключи оболочки с -c (-c, -ec, -xc): следующее слово — начало скрипта."""
+    flags = word[1:]
+    return flags.isalpha() and flags.islower() and "c" in flags
+
+
+def init_task_name(name: str) -> bool:
+    """Имя сервиса задачи: часть init, setup, migrate, seed, bootstrap, createbucket, ready,
+    wait или create-bucket."""
+    low = name.lower()
+    return bool(set(_NAME_PARTS.split(low)) & _INIT_NAME_WORDS) or any(
+        phrase in low for phrase in _INIT_NAME_PHRASES
+    )
 
 
 # Реляционные базы: им принадлежат миграции (ТЗ §7).
@@ -283,11 +387,11 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 )
 
 # Клиенты брокеров, каналы которых ярус кода не читает (ТЗ §6.4: SQS, Pub/Sub). Каналы
-# Kafka, RabbitMQ, NATS и очереди Celery читаются разборщиками kafka, rabbitmq, nats, celery.
+# Kafka, RabbitMQ, NATS, очереди Celery, BullMQ, Bull и Sidekiq читаются разборщиками kafka,
+# rabbitmq, nats, celery, bullmq, sidekiq.
 UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
-    ("sidekiq", "Sidekiq"), ("bullmq", "BullMQ"), ("bull", "Bull"),
 )
 
 # Библиотеки фоновых обработчиков в коде, которые ярус кода не читает (ТЗ §15 п. 10 А12:
@@ -297,13 +401,14 @@ UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
 )
 
 # Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
-# и schedule не ищутся); Celery beat читает разборщик celery-beat.
+# и schedule не ищутся); Celery beat читает разборщик celery-beat, sidekiq-scheduler из
+# config/sidekiq.yml — разборщик sidekiq.
 UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("node-cron", "node-cron"), ("cron", "cron"), ("node-schedule", "node-schedule"),
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
     ("github.com/robfig/cron", "robfig/cron"), ("github.com/go-co-op/gocron", "gocron"),
-    ("clokwerk", "clokwerk"), ("sidekiq-scheduler", "sidekiq-scheduler"),
+    ("clokwerk", "clokwerk"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -399,6 +504,22 @@ def is_shell(command: str | None) -> bool:
         return False
     tokens = _command_tokens(command)
     return bool(tokens) and _base(tokens[0]) in _SHELLS
+
+
+# Слова команды программы x-programs, по которым она сервис (ТЗ §15 п. 13 В5).
+_SERVICE_WORDS = frozenset({"devserver", "runserver", "web", "server"})
+
+
+def role_by_program(name: str, command: str) -> str:
+    """Роль программы блока x-programs compose, как у Procfile: web или команда со словом
+    devserver, runserver, web, server — сервис; со словом scheduler, beat, cron —
+    планировщик; остальные — воркер."""
+    words = set(_WORDS.findall(command.lower()))
+    if name == "web" or words & _SERVICE_WORDS:
+        return ROLE_SERVICE
+    if words & _SCHEDULER_WORDS:
+        return ROLE_SCHEDULER
+    return ROLE_WORKER
 
 
 def role_by_command(command: str | None) -> str | None:

@@ -1,0 +1,13 @@
+# Д9: юниты systemd с префиксом системы (shop-web, shop-streaming) — те же процессы.
+services:
+  web:
+    build: .
+    command: bundle exec puma -C config/puma.rb
+  streaming:
+    build: ./streaming
+    command: node ./streaming/index.js
+  worker:
+    build: .
+    command: bundle exec sidekiq
+  db:
+    image: postgres:16

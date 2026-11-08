@@ -43,9 +43,20 @@ def code_owners(rel: str, containers: Sequence[Obj]) -> list[Obj]:
 _EXT_LANGUAGE = {
     ".py": "Python", ".js": "Node.js", ".mjs": "Node.js", ".cjs": "Node.js", ".ts": "Node.js",
     ".mts": "Node.js", ".cts": "Node.js", ".jsx": "Node.js", ".tsx": "Node.js", ".go": "Go",
-    ".rb": "Ruby", ".php": "PHP", ".java": "Java", ".kt": "Java", ".rs": "Rust",
-    ".ex": "Elixir", ".exs": "Elixir", ".cs": ".NET",
+    ".rb": "Ruby", ".php": "PHP", ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin",
+    ".rs": "Rust", ".ex": "Elixir", ".exs": "Elixir", ".cs": ".NET",
 }
+# Языки, кодом которых контейнер владеет кроме своего (ТЗ §15 п. 13 Д6): Gradle с плагином
+# Kotlin (язык контейнера Kotlin) собирает и исходники Java того же модуля, это смешанный
+# проект; Gradle без плагина Kotlin файлы .kt не компилирует, контейнер на Java ими не владеет.
+_ALSO_OWNS = {"Kotlin": frozenset({"Java"})}
+
+
+def _same_language(container: str | None, language: str | None) -> bool:
+    """Язык файла совпадает с языком контейнера или входит в _ALSO_OWNS для него."""
+    return container == language or (
+        container is not None and language in _ALSO_OWNS.get(container, frozenset())
+    )
 
 
 def file_language(rel: str) -> str | None:
@@ -65,7 +76,7 @@ def sole_owner(containers: Sequence[Obj], language: str | None) -> list[Obj]:
     if len(own) != 1:
         return []
     sole = own[0]
-    if sole.language is None or sole.language == language:
+    if sole.language is None or _same_language(sole.language, language):
         return [sole]
     return []
 
@@ -73,7 +84,8 @@ def sole_owner(containers: Sequence[Obj], language: str | None) -> list[Obj]:
 def file_owners(rel: str, containers: Sequence[Obj], language: str | None = None) -> list[Obj]:
     """Контейнеры файла кода: code_owners, а среди них — те, чей язык совпадает с языком
     файла. Контейнер другого языка файлом не владеет (ТЗ §15 п. 10 А5: браузерный код
-    Mastodon не параметр процессов Ruby); контейнер без опознанного языка владеет любым.
+    Mastodon не параметр процессов Ruby); контейнер без опознанного языка владеет любым,
+    контейнер на Kotlin ещё и файлами Java, если контейнера на Java среди них нет (Д6).
     Файл вне каталогов всех контейнеров — единственному контейнеру по sole_owner. Одно
     место для маршрутов, параметров, каналов, расписаний и владельца миграций; причину
     пустого ответа даёт missing_reason."""
@@ -86,6 +98,9 @@ def file_owners(rel: str, containers: Sequence[Obj], language: str | None = None
     same = [o for o in found if o.language == lang]
     if same:
         return same
+    mixed = [o for o in found if _same_language(o.language, lang)]
+    if mixed:
+        return mixed
     return [o for o in found if o.language is None]
 
 

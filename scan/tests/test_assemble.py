@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from archmap_scan import registry, stats, texts, walk
+from archmap_scan import owners, registry, stats, texts, vocab, walk
 from archmap_scan.assemble import assemble
 from archmap_scan.objects import Model, Obj
 from archmap_scan.walk import Files
@@ -270,6 +270,138 @@ def test_dev_stage_one_keeps_prod_service() -> None:
     }
 
 
+def test_ci_candidates_on_stage_two() -> None:
+    """Ступень 2 (ТЗ §15 п. 13 Д4): боевых манифестов нет, но compose в каталоге ci/ (сборочная
+    матрица Envoy) объектов не даёт, его сервисы уходят в hints.profiles с причиной «манифест
+    CI». Ловушки: стенд разработки docker-compose.dev.yml остаётся объектом с пометкой;
+    сервис cache есть и в стенде, и в CI, поэтому подсказки CI о нём нет; Dockerfile в
+    distribution/ остаётся объектом relay, как Dockerfile-envoy у Envoy."""
+    model = model_of(FIXTURES / "ci-stage")
+    assert sorted(o.name for o in model.objects) == ["cache", "relay"]
+    assert [h["name"] for h in model.hints["dev_manifest_objects"]] == ["cache"]
+    profiles = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    ci = texts.ci_manifest(texts.dev_sign_dir("ci"))
+    assert profiles == {"build": ci, "build-dind": ci}
+    assert walk.ci_sign("ci/matrix/docker-compose.yml") and walk.ci_sign(".ci/compose.yml")
+    assert walk.ci_sign("ops/docker-compose.ci.yml") and walk.ci_sign(".github/compose.yml")
+    assert not walk.ci_sign("services/circuit/compose.yaml")
+    assert not walk.ci_sign("ci.yaml") and not walk.ci_sign("deploy/docker-compose.civic.yml")
+
+
+def test_kotlin_files_owned_by_kotlin_container() -> None:
+    """Владельцы файлов Kotlin (ТЗ §15 п. 13 Д6): `.kt` и `.kts` относились к Java, поэтому
+    контейнер ledger на Gradle с плагином Kotlin не владел ни своими `.kt`, ни `.java`
+    смешанного модуля, а контейнер billing на Java владел чужим ему `.kt`. Ловушка: Stray.kt
+    в каталоге billing (Gradle без плагина Kotlin) теперь «нет контейнера на этом языке»."""
+    model = model_of(FIXTURES / "kotlin-owners")
+    cs = model.objects
+    assert [(o.name, o.language) for o in cs] == [("billing", "Java"), ("ledger", "Kotlin")]
+    found = {
+        rel: [o.name for o in owners.file_owners(rel, cs)] for rel in (
+            "ledger/src/main/kotlin/Ledger.kt", "ledger/src/main/java/Legacy.java",
+            "ledger/build.gradle.kts", "billing/src/main/java/Billing.java",
+            "billing/src/main/kotlin/Stray.kt",
+        )
+    }
+    assert found == {
+        "ledger/src/main/kotlin/Ledger.kt": ["ledger"],
+        "ledger/src/main/java/Legacy.java": ["ledger"],
+        "ledger/build.gradle.kts": ["ledger"],
+        "billing/src/main/java/Billing.java": ["billing"],
+        "billing/src/main/kotlin/Stray.kt": [],
+    }
+    assert owners.missing_reason("billing/src/main/kotlin/Stray.kt", cs) == (
+        texts.REASON_OTHER_LANGUAGE
+    )
+    # Единственный контейнер на Kotlin забирает код Java вне каталогов (sole_owner).
+    assert owners.file_owners("shared/Util.java", [_obj(model, "ledger")]) == [
+        _obj(model, "ledger"),
+    ]
+    assert owners.file_owners("shared/Util.kt", [_obj(model, "billing")]) == []
+
+
+def test_compose_stand_name_is_dev_sign() -> None:
+    """Имя стенда (ТЗ §15 п. 13 Д8): docker-compose.multinode-clickhouse.yml PostHog с верхним
+    name: posthog-multinode-smoke давал 9 объектов clickhouse-*. Слово smoke, test, ci, e2e,
+    dev, local, bench в имени проекта compose — признак разработки всему файлу. Ловушки:
+    contest-shop не test (слово целиком); clickhouse есть и в боевом файле и остаётся по
+    нему, подсказки о нём нет."""
+    model = model_of(FIXTURES / "stand-name")
+    assert sorted(o.name for o in model.objects) == ["api", "clickhouse"]
+    assert [str(loc) for loc in sorted(_obj(model, "clickhouse").locs)] == [
+        "docker-compose.yml:7",
+    ]
+    sign = texts.dev_manifest(texts.dev_sign_stand_name("shop-multinode-smoke"))
+    assert {str(h["name"]): h["reason"] for h in model.hints["profiles"]} == {
+        "clickhouse-aux": sign, "clickhouse-logs": sign,
+    }
+
+
+def test_merge_by_system_prefix() -> None:
+    """Склейка по имени с префиксом продукта (ТЗ §15 п. 13 Д9): dist/mastodon-web.service и
+    dist/mastodon-streaming.service Mastodon оставались дублями compose web и streaming
+    (команды разной формы, склейка по команде §13.5 их не видит). Имя остаётся короткое, у
+    сервиса compose, источники обоих в evidence, запись в hints.merged. Ловушки: shop-db
+    (сервис) и db (база) разных видов; shop-worker на Python и worker на Ruby."""
+    model = model_of(FIXTURES / "prefix-merge", system="shop")
+    assert sorted(o.name for o in model.objects) == [
+        "db", "shop-db", "shop-worker", "streaming", "web", "worker",
+    ]
+    assert "ops/shop-web.service:2" in {str(loc) for loc in _obj(model, "web").locs}
+    assert _obj(model, "streaming").parsers == ["compose", "systemd"]
+    assert [(h["name"], h["object"], h["reason"], h["source"]) for h in model.hints["merged"]] == [
+        ("shop-streaming", "streaming", texts.REASON_MERGED_PREFIX,
+         ["docker-compose.yml:6", "ops/shop-streaming.service:1"]),
+        ("shop-web", "web", texts.REASON_MERGED_PREFIX,
+         ["docker-compose.yml:3", "ops/shop-web.service:1"]),
+    ]
+
+
+def test_command_only_process_gets_no_code_dir(tmp_path: Path) -> None:
+    """Д10 (ТЗ §15 п. 13): процесс, заданный только командой (Procfile, x-programs, юнит
+    systemd без своей сборки), каталога кода не получает, если рядом есть контейнер со
+    своей сборкой того же языка: у Sentry 21 программа x-programs из корня забрала код src/
+    у self-hosted, и 109 параметров писались каждому процессу. (а) Procfile рядом с
+    Dockerfile корня: параметр и маршрут у контейнера Dockerfile, у worker и scheduler только
+    воркеры. Ловушки: (б) Procfile без Dockerfile владеет корнем, как раньше; (в) программа
+    с именем сервиса compose склеивается с ним и факты получает по сервису."""
+    model = model_of(FIXTURES / "procfile-build")
+    assert [(o.name, o.code_dir) for o in model.objects] == [
+        ("scheduler", None), ("worker", None), ("Ярмарка", ""),
+    ]
+    assert {k: sorted(v) for k, v in model.params.items()} == {"Ярмарка": ["DATABASE_URL"]}
+    assert list(model.http) == ["Ярмарка"] and sorted(model.workers) == ["scheduler", "worker"]
+    assert _obj(model, "Ярмарка").path is None and "shared_code" not in model.hints
+    app = "import os\nDATABASE_URL = os.environ['DATABASE_URL']\n"
+    tree(tmp_path / "solo", {
+        "requirements.txt": "celery\n", "app.py": app,
+        "Procfile": "web: gunicorn app:app\nworker: celery -A app worker\n",
+    })
+    solo = model_of(tmp_path / "solo")
+    assert [(o.name, o.code_dir) for o in solo.objects] == [("web", ""), ("worker", "")]
+    assert sorted(solo.params) == ["web", "worker"]
+    # Ловушка (AWX): сборка без языка во вложенном каталоге (logstash в tools/) код корня у
+    # процесса на Python не забирает.
+    tree(tmp_path / "tools", {
+        "requirements.txt": "celery\n", "app.py": app, "Procfile": "web: gunicorn app:app\n",
+        "tools/logstash/Dockerfile": "FROM docker.elastic.co/logstash/logstash:8.15.0\n",
+        "compose.yaml": "services:\n  logstash:\n    build: tools/logstash\n",
+    })
+    tools = model_of(tmp_path / "tools")
+    assert [(o.name, o.code_dir) for o in tools.objects] == [
+        ("logstash", "tools/logstash"), ("web", ""),
+    ]
+    assert sorted(tools.params) == ["web"]
+    tree(tmp_path / "named", {
+        "requirements.txt": "celery\n", "app.py": app, "Dockerfile": "FROM python:3.12\n",
+        "compose.yaml": "services:\n  worker:\n    build: .\n",
+        "Procfile": "worker: celery -A app worker\nbeat: celery -A app beat\n",
+    })
+    named = model_of(tmp_path / "named")
+    assert [(o.name, o.code_dir) for o in named.objects] == [("beat", None), ("worker", "")]
+    assert sorted(named.params) == ["worker"]
+
+
 def test_compose_in_code_dir_of_other_container_is_stand() -> None:
     """Compose-файл в каталоге кода контейнера из другого боевого файла — стенд разработки
     компонента (livestream/ и rust/ PostHog): каталог сборки capture (rust/) и каталог
@@ -381,23 +513,65 @@ def test_root_dockerfile_and_dev_compose_builds(tmp_path: Path) -> None:
 def test_task_on_database_or_broker_image() -> None:
     """Задача на образе базы или брокера — сервис с ролью «задача», связи к ней по
     depends_on в подсказках (ТЗ §15 п. 10 А8: personhog-tables-ready и kafka-init PostHog
-    стали базой и брокером). Сервер с restart: on-failure и реплика остаются как были."""
+    стали базой и брокером). Сервер с restart: on-failure и реплика остаются как были. С
+    части 2 (Д7) задача с признаком (restart «no», слово задачи в имени) объектом не
+    становится вовсе: tables-ready в hints.unassigned, связей к ней нет."""
     model = model_of(FIXTURES / "compose-task")
     kinds = {o.name: (o.shape, o.role, o.technology) for o in model.objects}
     assert kinds == {
         "api": ("service", "сервис", "Python"),
-        "tables-ready": ("service", "задача", "postgres"),
-        "kafka-init": ("service", "задача", "redpanda"),
+        "topics": ("service", "задача", "redpanda"),
         "db": ("database", "БД", "PostgreSQL"),
         "replica": ("database", "БД", "PostgreSQL"),
         "kafka": ("broker", "брокер", "Redpanda"),
     }
     assert {(lk.src.name, lk.dst.name) for lk in model.links} == {
-        ("api", "db"), ("api", "kafka"), ("kafka-init", "kafka"), ("tables-ready", "db"),
+        ("api", "db"), ("api", "kafka"), ("topics", "kafka"),
     }
-    assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [
-        ("api", "kafka-init"), ("api", "tables-ready"),
+    assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [("api", "topics")]
+    assert [h["name"] for h in model.hints["unassigned"]] == ["tables-ready"]
+
+
+def test_init_tasks_are_not_services() -> None:
+    """Задача инициализации на образе базы, брокера или клиента хранилища (ТЗ §15 п. 13 Д7):
+    personhog-tables-ready и kafka-init PostHog, minio-createbucket Supabase были сервисами.
+    Своя команда не запускает сервер образа и есть признак задачи (restart «no», слово в
+    имени, k8s Job): объекта нет, запись в hints.unassigned, depends_on к ней и от неё не
+    рисуются. Ловушки: postgres с ключами и redpanda start при restart: on-failure остаются
+    базой и брокером; migrate на образе приложения остаётся сервисом."""
+    model = model_of(FIXTURES / "init-tasks")
+    kinds = {o.name: (o.shape, o.role) for o in model.objects}
+    assert kinds == {
+        "api": ("service", "сервис"), "migrate": ("service", "сервис"),
+        "db": ("database", "БД"), "minio": ("database", "хранилище"),
+        "kafka": ("broker", "брокер"),
+    }
+    assert sorted((lk.src.name, lk.dst.name) for lk in model.links) == [
+        ("api", "db"), ("migrate", "db"),
     ]
+    assert "depends_on" not in model.hints
+    tasks = {str(h["name"]): (h["reason"], h["source"]) for h in model.hints["unassigned"]}
+    assert tasks == {
+        "db-ready": (texts.init_task("PostgreSQL"), "compose.yaml:7"),
+        "kafka-init": (texts.init_task("Redpanda"), "compose.yaml:16"),
+        "minio-createbucket": (texts.init_task("minio-client"), "compose.yaml:24"),
+        "orders-load": (texts.init_task("PostgreSQL"), "k8s/seed.yaml:4"),
+    }
+    assert vocab.starts_server("PostgreSQL", "sh -c 'exec postgres -c fsync=off'")
+    assert vocab.starts_server("PostgreSQL", "docker-entrypoint.sh")
+    assert not vocab.starts_server("PostgreSQL", "psql -U postgres -d postgres -c 'select 1'")
+    assert vocab.starts_server("rclone", "rclone serve s3 /data")
+    assert not vocab.starts_server("rustfs/rc", "/bin/sh -ec rc mb local/x")
+    assert vocab.init_image("rustfs/rc") == "rustfs/rc" and vocab.init_image("rc") is None
+    assert vocab.init_image("prometheuscommunity/postgres-exporter") is None
+
+    # Враждебная команда на 2 МБ: слова считаются до предела, ключ оболочки без регулярки.
+    started = time.perf_counter()
+    for command in ("-" + "c" * 2_000_000 + "!", "sh -" + "c" * 2_000_000 + " postgres",
+                    "psql " * 400_000, "-c " * 700_000):
+        vocab.starts_server("PostgreSQL", command)
+    assert vocab.init_task_name("x-" * 1_000_000) is False
+    assert time.perf_counter() - started < time_limit()
 
 
 def test_image_vocabulary_and_redis_queue_broker() -> None:
@@ -665,3 +839,27 @@ def test_dockerfile_in_container_subdir_and_mobile() -> None:
     assert walk.mobile_dir("src/react-native-app/Gemfile") == "src/react-native-app/"
     assert walk.mobile_dir("apps/ios/Dockerfile") == "apps/ios/"
     assert walk.mobile_dir("cmd/bios/Dockerfile") is None
+
+
+def test_dev_sign_by_image_tag() -> None:
+    """Тег образа разработки (ТЗ §15 п. 13 Д1): Forem container-compose.yml bundle на
+    quay.io/forem/forem:development. Тег целиком или последней частью через «-» и «_»
+    (main_test), у брокера тоже (rabbitmq:local). Ловушки: у сервиса с build тег образа —
+    имя локальной сборки (Forem docker-compose.yml: forem:1.0.0-development у web), версии,
+    latest, alpine и вариант Chainguard latest-dev (Supabase docker-compose.s3.yml
+    minio-client) не признак."""
+    model = model_of(FIXTURES / "dev-image-tags")
+    assert sorted(o.name for o in model.objects) == [
+        "api", "cache", "db", "mc", "proxy", "web",
+    ]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    tag = texts.dev_sign_image_tag
+    assert dev == {
+        "bundle": texts.dev_manifest(tag("development")),
+        "checker": texts.dev_manifest(tag("main_test")),
+        "queue": texts.dev_manifest(tag("local")),
+    }
+    assert vocab.dev_image_tag("node:22-alpine") is None
+    assert vocab.dev_image_tag("python:3.12-slim") is None
+    assert vocab.dev_image_tag("registry:5000/app") is None
+    assert vocab.dev_image_tag("app:1.2-dev") == "1.2-dev"

@@ -147,12 +147,20 @@ def test_bazel_and_cmake_root_markers(tmp_path: Path) -> None:
     assert fams["containers"].status == "unsupported"
     for fam in ("containers", "config", "channels", "http_routes", "workers", "schedules"):
         assert fams[fam].unsupported == [vocab.STACK_BAZEL]
+    # Матрица ci/ с части 2 (ТЗ §15 п. 13 Д4) объектов не даёт и на ступени 2, поэтому стек
+    # контейнера со сборкой из корня проверяется на compose в корне.
     model = model_of(FIXTURES / "bazel-compose")
-    [ci] = model.objects
-    assert (ci.name, ci.technology) == ("all", vocab.STACK_BAZEL)
-    assert sorted(str(loc) for loc in ci.locs) == [
-        "ci/matrix/Dockerfile:1", "ci/matrix/docker-compose.yml:3",
+    assert model.objects == [] and [h["name"] for h in model.hints["profiles"]] == [
+        "all", "ci/matrix/Dockerfile",
     ]
+    tree(tmp_path / "stand", {
+        "MODULE.bazel": 'module(name = "proxy")\n', "Cargo.toml": '[package]\nname = "sdk"\n',
+        "Dockerfile": "FROM ubuntu:24.04\n",
+        "docker-compose.yml": "services:\n  proxy:\n    build: .\n",
+    })
+    [proxy] = model_of(tmp_path / "stand").objects
+    assert (proxy.name, proxy.technology) == ("proxy", vocab.STACK_BAZEL)
+    assert sorted(str(loc) for loc in proxy.locs) == ["Dockerfile:1", "docker-compose.yml:2"]
     tree(tmp_path / "rust", {"Cargo.toml": '[package]\nname = "tool"\n'})
     assert [(o.name, o.technology) for o in model_of(tmp_path / "rust").objects] == [
         ("Ярмарка", "Rust"),

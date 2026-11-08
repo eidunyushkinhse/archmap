@@ -245,3 +245,30 @@ def test_dependency_dirs_skipped_with_git(tmp_path: Path) -> None:
     assert sorted(o.name for o in assemble(findings, ctx).objects) == ["app", "pause"]
     assert dependency_rule("staging/vendor/x/Dockerfile") == "staging/vendor/"
     assert dependency_rule("vendor") is None and dependency_rule("Vendor/a") is None
+
+
+def test_coverage_dir_read_with_git(tmp_path: Path) -> None:
+    """Каталог coverage с git читается (ТЗ §15 п. 13 Д5): pkg/util/coverage/ Kubernetes —
+    закоммиченный код, а с С1 он был исключён как каталог зависимостей. Его файлы в перечне
+    и в ярусе кода: параметр из pkg/util/coverage/coverage.go у контейнера proxy. Ловушки:
+    node_modules с git по-прежнему исключён; без git coverage/ пропускается, как раньше."""
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "coverage-git", repo)
+    tree(repo, {"web/node_modules/left-pad/Dockerfile": "FROM node:22\n"})
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A", "-f")
+    _git(repo, "commit", "-qm", "init")
+    ctx = make_context(repo, use_git=True)
+    listing = list_files(ctx)
+    assert "pkg/util/coverage/coverage.go" in listing.files
+    assert listing.excluded == (Excluded("web/node_modules/", 1, "dependencies"),)
+    findings, errors = registry.collect(Files(ctx.root, listing.files), ctx)
+    assert errors == {}
+    model = assemble(findings, ctx)
+    assert [o.name for o in model.objects] == ["proxy"]
+    assert sorted(model.params["proxy"]) == ["PROXY_COVERAGE_FILE", "PROXY_PORT"]
+    plain = list_files(make_context(FIXTURES / "coverage-git", use_git=False))
+    assert [f for f in plain.files if "/coverage/" in f] == []
+    assert dependency_rule("pkg/util/coverage/coverage.go") == "pkg/util/coverage/"
+    assert dependency_rule("pkg/util/coverage/coverage.go", git=True) is None
+    assert dependency_rule("web/node_modules/x/a.js", git=True) == "web/node_modules/"

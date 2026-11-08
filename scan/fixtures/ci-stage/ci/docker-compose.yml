@@ -1,0 +1,11 @@
+# Сборочная матрица CI (как ci/ Envoy): не стенд продукта, объектов не даёт и на ступени 2.
+services:
+  build:
+    image: example/relay-build:2026-11
+    command: ./ci/run_build.sh
+  build-dind:
+    image: docker:27-dind
+    privileged: true
+  # Ловушка: то же имя есть в стенде разработки, подсказки CI о нём нет.
+  cache:
+    image: redis:7

@@ -13,7 +13,7 @@ from __future__ import annotations
 from archmap_scan import paths
 from archmap_scan.context import Context
 from archmap_scan.model import CodeSchedule, Findings, Loc
-from archmap_scan.walk import SKIP_DIRS, Files
+from archmap_scan.walk import CODE_SKIP_DIRS, Files
 
 NAME = "crontab"
 # Символы полей расписания: числа, *, шаги, диапазоны, списки и имена месяцев и дней.
@@ -35,7 +35,7 @@ def is_crontab(rel: str) -> bool:
     name = paths.name(rel)
     if not (name == "crontab" or name.endswith((".crontab", ".cron")) or _cron_d(rel)):
         return False
-    return not any(seg in SKIP_DIRS for seg in paths.parent(rel).split("/"))
+    return not any(seg in CODE_SKIP_DIRS for seg in paths.parent(rel).split("/"))
 
 
 def _stem(rel: str) -> str:

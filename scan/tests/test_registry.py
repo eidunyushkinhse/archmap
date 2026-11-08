@@ -319,3 +319,92 @@ def test_name_words_on_hostile_name() -> None:
     for name in ("A" * 2_000_000 + "b", "aB" * 1_000_000, "_" * 2_000_000):
         pyregistry.name_words(name)
     assert time.perf_counter() - started < time_limit()
+
+
+def test_module_constants_registry() -> None:
+    """Модуль-реестр констант (ТЗ §15 п. 13 В1): PostHog posthog/kafka_client/topics.py
+    (f"{KAFKA_PREFIX}clickhouse_events_json{SUFFIX}", get_from_env с дефолтом) и зеркало
+    nodejs/src/common/config/kafka-topics.ts; голое имя в produce() и subscribe()
+    раскрывается по импорту (posthog/api/metalytics.py:41). Ловушки: KAFKA_PREFIX модуля
+    настроек, константа в dead_letter_queue.py (единственное число), тестовый файл,
+    имя не в верхнем регистре, число, значение с пробелами; в файле без клиента Kafka, но с
+    именем из реестра (обёртка проекта) send("welcome") не канал и не подсказка."""
+    ctx, files = files_of(FIXTURES / "kafka-constants")
+    found = kafka.parse(files, ctx)
+    assert _rows(found) == [
+        ("clickhouse_events_json", "topic", "Kafka", None, "app/kafka_topics.py:7"),
+        ("events_ingestion", "topic", "Kafka", None, "app/kafka_topics.py:8"),
+        ("audit_log", "topic", "Kafka", None, "app/kafka_topics.py:9"),
+        ("events_ingestion", "topic", "Kafka", "publish", "app/metrics.py:6"),
+        ("clickhouse_events_json", "topic", "Kafka", "publish", "app/producer.py:8"),
+        ("audit_log", "topic", "Kafka", "publish", "app/producer.py:9"),
+        ("events_ingestion", "topic", "Kafka", "consume", "app/producer.py:12"),
+        ("clickhouse_events_json", "topic", "Kafka", "consume", "web/src/consumer.ts:5"),
+        ("plugin_log_entries", "topic", "Kafka", "consume", "web/src/consumer.ts:5"),
+        ("clickhouse_events_json", "topic", "Kafka", None, "web/src/kafka-topics.ts:3"),
+        ("plugin_log_entries", "topic", "Kafka", None, "web/src/kafka-topics.ts:4"),
+    ]
+    dynamic = sorted((h.data["name"], h.data["source"]) for h in found.hints)
+    assert dynamic == [
+        ("KAFKA_DYNAMIC", "app/kafka_topics.py:10"),
+        ("KAFKA_EMPTY", "web/src/kafka-topics.ts:5"),
+        ("KAFKA_PREFIX", "app/producer.py:10"),
+        ("localTopic", "web/src/consumer.ts:7"),
+    ]
+    queues = celery.parse(files, ctx)
+    assert _rows(queues) == [
+        ("email", "queue", "Celery", None, "app/celery_queues.py:2"),
+        ("reports", "queue", "Celery", None, "app/celery_queues.py:3"),
+    ]
+    assert pyregistry.constants_module("a/kafka-topics.ts", "topic")
+    assert not pyregistry.constants_module("a/dead_letter_queue.py", "queue")
+    model = model_of(FIXTURES / "kafka-constants")
+    links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
+    assert links == {
+        ("Ярмарка", "Kafka", "публикует", "clickhouse_events_json"),
+        ("Ярмарка", "Kafka", "публикует", "audit_log"),
+        ("Ярмарка", "Kafka", "публикует", "events_ingestion"),
+        ("Kafka", "Ярмарка", "доставляет", "events_ingestion"),
+    }
+
+
+def test_consumer_registry() -> None:
+    """Реестр консьюмеров (ТЗ §15 п. 13 В4): Sentry src/sentry/consumers/__init__.py:307
+    KAFKA_CONSUMERS: {"ingest-events": {"topic": Topic.INGEST_EVENTS, "dlq_topic": …,
+    "stale_topic": …}, …}, файл без клиента Kafka, но с Topic из kafka_definition. topic и
+    synchronize_commit_log_topic_default — потребление, dlq_topic — публикация процессом по
+    ключу; объект ищется по имени (ingest-events) или по «consumer <имя>» в команде
+    (post-process). Ловушки: процесса metrics-last-seen-updater в манифестах нет (подсказка,
+    объект не заводится), stale_topic: None не канал, значение выражением — подсказка,
+    KAFKA_TOPIC_TO_CLUSTER и LEGACY_CONSUMERS без topic не консьюмеры."""
+    ctx, files = files_of(FIXTURES / "kafka-consumers")
+    found = kafka.parse(files, ctx)
+    rows = sorted(
+        (u.name, u.direction, u.process, str(u.loc)) for u in found.channels if u.process
+    )
+    assert rows == [
+        ("events", "consume", "post-process-forwarder-errors", "app/consumers.py:13"),
+        ("ingest-events", "consume", "ingest-events", "app/consumers.py:8"),
+        ("ingest-events-dlq", "publish", "ingest-events", "app/consumers.py:9"),
+        ("snuba-commit-log", "consume", "post-process-forwarder-errors", "app/consumers.py:14"),
+        ("snuba-metrics", "consume", "metrics-last-seen-updater", "app/consumers.py:16"),
+    ]
+    assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
+        ("settings.CONSUMER_TOPIC", "app/consumers.py:17"),
+    ]
+    model = model_of(FIXTURES / "kafka-consumers")
+    links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
+    assert links == {
+        ("kafka", "ingest-events", "доставляет", "ingest-events"),
+        ("ingest-events", "kafka", "публикует", "ingest-events-dlq"),
+        ("kafka", "post-process", "доставляет", "events"),
+        ("kafka", "post-process", "доставляет", "snuba-commit-log"),
+    }
+    assert sorted(o.name for o in model.objects) == ["ingest-events", "kafka", "post-process"]
+    assert [c.channel for c in model.consumers["post-process"]] == ["events", "snuba-commit-log"]
+    edges = [h for h in model.hints["unassigned"] if h["kind"] == "edge"]
+    assert edges == [{
+        "kind": "edge", "name": "snuba-metrics", "object": "kafka",
+        "reason": texts.REASON_NO_PROCESS.format(name="metrics-last-seen-updater"),
+        "source": "app/consumers.py:16",
+    }]

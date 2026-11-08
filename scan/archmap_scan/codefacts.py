@@ -17,13 +17,23 @@ hints.unassigned. Брокера этого вида в манифестах н�
 схема адреса брокера (redis://, amqp://), без неё брокер не создаётся. Направление даёт
 связь: публикация — контейнер → брокер «публикует», потребление — брокер → контейнер
 «доставляет» (подпись называет действие источника связи), с channel и sync: false; одна
-связь на пару, направление и канал. Связь «использует» той же пары из манифестов при этом
-не рисуется: связь с каналом сильнее. Связь, контейнер которой не определим, уходит в
-hints.unassigned, а канал при этом пишется.
+связь на пару, направление и канал. Связь «использует» той же пары из манифестов (адрес в
+окружении, depends_on) при этом не рисуется в любом направлении пары: связь с каналом
+сильнее (ТЗ §15 п. 13 В1, часть 2б: «использует» sidekiq → redis уходит и при связях
+redis → sidekiq «доставляет»). ArchMap при ввозе отмечает связь с брокером без канала
+замечанием, а рядом со связями с каналом такая связь ничего не добавляет. «Использует» к
+базе и к брокеру без связей с каналом остаётся. Связь, контейнер которой не определим,
+уходит в hints.unassigned, а канал при этом пишется.
 
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
 нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
-Воркеров из кода сборщик не заводит: только из манифестов.
+Воркеров из кода сборщик не заводит: только из манифестов. Запись с программой-исполнителем
+(runner: классы воркеров и расписание Sidekiq) получает среди контейнеров файла тот, чья
+команда запускает эту программу (bundle exec sidekiq), а не контейнер по роли (ТЗ §15 п. 13
+В3: у Mastodon web и sidekiq собраны из одного каталога). Запись реестра консьюмеров с
+процессом (process: KAFKA_CONSUMERS Sentry) получает объект схемы с этим именем или с
+«consumer <имя>» в команде; нет такого — связь в hints.unassigned, объект из кода не
+заводится (В4).
 
 Записи разборщиков кода из служебных каталогов и конфигов инструментов
 (codebase.tooling_reason) и переменные операционной системы или CI (vocab.is_os_variable)
@@ -58,6 +68,7 @@ EnvOf = dict[str, list[tuple[EnvVar, str]]]
 _CLIENT_TECH = {
     "Kafka": frozenset({"Kafka", "Redpanda"}), "RabbitMQ": frozenset({"RabbitMQ"}),
     "NATS": frozenset({"NATS"}), "Celery": frozenset({"Redis", "RabbitMQ"}),
+    "BullMQ": frozenset({"Redis"}), "Sidekiq": frozenset({"Redis"}),
 }
 # Клиент → технология брокера по клиенту в порядке создания: Celery последним, его брокер
 # бывает тот же RabbitMQ.
@@ -70,9 +81,47 @@ _WEB_WORDS = frozenset({
     "waitress-serve",
 })
 _WORDS = re.compile(r"[a-z][a-z-]*")
+_CONSUMER_ARG = re.compile(r"(?<![\w-])consumer[ \t]+([A-Za-z0-9][\w.:-]{0,199})")
 # Разборщики яруса кода: только их записи бывают из служебных каталогов (файл crontab и
 # команды воркеров из манифестов — не код).
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
+
+
+def _runs(obj: Obj, program: str) -> bool:
+    """Команда одного из манифестов объекта запускает программу (bundle exec sidekiq)."""
+    return any(vocab.command_program(u.command) == program for u in obj.units)
+
+
+def _runner(
+    rel: str, program: str, file_owners: Sequence[Obj], containers: Sequence[Obj],
+) -> tuple[Obj | None, str]:
+    """Владелец записи процесса program среди контейнеров файла (ТЗ §15 п. 13 В3) или
+    причина, почему его нет."""
+    runners = [o for o in file_owners if _runs(o, program)]
+    if len(runners) == 1:
+        return runners[0], ""
+    if runners:
+        return None, texts.REASON_MANY_OWNERS
+    if file_owners:
+        return None, texts.REASON_NO_RUNNER.format(program=program)
+    return None, owners.missing_reason(rel, containers)
+
+
+def _consumer_args(command: str | None) -> list[str]:
+    """Имена после слова consumer в команде (sentry run consumer ingest-events …)."""
+    return _CONSUMER_ARG.findall(command or "")
+
+
+def _process_owner(containers: Sequence[Obj], process: str) -> Obj | None:
+    """Объект процесса из реестра консьюмеров (ТЗ §15 п. 13 В4): контейнер с этим именем,
+    иначе единственный, чья команда запускает consumer <имя>; объекты из кода не заводятся."""
+    named = [o for o in containers if o.name == process]
+    if named:
+        return named[0] if len(named) == 1 else None
+    by_arg = [
+        o for o in containers if any(process in _consumer_args(u.command) for u in o.units)
+    ]
+    return by_arg[0] if len(by_arg) == 1 else None
 
 
 def _serves_http(obj: Obj) -> bool:
@@ -334,14 +383,21 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
         if use.direction is None:
             continue
         prefer = vocab.ROLE_WORKER if use.direction == "consume" else vocab.ROLE_SERVICE
-        container = owners.primary(file_owners, prefer)
+        if use.process:
+            container = _process_owner(containers, use.process)
+            reason = texts.REASON_NO_PROCESS.format(name=use.process)
+        elif use.runner:
+            container, reason = _runner(use.loc.path, use.runner, file_owners, containers)
+        else:
+            container = owners.primary(file_owners, prefer)
+            reason = texts.REASON_MANY_OWNERS if file_owners else owners.missing_reason(
+                use.loc.path, containers,
+            )
         if container is None:
             # Канал записан брокеру, а чья это публикация или подписка, не известно.
             model.code_parsers.setdefault("edges", set()).add(use.parser)
             model.hint("unassigned", {
-                "kind": "edge", "name": use.name, "object": broker.name,
-                "reason": texts.REASON_MANY_OWNERS if file_owners
-                else owners.missing_reason(use.loc.path, containers),
+                "kind": "edge", "name": use.name, "object": broker.name, "reason": reason,
                 "source": str(use.loc),
             })
             continue
@@ -351,7 +407,8 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
                 channel=use.name, kind=use.kind, broker=broker.name, loc=use.loc,
                 parser=use.parser,
             ))
-    # Связь с каналом сильнее «использует» той же пары объектов из манифестов.
+    # Связь с каналом сильнее «использует» той же пары объектов из манифестов; пара без
+    # учёта направления (у базы каналов не бывает, её связи не задеты).
     paired = {frozenset((lk.src.name, lk.dst.name)) for lk in model.links if lk.channel}
     model.links = sorted(
         (lk for lk in model.links
@@ -370,11 +427,14 @@ def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> N
             _unassigned(model, "schedule", sch.name, aside, sch.loc)
             continue
         found = owners.file_owners(sch.loc.path, containers)
-        owner = owners.primary(found, vocab.ROLE_SCHEDULER)
-        if owner is None:
+        if sch.runner:
+            owner, why = _runner(sch.loc.path, sch.runner, found, containers)
+        else:
+            owner = owners.primary(found, vocab.ROLE_SCHEDULER)
             why = texts.REASON_MANY_OWNERS if found else owners.missing_reason(
                 sch.loc.path, containers,
             )
+        if owner is None:
             _unassigned(model, "schedule", sch.name, why, sch.loc)
             continue
         model.schedules.setdefault(owner.name, []).append(Schedule(

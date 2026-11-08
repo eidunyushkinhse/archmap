@@ -19,8 +19,9 @@ MANIFESTS: dict[str, str | bytes] = {
     "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\n",
     "js/package.json": (
         '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
-        ' "nats": "*"}}'
+        ' "nats": "*", "bullmq": "*"}}'
     ),
+    "rb/Gemfile": 'gem "sidekiq"\n',
     "go/go.mod": (
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
         "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n)\n"
@@ -29,6 +30,7 @@ MANIFESTS: dict[str, str | bytes] = {
 
 # Подключение клиента: без него разборщики каналов JS и Go файл не читают.
 KJS, AMQP, NJS = "require('kafkajs');\n", "require('amqplib');\n", "require('nats');\n"
+BMQ = "require('bullmq');\n"
 KGO, NGO = 'import "github.com/segmentio/kafka-go"\n', 'import "github.com/nats-io/nats.go"\n'
 
 # Начала строк, после которых разборщик доходит до содержимого: имя файла → начала.
@@ -56,6 +58,17 @@ STARTS: dict[str, tuple[str, ...]] = {
         "process.env.X || '", "process.env[", KJS + "producer.send({ topic: '",
         KJS + "consumer.subscribe({ topics: ['", KJS + "producer.send({", AMQP + "ch.assertQueue('",
         AMQP + "ch.publish('', '", NJS + "nc.subscribe('",
+        # Очереди BullMQ и реестр enum (ТЗ §15 п. 13 В2).
+        BMQ + "new Worker('", BMQ + "new Queue(QueueName.", BMQ + "@Processor({ name: '",
+        BMQ + "BullModule.registerQueue({ name: '", BMQ + "BullModule.registerQueue({",
+        "enum QueueName {\n  A = '", "enum QueueName {\n  ",
+    ),
+    # Классы воркеров Sidekiq и их наследники (ТЗ §15 п. 13 В3).
+    "rb/app.rb": (
+        "class A\n  include Sidekiq::Worker\n  sidekiq_options queue: '",
+        "class A\n  include Sidekiq::Worker\n  sidekiq_options queue: ",
+        "class A\n  include Sidekiq::Worker\nend\nclass B < A", "class A < ",
+        "include Sidekiq::Worker\n", "class ",
     ),
     "go/main.go": (
         'r.GET("', 'http.HandleFunc("', 'v1 := r.Group("', 'r.Route("/x", func(r chi.Router) {',
