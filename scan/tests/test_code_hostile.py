@@ -26,6 +26,8 @@ MANIFESTS: dict[str, str | bytes] = {
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
         "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n)\n"
     ),
+    "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
+    "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
 }
 
 # Подключение клиента: без него разборщики каналов JS и Go файл не читают.
@@ -98,6 +100,19 @@ STARTS: dict[str, tuple[str, ...]] = {
         GO_WRAP + 'func main() {\n\tw("', GO_WRAP + "func main() {\n\tw(", 'const (\n\tA = "',
         "const A = `", 'os.Getenv(A)\nconst A = "', "os.Getenv(c.", "os.Getenv(",
     ),
+    # Параметры C#: индексатор конфигурации, окружение, интерполяция, константы (ТЗ §15 п. 14 Е4).
+    "cs/App.cs": (
+        "Configuration[", 'Configuration["', 'configuration[$"{', '$"{configuration["', '$"{',
+        '$"{"', '@"', '"""', 'Environment.GetEnvironmentVariable("',
+        "Environment.GetEnvironmentVariable(", 'const string A = "', "x.Configuration[A] ?? ",
+        'bool.TryParse(Configuration["X"] ?? "', "Configuration[Keys.",
+    ),
+    # Параметры Java: System.getenv, карта окружения, константы и импорты (ТЗ §15 п. 14 Е4).
+    "java/App.java": (
+        "System.getenv(", 'System.getenv("', 'System.getenv().getOrDefault("X", "',
+        "System.getenv().get(", 'static final String A = "', "import static a.b.",
+        "Integer.parseInt(System.getenv(", '"""', "System.getenv(Env.",
+    ),
 }
 
 CASES = [(name, start) for name, starts in STARTS.items() for start in starts]
@@ -138,6 +153,8 @@ VALID: dict[str, str] = {
     "py/app.py": '@app.get("/' + A + '")\ndef f():\n    return 1\n',
     "js/app.js": "const app = express();\napp.get('/" + A + "', h);\n",
     "go/main.go": 'package main\nfunc main() {\n\tr := gin.Default()\n\tr.GET("/' + A + '", h)\n}\n',
+    "cs/App.cs": 'class A {\n  void F() {\n    var x = Configuration["' + A + '"];\n  }\n}\n',
+    "java/App.java": 'class A {\n  String x = System.getenv("' + A + '");\n}\n',
 }
 
 
@@ -166,6 +183,26 @@ JS_ZOD = {
     "locals": ZOD + "".join(f"const v{i} = z.string()\n" for i in range(300)) + "const E = z.object({"
     + "".join(f"k{i}: v{i % 300}, " for i in range(PAYLOAD // 20)) + "})",
 }
+
+
+# C# и Java (ТЗ §15 п. 14 Е4): много констант и чтений по ним, подстановки интерполяции,
+# которые не закрываются, чтения по имени класса, которого в репозитории нет.
+CLIKE = {
+    "java/App.java:constants": 'static final String A = "x";\n' * (PAYLOAD // 28)
+    + "System.getenv(A);\n" * 1000,
+    "java/App.java:class-reads": "System.getenv(Env.A);\n" * 1999,
+    "java/App.java:static-imports": "import static a.b.C.*;\n" * (PAYLOAD // 23)
+    + "System.getenv(A);\n" * 1000,
+    "cs/App.cs:holes": '$"' + '{"a"' * (PAYLOAD // 4),
+    "cs/App.cs:verbatim": '@"' + '""' * (PAYLOAD // 2),
+    "cs/App.cs:coalesce": 'Configuration["A"] ?? ' * 1999,
+}
+
+
+@pytest.mark.parametrize("kind", sorted(CLIKE))
+def test_clike_config(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":")[0]
+    _check(tree(tmp_path, {**MANIFESTS, name: CLIKE[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(JS_ZOD))

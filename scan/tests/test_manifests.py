@@ -75,8 +75,10 @@ def test_code_unsupported_stacks() -> None:
         ".NET", "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Ruby: Rails",
         "Rust: actix-web",
     ]
-    # Параметры в коде Python, Node.js и Go читает ярус кода; viper только транзитивный.
-    assert stacks["config"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
+    # Параметры в коде Python, Node.js, Go, .NET и Java читает ярус кода (ТЗ §15 п. 14 Е4):
+    # язык не назван, но у Java со Spring Boot параметры application.yml и @Value не читаются,
+    # стек назван с языком; viper только транзитивный.
+    assert stacks["config"] == ["Elixir", "Java: Spring Boot", "PHP", "Ruby", "Rust"]
     # Каналы Celery, Kafka, RabbitMQ, NATS, BullMQ и Sidekiq читает ярус кода; прочий код на
     # Ruby нет, и язык назван сам, как любые каналы на языках без чтения кода. Воркеры BullMQ и
     # Sidekiq из кода не заводятся.

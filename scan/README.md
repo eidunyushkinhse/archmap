@@ -120,7 +120,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
-  `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания `celerybeat`,
+  `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`), каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания `celerybeat`,
   `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -306,3 +306,12 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     относительному пути или хвосту пути), — параметры с основанием в строке ключа: тип по
     валидатору, дефолт из `.default(литерал)`, required без `.optional()` и дефолта,
     перечень `z.enum([…])` в описании параметра (Е3).
+  - параметры C# (`dotnetenv`, стек по `*.csproj`): `Configuration["X"]` у любого имени
+    configuration (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт
+    литералом после `??`, `?? throw` — обязателен, запись `Configuration["X"] = …` и
+    `GetSection` не параметры, подстановки `$"{…}"` читаются как код; параметры Java
+    (`javaenv`, стек по `pom.xml` или `build.gradle`): `System.getenv("X")`,
+    `System.getenv().get|containsKey("X")`, дефолт из `getOrDefault`; тип по обёртке разбора
+    (`Integer.parseInt`, `bool.TryParse`); имя константой с final, const или readonly того же
+    файла, файла класса или статического импорта; каталоги тестов `*Tests/` не читаются; у
+    Java со Spring Boot в `unsupported` остаётся «Java: Spring Boot» (Е4).

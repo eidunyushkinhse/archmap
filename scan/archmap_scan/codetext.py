@@ -1,4 +1,5 @@
-"""Текст кода JavaScript/TypeScript и Go для разборщиков на регулярных выражениях (ТЗ §6.2).
+"""Текст кода JavaScript/TypeScript, Go, C# и Java для разборщиков на регулярных выражениях
+(ТЗ §6.2).
 
 Маска — текст той же длины, где комментарии заменены пробелами, а содержимое строк —
 пробелами между сохранёнными кавычками (переводы строк сохраняются). Регулярные выражения
@@ -19,7 +20,12 @@ from bisect import bisect_right
 from archmap_scan import texts
 from archmap_scan.walk import Files
 
-JS, GO = "js", "go"
+JS, GO, CS, JAVA = "js", "go", "cs", "java"
+
+_C_COMMENTS = r"//[^\n]*|/\*[\s\S]*?(?:\*/|\Z)"
+# Подстановка интерполированной строки C#: «{выражение}», строки внутри без вложенных скобок.
+_CS_HOLE = r'\{(?:[^{}"\n]|"(?:[^"\\\n]|\\.)*")*\}'
+_CS_PIECES = re.compile(r"\{\{|(?P<hole>" + _CS_HOLE + r")|[^{]+|\{")
 
 _TOKENS = {
     JS: re.compile(
@@ -35,6 +41,24 @@ _TOKENS = {
         r"|'(?:[^'\\\n]|\\[\s\S])*'?"
         r'|"(?:[^"\\\n]|\\[\s\S])*"?'
         r"|`[^`]*`?"
+    ),
+    # Java: текстовый блок «"""…"""», символ и строка.
+    JAVA: re.compile(
+        _C_COMMENTS
+        + r'|"""[\s\S]*?(?:"""|\Z)'
+        + r"|'(?:[^'\\\n]|\\[\s\S])*'?"
+        + r'|"(?:[^"\\\n]|\\[\s\S])*"?'
+    ),
+    # C#: сырая строка «"""…"""», дословная @"…" (кавычка внутри удвоена, переводы строк
+    # допустимы), интерполяция $"…{выражение}…" (ТЗ §15 п. 14 Е4): выражения подстановок в маске
+    # остаются кодом, иначе чтение Configuration["X"] внутри $"{…}/signin" не видно.
+    CS: re.compile(
+        _C_COMMENTS
+        + r'|\$*"""[\s\S]*?(?:"""|\Z)'
+        + r'|(?:\$@|@\$|@)"(?:[^"]|"")*"?'
+        + r'|\$"(?:[^"\\\n{]|\\.|\{\{|' + _CS_HOLE + r')*"?'
+        + r"|'(?:[^'\\\n]|\\[\s\S])*'?"
+        + r'|"(?:[^"\\\n]|\\[\s\S])*"?'
     ),
 }
 _NOT_NEWLINE = re.compile(r"[^\n]")
@@ -80,6 +104,14 @@ def mask(text: str, lang: str) -> str:
             out.append("  " if tok[0] == "/" else tok)
         elif tok[0] == "/":
             out.append(_NOT_NEWLINE.sub(" ", tok))
+        elif lang == CS and tok.startswith('$"') and not tok.startswith('$""'):
+            out.append(_holes(tok))
+        elif lang == CS and tok[0] in "$@":
+            # Префикс дословной или сырой строки остаётся, содержимое — пробелы.
+            quote = tok.index('"')
+            closing = '"' if len(tok) > quote + 1 and tok[-1] == '"' else ""
+            inner = tok[quote + 1:len(tok) - len(closing)]
+            out.append(tok[:quote + 1] + _NOT_NEWLINE.sub(" ", inner) + closing)
         else:
             first = tok[0]
             closing = first if tok[-1] == first else ""
@@ -87,6 +119,20 @@ def mask(text: str, lang: str) -> str:
             out.append(first + _NOT_NEWLINE.sub(" ", inner) + closing)
         pos = end
     out.append(text[pos:])
+    return "".join(out)
+
+
+def _holes(tok: str) -> str:
+    """Маска интерполированной строки C#: текст строки — пробелы, подстановки «{…}» — код
+    (строки внутри них замаскированы как обычно)."""
+    closing = '"' if len(tok) > 2 and tok[-1] == '"' else ""
+    out = ['$"']
+    for m in _CS_PIECES.finditer(tok, 2, len(tok) - len(closing)):
+        if m.group("hole") is not None:
+            out.append(mask(m.group(), CS))
+        else:
+            out.append(_NOT_NEWLINE.sub(" ", m.group()))
+    out.append(closing)
     return "".join(out)
 
 

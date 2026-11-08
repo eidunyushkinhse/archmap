@@ -1,12 +1,12 @@
-"""Параметры конфигурации из кода (ТЗ §6.2): Python, Node, Go по фикстурам и слияние с
-параметрами манифестов (дефолт из кода, секреты, required, общий код)."""
+"""Параметры конфигурации из кода (ТЗ §6.2): Python, Node, Go, C# и Java по фикстурам и
+слияние с параметрами манифестов (дефолт из кода, секреты, required, общий код)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from archmap_scan import texts
-from archmap_scan.parsers import goenv, nodeenv, pyenv
+from archmap_scan.parsers import dotnetenv, goenv, javaenv, nodeenv, pyenv
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
 Row = tuple[str, str | None, bool, bool | None, str | None, str]
@@ -197,6 +197,74 @@ COMPOSE = """services:
       LOG_LEVEL: debug
       API_KEY: ${API_KEY}
 """
+
+
+def _hints(parser: object, root: Path) -> list[tuple[object, object, object]]:
+    ctx, files = files_of(root)
+    found = parser.parse(files, ctx)  # type: ignore[attr-defined]
+    return sorted((h.data["name"], h.data["reason"], h.data["source"]) for h in found.hints)
+
+
+def test_dotnet_configuration() -> None:
+    """Параметры в коде C# (ТЗ §15 п. 14 Е4). Найдено в Online Boutique:
+    src/cartservice/src/Startup.cs:29 Configuration["REDIS_ADDR"] и
+    src/cartservice/src/cartstore/SpannerCartStore.cs:32 configuration["SPANNER_PROJECT"];
+    в eShop src/WebhookClient/Endpoints/WebhookEndpoints.cs:14
+    configuration["WebhookClientOptions:Token"] (ключ с двоеточием) и
+    src/Identity.API/Configuration/Config.cs:84 $"{configuration["WebAppClient"]}" в
+    интерполяции. Ловушки: Configuration.GetSection("Logging") — раздел, запись
+    Configuration["WRITTEN_KEY"] = …, ключ в комментарии и проект тестов Cart.UnitTests/ —
+    не параметры; имя выражением и склейкой — подсказки."""
+    root = FIXTURES / "dotnet-env"
+    assert _params(dotnetenv, root) == [
+        ("CART_REGION", "eu", True, None, "string", "src/Cart/Startup.cs:17"),
+        ("CART_SECRET", None, False, True, None, "src/Cart/Startup.cs:18"),
+        ("Cache:TimeoutSeconds", "30", True, None, "int", "src/Cart/Startup.cs:16"),
+        ("DISABLE_TRACING", None, False, None, "bool", "src/Cart/Store/RedisStore.cs:9"),
+        ("PUBLIC_URL", None, False, None, None, "src/Cart/Startup.cs:19"),
+        ("REDIS_ADDR", None, False, None, None, "src/Cart/Startup.cs:14"),
+    ]
+    assert _hints(dotnetenv, root) == [
+        ('"PREFIX_" + name', texts.REASON_JOINED_NAME, "src/Cart/Store/RedisStore.cs:11"),
+        ("name", texts.REASON_DYNAMIC_PARAM, "src/Cart/Store/RedisStore.cs:10"),
+    ]
+    model = model_of(root)
+    assert sorted(str(loc) for loc in model.params["Cart"]["DISABLE_TRACING"].locs) == [
+        "src/Cart/Store/Keys.cs:5", "src/Cart/Store/RedisStore.cs:9",
+    ]
+    assert sorted(model.params) == ["Cart"]
+
+
+def test_java_getenv() -> None:
+    """Параметры в коде Java (ТЗ §15 п. 14 Е4). Найдено в Online Boutique:
+    src/adservice/src/main/java/hipstershop/AdService.java:54
+    Integer.parseInt(System.getenv().getOrDefault("PORT", "9555")) и :196
+    System.getenv("DISABLE_STATS"); в Keycloak
+    services/src/main/java/org/keycloak/services/resources/account/AccountConsole.java:210
+    System.getenv(ViteManifest.ACCOUNT_VITE_URL) — имя константой другого класса.
+    Ловушки: System.getProperty("ads.profile") — свойство JVM; System.getenv() целиком,
+    комментарий, src/test/ и каталог integration-tests/ — не параметры; Env.REGION из
+    shop.legacy не выбирается: импорт ведёт в shop.ads.util."""
+    root = FIXTURES / "java-env"
+    src = "ads/src/main/java/shop/ads/AdService.java"
+    assert _params(javaenv, root) == [
+        ("ADS_ENABLED", None, False, None, None, f"{src}:22"),
+        ("ADS_REGION", None, False, None, None, f"{src}:18"),
+        ("DISABLE_STATS", None, False, None, None, f"{src}:12"),
+        ("DISABLE_TRACING", None, False, None, None, f"{src}:15"),
+        ("PORT", "9555", True, None, "int", f"{src}:11"),
+    ]
+    assert _hints(javaenv, root) == [
+        ('"ADS_" + profile', texts.REASON_JOINED_NAME, f"{src}:21"),
+        ("args[0]", texts.REASON_DYNAMIC_PARAM, f"{src}:20"),
+    ]
+    model = model_of(root)
+    assert sorted(str(loc) for loc in model.params["ads"]["ADS_REGION"].locs) == [
+        f"{src}:18", "ads/src/main/java/shop/ads/util/Env.java:4",
+    ]
+    assert sorted(str(loc) for loc in model.params["ads"]["DISABLE_TRACING"].locs) == [
+        f"{src}:15", "ads/src/main/java/shop/ads/Names.java:4",
+    ]
 
 
 def test_merge_with_manifest_params(tmp_path: Path) -> None:

@@ -435,9 +435,16 @@ def is_os_variable(name: str) -> bool:
 # Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
 # Языки, параметры конфигурации в коде которых читает ярус кода, и библиотеки
-# конфигурации, которые он не читает (ТЗ §6.4: ключи viper).
-CONFIG_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
-UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (("github.com/spf13/viper", "viper"),)
+# конфигурации, которые он не читает (ТЗ §6.4: ключи viper). CODE_LANGUAGES — языки, код
+# которых читается во всех семьях яруса кода; у .NET и Java читаются только параметры
+# конфигурации (ТЗ §15 п. 14 Е4), прочие семьи у них по-прежнему названы языком.
+CODE_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
+CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java"}
+# Spring Boot читает параметры из application.yml и @Value("${X}"), а не System.getenv: у Java
+# с ним чтение кода неполное, и стек назван (ТЗ §15 п. 14 Е4, решение исполнителя).
+UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (
+    ("github.com/spf13/viper", "viper"), ("spring-boot", "Spring Boot"),
+)
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
     "Echo", "chi", "Fiber",

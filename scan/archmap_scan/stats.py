@@ -109,10 +109,10 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     # сборщик не читает, назван в unsupported, даже без манифеста сборки (ТЗ §15 п. 12 С7в:
     # язык Java у Petclinic известен по образу и каталогу кода).
     unread = sorted(
-        {o.language for o in containers if o.language and o.language not in vocab.CONFIG_LANGUAGES},
+        {o.language for o in containers if o.language and o.language not in vocab.CODE_LANGUAGES},
         key=str.lower,
     )
-    readable = any(o.language in vocab.CONFIG_LANGUAGES for o in containers)
+    readable = any(o.language in vocab.CODE_LANGUAGES for o in containers)
     for fam in ("http_routes", "channels"):
         if out[fam].status != "unknown":
             continue
@@ -239,7 +239,7 @@ _LANGUAGE_FAMILIES = ("http_routes", "channels", "workers", "schedules")
 def _label(language: str, name: str) -> str:
     """Имя стека «Язык: библиотека» (Rust: actix-web) у языка, код на котором сборщик не
     читает; у читаемого языка имя самой библиотеки (Pub/Sub, BullMQ)."""
-    return name if language in vocab.CONFIG_LANGUAGES else f"{language}: {name}"
+    return name if language in vocab.CODE_LANGUAGES else f"{language}: {name}"
 
 
 def code_unsupported(
@@ -278,11 +278,11 @@ def code_unsupported(
                     add(fam, _label(pkg.language, lib))
         if pkg.language not in vocab.CONFIG_LANGUAGES:
             add("config", pkg.language)
-            if pkg.language not in unread:
-                unread.append(pkg.language)
-        viper = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
-        if viper:
-            add("config", viper)
+        if pkg.language not in vocab.CODE_LANGUAGES and pkg.language not in unread:
+            unread.append(pkg.language)
+        config_lib = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
+        if config_lib:
+            add("config", _label(pkg.language, config_lib))
         schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
         if schema:
             add("tables", schema)
