@@ -53,6 +53,9 @@ STARTS: dict[str, tuple[str, ...]] = {
         "import kafka\nfrom t import Topic\np.send(Topic.",
         # Обёртка регистрации маршрутов Django в том же модуле (ТЗ §15 п. 1).
         "def w(r, **h):\n    return path(r, v, h)\nurlpatterns = [w('",
+        # Обёртка чтения окружения и имя константой (ТЗ §15 п. 14 Е2).
+        "import os\ndef w(k, default=None):\n    return os.getenv(k)\nX = w('",
+        "import os\ndef w(k):\n    return os.environ[k]\nX = w(K, '", "K = '",
     ),
     "js/app.js": (
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",

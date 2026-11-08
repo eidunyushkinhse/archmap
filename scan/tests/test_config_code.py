@@ -126,6 +126,41 @@ def test_go_wrappers_and_constants() -> None:
     assert "NOT_A_PARAM" not in model.params[owner]
 
 
+def test_python_wrappers() -> None:
+    """Обёртка чтения на Python (ТЗ §15 п. 14 Е2). Найдено в PostHog:
+    posthog/settings/utils.py get_from_env(key, default=…, type_cast=…) читает os.getenv(key),
+    ee/settings.py:59 get_from_env("ENFORCE_ADMIN_OAUTH2", …); импорт и через модуль-посредник
+    («from posthog.settings import get_from_env»). Ловушки: функция с литералом внутри —
+    обычное чтение; f-строка и склейка — подсказки; тот же параметр из os.getenv и из
+    обёртки — одна запись с двумя местами; имя константой модуля раскрывается."""
+    assert _params(pyenv, FIXTURES / "py-env-wrapper") == [
+        ("APP_DEBUG", "false", True, None, "bool", "app/settings/utils.py:18"),
+        ("CACHE_URL", "", True, None, None, "app/settings/base.py:13"),
+        ("REGION", "eu", True, None, "string", "app/settings/base.py:10"),
+        ("REGION", None, False, None, None, "app/settings/base.py:12"),
+        ("SAMPLE_RATIO", None, False, None, "float", "app/settings/base.py:9"),
+        ("SECURE_COOKIES", "false", True, None, "bool", "app/settings/base.py:8"),
+        ("SITE_URL", "https://example.com", True, None, "string", "app/settings/base.py:6"),
+        ("WORKERS", "4", True, None, "int", "app/settings/base.py:7"),
+        ("WORKER_QUEUE", "default", True, None, "string", "app/worker.py:3"),
+    ]
+    ctx, files = files_of(FIXTURES / "py-env-wrapper")
+    hints = pyenv.parse(files, ctx).hints
+    assert sorted((h.data["name"], h.data["reason"], h.data["source"]) for h in hints) == [
+        ("'SHARD_' + REGION", texts.REASON_JOINED_NAME, "app/settings/base.py:16"),
+        ("f'ZONE_{REGION}'", texts.REASON_DYNAMIC_PARAM, "app/settings/base.py:15"),
+    ]
+    model = model_of(FIXTURES / "py-env-wrapper")
+    (owner,) = model.params
+    region = model.params[owner]["REGION"]
+    assert sorted(str(loc) for loc in region.locs) == [
+        "app/settings/base.py:10", "app/settings/base.py:12",
+    ]
+    assert sorted(str(loc) for loc in model.params[owner]["CACHE_URL"].locs) == [
+        "app/settings/base.py:13", "app/settings/names.py:1",
+    ]
+
+
 COMPOSE = """services:
   api:
     build: ./api
