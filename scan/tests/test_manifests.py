@@ -68,12 +68,13 @@ def test_code_unsupported_stacks() -> None:
     ctx, files = files_of(FIXTURES / "manifests")
     found = manifests.parse(files, ctx)
     stacks = stats.code_unsupported(found)
-    # Маршруты FastAPI, Flask, Django, chi, Rails (ТЗ §15 п. 15 К1) и ASP.NET Core (К2) читает
-    # ярус кода: в «не умею» их нет, Ruby с rails в Gemfile и .NET с веб-SDK в маршрутах не
-    # названы, решение .sln без зависимостей тоже (у .NET маршруты только у ASP.NET Core).
+    # Маршруты FastAPI, Flask, Django, chi, Rails (ТЗ §15 п. 15 К1), ASP.NET Core (К2) и
+    # actix-web (К3) читает ярус кода: в «не умею» их нет, Ruby с rails в Gemfile и .NET с
+    # веб-SDK в маршрутах не названы, решение .sln без зависимостей тоже (у .NET маршруты
+    # только у ASP.NET Core); крейт с axum назван фреймворком (vocab.UNSUPPORTED_ROUTE_DEPS).
     # Фреймворк языка, код на котором сборщик не читает, назван с языком (ТЗ §15 п. 10 А12).
     assert stacks["http_routes"] == [
-        "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Rust: actix-web",
+        "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Rust: axum",
     ]
     # Параметры в коде Python, Node.js, Go, .NET и Java читает ярус кода (ТЗ §15 п. 14 Е4):
     # язык не назван, но у Java со Spring Boot параметры application.yml и @Value не читаются,
@@ -207,7 +208,9 @@ def test_unsupported_only_from_container_code(tmp_path: Path) -> None:
     out = tmp_path / "out"
     run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
-    assert families["http_routes"]["unsupported"] == ["Rust: actix-web"]
+    # Маршруты actix-web читаются (ТЗ §15 п. 15 К3), а крейт native/ без actix-web к
+    # контейнеру не относится: Rust в маршрутах не назван.
+    assert "unsupported" not in families["http_routes"]
     # Параметры Rust читаются (ТЗ §15 п. 14 И2): в config стек не назван.
     assert "unsupported" not in families["config"]
     assert families["channels"] == {"status": "unsupported", "parsers": ["bullmq"],
@@ -216,7 +219,7 @@ def test_unsupported_only_from_container_code(tmp_path: Path) -> None:
     assert families["workers"]["unsupported"] == ["BullMQ", "Rust"]
     assert families["tables"]["unsupported"] == ["Kysely"]
     summary = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "Rust (actix-web)" in summary and "Ruby" not in summary
+    assert "Rust" in summary and "actix-web" not in summary and "Ruby" not in summary
 
 
 def test_unbounded_containers_name_every_stack(tmp_path: Path) -> None:

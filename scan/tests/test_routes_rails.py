@@ -113,6 +113,8 @@ def test_rails_server_command(tmp_path: Path) -> None:
 
 
 def test_without_rails_not_read(tmp_path: Path) -> None:
+    """Gemfile без rails не читается; Sinatra назван в непрочитанных маршрутах (ТЗ §15 п. 15
+    К3, vocab.UNSUPPORTED_ROUTE_DEPS)."""
     tree(tmp_path, {
         "Gemfile": 'gem "sinatra"\n',
         "config/routes.rb": "get '/a'\n",
@@ -120,6 +122,8 @@ def test_without_rails_not_read(tmp_path: Path) -> None:
     ctx, files = files_of(tmp_path)
     found = rails_routes.parse(files, ctx)
     assert found.routes == [] and rails_routes.NAME not in found.applied
+    collected, _ = registry.collect(files, ctx)
+    assert stats.code_unsupported(collected)["http_routes"] == ["Ruby: Sinatra"]
 
 
 def test_scopes_and_options(tmp_path: Path) -> None:

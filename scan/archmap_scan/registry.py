@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from archmap_scan.context import Context
 from archmap_scan.model import Findings
 from archmap_scan.parsers import (
+    actix,
     alembic,
     aspnet,
     buildfiles,
@@ -101,6 +102,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(gohttp.NAME, ("http_routes",), gohttp.parse, code=True),
     ParserSpec(rails_routes.NAME, ("http_routes",), rails_routes.parse, code=True),
     ParserSpec(aspnet.NAME, ("http_routes",), aspnet.parse, code=True),
+    ParserSpec(actix.NAME, ("http_routes",), actix.parse, code=True),
     ParserSpec(pyenv.NAME, ("config",), pyenv.parse, code=True),
     ParserSpec(nodeenv.NAME, ("config",), nodeenv.parse, code=True),
     ParserSpec(goenv.NAME, ("config",), goenv.parse, code=True),

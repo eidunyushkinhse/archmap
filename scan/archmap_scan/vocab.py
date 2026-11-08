@@ -464,24 +464,35 @@ UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (
 )
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
-    "Echo", "chi", "Fiber", "Rails",
+    "Echo", "chi", "Fiber", "Rails", "actix-web",
 })
 # Языки вне CODE_LANGUAGES, код которых ярус кода читает в одной семье, и зависимости пакета,
-# при которых читает (ТЗ §15 п. 15): маршруты Rails и ASP.NET Core. Пакет такого языка с одной
-# из зависимостей своим языком в unsupported семьи не называется.
+# при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web. Пакет такого
+# языка с одной из зависимостей своим языком в unsupported семьи не называется.
 FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
     "http_routes": {
         "Ruby": ("rails", "railties"),
         # Веб-проект .NET (Sdk="Microsoft.NET.Sdk.Web") или зависимость Microsoft.AspNetCore.*.
         ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
+        "Rust": ("actix-web",),
     },
 }
-# Семья и язык, у которых других стеков, кроме зависимостей FAMILY_LANGUAGES, нет: пакет без
-# них в семье непрочитанным не называется. Маршруты HTTP на .NET обслуживает ASP.NET Core
-# (веб-SDK или Microsoft.AspNetCore.*), у библиотек, воркеров и приложений MAUI без него
-# маршрутов нет (ТЗ §15 п. 15 К2, решение исполнителя). У Ruby без Rails есть Sinatra и
-# другие стеки, его пакет без rails по-прежнему назван.
-FAMILY_ONLY_STACK = frozenset({("http_routes", ".NET")})
+# Серверные фреймворки маршрутов без разборщика у языков из FAMILY_LANGUAGES (ТЗ §15 п. 15 К3,
+# решение исполнителя): пакет с ними назван в unsupported «Язык: фреймворк», пакет без
+# известного стека не назван вовсе, как у языков CODE_LANGUAGES (у Lemmy библиотечные крейты
+# без actix-web маршрутов не держат). Только для покрытия: роль и технологию объекта
+# по-прежнему даёт SERVER_FRAMEWORKS.
+UNSUPPORTED_ROUTE_DEPS: tuple[tuple[str, str], ...] = (
+    ("axum", "axum"), ("rocket", "Rocket"), ("warp", "warp"), ("poem", "poem"), ("tide", "tide"),
+    ("sinatra", "Sinatra"), ("hanami", "Hanami"), ("grape", "Grape"), ("roda", "Roda"),
+    ("fastendpoints", "FastEndpoints"), ("carter", "Carter"),
+)
+
+
+def family_language(family: str, language: str) -> bool:
+    """Маршруты на языке language семья family читает по стеку пакета (FAMILY_LANGUAGES):
+    пакет такого языка языком в unsupported семьи не называется."""
+    return language in FAMILY_LANGUAGES.get(family, {})
 
 
 def family_reads(family: str, language: str, deps: Iterable[str]) -> bool:

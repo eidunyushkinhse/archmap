@@ -270,12 +270,13 @@ def code_unsupported(
         "tables": [],
     }
     tables = (
-        ("http_routes", vocab.SERVER_FRAMEWORKS), ("channels", vocab.UNSUPPORTED_CHANNEL_DEPS),
+        ("http_routes", vocab.SERVER_FRAMEWORKS), ("http_routes", vocab.UNSUPPORTED_ROUTE_DEPS),
+        ("channels", vocab.UNSUPPORTED_CHANNEL_DEPS),
         ("workers", vocab.UNSUPPORTED_WORKER_DEPS), ("schedules", vocab.UNSUPPORTED_SCHEDULE_DEPS),
     )
-    # Языки без чтения кода по семьям: язык, код которого семья читает при стеке пакета
-    # (vocab.family_reads, маршруты Rails и ASP.NET Core), у такого пакета в семье не
-    # называется; пакет .NET без ASP.NET Core маршрутов не держит (vocab.FAMILY_ONLY_STACK).
+    # Языки без чтения кода по семьям: язык, маршруты на котором семья читает по стеку
+    # пакета (vocab.family_language: Rails, ASP.NET Core, actix-web), языком не называется;
+    # его фреймворки без разборщика названы по vocab.UNSUPPORTED_ROUTE_DEPS.
     unread: dict[str, list[str]] = {fam: [] for fam in _LANGUAGE_FAMILIES}
 
     def add(fam: str, name: str) -> None:
@@ -298,9 +299,7 @@ def code_unsupported(
             for fam in _LANGUAGE_FAMILIES:
                 if pkg.language in unread[fam]:
                     continue
-                if (fam, pkg.language) in vocab.FAMILY_ONLY_STACK:
-                    continue
-                if not vocab.family_reads(fam, pkg.language, pkg.deps):
+                if not vocab.family_language(fam, pkg.language):
                     unread[fam].append(pkg.language)
         config_lib = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
         if config_lib:

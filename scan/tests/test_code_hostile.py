@@ -28,7 +28,7 @@ MANIFESTS: dict[str, str | bytes] = {
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
-    "rs/Cargo.toml": '[package]\nname = "x"\n',
+    "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\n',
 }
 
 # Подключение клиента: без него разборщики каналов JS и Go файл не читают.
@@ -136,6 +136,12 @@ STARTS["rs/main.rs"] = (
     "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",
     "#[arg(env)]\n#[serde(", 'std::env::var("', "env::var(", 'env!("', "#[cfg(test)]\nmod t {",
     "r#\"", "'", 'env::var("X").unwrap_or("',
+)
+# Маршруты actix-web (ТЗ §15 п. 15 К3): вызовы route, scope и resource, атрибуты обработчиков.
+STARTS["rs/main.rs"] += (
+    '.route("', ".route(", 'web::scope("', "web::scope(", 'web::resource("/a").route(', '#[get("',
+    '#[route("/a", method = "', 'App::new().service(web::scope("/a").service(',
+    '.route("/a", web::', "const A: &str = \"",
 )
 # DDL в шаблонах миграций (ТЗ §15 п. 14 З2): шаблон, вставка, откат, sql.raw.
 STARTS["js/migrations/1-a.ts"] = (
@@ -296,6 +302,25 @@ RUST = {
     "lifetimes": "fn f<'a>(x: &'a str) " * (PAYLOAD // 20),
     "reads": 'std::env::var("A").unwrap_or_else(|_| "b".into());\n' * 1999,
 }
+
+
+# actix-web: тысячи вызовов и атрибутов, глубокая вложенность scope, сплошные скобки и
+# разделители, тысячи констант, атрибут без конца.
+ACTIX = {
+    "routes": "cfg" + '.route("/abcdefghijklmnopqrstuvwxyz", web::get().to(h))\n' * 4999 + ";\n",
+    "attrs": '#[get("/abcdefghij")]\nasync fn a() {}\n' * 4999,
+    "scopes": 'web::scope("/a").service(' * (PAYLOAD // 26),
+    "parens": "(" * PAYLOAD,
+    "separators": ",;" * (PAYLOAD // 2),
+    "consts": 'const A: &str = "/a";\n' * (PAYLOAD // 22) + ".route(A, web::get().to(h))\n",
+    "attr-chain": '#[get("/a")]' + "#[a]" * (PAYLOAD // 4),
+    "open-attr": '#[get("/a"' + "[" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(ACTIX))
+def test_actix_routes(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rs/main.rs": ACTIX[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(RUST))

@@ -124,7 +124,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   DDL у SQL-файлов и шаблонов Kysely общий (`sqlddl.py`). `openapi_owner.py` отдаёт операции
   файла OpenAPI маршрутами сервису, который его отдаёт, или оставляет подсказку с причиной.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`,
-  `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, параметры
+  `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, `actix`, параметры
   `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
   `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
   `celerybeat`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
@@ -410,5 +410,17 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `[Route]` — префикс, `[Http*]` и `[Route]` метода — маршрут (`ANY` без глагола), `[controller]`
     и `[action]` подставляются, шаблон с `/` или `~/` идёт от корня; метод без `[Route]` у себя и
     у класса идёт по соглашению `/Контроллер/действие` с `prefix_unresolved`; `MapGrpcService`
-    и `MapHub` не маршруты, файлы и каталоги тестов не читаются; пакет .NET без ASP.NET Core в
-    `unsupported` маршрутов не назван (`vocab.FAMILY_ONLY_STACK`) (К2).
+    и `MapHub` не маршруты, файлы и каталоги тестов не читаются (К2);
+  - маршруты actix-web (`parsers/actix.py`, стек — Cargo.toml с actix-web, маска
+    `codetext.RUST`): `.route("п", web::get().to(h))` с методом из `web::get()` и других (`web::method`,
+    `web::route`, `web::to` — ANY), `.route(web::get()…)` и `.to(h)` на цепочке
+    `web::resource("п")` — путь ресурса, `web::scope("п")` даёт префикс вызовам своей цепочки и
+    всему внутри их скобок; вложенность — один проход по скобкам маски, цепочка кончается на
+    «,» или «;» своего уровня; имена без `web::` читаются так же; атрибуты `#[get("п")]` и
+    `#[route("п", method = "GET")]` над `fn` — путь как написан, без префикса и без
+    `prefix_unresolved`; путь константой `const ИМЯ: &str` файла раскрывается, `format!` и
+    переменная — подсказка; модуль `#[cfg(test)]` не читается. Покрытие у языков, маршруты
+    которых читаются по стеку пакета (Rails, ASP.NET Core, actix-web,
+    `vocab.family_language`): язык сам в `unsupported` маршрутов не называется, фреймворки без
+    разборщика (axum, Rocket, warp, Sinatra, Hanami, FastEndpoints и другие) названы
+    `vocab.UNSUPPORTED_ROUTE_DEPS` (К3).

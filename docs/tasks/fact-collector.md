@@ -262,6 +262,7 @@ archmap-scan/
 | | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
 | | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints |
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"` или `Microsoft.AspNetCore.*`): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints, маршрут по соглашению `/Контроллер/действие` с `prefix_unresolved: true` |
+| | Rust: actix-web (`Cargo.toml` с actix-web): `.route("/p", web::get().to(h))` и другие методы (`web::method`, `web::to` — ANY), `web::resource("/p").route(web::get()…)` и `.to(h)`, `web::scope("/v1")` с вложенными `.service(web::scope(…))`, `#[get("/p")]` и `#[route("/p", method = "GET")]` над `fn` (ч. 4, К3) | один проход по парным скобкам маски Rust; атрибут — путь без префикса; константа `const` файла раскрывается, `format!` и переменная в hints |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
 | каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
@@ -282,7 +283,7 @@ archmap-scan/
 
 Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
 построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
-Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Laravel/Phoenix/Rust (Rails и ASP.NET Core читаются с части 4, К1 и К2),
+Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Laravel/Phoenix и Rust без actix-web (Rails, ASP.NET Core и actix-web читаются с части 4, К1–К3),
 ключи viper и Spring `@Value`, параметры Kotlin, исходящие HTTP-вызовы в коде, компоненты,
 внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
 (кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
@@ -1578,7 +1579,8 @@ unread: {too_large: 3, binary: 0}
      falcon или `rails server` (`rails s`), а контейнер, чья команда запускает sidekiq, среди
      владельцев файла маршрутов не считается. Покрытие: Rails в `vocab.ROUTE_FRAMEWORKS`,
      язык Ruby с rails в зависимостях пакета в `unsupported` маршрутов не назван
-     (`vocab.FAMILY_LANGUAGES`, по пакету, а не по языку целиком). Mastodon: маршрутов 4 → 715
+     (`vocab.FAMILY_LANGUAGES`, по пакету, а не по языку целиком; с К3 язык с чтением маршрутов по
+     стеку не называется вовсе, названы фреймворки без разборщика). Mastodon: маршрутов 4 → 715
      (`web` 711, из них `api.rb` 291, `admin.rb` 210, `routes.rb` 129, `settings.rb` 65,
      `fasp.rb` 16; `streaming` 4 прежние), подсказок `mount` 3 (`letter_opener`, `sidekiq`,
      `pghero`), динамических путей 1 (`web_app.rb:38`). Число скептика 332 считало объявления
@@ -1600,9 +1602,9 @@ unread: {too_large: 3, binary: 0}
      путь `/Контроллер/действие` с `prefix_unresolved`, шаблон соглашения не читается, методы
      без атрибутов записей не дают. `[Route]` класса не литералом — одна подсказка на класс.
      Покрытие: `.NET` в `unsupported` маршрутов не называется у пакетов без ASP.NET Core
-     (`vocab.FAMILY_ONLY_STACK`: библиотеки, воркер `Microsoft.NET.Sdk.Worker`, MAUI, решение
-     `.sln`): маршрутов HTTP у .NET без него нет, а иначе у eShop семья осталась бы `partial`
-     с «код на .NET сборщик пока не читает» при 48 найденных маршрутах. Проект только с
+     (библиотеки, воркер `Microsoft.NET.Sdk.Worker`, MAUI, решение `.sln`): маршрутов HTTP у
+     .NET без него нет, а иначе у eShop семья осталась бы `partial` с «код на .NET сборщик
+     пока не читает» при 48 найденных маршрутах (правило обобщено в К3). Проект только с
      `<FrameworkReference Include="Microsoft.AspNetCore.App" />` манифесты зависимостью не
      называют, его код не читается и не называется (смежный пробел, не исправлен). eShop:
      0 → 48 маршрутов у единственного контейнера `eshop` (`Catalog.API` 17, `Ordering.API` 7,
@@ -1611,3 +1613,30 @@ unread: {too_large: 3, binary: 0}
      `covered`; версии v1 и v2 одного пути `GET /api/catalog/items` — две записи со своими
      строками. Online Boutique: `cartservice` `GET /` (`Startup.cs:77`), `MapGrpcService` не
      маршрут; OpenTelemetry Demo: `cart` `GET /` (`Program.cs:125`).
+   - К3 (решение исполнителя): `parsers/actix.py` идёт одним проходом по скобкам и
+     разделителям маски Rust со стеком уровней: у уровня префикс снаружи и текущая цепочка
+     `scope` или `resource`; цепочка кончается на «,» или «;» своего уровня или закрывающей
+     скобке, а открытая на её цепочке скобка (`.service(`, `.configure(|cfg| { … })`) даёт
+     уровень с её префиксом. Пути склеиваются подряд, как у actix-web (`scope("/api/v3")` +
+     `scope("/post")` + `""` = `/api/v3/post`), без двойных «/» и от корня
+     (`.well-known/webfinger` у Lemmy → `/.well-known/webfinger`). Имена без `web::` (у Lemmy
+     `use actix_web::web::*`) читаются так же, определение `fn scope(` вызовом не считается.
+     `.route("п", выражение)` с методом не из `web::get()` и подобных — ANY. Атрибуты
+     обработчиков записываются как написаны, без префикса и без `prefix_unresolved`: scope, в
+     котором обработчик подключён `.service(h)`, механически не находится (по пункту).
+     `web::redirect("из", "в")` маршрутом не считается (у Lemmy 5). Пределы: выражение в
+     скобках 200 тыс. знаков, вложенность 1000 уровней, 5000 записей и 400 тыс. скобок и
+     разделителей на файл; сверх — файл непрочитан. Покрытие (сверх пункта, пересмотр правила
+     К1 и К2): язык, маршруты на котором читаются по стеку пакета (`vocab.family_language`:
+     Ruby, .NET, Rust), в `unsupported` маршрутов сам не называется, как Python, Node.js и Go;
+     серверные фреймворки этих языков без разборщика названы по новому словарю
+     `vocab.UNSUPPORTED_ROUTE_DEPS` (axum, Rocket, warp, poem, tide, Sinatra, Hanami, Grape,
+     Roda, FastEndpoints, Carter; только покрытие, роль и технологию объекта он не меняет).
+     Иначе у Lemmy семья осталась бы `partial` с «код на Rust сборщик пока не читает» из-за
+     библиотечных крейтов без actix-web (`db_schema`, `db_views/*` и других). Lemmy: 0 → 240
+     маршрутов у `lemmy` (`api/routes` 157, `api/routes_v3` 52, `apub` 18, `feeds` 8, `nodeinfo` 2,
+     `webfinger` 1, `prometheus_metrics` 1, `server` 1: `/sitemap.xml`), подсказок 0, два вызова
+     в модулях тестов не читаются; `http_routes` из `unsupported` в `covered`. Число скептика
+     241. PostHog: actix-web в крейтах Rust нет, там axum, маршрутов не прибавилось, покрытие
+     `Rust` → `Rust: axum`. OpenTelemetry Demo: `shipping` `GET /health` и `#[post]`
+     `/get-quote`, `/ship-order`; email на Sinatra назван `Ruby: Sinatra` вместо `Ruby`.

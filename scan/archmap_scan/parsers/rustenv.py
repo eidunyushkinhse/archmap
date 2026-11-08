@@ -231,7 +231,7 @@ def _macro(code: codetext.Code, rel: str, m: re.Match[str], found: Findings) -> 
     }))
 
 
-def _test_modules(mask: str) -> list[tuple[int, int]]:
+def test_modules(mask: str) -> list[tuple[int, int]]:
     """Участки `#[cfg(test)] mod имя { … }` по возрастанию, без пересечений."""
     out: list[tuple[int, int]] = []
     for m in _TEST_MODULE.finditer(mask):
@@ -246,7 +246,7 @@ def _test_modules(mask: str) -> list[tuple[int, int]]:
 
 
 def _scan(files: Files, code: codetext.Code, rel: str, found: Findings) -> None:
-    tests = _test_modules(code.mask) if "cfg" in code.mask else []
+    tests = test_modules(code.mask) if "cfg" in code.mask else []
     starts = [a for a, _ in tests]
     for pattern, handle in ((_ATTR, _attr), (_CALL, _call), (_MACRO, _macro)):
         for m in clike.matches(files, rel, pattern, code.mask) or []:
