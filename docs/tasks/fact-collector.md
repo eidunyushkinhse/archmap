@@ -242,16 +242,16 @@ archmap-scan/
 
 | Источник | Что берёт | Куда кладёт |
 |---|---|---|
-| `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов |
-| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT` | `technology`, `source.path`, команда для `entrypoints` |
+| `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов; у сервиса с образом прокси (nginx, HAProxy, Caddy, Traefik, Envoy) файлы томов из репозитория и многострочные значения `environment`: `upstream { server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen` HAProxy дают связи прокси → объект с этим `host`, технология HTTP (ч. 3, Ж3) |
+| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology`, `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
 | systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
-| k8s без шаблонов: `*.y*ml` с `apiVersion`+`kind` в `Deployment\|StatefulSet\|DaemonSet\|Job\|CronJob\|Service\|ConfigMap` (несколько документов в файле) | имя, образы контейнеров пода, `env`/`envFrom` (имена), `schedule` у CronJob, имя Service | объекты, `host` = имя Service (сопоставление по `selector`/`metadata.name`), расписания в `entrypoints.schedules`, параметры в config |
+| k8s без шаблонов: `*.y*ml` с `apiVersion`+`kind` в `Deployment\|StatefulSet\|DaemonSet\|Job\|CronJob\|Service\|ConfigMap\|NetworkPolicy` (несколько документов в файле) | имя, образы контейнеров пода, `env`/`envFrom` (имена), `schedule` у CronJob, имя Service; у NetworkPolicy поды `spec.podSelector`, `ingress.from[].podSelector`, `egress.to[].podSelector` (ч. 3, Ж1); значение `valueFrom.configMapKeyRef` из `data` ConfigMap того же файла, каталога или ближайшего предка, встроенные патчи `kustomization.yaml` (`patches[].patch`, `patchesStrategicMerge`) с `kind` и `metadata.name`, слитые с нагрузкой того же имени (ч. 3, Ж2) | объекты, `host` = имя Service (сопоставление по `selector`/`metadata.name`), расписания в `entrypoints.schedules`, параметры в config; связи «использует» источник ingress → под политики и под политики → цель egress по метке `app.kubernetes.io/name` или `app` шаблона Deployment/StatefulSet, без канала и sync, та же пара из env — одна связь |
 | Helm: `Chart.yaml`, `values.yaml` | имя чарта, образы в values (`image.repository`) | объекты по образам; `templates/` не разбираются (Go-шаблоны), в coverage `partial` с пояснением |
 | манифесты сборки: `package.json`, `pyproject.toml`, `requirements*.txt`, `Pipfile`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle*`, `Gemfile`, `composer.json`, `mix.exs` | имя пакета, зависимости (имена, без версий), workspaces/монорепо | `technology` контейнера (язык + фреймворк по словарю 6.5), опознание стека для статусов `unsupported`, клиентские библиотеки как подсказка вида зависимости (драйвер Postgres, клиент Kafka) |
 | `.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `env.example` | имена, значения как дефолты по инварианту 6 | семья config контейнера, к которому отнесён файл (раздел 7) |
-| файлы OpenAPI: `openapi*.y*ml\|json`, `swagger*.y*ml\|json` с ключом `openapi:`/`swagger:` | путь, число операций | `hints.openapi_files`; содержимое не ввозится (в ArchMap спецификация живёт в разделе «OpenAPI» объекта и едет пакетом доков, это фаза 3) |
+| файлы OpenAPI: `openapi*.y*ml\|json`, `swagger*.y*ml\|json` с ключом `openapi:`/`swagger:` | путь, число операций; операции (метод, путь, строка ключа), `info.title`, `servers[].url` (ч. 3, З3) | `hints.openapi_files`; содержимое не ввозится (в ArchMap спецификация живёт в разделе «OpenAPI» объекта и едет пакетом доков, это фаза 3); операции — маршруты `entrypoints.http` сервиса-владельца, если он определим механически (§15 п. 14 З3) |
 
 ### 6.2 Ярус 2, код (по фреймворкам)
 
@@ -260,7 +260,7 @@ archmap-scan/
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
 | | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
 | | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
-| параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`; Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"` | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
+| параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
 | каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
 
@@ -268,19 +268,23 @@ archmap-scan/
 
 | Источник | Разбор |
 |---|---|
-| SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
+| SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
 | Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
 | Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
+| Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается |
+| Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
 Для не покрытых владельцем таблиц (раздел 7) записи идут в `hints.unassigned`.
 
 ### 6.4 Не в нулевой версии (в coverage как `unsupported` с именем стека, где стек опознан)
 
-Prisma `schema.prisma`, Rails `schema.rb`/`structure.sql` (SQL-часть разберёт 6.3), Liquibase (снят
-владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET, ключи viper и Spring
-`@Value`, исходящие HTTP-вызовы в коде, компоненты, внешние SaaS и люди, описания и подписи со
-смыслом, поля сообщений каналов, содержимое OpenAPI, Redis/SQS/Pub/Sub как каналы, «мёртвый
-код» и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
+Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
+построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
+Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET/Rust,
+ключи viper и Spring `@Value`, параметры Kotlin, исходящие HTTP-вызовы в коде, компоненты,
+внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
+(кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
+и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
 
 ### 6.5 Словари (стартовые, пополняются по находкам, один модуль `vocab.py`)
 
@@ -293,7 +297,10 @@ Prisma `schema.prisma`, Rails `schema.rb`/`structure.sql` (SQL-часть раз
   `redpanda`→broker «Redpanda», `nats`→broker «NATS», `pulsar`→broker «Pulsar»,
   `zookeeper`→service «ZooKeeper» (роль «сервис»), `nginx`/`traefik`/`haproxy`/`envoy`→service
   (роль «прокси»), `mailhog`/`mailpit` → service. Неизвестный образ без `build` → service,
-  `technology` = имя образа без тега.
+  `technology` = имя образа без тега. Слово словаря ищется и среди частей имени через дефис
+  и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`, `docker-redis-cluster`), кроме
+  имён со словом программы вокруг базы (`client`, `exporter`, `ui`, `meta`…) и с двумя
+  технологиями (§15 п. 14 И3).
 - Базовый образ Dockerfile и манифест сборки → `technology`: «Python», «Node.js», «Go»,
   «Java», «Ruby», «PHP», «Rust», «.NET», «Elixir»; плюс фреймворк: fastapi→«FastAPI»,
   django→«Django», flask→«Flask», starlette, express→«Express», @nestjs/core→«NestJS», fastify,
@@ -320,7 +327,12 @@ Prisma `schema.prisma`, Rails `schema.rb`/`structure.sql` (SQL-часть раз
   командой (Procfile, `x-programs`, юнит systemd или supervisor без своего Dockerfile и
   образа), каталога кода не получает, если есть контейнер со своей сборкой того же языка
   (каталоги вложены) или без определённого языка, чья сборка охватывает каталог процесса:
-  код и его факты остаются у контейнера сборки (§15 п. 13 Д10).
+  код и его факты остаются у контейнера сборки (§15 п. 13 Д10). Файл Go под
+  `<каталог кода>/cmd/<имя>/` при двух и более программах `cmd/` в каталоге, из которых хотя
+  бы одной соответствует контейнер, принадлежит только контейнерам этой программы (имя
+  контейнера или программа его команды равны `<имя>`); у программы без контейнера записи
+  уходят в `hints.unassigned` с причиной «код программы из cmd/<имя>/, у которой нет
+  контейнера в манифестах» (§15 п. 14 Ф1).
 - **База для миграций.** Цепочка: (1) контейнер, владеющий каталогом миграций, и адрес базы в
   его `environment`/дефолтах → объект-база с таким `host`; (2) единственная реляционная база в
   манифестах; (3) баз в манифестах нет, а миграции есть (Sentry, Zulip: база живёт в другом
@@ -342,6 +354,12 @@ Prisma `schema.prisma`, Rails `schema.rb`/`structure.sql` (SQL-часть раз
   строкой называет записи общего кода (Zulip: 26 имён, 140 записей у 8 контейнеров;
   «140 параметров» читалось бы как 140 разных); в coverage `found` остаётся числом записей,
   рядом `distinct` с числом имён, когда они расходятся.
+- **Сервис для файла OpenAPI** (ч. 3, З3). Среди контейнеров с ролью «сервис»: файл в
+  каталоге кода ровно одного из них; иначе среди сервисов, чей каталог кода содержит файл
+  (нет таких — среди всех сервисов), ровно у одного имя или слово команды входит в путь
+  файла, `info.title` или `servers[].url`. Файл в каталоге документации и файл чужого API (все
+  адреса `servers` на внешних доменах) владельца не получают. Владелец не определим —
+  `hints.openapi_files` с причиной и перечнем сервисов, среди которых он искался.
 
 ## 8. Отчёт о покрытии
 
@@ -1162,3 +1180,363 @@ unread: {too_large: 3, binary: 0}
      всех репозиториев в 1,3–1,6 раза (PostHog 49 с, n8n 10 с при пределах 45 и 10 с); замер
      той же машиной сборок частей 2 и 2б подряд даёт те же числа (PostHog 49,4 и 48,9 против
      49,0 и 50,4 с, n8n в среднем 9,3 и 9,3 с), то есть это не код.
+14. **Решения исполнителя части 3** (2026-11-08, ветка feat/scan-3d, сборщик 0.4.0 без выпуска;
+   параметры через обёртки, связи второго порядка, таблицы Rails и Kysely, пути OpenAPI,
+   Rust; владелец может отменить, числа перемера в конце пункта).
+   - Е1 (решение исполнителя): обёрткой считается только функция, не метод: вызов метода
+     (`cfg.Get("X")`) по импорту файла к пакету не привязать. Параметр-имя должен иметь тип
+     `string` и стоять в `os.Getenv`/`os.LookupEnv` целиком (`"OTEL_" + name` не обёртка) или
+     среди аргументов `viper.BindEnv`. Дефолт берётся из аргумента сразу за именем, только
+     если у обёртки там параметр со словом default или fallback: у `mustMapEnv(target, envKey)`
+     дефолта нет, а аргумент после имени у других обёрток бывает логгером или ключом.
+     Обёртки через другую обёртку (транзитивные) не раскрываются. Пакет вызова
+     `пакет.Имя(` находится по импорту файла: псевдоним, иначе последняя часть пути без
+     `/vN` или строка `package` каталога; путь импорта переводится в каталог по `module`
+     ближайшего `go.mod` (импорт не из модулей репозитория обёрткой и константой не
+     считается). Константа — объявление верхнего уровня `Имя [Тип] = "литерал"` в `const`
+     или `var` (одиночное или в блоке); её место идёт в основания параметра вместе с местом
+     чтения, владелец по месту чтения. То же раскрытие действует и для прямых
+     `os.Getenv(Имя)`. Чтение по параметру внутри самой обёртки подсказкой о динамическом
+     имени больше не пишется: имена дают места вызова.
+   - Е2 (решение исполнителя): обёртка — функция уровня модуля (не метод и не вложенная),
+     читающая окружение по ПЕРВОМУ параметру; дефолт, как у Go, только при втором параметре
+     со словом default или fallback (позиционно или именем этого параметра), тип по
+     `type_cast=` (int, float, str, bool, str_to_bool). Пункт велит переиспользовать механизм
+     В1: вызов обёртки сопоставляется с определением тем же путём, что голое имя реестра
+     каналов (свой файл или импорт через `codebase.resolve_module`), а модуль-посредник
+     («from posthog.settings import get_from_env») проходится по его импортам «from x import
+     f» не больше трёх шагов; реэкспорт звёздочкой не раскрывается. Распознавание
+     `get_from_env` в модулях-реестрах каналов (`pyregistry.literal_part`) не менялось:
+     каналы вне пункта. Имя константой модуля (своего или импортированного) раскрывается и у
+     прямых `os.getenv(ИМЯ)`, как у Go; место присваивания в основаниях.
+   - Е3 (решение исполнителя): у immich схема `EnvSchema` объявлена в
+     `server/src/dtos/env.dto.ts`, а к `process.env` её применяет другой файл
+     (`server/src/repositories/config.repository.ts:209`), поэтому «в том же файле» прочитано
+     как «файл применяет схему, объявленную у себя или импортированную по имени»: модуль
+     ищется по относительному пути или как единственный файл кода с тем же хвостом пути без
+     расширения (псевдоним `src/…`). Основание параметра — строка ключа в файле схемы (по ней
+     и владелец), место применения — второе основание. Тип числа: int при `.int()` или целом
+     дефолте, иначе float; `z.stringbool()` — bool; имя константы-валидатора того же файла
+     (`stringBool.optional()`) раскрывается её цепочкой, импортированная схема
+     (`ImmichEnvironmentSchema`) вида не даёт, и тогда required не ставится. Перечень
+     `z.enum([...])` пишется полем `description` («Одно из значений: …»): это значения из
+     кода, а не пересказ смысла; у `z.enum(TsEnum)` перечня нет. Применение к схеме без имени
+     (`z.object({…}).parse(process.env)`) не читается.
+   - Е4 (решение исполнителя): «иглы `Configuration[`» прочитаны без учёта регистра первой
+     буквы (`configuration["X"]` из того же пункта иначе не находится); индексатор берётся у
+     любого имени configuration (`builder.Configuration`, `_configuration`), но не у
+     `IConfiguration[]` и не у `config[…]`: без типа словарь от конфигурации не отличить.
+     `GetEnvironmentVariable` — только у `Environment`. Запись `Configuration["X"] = …` не
+     чтение. Маска C# держит подстановки интерполированных строк кодом (`$"{configuration["X"]}/…"`
+     у eShop Identity.API: пять адресов клиентов только так и читаются); дословная и сырая
+     строки маскируются целиком. Дефолт C# — литерал после `??`, `?? throw` — обязателен;
+     у Java дефолт только из `getOrDefault`, `Optional…orElse` не читается. Тип — по
+     вызову, аргументом которого стоит чтение (`Integer.parseInt`, `bool.TryParse`,
+     `Convert.ToInt32`, `TimeSpan.Parse`), иначе по дефолту. Имя константой: поле
+     `String/string ИМЯ = "литерал";` с final, const или readonly в строке объявления; того же
+     файла, файла класса по `Класс.ИМЯ` (файл с именем класса один, выбран импортом Java или
+     лежит в том же каталоге) или статического импорта Java; константа интерфейса без
+     модификатора не раскрывается. Каталог тестов по имени (`*Tests/`, `*.Tests/`, `*-tests/`)
+     не читается; `src/test/` и `tests/` и так исключены обходом. В файле больше 2000 чтений
+     одного вида — файл непрочитан (враждебный вход). Kotlin (`.kt`) не читается: пакет
+     Gradle с плагином Kotlin остаётся языком Kotlin в `unsupported`. Покрытие: `.NET` и
+     `Java` больше не называются в `unsupported` семьи config (`vocab.CONFIG_LANGUAGES`), но
+     в маршрутах, каналах, воркерах и расписаниях называются по-прежнему
+     (`vocab.CODE_LANGUAGES`); у пакета Java со Spring Boot в config остаётся
+     «Java: Spring Boot» (`application.yml` и `@Value` не читаются, §6.4), иначе Petclinic
+     получил бы covered без единого чтения.
+   - Ж1 (решение исполнителя): под выбирается по одной метке селектора: сначала
+     `app.kubernetes.io/name`, иначе `app`; прочие метки селектора не сверяются. Основание
+     связи — строка этой метки в пире (`argocd-redis-network-policy.yaml:19`), иначе строка
+     пира. Пир с `namespaceSelector` (и вместе с `podSelector`: поды другого пространства
+     имён) или `ipBlock` молча пропускается; правило `ingress: - {}` без `from` (доступ
+     отовсюду) связей и подсказок не даёт. `podSelector: {}` у политики (одна подсказка на
+     политику, имя — `metadata.name`) и у пира (подсказка на пир) — `hints.unassigned` с
+     причиной «политика сетевого доступа относится ко всем подам»; та же подсказка у пира,
+     чья метка выбирает больше 50 пар подов (враждебный вход не размножает связи). Метка без
+     Deployment или StatefulSet — «под по меткам не найден»; если конец не стал объектом
+     (под из файла разработки), причина «другой конец связи не объект схемы». Технология связи —
+     технология цели, если цель база или брокер, у сервиса пусто. Связь к самому себе
+     (egress redis-ha → redis-ha) не рисуется. Пара из env (`REDIS_ADDR`) и из политики —
+     одна связь со всеми основаниями; подсказка depends_on для пары, уже нарисованной
+     политикой, не пишется.
+   - Ж2 (решение исполнителя): ConfigMap для `configMapKeyRef` ищется в том же файле, затем
+     в каталоге файла, затем в ближайшем каталоге-предке (у Argo CD значение
+     `redis.server: argocd-redis-ha-haproxy:6379` приходит из отрендеренного
+     `manifests/ha/namespace-install.yaml`, где Deployment и ConfigMap лежат вместе; оверлей
+     `manifests/ha/base/overlays/` предком `manifests/base/server/` не является, и нагрузки
+     обычной установки HA-значения не получают). Не найден — переменная без значения, как
+     раньше. `envFrom.configMapRef` ищет ConfigMap так же, но без находки берёт последний
+     с этим именем, как раньше (иначе пропали бы параметры). Строка `data` значения идёт в
+     основания связи вместе со строкой env. Встроенный патч сливается с первой по пути
+     нагрузкой того же имени: переменные того же имени заменяются, новые добавляются,
+     образ и команда только если у нагрузки их нет; патч без такой нагрузки объекта не
+     создаёт, патч без `metadata.name` (адресованный через `target`) не читается, элемент
+     env с `$patch: delete` переменной не даёт. Патч JSON 6902 — `hints.unparsed` с местом
+     ключа `patch`. Патчи файлами (`path:`) читает обход как обычные манифесты k8s.
+     Каталоги `components/` и `overlays/` в `walk.DEV_TOKENS` нет, правка политики Б не
+     понадобилась.
+   - Ж3 (решение исполнителя): прокси — образ с ролью «прокси» в словаре (nginx, Traefik,
+     HAProxy, Envoy) или имя образа `caddy`, `openresty` (Caddy в словарь образов не
+     добавлен: технология и роль объекта не меняются). Том — bind-путь, начинающийся с
+     «.», «/» или «~»: именованный том и путь только в контейнере (`/root/.caddy`) не
+     файлы; абсолютный путь и путь выше корня — `hints.unparsed` «вне репозитория»,
+     отсутствующий в обходе (в том числе исключённый соглашением) — `hints.unparsed`
+     «не найден». Том-каталог читается своими файлами без подкаталогов, не больше 50.
+     Caddyfile в environment — любое многострочное значение переменной прокси, строки
+     считаются от строки после ключа (значение блоком `|`). nginx: `server` только внутри
+     `upstream { }`, `proxy_pass` к имени upstream адресом не считается, `grpc_pass` — как
+     `proxy_pass`; HAProxy: `server имя адрес` в секциях `backend` и `listen`; Caddy:
+     аргументы `reverse_proxy` кроме матчеров (`@имя`, путь, `*`), подблок `to` не
+     читается. Traefik и Envoy читаются теми же правилами (их собственные форматы —
+     `url:` и `socket_address` — пунктом не названы и не разбираются). IP, localhost,
+     unix-сокет и адреса с подстановкой связей не дают; не больше 200 адресов на файл.
+     Технология связи HTTP и у цели-базы (MinIO `objectstorage` у PostHog). Связи едут с
+     кандидатом (`Unit.links`): у сервиса разработки, не ставшего объектом, они пропадают
+     вместе с ним, а не превращаются в подсказки.
+   - З1 (решение исполнителя): `default:` читается, но не пишется: у колонки в
+     `facts/*.tables.yaml` поля дефолта нет и у SQL-разборщика (контракт тот же). Первичный
+     ключ `id` bigint ставится, если нет `id: false`; `id: :uuid` (символ) задаёт тип,
+     `primary_key: "var"` — имя, список `primary_key: ["a", "b"]` — составной ключ без своего
+     `id`, колонки ключа обязательны. Ссылка `add_foreign_key` без `column:` идёт в колонку
+     `единственное_число_цели_id` по правилам Rails (`statuses` → `status_id`, `policies` →
+     `policy_id`); колонка не найдена — ссылки нет. Тип `t.column "к", :тип` — второй
+     аргумент. `enable_extension` и `create_schema` идут в `hints.unassigned` с причиной
+     «расширение или схема базы в schema.rb: таблиц не задаёт»: в схему базы им писать некуда.
+     Прочие инструкции define (`create_trigger` с цепочкой вызовов через «.» в конце строки и
+     блоком `do … end` у Forem, `execute` с heredoc) пропускаются целиком, со счётчиком, если
+     инструкции нет в перечне известных (`add_index`, `create_view`, `create_enum`,
+     `create_function`, `create_trigger` и т. п.). Диалект без драйвера в Gemfile пакета
+     файла не ставится (технология базы прежняя). `db/structure.sql` рядом отменяет чтение
+     `schema.rb`: это тот же снимок, а два источника дали бы таблицы дважды.
+     Владелец базы — по §7 без изменений. Mastodon: 116 таблиц у `db` (PostgreSQL по
+     `gem "pg"`), `unsupported` таблиц ушёл. Forem: 133 таблицы, но все в `hints.unassigned`
+     «несколько баз, владелец не определим»: в двух файлах compose две базы (`db` и
+     `postgres`), а контейнеры rails, sidekiq и web собраны из корня и каталога кода не
+     получили (§15 п. 13), поэтому база по каталогу не находится; правило владельца не
+     расширялось.
+   - З2 (решение исполнителя): кроме тегированных шаблонов ``sql`…` `` (и `sql<Тип>`)
+     читается текстовый аргумент ``sql.raw(`…`)``: это тот же SQL для Kysely, и у immich
+     переименование таблиц `StandardizeNames` идёт только им (с вставками имён, поэтому
+     подсказка, а не переименование). Тело функции `down` (функция, свойство или
+     переменная со стрелкой, метод) не читается: иначе откат удалял бы таблицы, созданные
+     `up`. Из шаблона применяются только инструкции CREATE, ALTER, DROP и RENAME: фрагменты
+     для построителя (``sql`now()` ``) и запросы данных пропуском не считаются. Зависимость
+     kysely не требуется (шаблоны `sql` есть и у других библиотек), стек — пакет Node.js;
+     владелец каталога миграций — контейнер Node.js (`file_owners` с языком). Вставка
+     заменяется заглушкой `archmap_dyn_N`: таблица с ней в имени (CREATE TABLE
+     `${sql.table(x)}`), цель инструкции таблицы (`ALTER TABLE "${old}" RENAME TO …`), колонка
+     и ссылка на таблицу с ней в схему не попадают, а пишутся в `hints.dynamic_names` с
+     `kind: table`, именем `${выражение}` и местом вставки; число таких подсказок —
+     `coverage.tables.dynamic_names`. В типе колонки (`"embedding" ${sql.raw(t)}(512)`)
+     остаётся текст вставки, на месте значения (`DEFAULT ${x}`) заглушка ничего не меняет.
+     Стек «Kysely» снимается с `unsupported` у пакета, в каталоге которого прочитан набор
+     kysely: иначе (построитель схемы) он остаётся. Пределы файла: 5000 шаблонов,
+     20 000 «;» и вставок; сверх — файл непрочитан. `CREATE TABLE … AS SELECT`: имя колонки —
+     псевдоним `AS имя` или имя колонки (`person_id`, `c.comment_id`; PostgreSQL называет её
+     так же), тип не выводится, обязательность `false` до `ALTER … SET NOT NULL`; «*»,
+     выражение без псевдонима и запрос не SELECT (`TABLE`, `VALUES`, `WITH`) оставляют
+     подсказку «колонки из запроса» (её текст уточнён). Побочно: номер строки инструкции в
+     `sqlddl.split_statements` считается от прошлой инструкции (было от начала текста, то
+     есть квадратично по числу инструкций; враждебный файл из 80 000 `ALTER` шёл 29 с).
+     immich: 72 таблицы у `database` (PostgreSQL по `"pg"` в `server/package.json`), 7
+     удалены, одна подсказка о динамическом имени (`StandardizeNames.ts:40`); 30 таблиц,
+     которые эта миграция переименовывает в цикле по массиву имён, остаются под прежними
+     именами (`users`, `assets`), и `ALTER` поздних миграций к новым именам (`asset`) им не
+     применяются. Lemmy: у `comment_actions` и семи других таблиц из запроса колонки и
+     первичный ключ, подсказок «колонки из запроса» 8 → 0.
+   - З3 (решение исполнителя): «среди нескольких контейнеров» прочитано так: среди сервисов,
+     чей каталог кода содержит файл, а если таких нет, среди всех сервисов схемы. Имя
+     сервиса ищется целиком с границами слова в пути файла, `info.title` и адресах
+     `servers` (у Swagger 2.0 — `host` и `basePath`), слово команды — среди слов этого
+     текста; общие слова команд (интерпретаторы, `bin`, `run`, `api`, `http`, `openapi`)
+     и слова короче трёх букв не считаются. Файл чужого API — все адреса `servers` с
+     хостом на внешнем домене (схема и хост с точкой, не localhost, не IP, без переменных
+     `{…}`); относительный адрес и имя сервиса compose — свои, один свой адрес рядом с
+     внешним делает файл своим; подсказка с причиной «спецификация чужого API». Маршрут
+     из файла: метод и путь как в файле (без `basePath`), источник — строка ключа пути
+     (у JSON — первая строка `"/путь":` в тексте), не больше 10 000 операций на файл.
+     Совпадение с маршрутом кода владельца — по методу и пути с параметрами в одной форме
+     (`{id}`, `:id`, `<int:id>`) без конечной «/», с префиксами пустым, путём относительного
+     адреса `servers` и `basePath`; у записи кода появляется `openapi_source` (поле
+     `entrypoints.yaml` добавлено, прежние не менялись), новая запись не заводится.
+     Подсказка `hints.openapi_files` остаётся и у файла с владельцем (с `object`): по ней
+     агент кладёт спецификацию в раздел «OpenAPI» объекта. Без сервисов в схеме и у файла
+     без операций причина прежняя. В `coverage.http_routes.parsers` разборщик `openapi`
+     появляется, только если дал маршрут; `from_code` от него не меняется. Argo CD: правило
+     владельца не сработало, файл остался подсказкой «владелец не определим: контейнеры
+     argocd-application-controller, …, argocd-server» (шесть сервисов). Причина: все
+     нагрузки Argo CD — один образ `quay.io/argoproj/argocd` из корневого Dockerfile
+     (`argocd-server` — ссылка на общий бинарник), каталога кода нет ни у одного
+     контейнера, а в `assets/swagger.json`, заголовке «Consolidate Services» и пути нет ни
+     имени, ни слова команды. Нужное уточнение (не сделано, решение архитектора): владелец
+     по коду, который отдаёт файл (`assets/embed.go` встраивает `swagger.json`,
+     `util/swagger` регистрирует путь `/swagger.json`, вызывает его `server/`), при
+     каталоге кода у контейнеров образа, собранного в репозитории, либо ручной выбор
+     агентом по подсказке. Grafana (вне перемера): 314 операций двух копий файла у
+     `grafana`, 236 совпали с маршрутами кода, 78 новых записей.
+   - И1 (решение исполнителя): Dockerfile подходит, если в нём объявлен `ARG X` и есть
+     `--bin $X`, `--bin ${X}` или `--bin=$X`; Cargo.toml с `[workspace]` берётся только из
+     каталога Dockerfile. Члены workspace — пути как написаны и шаблон `каталог/*`
+     (подкаталоги с Cargo.toml); другие шаблоны и `exclude` не читаются, не больше 500
+     членов. Крейт без `src/main.rs` (библиотека, только `src/bin/*.rs` у `logs-ingestion`
+     PostHog) контейнером не становится, как велит пункт. Роль — по словам имени крейта
+     (`batch-import-worker`, `flags-consumer` — воркеры), без слов — по общим правилам
+     (сервис); воркером по умолчанию, как у Procfile, крейт не считается: бинарник бывает и
+     сервером HTTP. Признак разработки — по пути Dockerfile (`walk.manifest_sign`) и по пути
+     Cargo.toml крейта (`walk.dev_sign`): `personhog-test-harness` PostHog с частью `test`
+     уходит в `hints.profiles`. Кандидат крейта получает Dockerfile (`Unit.dockerfile`),
+     поэтому сам Dockerfile отдельного контейнера `rust` не даёт. Склейка по имени с
+     сервисом compose или k8s: каталог кода объекта — каталог крейта, если сборка сервиса
+     шла из каталога workspace или каталога не было (`assemble._crate_dir`); у сервисов с
+     другим именем (`capture-ai` с `BIN: capture`) каталог прежний. PostHog: 19 новых
+     контейнеров Rust (affected-services, batch-import-worker, capture-apm-metrics,
+     capture-load-gen, cohort-event-shuffler, cohort-seeder, cohort-stream-processor,
+     embedding-worker, flags-consumer, ingestion-consumer, ingestion-control-plane,
+     kafka-assigner, kafka-deduplicator, personhog-parity-monitor, personhog-stateright,
+     pgapi, pgcollector, property-vals-rs, replay-recorder-v4), у 13 сервисов compose
+     каталог кода `rust/<крейт>` и `source.path`, `cymbal` и `personhog-changelog-relay`
+     получили технологию Rust вместо имени образа; ok-объектов потеряно 0, связи прежние.
+     Среди новых есть похожие на инструменты разработки (`capture-load-gen`,
+     `personhog-stateright`, `affected-services`, `cohort-seeder`,
+     `ai-research/replay-recorder-v4`): правило пункта их не отличает, вердикт за судьёй.
+     Решение владельца 2026-11-08: крейты остаются объектами без нового признака разработки
+     (слово `research` в `walk.DEV_TOKENS` не добавляется), код не меняется.
+   - И2 (решение исполнителя): читаются только поля с атрибутом `#[envconfig(…)]`; поле
+     структуры с `derive(Envconfig)` без атрибута (крейт читает и его) пунктом не названо и
+     не читается. Поле ищется после атрибута через другие атрибуты (`#[serde(…)]`) и
+     пробелы; основания — строка атрибута и строка поля. clap: атрибуты `#[arg(…)]` и
+     `#[clap(…)]` только с ключом `env`; `env` без значения — имя поля в верхнем регистре,
+     как у самого clap; флаг `bool` без дефолта не обязателен (у clap это ложь), поле
+     envconfig без дефолта и не `Option` обязательно. Дефолт — строка или литерал (число,
+     `true`, `false`); выражение (`default_value_t = DEFAULT_PORT`) — дефолт есть, текста
+     нет. `env::var`: дефолт из `.unwrap_or("v")` и `.unwrap_or_else(|_| "v"…)`,
+     `.unwrap()`, `.expect(…)` и `?` — обязателен, иначе не обязателен. Отклонение от
+     буквы пункта: `option_env!("X")` пункт перечисляет среди параметров, но его, как и
+     `env!`, подставляет компилятор, поэтому он тоже идёт в `hints.unassigned` «переменная
+     времени сборки» (причина в `texts.ASIDE_REASONS`: в счёт «без владельца» не входит);
+     переменные самого Cargo (`CARGO_*`) не пишутся вовсе. Модуль тестов `#[cfg(test)] mod …
+     { … }` не читается, каталоги `*Tests/` — по правилу Е4. Маска Rust: сырые строки
+     `r"…"`, `r#"…"#`, символ ровно из одного знака (время жизни `'a` литералом не
+     считается). «Rust» больше не называется в `unsupported` семьи config
+     (`vocab.CONFIG_LANGUAGES`), в маршрутах, каналах, воркерах и расписаниях — по-прежнему.
+     PostHog: параметров с основанием в коде Rust 1477 записей у 33 контейнеров, 1082
+     уникальных имени (`rust/capture/src/config.rs:306` KAFKA_REPLAY_ENVELOPE_COMPRESSION с
+     дефолтом none); код общих крейтов `rust/common/*` достаётся сервисам compose с общим
+     каталогом `rust/` (`capture-ai`, `replay-capture`, `personhog-router-leader`) по
+     прежнему правилу общего каталога. Lemmy: у `lemmy` 2 → 13 параметров, из кода Rust 12
+     (пять из clap в `crates/server/src/lib.rs`, семь из `env::var`, среди них `PGDATA` из
+     `crates/db_views/post/src/db_perf/mod.rs:171`).
+   - И3 (решение исполнителя): `pgautoupgrade` в словаре и обёртка ClickHouse по слову в
+     имени были уже с части 2 (А13), поэтому Lemmy `postgres` и PostHog `clickhouse` базами
+     были и до пункта; пункт обобщил правило ClickHouse на весь словарь. Порядок: точное имя,
+     имя без хвоста сборки, последняя часть через дефис (как раньше), затем часть имени
+     через дефис или подчёркивание. Слова программ вокруг базы (`_TOOL_PARTS`: клиент и
+     консоль, экспорт метрик, координатор, резервные копии, оператор, веб-интерфейс,
+     коннектор и REST-шлюз Kafka, служебный API `postgres-meta`, установщик, `test`, `e2e`,
+     `init`, `migrate`, `setup`) снимают правило части целиком; две разные технологии в
+     частях (`redis_mongodb`) тоже, вид наугад не выбирается. На образах всех клонов
+     (корнер-кейсы и дым) вид сменили семь: `docker-redis-cluster` Sentry (сервис в режиме
+     devservices, в `hints.profiles`), `nginx-certbot` Supabase и `nginx-proxy` Grafana
+     (прокси nginx), `postgresql-15-c9s` Keycloak (тестовый ресурс оператора), стадия
+     `envoy-base` Envoy, `kafka-assigner` и `kafka-deduplicator` PostHog (только в
+     `.github/rust-images.yml`, манифестом не читается). Последние два показывают предел
+     правила: свой сервис с именем на слово брокера по образу был бы брокером, но у
+     контейнера с каталогом кода вид по образу не берётся.
+   - Ф1 (раунд 3б, решение исполнителя): каталог `cmd/` берётся прямо в каталоге кода
+     владельцев файла (у Argo CD корень), вложенные `pkg/cmd/…` (подкоманды kubectl)
+     программами не считаются; программа — первый каталог после `cmd/`, файл прямо в `cmd/`
+     (`cmd/main.go` Argo CD) программы не задаёт. Программа есть, если под ней лежит хоть
+     один файл кода Go (`codebase.is_code_file`, не каталог разработки); список собирает
+     `buildfiles` (`Findings.go_programs`), сборка кладёт имена программ каталога в
+     `Obj.go_programs`. Соответствие ищется среди владельцев каталога после отбора по языку:
+     имя контейнера или `vocab.command_program` одной из его команд (первое слово после
+     обёрток, базовое имя пути). Контейнер без своего каталога кода программой не владеет:
+     `argocd-dex-server` с командой `/shared/argocd-dex rundex` собран из образа dex, и
+     `cmd/argocd-dex` уходит в подсказки. Правило только для файлов `.go`: манифесты сборки
+     (`go.mod` в `cmd/<имя>/`) и миграции идут по прежним правилам. Цена точного совпадения:
+     `cmd/argocd-notification` при команде `/usr/local/bin/argocd-notifications` контейнера
+     `argocd-notifications-controller` уходит в подсказки (8 имён). Argo CD: параметров
+     1772 → 830 (argocd-server 299 → 160, argocd-application-controller 296 → 157,
+     argocd-applicationset-controller 292 → 141, argocd-repo-server 300 → 149,
+     argocd-notifications-controller 290 → 109, argocd-commit-server 288 → 107); имён,
+     записанных у всех шести, 287 → 100 (оставшиеся читает код `util/`, `common/`,
+     `controller/`, `pkg/`, `reposerver/`, `server/`); в подсказки ушли программы `cmd/argocd`
+     (9 имён), `cmd/argocd-notification` (8), `cmd/argocd-cmp-server` (7),
+     `cmd/argocd-k8s-auth` (5), `cmd/argocd-dex` (3), `cmd/argocd-git-ask-pass` (1). Loki: два
+     маршрута `cmd/logql-analyzer/main.go:47` и `:49` вместо подсказки «владелец не
+     определим» у `backend` (команда `logql-analyzer`); Kubernetes и Nomad без изменений (у их
+     контейнеров нет каталога кода Go с `cmd/`).
+   - Ф2 (раунд 3б, решение исполнителя): предел `_MAX_NAMED` (= `clike.MAX_READS`, 2000)
+     считает в файле чтения с именем не литералом обоих проходов go-env: идентификатор и
+     `пакет.Имя` (раскрытие константой), выражение и склейку (подсказки). Сверх предела
+     разбор файла прекращается, файл отмечается непрочитанным (`files.refuse`), и его
+     параметры (литеральные тоже), подсказки, обёртки и константы не учитываются, в том
+     числе найденные до предела. Кэш раскрытия по ключу (каталог пакета, идентификатор)
+     стоит после выбора пакета по импорту файла, поэтому результат тот же. На
+     `wrapper-calls` время уходило не в раскрытие, а в маску и `gocode.call_spans`, который
+     проходил каждую «(» перевёрнутой маски. Теперь вызовы ищутся вперёд одним выражением по
+     нужным именам (литерал имени в начале, проверка знака перед именем и точки перед ним,
+     предел вызовов каждого имени, остановка, когда все имена набрали предел). Набор
+     вызовов тот же, go-http (общий помощник) тоже быстрее. Минимум из пяти запусков:
+     `named-reads` go-env 0,87 → 0,10 с, `wrapper-calls` go-env 0,68 → 0,51 с и go-http
+     0,51 → 0,40 с, `const-block` прежний (около 0,4 с, это маска и блок констант). Вывод
+     всех репозиториев с Go (Argo CD, Grafana, Online Boutique, PostHog, Zabbix, Airflow,
+     Envoy, Kubernetes, Loki, Nomad, OpenTelemetry Demo) байт в байт тот же, что после Ф1.
+     Имя пакета импорта без псевдонима берётся из первого файла каталога со строкой
+     `package`, константы каталога читаются только при раскрытии имени. До этого второй
+     проход размечал ради имени весь каталог каждого импорта. Время go-env на Argo CD
+     0,61 → 0,51 с (минимум из трёх), вывод тот же.
+   - Остаток после части 3 (перемер 2026-11-08 на c99c4591 против выводов судьи части 2б;
+     перемер после блоков Е и Ж дал те же ok и те же новые связи). Регрессий шести вердиктов
+     нет, кроме прежней базы Lemmy под именем `postgres` (теперь объект «база данных»
+     PostgreSQL с 58 таблицами, вердикту нужен `expect: postgres`); «осталось» 4 объекта, как
+     после части 2 (`posthog-metrics-agent`, `immich-grafana`, `immich-prometheus`,
+     `gitops-agent`), ложных связей PostHog 2 (`asyncmigrationscheck → plugins`,
+     `temporal-ui → db`). Новые связи без вердикта: Online Boutique 7 к
+     `opentelemetrycollector` (Ж2), Argo CD 13 (Ж1 и Ж2, среди них `argocd-server →
+     argocd-redis-ha-haproxy`), Lemmy `proxy → lemmy` и `proxy → lemmy-ui`, PostHog 10 от
+     `proxy` по Caddyfile (Ж3); новые объекты без вердикта: 19 бинарных крейтов PostHog (И1).
+     Параметры: Argo CD 354 → 1772, PostHog 2132 → 6151, immich 41 → 86, Lemmy 12 → 23, Online
+     Boutique 78 → 97, Sentry 109 как было. Таблицы: Mastodon 0 → 116, immich 0 → 72. Маршруты
+     Argo CD из swagger не получены, вместо них подсказка с причиной (З3). Кандидаты правил
+     семей config, tables и containers в проверке судьи «есть»; кандидаты связей «нет», хотя
+     все названные связи в выводе: проверка ищет текст «a -> b», а `schema.yaml` пишет связь
+     полями `from` и `to`. Sentry: проверка слоёв проходит, core 24 узла, 30 связей и 52
+     канала, как после части 2б. Дым 15 репозиториев: коды выхода 0, клоны чистые, объекты
+     прежние; связи Loki 0 → 2 (`gateway` по тому nginx, Ж3); параметры eShop 0 → 12 (Е4),
+     Airflow 106 → 115 (Е2), Nomad 43 → 48 (Е1); таблицы Forem из `unsupported` в covered с
+     133 записями без владельца (З1); маршруты Keycloak 0 → 6 (файл
+     `js/libs/keycloak-admin-client/openapi.json` достался `container` по слову `keycloak` в
+     команде, З3). Время рядом со сборкой части 2б на той же машине: PostHog 32,9 → 35,4 с
+     (+7 %, память 444 МБ), n8n 6,9 → 6,9 с, Airflow 5,6 → 6,0 с, Kubernetes 3,4 → 3,9 с
+     (+15 %: второй проход go-env по вызовам обёрток, список файлов Go после перемера
+     отбирается один раз), Keycloak 1,06 → 1,40 с (+32 %, то есть +0,34 с: java-env один раз
+     читает 5,9 тыс. файлов Java, которых раньше не читал никто); память выросла не больше
+     чем на 2 МБ. Не решено: владелец swagger Argo CD (код, который отдаёт файл:
+     `server/`, `util/swagger`); 30 таблиц immich под прежними именами после
+     `StandardizeNames`; таблицы Forem без владельца (две базы, контейнеры из корня);
+     среди новых объектов PostHog похожие на инструменты разработки; параметры Spring Boot
+     (`application.yml`, `@Value`), Kotlin, `config[…]` в C# и собственные форматы Traefik и
+     Envoy не читаются.
+   - Остаток после раунда 3б (перемер 2026-11-08 на a0053bf2 против выводов судьи части 3;
+     сборка c22b0ca0 даёт тот же вывод на всех репозиториях с Go). Регрессий шести вердиктов
+     нет, база Lemmy с `expect: postgres` сохранена (ok-объектов 5 из 5). «Осталось» те же 4
+     объекта, ложных связей PostHog 2. Вывод Online Boutique, Lemmy, Mastodon, immich,
+     PostHog и Sentry байт в байт прежний. У Argo CD сменились владельцы параметров (Ф1,
+     числа выше), подсказки и три маршрута, которые раньше уходили в подсказку «владелец не
+     определим»: `/api/webhook` у `argocd-applicationset-controller`, `/metrics` у
+     `argocd-commit-server` и у `argocd-repo-server`. Различных имён параметров Argo CD
+     317 → 300, без владельца 33. Кандидаты связей Online Boutique, Argo CD и PostHog в
+     проверке судьи теперь «есть» при прежнем выводе, потому что судья поправил проверку.
+     Sentry: проверка слоёв проходит, core 24 узла, 30 связей и 52 канала. Дым 15
+     репозиториев: коды выхода 0, клоны чистые, вывод прежний, кроме двух маршрутов Loki
+     (Ф1). Время рядом со сборкой части 2б, минимум из трёх по процессорному времени (своп
+     заполнен, и время по часам между прогонами расходится до полутора раз): Airflow 7,3 →
+     7,6 с (+5 %), Kubernetes 4,3 → 4,9 с (+13 %), Keycloak 1,3 → 1,7 с (+0,45 с, принято
+     владельцем), PostHog 46,5 → 49,4 с (+6 %), Argo CD 2,8 → 3,5 с (+25 %). Argo CD выше
+     предела с части 3 (там 3,7 с): второй проход go-env размечает файлы с вызовами обёрток
+     пакета `util/env`, и go-env занимает 0,51 с вместо 0,10 с. Память Argo CD
+     32 → 36 МБ, у остальных рост не больше 2 МБ. Не решено: время Argo CD;
+     программа `cmd/` с именем не как у команды контейнера (`cmd/argocd-notification`)
+     уходит в подсказки.

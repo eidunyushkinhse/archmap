@@ -75,8 +75,11 @@ def test_code_unsupported_stacks() -> None:
         ".NET", "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Ruby: Rails",
         "Rust: actix-web",
     ]
-    # Параметры в коде Python, Node.js и Go читает ярус кода; viper только транзитивный.
-    assert stacks["config"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
+    # Параметры в коде Python, Node.js, Go, .NET и Java читает ярус кода (ТЗ §15 п. 14 Е4):
+    # язык не назван, но у Java со Spring Boot параметры application.yml и @Value не читаются,
+    # стек назван с языком; viper только транзитивный.
+    # Параметры Rust читает rust-env (ТЗ §15 п. 14 И2): Rust в config больше не назван.
+    assert stacks["config"] == ["Elixir", "Java: Spring Boot", "PHP", "Ruby"]
     # Каналы Celery, Kafka, RabbitMQ, NATS, BullMQ и Sidekiq читает ярус кода; прочий код на
     # Ruby нет, и язык назван сам, как любые каналы на языках без чтения кода. Воркеры BullMQ и
     # Sidekiq из кода не заводятся.
@@ -205,7 +208,8 @@ def test_unsupported_only_from_container_code(tmp_path: Path) -> None:
     run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["http_routes"]["unsupported"] == ["Rust: actix-web"]
-    assert families["config"]["unsupported"] == ["Rust"]
+    # Параметры Rust читаются (ТЗ §15 п. 14 И2): в config стек не назван.
+    assert "unsupported" not in families["config"]
     assert families["channels"] == {"status": "unsupported", "parsers": ["bullmq"],
                                     "unsupported": ["Rust"]}
     assert families["workers"]["status"] == "unsupported"

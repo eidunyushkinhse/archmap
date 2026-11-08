@@ -30,6 +30,9 @@ class EnvVar:
     loc: Loc
     value: str | None = None
     dynamic: bool = False  # значение с подстановкой ${VAR}: известно только при запуске
+    # Где записано значение, если не в самой переменной: строка data ConfigMap для
+    # configMapKeyRef (ТЗ §15 п. 14 Ж2). Идёт в основания связи по адресу.
+    value_loc: Loc | None = None
 
 
 @dataclass
@@ -65,6 +68,27 @@ class Unit:
     dev: str | None = None
     dev_hints: list[Hint] = field(default_factory=list)
     dev_notes: list[str] = field(default_factory=list)  # пометки семьи containers
+    # Связи из файлов конфигурации прокси (ТЗ §15 п. 14 Ж3): едут с кандидатом и попадают в
+    # схему, только если он стал объектом.
+    links: list[ManifestLink] = field(default_factory=list)
+    # Каталог Cargo workspace, членом которого кандидат является (ТЗ §15 п. 14 И1): у объекта
+    # со сборкой из этого каталога каталог кода — каталог крейта (build_dir).
+    workspace: str | None = None
+
+
+@dataclass
+class ManifestLink:
+    """Связь, которую манифест называет сам (ТЗ §15 п. 14 Ж1, Ж3): NetworkPolicy между подами,
+    прокси к адресу своего файла конфигурации. src — имя кандидата в объект (Unit) того же
+    разборщика, dst — имя такого кандидата или host (by_host). Объекты концов находит сборка;
+    конец не объект — подсказка, а не связь."""
+
+    src: str
+    dst: str
+    loc: Loc
+    parser: str
+    technology: str | None = None
+    by_host: bool = False
 
 
 @dataclass
@@ -122,6 +146,11 @@ class OpenApi:
     operations: int | None  # None — операции не посчитаны, причина в reason
     reason: str | None = None  # None при operations None — файл больше предела разбора
     in_docs: bool = False  # файл в исключённом каталоге документации (ТЗ §15 п. 13 Д2)
+    # Операции (метод, путь как в файле, строка ключа пути), info.title, адреса servers[].url
+    # (у Swagger 2.0 — host и basePath) для маршрутов владельца (ТЗ §15 п. 14 З3).
+    ops: list[tuple[str, str, Loc]] = field(default_factory=list)
+    title: str | None = None
+    servers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -149,13 +178,13 @@ class Table:
 class TableSet:
     """Таблицы одного набора миграций (каталог) после применения всей цепочки."""
 
-    parser: str  # sql | alembic | django
+    parser: str  # sql | alembic | django | rails-schema | kysely
     dir: str
     tables: list[Table] = field(default_factory=list)
     dropped: int = 0
     skipped: int = 0
     skipped_examples: list[tuple[Loc, str]] = field(default_factory=list)
-    # Таблицы из CREATE TABLE … AS (место и имя): колонки из запроса не выведены.
+    # Таблицы из CREATE TABLE … AS (место и имя), у которых не все колонки получили имя.
     queried: list[tuple[Loc, str]] = field(default_factory=list)
     # Миграции данных (RunPython): структуру таблиц не меняют, поэтому это не пропуск, но
     # счёт в покрытии виден отдельно.
@@ -194,6 +223,11 @@ class CodeParam:
     has_default: bool = False  # дефолт есть, даже если не литерал
     required: bool | None = None
     type: str | None = None
+    # Другие основания той же записи: место объявления константы, которой задано имя (ТЗ
+    # §15 п. 14 Е1). Владельца выбирают по loc, эти места только идут в evidence.
+    extra_locs: list[Loc] = field(default_factory=list)
+    # Описание из кода без пересказа смысла: перечень значений схемы z.enum (ТЗ §15 п. 14 Е3).
+    description: str | None = None
 
 
 @dataclass
@@ -268,6 +302,8 @@ class Findings:
     # Разборщики кода, чей стек в репозитории есть (они читали файлы): по ним семья «пусто»
     # отличается от «не опознан стек».
     applied: set[str] = field(default_factory=set)
+    # Связи, которые манифесты называют сами (NetworkPolicy, конфигурация прокси).
+    links: list[ManifestLink] = field(default_factory=list)
     # Файлы кода в каталогах для разработки, которые разборщик не читал: имя разборщика →
     # файлы (ТЗ §4, покрытие skipped.dev_code по семьям).
     dev_code: dict[str, set[str]] = field(default_factory=dict)
@@ -275,6 +311,9 @@ class Findings:
     # не дал ни одного контейнера; тогда же в покрытии названы непрочитанные файлы сборки.
     build_units: list[Unit] = field(default_factory=list)
     build_unsupported: list[str] = field(default_factory=list)
+    # Каталоги программ Go по соглашению «<каталог>/cmd/<имя>/» с файлами кода Go (ТЗ §15
+    # п. 14 Ф1): по ним владелец файла под cmd/<имя>/ выбирается среди контейнеров каталога.
+    go_programs: set[str] = field(default_factory=set)
     # Стек по маркеру сборки в корне (vocab.STACK_BAZEL, STACK_CMAKE; ТЗ §15 п. 12 С12).
     root_stack: str | None = None
 
@@ -296,10 +335,12 @@ class Findings:
         self.channels.extend(other.channels)
         self.schedules.extend(other.schedules)
         self.applied |= other.applied
+        self.links.extend(other.links)
         for parser, rels in other.dev_code.items():
             self.dev_code.setdefault(parser, set()).update(rels)
         self.build_units.extend(other.build_units)
         for stack in other.build_unsupported:
             if stack not in self.build_unsupported:
                 self.build_unsupported.append(stack)
+        self.go_programs |= other.go_programs
         self.root_stack = self.root_stack or other.root_stack

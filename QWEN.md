@@ -211,7 +211,8 @@ archmap/
 - Гейт MCP-сервера:      cd mcp && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
 - Гейт сборщика фактов:  cd scan && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
     (venv: python3 -m venv scan/venv && scan/venv/bin/pip install -r scan/requirements-dev.txt)
-- Собрать сборщик фактов: python3 scan/build.py   (→ scan/dist/archmap-scan.pyz, печатает размер и sha256)
+- Собрать сборщик фактов: scan/venv/bin/python scan/build.py   (→ scan/dist/archmap-scan.pyz, печатает
+    размер и sha256; системный python3 даёт другой sha256: его PyYAML 6.0.1 без файла лицензии)
 - Снапшоты промптов:     ПОСЛЕ ОСОЗНАННОЙ правки любого промпта (app/*_prompt.py):
     cd backend && UPDATE_PROMPT_SNAPSHOTS=1 ./venv/bin/python -m pytest tests/test_prompt_snapshots.py -q
     Затем ОБЯЗАТЕЛЬНО посмотреть `git diff backend/tests/snapshots/` — это ревью правки —

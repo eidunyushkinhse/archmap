@@ -323,10 +323,9 @@ def _markers(files: Files, found: Findings) -> None:
     for rel in files.paths:
         name = paths.name(rel)
         stack: tuple[str, str] | None = None
+        # Схему Rails db/schema.rb читает railsschema.py (ТЗ §15 п. 14 З1).
         if name == "schema.prisma":
             stack = ("tables", "Prisma")
-        elif rel.endswith("db/schema.rb") or rel == "schema.rb":
-            stack = ("tables", "Rails schema.rb")
         if stack is not None:
             fam, label = stack
             items = found.unsupported.setdefault(fam, [])

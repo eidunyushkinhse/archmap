@@ -1,4 +1,4 @@
-"""SQL DDL: грамматика, цепочка миграций, владельцы баз, файлы таблиц."""
+"""SQL DDL и схема Rails: грамматика, цепочка миграций, владельцы баз, файлы таблиц."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import yaml
 
 from archmap_scan import sqlddl, texts
 from archmap_scan.model import Loc, Table
-from archmap_scan.parsers import sql
+from archmap_scan.parsers import kysely, railsschema, sql
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
@@ -173,8 +173,11 @@ def test_statistics_are_not_table_structure() -> None:
 
 
 def test_create_as_case_and_skip_examples() -> None:
-    """CREATE TABLE … AS даёт таблицу без колонок и подсказку «колонки из запроса»; имя без
-    кавычек в нижнем регистре; примеры пропусков сначала о живых таблицах (ТЗ §15 п. 10 А3)."""
+    """CREATE TABLE … AS SELECT даёт колонки по именам списка SELECT (ТЗ §15 п. 14 З2; Lemmy
+    migrations/2025-08-01-000016_smoosh-tables-together/up.sql:6 `CREATE TABLE comment_actions
+    AS SELECT max(liked) AS liked, person_id, …`), а «*» — таблицу без колонок и подсказку
+    «колонки из запроса»; имя без кавычек в нижнем регистре; примеры пропусков сначала о
+    живых таблицах (ТЗ §15 п. 10 А3)."""
     ctx, files = files_of(FIXTURES / "sql-chain")
     (chain,) = sql.parse(files, ctx).table_sets
     assert chain.dialect == "PostgreSQL"
@@ -184,9 +187,13 @@ def test_create_as_case_and_skip_examples() -> None:
     assert _cols(tables["language"])[0] == ("id", "serial", True, True, None)
     assert _cols(tables["post"])[1] == ("language_id", "int", False, False, "language.id")
     assert _cols(tables["Audit"]) == [("Id", "int", False, False, None)]
-    assert tables["post_actions"].columns == [] and tables["post_saved_combined"].columns == []
+    # Имена колонок из запроса, первичный ключ из ALTER TABLE после него; тип не выводится.
+    assert _cols(tables["post_actions"]) == [
+        ("person_id", None, True, True, None), ("post_id", None, True, True, None),
+        ("score", None, False, False, None),
+    ]
+    assert tables["post_saved_combined"].columns == []
     assert [(str(loc), name) for loc, name in chain.queried] == [
-        ("migrations/0003_smoosh.sql:2", "post_actions"),
         ("migrations/0003_smoosh.sql:7", "post_saved_combined"),
     ]
     # RENAME CONSTRAINT понят и в счёт не идёт; ADD (…) не понят четыре раза.
@@ -202,7 +209,7 @@ def test_create_as_case_and_skip_examples() -> None:
     ]
     queried = [h["name"] for h in model.hints["unassigned"]
                if h["reason"] == texts.REASON_COLUMNS_FROM_QUERY]
-    assert queried == ["post_actions", "post_saved_combined"]
+    assert queried == ["post_saved_combined"]
 
 
 def test_mysql_keeps_unquoted_case(tmp_path: Path) -> None:
@@ -238,4 +245,133 @@ def test_dialect_dirs_are_one_database() -> None:
             "customers/src/main/resources/db/hsqldb/",
             texts.embedded_database("customers/src/main/resources/db/mysql/"),
         ),
+    ]
+
+
+def test_rails_schema() -> None:
+    """Схема Rails db/schema.rb (ТЗ §15 п. 14 З1). Найдено в Mastodon: db/schema.rb
+    create_table "account_aliases", force: :cascade do |t| … t.string "acct", default: "",
+    null: false … end и add_foreign_key; 116 таблиц, а схема Rails была в unsupported.
+    Ловушки: db/migrate/*.rb не читаются; spec/dummy/db/schema.rb (тестовое приложение)
+    не читается; create_view с heredoc и create_trigger с цепочкой вызовов и блоком do
+    (Forem) таблиц не дают; enable_extension и create_schema — подсказки; непонятая строка
+    таблицы — счётчик пропусков."""
+    root = FIXTURES / "rails-schema"
+    ctx, files = files_of(root)
+    found = railsschema.parse(files, ctx)
+    (ts,) = found.table_sets
+    tables = {t.name: _cols(t) for t in ts.tables}
+    assert tables == {
+        "accounts": [
+            ("id", "bigint", True, True, None), ("username", "string", False, True, None),
+            ("created_at", "datetime", False, True, None),
+        ],
+        "statuses": [
+            ("id", "uuid", True, True, None), ("account_id", "bigint", False, True, "accounts.id"),
+            ("target_id", "bigint", False, False, None),
+            ("target_type", "string", False, False, None), ("text", "text", False, False, None),
+            ("created_at", "datetime", False, True, None),
+            ("updated_at", "datetime", False, True, None),
+        ],
+        "account_tags": [
+            ("account_id", "bigint", False, True, "accounts.id"),
+            ("tag_id", "bigint", False, True, "tags.id"),
+        ],
+        "settings": [("var", "string", True, True, None), ("value", "jsonb", False, False, None)],
+    }
+    assert (ts.dialect, str(ts.dialect_loc)) == ("PostgreSQL", "Gemfile:4")
+    assert (ts.skipped, ts.skipped_examples) == (1, [(Loc("db/schema.rb", 22), "t.frobnicate_weird")])
+    assert [(h.data["name"], h.data["reason"]) for h in found.hints] == [
+        ("enable_extension plpgsql", texts.REASON_RAILS_NOT_TABLE),
+        ("create_schema billing", texts.REASON_RAILS_NOT_TABLE),
+    ]
+    model = model_of(root)
+    assert sorted(t.name for t in model.tables["db"]) == [
+        "account_tags", "accounts", "settings", "statuses",
+    ]
+
+
+def test_rails_structure_sql_wins(tmp_path: Path) -> None:
+    """Рядом db/structure.sql: схема Rails не читается, таблицы даёт SQL-разборщик (один
+    источник)."""
+    root = tree(tmp_path, {
+        "db/schema.rb": 'ActiveRecord::Schema.define do\n  create_table "a" do |t|\n  end\nend\n',
+        "db/structure.sql": "CREATE TABLE b (id bigint PRIMARY KEY);\n",
+    })
+    ctx, files = files_of(root)
+    assert railsschema.parse(files, ctx).table_sets == []
+    assert [t.name for ts in sql.parse(files, ctx).table_sets for t in ts.tables] == ["b"]
+
+
+def test_rails_schema_hostile_is_fast(tmp_path: Path) -> None:
+    """Враждебная схема Rails: тысячи таблиц и опций, незакрытый heredoc, сплошные блоки
+    do и продолжения строк. Разбор построчный, каждая строка — выражения с пределами."""
+    head = "ActiveRecord::Schema.define do\n"
+    payloads = {
+        "tables": head + 'create_table "t", force: :cascade do |t|\n  t.string "a"\nend\n' * 40_000,
+        "options": head + 'create_table "t", ' + "a: 1, " * 300_000 + "do |t|\nend\n",
+        "row": head + 'create_table "t" do |t|\n  t.string "a", ' + "n: :x, " * 300_000 + "\nend\n",
+        "heredoc": head + "create_view \"v\", sql: <<-SQL\n" + "x\n" * 1_000_000,
+        "blocks": head + "foo do\n" * 300_000,
+        "chain": head + "foo.\n" * 500_000,
+    }
+    for kind, text in payloads.items():
+        root = tree(tmp_path / kind, {"db/schema.rb": text})
+        ctx, files = files_of(root)
+        started = time.perf_counter()
+        railsschema.parse(files, ctx)
+        took = time.perf_counter() - started
+        assert took < 1.0, f"{kind}: {took:.2f} с"
+
+
+def test_kysely_templates() -> None:
+    """DDL в шаблонах sql`…` миграций (ТЗ §15 п. 14 З2). Найдено в immich:
+    server/src/schema/migrations/1744910873969-InitialMigration.ts:111 ``await sql`CREATE
+    TABLE "users" (…)`.execute(db)``, 102 файла из 105, а таблиц у базы не было. Ловушки:
+    шаблон с SELECT и фрагменты не DDL; шаблон в комментарии и файл вне migrations/ не
+    читаются; тело down (DROP TABLE) не читается; порядок 1, 2, 10 по числу (ALTER из 10
+    после CREATE из 2); вставка на месте значения и типа подсказки не даёт, на месте имени
+    таблицы (sql.table, sql.raw с RENAME у StandardizeNames immich) — подсказка;
+    экранированная «`» шаблон не рвёт; CREATE TABLE … AS в обычном .sql (Lemmy)."""
+    root = FIXTURES / "kysely-migrations"
+    ctx, files = files_of(root)
+    found = kysely.parse(files, ctx)
+    (ts,) = found.table_sets
+    assert (ts.dir, ts.dialect, str(ts.dialect_loc)) == (
+        "server/src/schema/migrations", "PostgreSQL", "server/package.json:5",
+    )
+    assert (ts.skipped, ts.dropped, ts.queried) == (0, 0, [])
+    tables = {t.name: _cols(t) for t in ts.tables}
+    assert tables == {
+        "users": [
+            ("id", "uuid", True, True, None), ("email", "character varying", False, True, None),
+            ("status", "character varying", False, True, None),
+        ],
+        "smart_search": [
+            ("assetId", "uuid", False, True, "users.id"),
+            ("embedding", "${sql.raw(vectorType)}(512)", False, True, None),
+        ],
+        "albums": [
+            ("id", "uuid", False, True, None), ("ownerId", "uuid", False, True, "users.id"),
+            ("name", "character varying", False, True, None),
+            ("description", "text", False, True, None),
+        ],
+    }
+    assert [(h.section, h.data["name"], h.data["source"]) for h in found.hints] == [
+        ("dynamic_names", "${sql.table(tableName)}", "server/src/schema/migrations/2-AddAlbums.ts:5"),
+        ("dynamic_names", "${oldName}", "server/src/schema/migrations/10-Standardize.ts:8"),
+    ]
+    assert {h.data["reason"] for h in found.hints} == {texts.REASON_DYNAMIC_TABLE}
+    (actions,) = sql.parse(files, ctx).table_sets
+    by_name = {t.name: _cols(t) for t in actions.tables}
+    assert by_name["comment_actions"] == [
+        ("liked", None, False, False, None), ("person_id", None, True, True, None),
+        ("comment_id", None, True, True, None), ("vote_is_upvote", None, False, False, None),
+    ]
+    assert [(str(loc), name) for loc, name in actions.queried] == [
+        ("server/sql/0001_actions.sql:15", "comment_counts"),
+    ]
+    model = model_of(root)
+    assert sorted(t.name for t in model.tables["database"]) == [
+        "albums", "comment_actions", "comment_counts", "smart_search", "users",
     ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import time
 from pathlib import Path
 
 from archmap_scan import registry, texts
@@ -13,7 +14,7 @@ from archmap_scan.objects import Model
 from archmap_scan.parsers import compose
 from archmap_scan.walk import Files, list_files
 from archmap_scan.yamlload import MAX_YAML_BYTES
-from tests.helpers import FIXTURES, files_of, git, tree
+from tests.helpers import FIXTURES, files_of, git, model_of, time_limit, tree
 
 
 def _parse(root: Path) -> Findings:
@@ -284,3 +285,62 @@ def test_dotenv_substitution_only_when_committed(tmp_path: Path) -> None:
         names = {o.name for o in model.objects}
         assert names == {"ad", "advert", "web", "kafka", "checkout"}
         assert model.links == []
+
+
+def test_proxy_config_links() -> None:
+    """Смонтированный файл конфигурации прокси (ТЗ §15 п. 14 Ж3). Найдено в Lemmy:
+    docker/docker-compose.yml:9–17 сервис proxy на nginx:1-alpine с томом ./nginx.conf, а в
+    docker/nginx.conf:8 upstream lemmy { server "lemmy:8536"; }; в PostHog
+    docker-compose.base.yml:112 Caddyfile строками в environment с reverse_proxy capture:3000.
+    Ловушки: каталог тома читается только своими файлами (conf.d/sub/ нет); server
+    127.0.0.1 и имя upstream в proxy_pass связей не дают; сервис не прокси (app) свой том
+    не читает; внешний хост — подсказка; отсутствующий файл и путь вне репозитория —
+    hints.unparsed; depends_on proxy → api и web не пишется, связь уже есть."""
+    root = FIXTURES / "compose-proxy"
+    model = model_of(root)
+    links = {
+        (lk.src.name, lk.dst.name): (lk.technology, sorted(str(loc) for loc in lk.locs))
+        for lk in model.links
+    }
+    assert links == {
+        ("edge", "api"): ("HTTP", ["compose.yaml:18"]),
+        ("edge", "files"): ("HTTP", ["compose.yaml:19"]),
+        ("edge", "web"): ("HTTP", ["compose.yaml:20"]),
+        ("lb", "api"): ("HTTP", ["haproxy.cfg:5"]),
+        ("proxy", "api"): ("HTTP", ["nginx/conf.d/default.conf:3", "nginx/nginx.conf:5"]),
+        ("proxy", "web"): ("HTTP", ["nginx/nginx.conf:14"]),
+    }
+    assert [(h["name"], h["reason"]) for h in model.hints["unassigned"]] == [
+        ("proxy→payments.example.com", texts.REASON_LINK_NOT_OBJECT),
+    ]
+    assert [(h["name"], h["reason"], h["source"]) for h in model.hints["unparsed"]] == [
+        ("missing.conf", texts.REASON_PROXY_MISSING, "compose.yaml:7"),
+        ("/etc/ssl", texts.REASON_PROXY_OUTSIDE, "compose.yaml:8"),
+    ]
+    assert "depends_on" not in model.hints
+
+
+def test_proxy_config_hostile_is_fast(tmp_path: Path) -> None:
+    """Враждебный файл конфигурации прокси: строка в 2 МБ, тысячи upstream и server,
+    reverse_proxy с длинным хвостом. Разбор построчный, адресов не больше предела."""
+    big = 2_000_000
+    payloads = {
+        "line": "a" * big,
+        "upstreams": "upstream a {\n" * (big // 13),
+        "servers": "upstream a {\n" + "    server x:1;\n" * (big // 16),
+        "caddy": "reverse_proxy " + "a:1 " * (big // 4),
+        "braces": "{" * big + "\nproxy_pass http://x;\n",
+        "haproxy": "backend b\n" + "    server s h:1 check\n" * (big // 23),
+    }
+    for kind, text in payloads.items():
+        root = tree(tmp_path / kind, {
+            "compose.yaml": "services:\n  proxy:\n    image: nginx\n    volumes:\n"
+            "      - ./p.conf:/etc/nginx/nginx.conf\n  x:\n    image: shop/x\n",
+            "p.conf": text,
+        })
+        ctx, files = files_of(root)
+        started = time.perf_counter()
+        found = compose.parse(files, ctx)
+        took = time.perf_counter() - started
+        assert took < time_limit(), f"{kind}: {took:.2f} с"
+        assert sum(len(u.links) for u in found.units) <= 200

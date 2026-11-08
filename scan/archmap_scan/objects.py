@@ -34,6 +34,8 @@ class Obj:
     dockerfile: Dockerfile | None = None
     package_locs: list[Loc] = field(default_factory=list)
     language: str | None = None  # язык кода контейнера: по нему отбираются манифесты и файлы
+    # Имена программ cmd/<имя>/ с кодом Go в каталоге кода контейнера (ТЗ §15 п. 14 Ф1).
+    go_programs: frozenset[str] = frozenset()
 
     @property
     def is_container(self) -> bool:
@@ -87,6 +89,7 @@ class Param:
     required: bool | None = None
     locs: set[Loc] = field(default_factory=set)
     parsers: set[str] = field(default_factory=set)
+    description: str | None = None  # перечень значений из схемы кода (z.enum), не смысл
 
 
 @dataclass
@@ -99,6 +102,8 @@ class HttpEntry:
     loc: Loc
     parser: str
     prefix_unresolved: bool = False
+    # Тот же метод и путь в файле OpenAPI владельца: второе основание (ТЗ §15 п. 14 З3).
+    openapi: Loc | None = None
 
 
 @dataclass

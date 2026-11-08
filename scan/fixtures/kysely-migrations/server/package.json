@@ -1,0 +1,7 @@
+{
+  "name": "server",
+  "dependencies": {
+    "kysely": "^0.28.0",
+    "pg": "^8.11.0"
+  }
+}

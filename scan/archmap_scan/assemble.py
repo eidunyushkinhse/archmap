@@ -9,7 +9,7 @@ depends_on в связи не идут (порядок запуска не вы�
 
 from __future__ import annotations
 
-from archmap_scan import codefacts, owners, paths, secrets, texts, vocab
+from archmap_scan import codefacts, openapi_owner, owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.dialect import SQLITE
 from archmap_scan.links import hosts_in, link_technology
@@ -19,6 +19,7 @@ from archmap_scan.model import (
     Findings,
     ImageBuild,
     Loc,
+    ManifestLink,
     Package,
     TableSet,
     Unit,
@@ -876,6 +877,7 @@ def _objects(
         _go_module_name(p.name) for p in findings.packages if p.kind == "go.mod" and p.name
     )
     for obj in by_name.values():
+        _crate_dir(obj)
         if obj.code_dir is None:
             obj.code_dir = _workspace_dir(obj, spaces)
         if obj.code_dir in (None, ctx.scope):
@@ -900,6 +902,14 @@ def _objects(
             findings.root_stack if obj.code_dir == ctx.scope else None,
         )
     return objs
+
+
+def _crate_dir(obj: Obj) -> None:
+    """Каталог крейта Cargo workspace вместо общего каталога сборки (ТЗ §15 п. 14 И1): сервис
+    compose capture собирается из rust/ с BIN capture, а его код — rust/capture/."""
+    crate = next((u for u in obj.units if u.workspace is not None), None)
+    if crate is not None and obj.code_dir in (None, crate.workspace):
+        obj.code_dir = crate.build_dir
 
 
 def _free_packages(
@@ -1248,10 +1258,38 @@ def _add_link(
     link.parsers.add(parser)
 
 
-def _links(model: Model, env_of: dict[str, list[tuple[EnvVar, str]]]) -> list[Link]:
+def _manifest_links(
+    model: Model, found: list[ManifestLink], by_host: dict[str, Obj],
+    links: dict[tuple[str, str], Link],
+) -> None:
+    """Связи, названные манифестами (ТЗ §15 п. 14 Ж1, Ж3): концы по имени кандидата того же
+    разборщика или по host; технология по виду цели (у сервиса — своя у связи). Та же пара
+    из окружения или depends_on — одна связь с основаниями всех источников."""
+    by_unit = {(u.parser, u.name): o for o in model.objects for u in o.units}
+    for item in found:
+        src = by_unit.get((item.parser, item.src))
+        dst = by_host.get(item.dst.lower()) if item.by_host else by_unit.get((item.parser, item.dst))
+        if src is not None and src is dst:
+            continue
+        if src is None or dst is None:
+            model.hint("unassigned", {
+                "kind": "edge", "name": f"{item.src}→{item.dst}",
+                "reason": texts.REASON_LINK_NOT_OBJECT, "source": str(item.loc),
+            })
+            continue
+        # Технология, названная источником (HTTP у прокси), иначе технология базы или брокера.
+        tech = item.technology or (dst.technology if dst.shape != SERVICE else None)
+        _add_link(links, src, dst, tech, item.loc, item.parser)
+
+
+def _links(
+    model: Model, env_of: dict[str, list[tuple[EnvVar, str]]],
+    manifest_links: list[ManifestLink] | None = None,
+) -> list[Link]:
     by_host = {o.host.lower(): o for o in model.objects if o.host}
     by_name = {o.name: o for o in model.objects}
     links: dict[tuple[str, str], Link] = {}
+    _manifest_links(model, manifest_links or [], by_host, links)
     for src in model.objects:
         if src.shape == DATABASE:
             # База, которая сама читает брокер (ClickHouse с движком Kafka у PostHog):
@@ -1274,6 +1312,8 @@ def _links(model: Model, env_of: dict[str, list[tuple[EnvVar, str]]]) -> list[Li
                     continue
                 tech = dst.technology if dst.shape != SERVICE else link_technology(scheme)
                 _add_link(links, src, dst, tech, var.loc, parser)
+                if var.value_loc is not None:
+                    _add_link(links, src, dst, tech, var.value_loc, parser)
         for unit in src.units:
             for dep, loc in unit.depends_on:
                 dst = by_name.get(dep)
@@ -1359,30 +1399,58 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _redis_brokers(model.objects, [v for vs in env_of.values() for v, _ in vs]
                    + [v for ef in findings.env_files for v in ef.vars])
     model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
-    model.links = _links(model, env_of)
+    unit_links = [lk for o in model.objects for u in o.units for lk in u.links]
+    model.links = _links(model, env_of, [*findings.links, *unit_links])
     _queue_brokers(model, findings.packages)
     _sources(model, ctx)
     _entrypoints(model)
+    _go_programs(model, findings)
     _params(model, findings, env_of)
     _clients(model, findings)
     _tables(model, findings, env_of)
-    _openapi(model, findings)
     codefacts.attach(model, findings, env_of)
+    # После маршрутов кода: путь из файла, уже найденный в коде, не дублируется (З3).
+    _openapi(model, findings)
     return model
 
 
+def _go_programs(model: Model, findings: Findings) -> None:
+    """Программы cmd/<имя>/ в каталоге кода каждого контейнера (ТЗ §15 п. 14 Ф1): по ним
+    owners.file_owners отдаёт файл под cmd/<имя>/ контейнеру этой программы."""
+    for obj in model.objects:
+        if not obj.is_container or obj.code_dir is None:
+            continue
+        prefix = obj.code_dir + "/cmd/" if obj.code_dir else "cmd/"
+        obj.go_programs = frozenset(
+            d[len(prefix):] for d in findings.go_programs
+            if d.startswith(prefix) and "/" not in d[len(prefix):]
+        )
+
+
 def _openapi(model: Model, findings: Findings) -> None:
-    """Файлы OpenAPI — подсказка агенту с контейнером-владельцем, если он один (ТЗ §6.1)."""
+    """Файлы OpenAPI: операции — маршруты владельца, если он определим механически (ТЗ §15
+    п. 14 З3), и подсказка агенту с владельцем или причиной, почему его нет (ТЗ §6.1)."""
     containers = [o for o in model.objects if o.is_container]
     for spec in sorted(findings.openapi, key=lambda s: s.path):
         data: dict[str, object] = {"kind": "openapi", "name": spec.path}
-        found = owners.code_owners(spec.path, containers)
-        if len(found) == 1:
-            data["object"] = found[0].name
         if spec.operations is None:
             data["reason"] = spec.reason or texts.REASON_OPENAPI_TOO_LARGE
+        elif spec.in_docs:
+            data["reason"] = texts.REASON_OPENAPI_DOCS
+        elif openapi_owner.foreign(spec):
+            data["reason"] = texts.REASON_OPENAPI_FOREIGN
         else:
-            data["reason"] = texts.REASON_OPENAPI_DOCS if spec.in_docs else texts.REASON_OPENAPI_FILE
+            obj, pool = openapi_owner.owner(spec, containers)
+            if obj is not None:
+                data["object"] = obj.name
+                data["reason"] = texts.REASON_OPENAPI_FILE
+                openapi_owner.attach(model, spec, obj)
+            else:
+                # Без сервисов и без операций причина прежняя: выбирать было не из кого.
+                data["reason"] = (
+                    openapi_owner.no_owner_reason(pool) if spec.ops and pool
+                    else texts.REASON_OPENAPI_FILE
+                )
         data["source"] = spec.path
         if spec.operations is not None:
             data["operations"] = spec.operations
@@ -1461,7 +1529,7 @@ def _tables(
                     same.columns.append(col)
 
 
-_MIGRATION_LANGUAGE = {"alembic": "Python", "django": "Python"}
+_MIGRATION_LANGUAGE = {"alembic": "Python", "django": "Python", "kysely": "Node.js"}
 
 
 def _sqlite_default_hint(model: Model, ts: TableSet) -> None:

@@ -10,7 +10,7 @@ import yaml
 from archmap_scan import texts
 from archmap_scan.parsers import openapi
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 
 def test_candidates() -> None:
@@ -34,8 +34,10 @@ def test_fixture_and_hints(tmp_path: Path) -> None:
     hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
     assert hints["openapi_files"] == [
         {
-            "kind": "openapi", "name": "api/swagger.json", "reason": texts.REASON_OPENAPI_FILE,
-            "source": "api/swagger.json", "operations": 1,
+            # Вне каталога кода сервиса и без его имени в пути и заголовке (ТЗ §15 п. 14 З3).
+            "kind": "openapi", "name": "api/swagger.json",
+            "reason": texts.openapi_no_owner(["orders"], 0), "source": "api/swagger.json",
+            "operations": 1,
         },
         {
             "kind": "openapi", "name": "services/orders/openapi.yaml", "object": "orders",
@@ -146,3 +148,67 @@ def test_openapi_in_docs_dir(tmp_path: Path) -> None:
     assert {"path": "api-docs/", "files": 2, "reason": "convention"} in cov["excluded"]
     schema = yaml.safe_load((out / "schema.yaml").read_text(encoding="utf-8"))
     assert not schema["nodes"][0].get("children")
+
+
+def test_operations_become_routes(tmp_path: Path) -> None:
+    """Операции файла OpenAPI — маршруты объекта, который его отдаёт (ТЗ §15 п. 14 З3).
+    Найдено в Argo CD: assets/swagger.json, 82 пути и 106 операций только в
+    hints.openapi_files. Владелец: файл в каталоге кода одного сервиса (orders), иначе
+    ровно у одного из сервисов каталога имя или слово команды в пути, info.title или
+    servers (search по заголовку «Search service»). Ловушки: два сервиса одного каталога
+    без совпадения имени (подсказка с перечнем); файл клиента чужого API (servers на
+    внешнем домене) маршрутами не становится; адрес на внешнем домене рядом со своим «/»
+    файл чужим не делает; путь, уже найденный в коде (<int:order_id> и {order_id}), даёт
+    одну запись с двумя основаниями."""
+    out = tmp_path / "out"
+    run(Options(path=str(FIXTURES / "openapi-entrypoints"), out=str(out), system="Ярмарка",
+                use_git=False))
+    entry = yaml.safe_load(
+        (out / "agent" / "entrypoints.yaml").read_text(encoding="utf-8"),
+    )["containers"]
+    assert entry["orders"]["http"] == [
+        {"method": "GET", "path": "/orders", "framework": "openapi",
+         "source": "orders/openapi.yaml:9"},
+        {"method": "POST", "path": "/orders", "framework": "openapi",
+         "source": "orders/openapi.yaml:9"},
+        {"method": "GET", "path": "/orders/<int:order_id>", "framework": "Flask",
+         "source": "orders/app.py:6", "openapi_source": "orders/openapi.yaml:14"},
+    ]
+    assert entry["search"]["http"] == [
+        {"method": "GET", "path": "/items", "framework": "openapi",
+         "source": "store/openapi.json:6"},
+        {"method": "DELETE", "path": "/items/{id}", "framework": "openapi",
+         "source": "store/openapi.json:9"},
+        {"method": "GET", "path": "/items/{id}", "framework": "openapi",
+         "source": "store/openapi.json:9"},
+    ]
+    assert entry["billing"]["http"] == entry["ledger"]["http"] == entry["inventory"]["http"] == []
+    hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
+    assert [(h["name"], h.get("object"), h["reason"]) for h in hints["openapi_files"]] == [
+        ("orders/clients/openapi-payments.yaml", None, texts.REASON_OPENAPI_FOREIGN),
+        ("orders/openapi.yaml", "orders", texts.REASON_OPENAPI_FILE),
+        ("shared/openapi.yaml", None, texts.openapi_no_owner(["billing", "ledger"], 0)),
+        ("store/openapi.json", "search", texts.REASON_OPENAPI_FILE),
+    ]
+    coverage = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))
+    routes = coverage["families"]["http_routes"]
+    assert (routes["found"], routes["parsers"]) == (6, ["openapi", "flask"])
+
+
+def test_operations_hostile_is_fast(tmp_path: Path) -> None:
+    """Враждебный файл OpenAPI у сервиса: 40 000 путей с параметрами (в маршруты идут
+    первые 10 000), длинные адреса servers и параметры пути без конца. Строки ключей JSON —
+    один проход по тексту, сравнение с маршрутами кода — по словарю."""
+    paths = ",\n".join(f'"/p{i}/{{id}}/:x<y": {{"get": {{}}}}' for i in range(40_000))
+    tree(tmp_path, {
+        "compose.yaml": "services:\n  big:\n    build: ./big\n",
+        "big/openapi.json": (
+            '{"openapi": "3.0.0", "servers": [{"url": "https://' + "a." * 200_000 + '"},'
+            ' {"url": "/' + "{" * 200_000 + '"}], "paths": {' + paths + "}}"
+        ),
+    })
+    started = time.perf_counter()
+    model = model_of(tmp_path)
+    took = time.perf_counter() - started
+    assert took < time_limit() * 2, f"{took:.2f} с"
+    assert len(model.http["big"]) == openapi.MAX_OPS

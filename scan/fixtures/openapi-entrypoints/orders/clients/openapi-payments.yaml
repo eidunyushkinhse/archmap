@@ -1,0 +1,10 @@
+openapi: 3.0.3
+info:
+  title: Payments provider
+  version: "2"
+servers:
+  - url: https://api.payments.example.com/v2
+paths:
+  /charges:
+    post:
+      summary: списать

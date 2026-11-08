@@ -17,6 +17,9 @@
 у каждой записи есть основание «файл:строка». Чего сборщик не умеет, он называет в отчёте
 о покрытии статусом семьи, а не молчанием.
 
+Версия: 0.4.0 (`archmap_scan/__init__.py`; номер пишется в шапку каждого файла
+вывода и в `coverage.yaml`).
+
 ## Окружение
 
 ```bash
@@ -50,8 +53,9 @@ git окажется сам ArchMap, и пути в выводе будут от
 ## Сборка файла
 
 ```bash
-python3 scan/build.py            # → scan/dist/archmap-scan.pyz, печатает размер и sha256
-python3 scan/build.py --out ПУТЬ
+scan/venv/bin/python scan/build.py   # → scan/dist/archmap-scan.pyz, печатает размер и sha256
+                                     # (другой интерпретатор кладёт другой PyYAML и даёт другой sha256)
+scan/venv/bin/python scan/build.py --out ПУТЬ
 python3 -I -S scan/dist/archmap-scan.pyz scan/fixtures/yarmarka --out /tmp/y --no-git
 ```
 
@@ -116,9 +120,14 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   каталогом кода), склеивается в один контейнер с записью в `hints.merged` (ТЗ §13.5).
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
+- Таблицы: `sql`, `alembic`, `django`, схема Rails `railsschema` и `kysely` (ярус кода), разбор
+  DDL у SQL-файлов и шаблонов Kysely общий (`sqlddl.py`). `openapi_owner.py` отдаёт операции
+  файла OpenAPI маршрутами сервису, который его отдаёт, или оставляет подсказку с причиной.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
-  `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания `celerybeat`,
-  `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
+  `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
+  `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
+  `celerybeat`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
+  стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
   (`class Topic(Enum)`, словарь, у имени которого последнее слово `topic`/`queue`/`subject`)
@@ -147,7 +156,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - литерал с конкатенацией (`"/"+root`, `"OTEL_"+name`) уходит в `dynamic_names`, а не в
     факты (`codetext.Code.joined`, `pycode.joined`);
   - файл k8s отбрасывается как шаблон только по признаку Helm (`k8s._HELM`);
-  - `sqlddl.py`: `CREATE TABLE … AS` даёт таблицу без колонок с подсказкой, имя без кавычек в
+  - `sqlddl.py`: `CREATE TABLE … AS` даёт таблицу без колонок с подсказкой (с части 3 —
+    колонки по именам списка SELECT, З2), имя без кавычек в
     нижнем регистре (кроме MySQL, MariaDB, SQLite и SQL Server), `RENAME CONSTRAINT` и
     `ALTER TRIGGER` понятны, временные таблицы не создаются;
   - пример окружения по суффиксу `example|sample|template|dist` и `example.env`
@@ -284,3 +294,96 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     же языка (каталоги вложены) или без языка, чья сборка охватывает каталог процесса
     (`assemble._program_dirs`, после склеек): код и факты у контейнера сборки, у процесса
     воркеры, консьюмеры, расписания и связи; без контейнеров сборки — как раньше (Д10).
+- Правила части 3 (фаза 3г, ТЗ §15 п. 14, по строке на пункт):
+  - обёртка чтения Go: функция репозитория (не метод), у которой строковый параметр
+    целиком уходит в `os.Getenv`, `os.LookupEnv` или `viper.BindEnv`; её вызов даёт
+    параметр, дефолт из следующего аргумента при параметре со словом default или fallback,
+    тип по словам имени (`ParseNumFromEnv` — int); вызов сопоставляется по каталогу пакета
+    через импорт файла и путь модуля из `go.mod`; имя идентификатором (`common.EnvGnuPGHome`)
+    раскрывается строковой константой пакета репозитория (`gocode.string_constants`), место
+    объявления в evidence (Е1).
+  - обёртка Python (`get_from_env` PostHog): функция уровня модуля, тело которой читает
+    `os.getenv`, `os.environ.get` или `os.environ[…]` по первому параметру; вызов с
+    литералом даёт параметр, дефолт вторым позиционным или именованным аргументом при
+    втором параметре со словом default или fallback, тип по `type_cast=`; вызов находится
+    по импорту через `codebase.resolve_module` (как голое имя реестра каналов В1) с шагом
+    реэкспорта; имя константой модуля раскрывается её литералом (Е2).
+  - параметры из ключей `z.object({…})` схемы zod, которую файл применяет к окружению
+    (`Схема.safeParse(process.env)`; схема своя или импортирована из модуля репозитория по
+    относительному пути или хвосту пути): основание в строке ключа, тип по валидатору, дефолт из `.default(литерал)`, required без `.optional()` и дефолта,
+    перечень `z.enum([…])` в описании параметра (Е3).
+  - параметры C# (`dotnetenv`, стек по `*.csproj`): `Configuration["X"]` у любого имени
+    configuration (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт
+    литералом после `??`, `?? throw` — обязателен, запись `Configuration["X"] = …` и
+    `GetSection` не параметры, подстановки `$"{…}"` читаются как код; параметры Java
+    (`javaenv`, стек по `pom.xml` или `build.gradle`): `System.getenv("X")`,
+    `System.getenv().get|containsKey("X")`, дефолт из `getOrDefault`; тип по обёртке разбора
+    (`Integer.parseInt`, `bool.TryParse`); имя константой с final, const или readonly того же
+    файла, файла класса или статического импорта; каталоги тестов `*Tests/` не читаются; у
+    Java со Spring Boot в `unsupported` остаётся «Java: Spring Boot» (Е4).
+  - `NetworkPolicy` (`k8s.py`): источник `ingress.from[].podSelector` использует под
+    `spec.podSelector`, под политики использует цель `egress.to[].podSelector`; под по метке
+    `app.kubernetes.io/name` или `app` шаблона Deployment или StatefulSet; связь без канала и
+    sync, пара из env — одна связь; `namespaceSelector` и `ipBlock` пропускаются,
+    `podSelector: {}` и метка без пода — `hints.unassigned`; концы собирает
+    `assemble._manifest_links` по `Findings.links` (Ж1).
+  - `valueFrom.configMapKeyRef` получает значение из `data` ConfigMap того же файла, каталога
+    или ближайшего предка (`k8s._Nearest`), адрес в нём даёт связь, строка `data` в
+    основаниях; встроенные патчи `kustomization.yaml` (`patches[].patch`,
+    `patchesStrategicMerge`) с `kind` и `metadata.name` сливаются с нагрузкой того же имени,
+    `$patch: delete` пропускается, JSON 6902 — `hints.unparsed` (Ж2).
+  - сервис compose с образом прокси (`parsers/proxyconf.py`): файлы томов из репозитория
+    (каталог — файлы без подкаталогов) и многострочные значения environment; `upstream {
+    server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen`
+    HAProxy дают связи прокси → объект с этим host, технология HTTP; хост не объект —
+    `hints.unassigned`, файл вне репозитория или не найден — `hints.unparsed` (Ж3).
+  - схема Rails `db/schema.rb` (`parsers/railsschema.py`, семья tables) читается построчно без
+    исполнения Ruby: `create_table` с `id:`/`primary_key:`, строки `t.тип "колонка"` (тип как
+    написан, `null: false` — обязательна), `t.references` — `имя_id`, `t.timestamps`,
+    `add_foreign_key` — ссылка колонки; индексы, представления с heredoc и прочие инструкции
+    пропускаются, `enable_extension` и `create_schema` — `hints.unassigned`; диалект по
+    драйверу в Gemfile; рядом `db/structure.sql` — читается только он (З1).
+  - миграции `.ts` и `.js` в каталоге `migrations` (`parsers/kysely.py`, семья tables, стек
+    Node.js): шаблоны ``sql`…` `` и ``sql.raw(`…`)`` вне тела `down` отдаются `sqlddl.py` в
+    порядке имён с числами по значению, читаются только CREATE, ALTER, DROP и RENAME;
+    вставка `${…}` на месте имени таблицы или колонки — `hints.dynamic_names` (kind table),
+    в типе — текстом; диалект по драйверу в package.json; «Kysely» уходит из `unsupported`,
+    когда его миграции прочитаны. `CREATE TABLE … AS SELECT` (`sqlddl.py`) — колонки по
+    псевдонимам `AS имя` и именам колонок списка, «*» и выражение без имени — подсказка (З2).
+  - операции файла OpenAPI или swagger (`openapi_owner.py`) — маршруты `entrypoints.http`
+    сервиса, который его отдаёт (`framework: openapi`, источник — строка ключа пути):
+    файл в каталоге кода ровно одного сервиса, иначе ровно у одного сервиса каталога (или
+    всех сервисов) имя или слово команды в пути, `info.title` или `servers[].url`; путь,
+    уже найденный в коде, даёт одну запись с `openapi_source`; файл в каталоге документации и
+    файл чужого API (все `servers` на внешних доменах) маршрутов не дают, владелец не
+    определим — `hints.openapi_files` с перечнем сервисов (З3).
+  - Dockerfile с `ARG X` и `cargo build --bin $X` рядом с Cargo.toml с `[workspace]`
+    (`parsers/buildfiles.py`): кандидат на каждый член workspace с `src/main.rs` (имя из
+    `[package] name`, каталог кода — каталог крейта, Rust, роль по словам имени), склейка по
+    имени с сервисом compose или k8s, которому достаётся каталог крейта вместо общего;
+    библиотечный крейт не контейнер, признак разработки по пути Dockerfile и Cargo.toml (И1).
+  - параметры Rust (`parsers/rustenv.py`, стек по Cargo.toml, маска `codetext.RUST`):
+    `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре,
+    `nested` — не параметр), clap `#[arg(env = "X")]` и `#[clap(…)]` с `default_value` или
+    `default_value_t`, тип по типу поля, `Option<…>` не обязателен; `std::env::var("X")`,
+    `env::var_os` с дефолтом из `.unwrap_or("v")`, `.unwrap()`, `.expect` и `?` —
+    обязателен; `env!` и `option_env!` — `hints.unassigned` «переменная времени сборки»,
+    `CARGO_*` не пишутся; модуль `#[cfg(test)]` не читается; «Rust» ушёл из `unsupported`
+    семьи config (И2).
+  - слово словаря образов ищется и среди частей имени образа через дефис и подчёркивание
+    (`vocab.image_kind`): `timescaledb-ha` и `postgresql-15-c9s` — PostgreSQL,
+    `docker-redis-cluster` — Redis, `nginx-proxy` — прокси nginx; имя со словом программы
+    вокруг базы или брокера (`client`, `exporter`, `ui`, `meta`, `connect` и другие из
+    `_TOOL_PARTS`) или с двумя технологиями вида не получает, слово короче четырёх букв
+    частью не ищется; `pgautoupgrade` и обёртки ClickHouse опознаются с части 2 (И3).
+  - файл Go под `<каталог кода>/cmd/<имя>/` (`owners.file_owners`): если в каталоге кода две
+    и более программы `cmd/` и хотя бы одной соответствует контейнер среди владельцев
+    каталога, файл принадлежит только контейнеру с этим именем или с этой программой команды
+    (`/usr/local/bin/argocd-server`); у программы без контейнера записи уходят в
+    `hints.unassigned` «код программы из cmd/<имя>/, у которой нет контейнера в манифестах».
+    Файл прямо в `cmd/` и код вне `cmd/` идут по прежним правилам (Ф1).
+  - go-env: файл больше чем с 2000 чтений с именем не литералом (идентификатор, выражение,
+    склейка) непрочитан (`files.refuse`) и не даёт ни параметров, ни подсказок; раскрытие
+    имени константой кэшируется по каталогу пакета и идентификатору; `gocode.call_spans`
+    ищет вызовы вперёд только по нужным именам и останавливается, когда у каждого имени
+    набран предел вызовов (Ф2).

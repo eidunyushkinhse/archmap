@@ -81,6 +81,7 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     tables.contributed = _ordered(model.table_stats.parsers)
     tables.skipped = dict(sorted(model.table_stats.skipped.items()))
     tables.dropped = model.table_stats.dropped
+    tables.dynamic_names = _hints_of(model, "dynamic_names", "table")
     if model.table_stats.errors:
         tables.error = "; ".join(model.table_stats.errors)
     params = [p for table in model.params.values() for p in table.values()]
@@ -93,6 +94,10 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     config.contributed = _ordered({x for p in params for x in p.parsers} | code_parsers)
     config.from_code = bool(code_parsers)
     _code_family(out["http_routes"], model, "route", sum(len(v) for v in model.http.values()))
+    if any(e.parser == "openapi" for entries in model.http.values() for e in entries):
+        # Маршруты из файла OpenAPI (ТЗ §15 п. 14 З3): разборщик не яруса кода, from_code тот же.
+        routes = out["http_routes"]
+        routes.contributed = _ordered(set(routes.contributed) | {"openapi"})
     _code_family(out["channels"], model, "channel", sum(len(v) for v in model.channels.values()))
     containers = [o for o in model.objects if o.is_container]
     # Контейнеры по файлам сборки или неявный контейнер корня границу системы не задают
@@ -109,10 +114,10 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     # сборщик не читает, назван в unsupported, даже без манифеста сборки (ТЗ §15 п. 12 С7в:
     # язык Java у Petclinic известен по образу и каталогу кода).
     unread = sorted(
-        {o.language for o in containers if o.language and o.language not in vocab.CONFIG_LANGUAGES},
+        {o.language for o in containers if o.language and o.language not in vocab.CODE_LANGUAGES},
         key=str.lower,
     )
-    readable = any(o.language in vocab.CONFIG_LANGUAGES for o in containers)
+    readable = any(o.language in vocab.CODE_LANGUAGES for o in containers)
     for fam in ("http_routes", "channels"):
         if out[fam].status != "unknown":
             continue
@@ -239,7 +244,15 @@ _LANGUAGE_FAMILIES = ("http_routes", "channels", "workers", "schedules")
 def _label(language: str, name: str) -> str:
     """Имя стека «Язык: библиотека» (Rust: actix-web) у языка, код на котором сборщик не
     читает; у читаемого языка имя самой библиотеки (Pub/Sub, BullMQ)."""
-    return name if language in vocab.CONFIG_LANGUAGES else f"{language}: {name}"
+    return name if language in vocab.CODE_LANGUAGES else f"{language}: {name}"
+
+
+def _kysely_read(findings: Findings, manifest: str) -> bool:
+    """Миграции пакета с Kysely прочитаны: набор таблиц разборщика kysely лежит в каталоге
+    пакета (ТЗ §15 п. 14 З2). Построитель схемы `db.schema.createTable` не читается, и без
+    такого набора стек остаётся в unsupported."""
+    folder = paths.parent(manifest)
+    return any(ts.parser == "kysely" and paths.under(ts.dir, folder) for ts in findings.table_sets)
 
 
 def code_unsupported(
@@ -278,13 +291,13 @@ def code_unsupported(
                     add(fam, _label(pkg.language, lib))
         if pkg.language not in vocab.CONFIG_LANGUAGES:
             add("config", pkg.language)
-            if pkg.language not in unread:
-                unread.append(pkg.language)
-        viper = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
-        if viper:
-            add("config", viper)
+        if pkg.language not in vocab.CODE_LANGUAGES and pkg.language not in unread:
+            unread.append(pkg.language)
+        config_lib = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
+        if config_lib:
+            add("config", _label(pkg.language, config_lib))
         schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
-        if schema:
+        if schema and not (schema == "Kysely" and _kysely_read(findings, pkg.path)):
             add("tables", schema)
     for fam in _LANGUAGE_FAMILIES:
         for language in unread:

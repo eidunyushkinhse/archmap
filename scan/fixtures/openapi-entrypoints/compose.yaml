@@ -1,0 +1,16 @@
+services:
+  orders:
+    build: ./orders
+    command: gunicorn app:app
+  billing:
+    build: ./shared
+    command: billing-api --port 8080
+  ledger:
+    build: ./shared
+    command: ledger-api --port 8081
+  inventory:
+    build: ./store
+    command: inventory-api
+  search:
+    build: ./store
+    command: search-api

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-config
+data:
+  cache.addr: redis:6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  template:
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis

@@ -259,10 +259,20 @@ REDIS_BROKER_PREFIX = "RQ_"
 # Библиотеки очередей задач поверх Redis: Redis, к которому идёт контейнер с такой
 # зависимостью, считается брокером (ТЗ §15 п. 10 А13: Sidekiq у Mastodon, BullMQ у immich).
 REDIS_QUEUE_DEPS = frozenset({"sidekiq", "bullmq", "bull", "rq", "celery"})
-# ClickHouse в имени образа даёт базу ClickHouse при любой обёртке (clickhouse-posthog),
-# кроме программ вокруг неё: координатор, экспорт метрик, резервные копии, оператор.
-_CLICKHOUSE = "clickhouse"
-_CLICKHOUSE_TOOLS = frozenset({"keeper", "exporter", "backup", "operator"})
+# Слова имени образа, которые называют программу вокруг базы, брокера или прокси, а не их
+# сборку (ТЗ §15 п. 14 И3): клиент и консоль, экспорт метрик, координатор, резервные копии,
+# оператор, веб-интерфейс, коннектор и REST-шлюз Kafka, служебный API (postgres-meta у
+# Supabase), установщик, тестовые образы и задачи. С таким словом образ по части имени вида
+# не получает: postgres-exporter, minio-client, kafka-ui, opensearch-dashboards.
+_TOOL_PARTS = frozenset({
+    "client", "cli", "exporter", "keeper", "backup", "operator", "ui", "dashboard",
+    "dashboards", "console", "admin", "commander", "express", "connect", "rest", "meta",
+    "installer", "manager", "monitor", "router", "box", "test", "e2e", "init", "migrate",
+    "setup",
+})
+_IMAGE_PARTS = re.compile(r"[-_]")
+# Слово словаря короче четырёх букв частью имени не ищется.
+_MIN_PART = 4
 
 
 def image_name(image: str) -> str:
@@ -288,10 +298,12 @@ _IMAGE_VARIANTS = frozenset({
 
 
 def image_kind(image: str) -> ImageKind | None:
-    """Вид по образу: точное имя, имя без хвоста сборки (postgres-alpine → PostgreSQL) или
-    последняя часть имени через дефис (zulip-postgresql → PostgreSQL), но не первая:
-    postgres-exporter базой не считается. Реестр и организация не важны:
-    bitnami/postgresql и groonga/pgroonga:14-alpine — PostgreSQL."""
+    """Вид по образу: точное имя, имя без хвоста сборки (postgres-alpine → PostgreSQL),
+    последняя часть имени через дефис (zulip-postgresql) или слово словаря среди частей
+    имени через дефис и подчёркивание (clickhouse-posthog, timescaledb-ha,
+    docker-redis-cluster), если части называют одну технологию и среди них нет слова
+    программы вокруг неё (_TOOL_PARTS): postgres-exporter базой не считается. Реестр и
+    организация не важны: bitnami/postgresql и groonga/pgroonga:14-alpine — PostgreSQL."""
     name = image_name(image)
     kind = IMAGES.get(name)
     if kind is not None:
@@ -302,9 +314,13 @@ def image_kind(image: str) -> ImageKind | None:
     kind = IMAGES.get("-".join(parts))
     if kind is None and len(parts) > 1:
         kind = IMAGES.get(parts[-1])
-    if kind is None and _CLICKHOUSE in name and not set(parts) & _CLICKHOUSE_TOOLS:
-        kind = IMAGES[_CLICKHOUSE]
-    return kind
+    if kind is not None:
+        return kind
+    words = _IMAGE_PARTS.split(name)
+    if len(words) < 2 or not _TOOL_PARTS.isdisjoint(words):
+        return None
+    kinds = {IMAGES[w] for w in words if len(w) >= _MIN_PART and w in IMAGES}
+    return kinds.pop() if len(kinds) == 1 else None
 
 
 # Базовый образ Dockerfile → язык: по началу последнего сегмента имени.
@@ -435,9 +451,16 @@ def is_os_variable(name: str) -> bool:
 # Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
 # Языки, параметры конфигурации в коде которых читает ярус кода, и библиотеки
-# конфигурации, которые он не читает (ТЗ §6.4: ключи viper).
-CONFIG_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
-UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (("github.com/spf13/viper", "viper"),)
+# конфигурации, которые он не читает (ТЗ §6.4: ключи viper). CODE_LANGUAGES — языки, код
+# которых читается во всех семьях яруса кода; у .NET, Java и Rust читаются только параметры
+# конфигурации (ТЗ §15 п. 14 Е4, И2), прочие семьи у них по-прежнему названы языком.
+CODE_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
+CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java", "Rust"}
+# Spring Boot читает параметры из application.yml и @Value("${X}"), а не System.getenv: у Java
+# с ним чтение кода неполное, и стек назван (ТЗ §15 п. 14 Е4, решение исполнителя).
+UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (
+    ("github.com/spf13/viper", "viper"), ("spring-boot", "Spring Boot"),
+)
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
     "Echo", "chi", "Fiber",

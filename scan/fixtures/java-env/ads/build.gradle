@@ -1,0 +1,8 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+dependencies {
+    implementation 'io.grpc:grpc-netty:1.60.0'
+}

@@ -1,0 +1,39 @@
+services:
+  proxy:
+    image: nginx:1-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./missing.conf:/etc/nginx/extra.conf
+      - /etc/ssl:/etc/ssl:ro
+      - cache:/var/cache/nginx
+    depends_on:
+      - api
+      - web
+  edge:
+    image: caddy:2
+    environment:
+      CADDYFILE: |
+        :80 {
+          reverse_proxy @api api:8000
+          reverse_proxy /static/* files:9000
+          reverse_proxy web:3000 {
+            flush_interval -1
+          }
+        }
+  lb:
+    image: haproxy:2.9
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+  app:
+    image: shop/app:1.0
+    volumes:
+      - ./config.yml:/app/config.yml
+  api:
+    image: shop/api:1.0
+  web:
+    image: shop/web:1.0
+  files:
+    image: minio/minio
+volumes:
+  cache:
