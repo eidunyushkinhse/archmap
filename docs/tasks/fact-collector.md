@@ -247,7 +247,7 @@ archmap-scan/
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
 | systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
-| k8s без шаблонов: `*.y*ml` с `apiVersion`+`kind` в `Deployment\|StatefulSet\|DaemonSet\|Job\|CronJob\|Service\|ConfigMap\|NetworkPolicy` (несколько документов в файле) | имя, образы контейнеров пода, `env`/`envFrom` (имена), `schedule` у CronJob, имя Service; у NetworkPolicy поды `spec.podSelector`, `ingress.from[].podSelector`, `egress.to[].podSelector` (ч. 3, Ж1) | объекты, `host` = имя Service (сопоставление по `selector`/`metadata.name`), расписания в `entrypoints.schedules`, параметры в config; связи «использует» источник ingress → под политики и под политики → цель egress по метке `app.kubernetes.io/name` или `app` шаблона Deployment/StatefulSet, без канала и sync, та же пара из env — одна связь |
+| k8s без шаблонов: `*.y*ml` с `apiVersion`+`kind` в `Deployment\|StatefulSet\|DaemonSet\|Job\|CronJob\|Service\|ConfigMap\|NetworkPolicy` (несколько документов в файле) | имя, образы контейнеров пода, `env`/`envFrom` (имена), `schedule` у CronJob, имя Service; у NetworkPolicy поды `spec.podSelector`, `ingress.from[].podSelector`, `egress.to[].podSelector` (ч. 3, Ж1); значение `valueFrom.configMapKeyRef` из `data` ConfigMap того же файла, каталога или ближайшего предка, встроенные патчи `kustomization.yaml` (`patches[].patch`, `patchesStrategicMerge`) с `kind` и `metadata.name`, слитые с нагрузкой того же имени (ч. 3, Ж2) | объекты, `host` = имя Service (сопоставление по `selector`/`metadata.name`), расписания в `entrypoints.schedules`, параметры в config; связи «использует» источник ingress → под политики и под политики → цель egress по метке `app.kubernetes.io/name` или `app` шаблона Deployment/StatefulSet, без канала и sync, та же пара из env — одна связь |
 | Helm: `Chart.yaml`, `values.yaml` | имя чарта, образы в values (`image.repository`) | объекты по образам; `templates/` не разбираются (Go-шаблоны), в coverage `partial` с пояснением |
 | манифесты сборки: `package.json`, `pyproject.toml`, `requirements*.txt`, `Pipfile`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle*`, `Gemfile`, `composer.json`, `mix.exs` | имя пакета, зависимости (имена, без версий), workspaces/монорепо | `technology` контейнера (язык + фреймворк по словарю 6.5), опознание стека для статусов `unsupported`, клиентские библиотеки как подсказка вида зависимости (драйвер Postgres, клиент Kafka) |
 | `.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `env.example` | имена, значения как дефолты по инварианту 6 | семья config контейнера, к которому отнесён файл (раздел 7) |
@@ -1242,3 +1242,19 @@ unread: {too_large: 3, binary: 0}
      (egress redis-ha → redis-ha) не рисуется. Пара из env (`REDIS_ADDR`) и из политики —
      одна связь со всеми основаниями; подсказка depends_on для пары, уже нарисованной
      политикой, не пишется.
+   - Ж2 (решение исполнителя): ConfigMap для `configMapKeyRef` ищется в том же файле, затем
+     в каталоге файла, затем в ближайшем каталоге-предке (у Argo CD значение
+     `redis.server: argocd-redis-ha-haproxy:6379` приходит из отрендеренного
+     `manifests/ha/namespace-install.yaml`, где Deployment и ConfigMap лежат вместе; оверлей
+     `manifests/ha/base/overlays/` предком `manifests/base/server/` не является, и нагрузки
+     обычной установки HA-значения не получают). Не найден — переменная без значения, как
+     раньше. `envFrom.configMapRef` ищет ConfigMap так же, но без находки берёт последний
+     с этим именем, как раньше (иначе пропали бы параметры). Строка `data` значения идёт в
+     основания связи вместе со строкой env. Встроенный патч сливается с первой по пути
+     нагрузкой того же имени: переменные того же имени заменяются, новые добавляются,
+     образ и команда только если у нагрузки их нет; патч без такой нагрузки объекта не
+     создаёт, патч без `metadata.name` (адресованный через `target`) не читается, элемент
+     env с `$patch: delete` переменной не даёт. Патч JSON 6902 — `hints.unparsed` с местом
+     ключа `patch`. Патчи файлами (`path:`) читает обход как обычные манифесты k8s.
+     Каталоги `components/` и `overlays/` в `walk.DEV_TOKENS` нет, правка политики Б не
+     понадобилась.

@@ -1302,6 +1302,8 @@ def _links(
                     continue
                 tech = dst.technology if dst.shape != SERVICE else link_technology(scheme)
                 _add_link(links, src, dst, tech, var.loc, parser)
+                if var.value_loc is not None:
+                    _add_link(links, src, dst, tech, var.value_loc, parser)
         for unit in src.units:
             for dep, loc in unit.depends_on:
                 dst = by_name.get(dep)

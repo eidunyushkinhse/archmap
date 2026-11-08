@@ -159,3 +159,33 @@ def test_network_policy_shared_label_is_fast(tmp_path: Path) -> None:
     found = k8s.parse(files, ctx)
     assert time.perf_counter() - started < 10 * time_limit()
     assert found.links == [] and len(found.hints) == 2000
+
+
+def test_config_map_values_and_kustomize_patches() -> None:
+    """Значения ConfigMap и встроенные патчи kustomize (ТЗ §15 п. 14 Ж2). Найдено в Argo CD:
+    manifests/ha/base/overlays/argocd-cmd-params-cm.yaml:6 data redis.server:
+    argocd-redis-ha-haproxy:6379, а env Deployment — valueFrom.configMapKeyRef на этот ключ;
+    в Online Boutique kustomize/components/google-cloud-operations/kustomization.yaml:33 —
+    patches[].patch с env COLLECTOR_SERVICE_ADDR: opentelemetrycollector:4317. Ловушки:
+    ConfigMap только в каталоге не того дерева (k8s/other/) значения не даёт; значение data
+    без адреса (log.level: info) связи не даёт; патч без metadata.name не читается; элемент
+    «$patch: delete» переменной не даёт; патч JSON 6902 — подсказка."""
+    root = FIXTURES / "kustomize-patches"
+    ctx, files = files_of(root)
+    found = k8s.parse(files, ctx)
+    env = {u.name: {e.name: e.value for e in u.env} for u in found.units}
+    assert env["web"] == {"API_ADDR": "api:8080", "LOG_LEVEL": "info", "CACHE_ADDR": None}
+    assert env["api"] == {"COLLECTOR_ADDR": "collector:4317"}
+    kustomization = "k8s/components/tracing/kustomization.yaml"
+    assert [(h.section, h.data["name"], h.data["reason"], h.data["source"]) for h in found.hints] == [
+        ("unparsed", kustomization, texts.REASON_JSON_PATCH, f"{kustomization}:35"),
+    ]
+    model = model_of(root)
+    links = {(lk.src.name, lk.dst.name): sorted(str(loc) for loc in lk.locs) for lk in model.links}
+    assert links == {
+        ("api", "collector"): [f"{kustomization}:17"],
+        ("web", "api"): ["k8s/base/web-config.yaml:6", "k8s/base/web.yaml:12"],
+    }
+    api = next(o for o in model.objects if o.name == "api")
+    assert f"{kustomization}:10" in {str(loc) for loc in api.locs}
+    assert sorted(model.params["api"]) == ["COLLECTOR_ADDR"]

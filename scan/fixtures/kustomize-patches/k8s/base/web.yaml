@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  template:
+    spec:
+      containers:
+        - name: web
+          image: shop/web:1.0
+          env:
+            - name: API_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: web-config
+                  key: api.addr
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: web-config
+                  key: log.level
+            - name: CACHE_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: cache-config
+                  key: cache.addr

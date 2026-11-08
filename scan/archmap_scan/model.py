@@ -30,6 +30,9 @@ class EnvVar:
     loc: Loc
     value: str | None = None
     dynamic: bool = False  # значение с подстановкой ${VAR}: известно только при запуске
+    # Где записано значение, если не в самой переменной: строка data ConfigMap для
+    # configMapKeyRef (ТЗ §15 п. 14 Ж2). Идёт в основания связи по адресу.
+    value_loc: Loc | None = None
 
 
 @dataclass

@@ -321,3 +321,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     sync, пара из env — одна связь; `namespaceSelector` и `ipBlock` пропускаются,
     `podSelector: {}` и метка без пода — `hints.unassigned`; концы собирает
     `assemble._manifest_links` по `Findings.links` (Ж1).
+  - `valueFrom.configMapKeyRef` получает значение из `data` ConfigMap того же файла, каталога
+    или ближайшего предка (`k8s._Nearest`), адрес в нём даёт связь, строка `data` в
+    основаниях; встроенные патчи `kustomization.yaml` (`patches[].patch`,
+    `patchesStrategicMerge`) с `kind` и `metadata.name` сливаются с нагрузкой того же имени,
+    `$patch: delete` пропускается, JSON 6902 — `hints.unparsed` (Ж2).

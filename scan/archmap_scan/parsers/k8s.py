@@ -93,7 +93,16 @@ class _Workload:
     unit: Unit
     labels: dict[str, str]
     kind: str = ""
-    config_refs: list[str] = field(default_factory=list)
+    # envFrom.configMapRef: имя ConfigMap и файл ссылки (ближайший ConfigMap ищется от него).
+    config_refs: list[tuple[str, str]] = field(default_factory=list)
+    # env с valueFrom.configMapKeyRef: переменная, имя ConfigMap и ключ (ТЗ §15 п. 14 Ж2).
+    key_refs: list[tuple[EnvVar, str, str]] = field(default_factory=list)
+
+
+@dataclass
+class _ConfigMap:
+    rel: str
+    data: dict[str, EnvVar]
 
 
 # Метки, по которым NetworkPolicy сопоставляется поду (ТЗ §15 п. 14 Ж1), в порядке выбора.
@@ -156,25 +165,29 @@ def _command(container: LineDict) -> tuple[str | None, int | None]:
     return (" ".join(" ".join(parts).split()) or None), line
 
 
-def _env(container: LineDict, rel: str, out: list[EnvVar]) -> list[str]:
-    """Переменные контейнера; возвращает имена ConfigMap из envFrom."""
+def _env(container: LineDict, rel: str, work: _Workload) -> None:
+    """Переменные контейнера в unit.env; ссылки envFrom и configMapKeyRef — в work.
+    Элемент с «$patch: delete» (удаление патчем kustomize) переменной не даёт."""
     env = container.get("env")
     if isinstance(env, LineList):
         for i, item in enumerate(env):
-            if not isinstance(item, LineDict) or not item.get("name"):
+            if not isinstance(item, LineDict) or not item.get("name") or "$patch" in item:
                 continue
             raw = item.get("value")
             value = None if raw is None else str(raw)
             dynamic = value is not None and ("$(" in value or is_dynamic(value))
-            out.append(EnvVar(str(item["name"]), Loc(rel, env.line_at(i)), value, dynamic))
-    refs: list[str] = []
+            var = EnvVar(str(item["name"]), Loc(rel, env.line_at(i)), value, dynamic)
+            work.unit.env.append(var)
+            ref = _get(item, "valueFrom", "configMapKeyRef")
+            name, key = _get(ref, "name"), _get(ref, "key")
+            if raw is None and isinstance(name, str) and isinstance(key, str):
+                work.key_refs.append((var, name, key))
     env_from = container.get("envFrom")
     if isinstance(env_from, list):
         for item in env_from:
             ref = _get(item, "configMapRef", "name")
             if isinstance(ref, str):
-                refs.append(ref)
-    return refs
+                work.config_refs.append((ref, rel))
 
 
 def _workload(doc: LineDict, kind: str, rel: str) -> _Workload | None:
@@ -195,7 +208,7 @@ def _workload(doc: LineDict, kind: str, rel: str) -> _Workload | None:
         unit.command_loc = Loc(rel, line) if line else None
         for container in containers:
             if isinstance(container, LineDict):
-                work.config_refs += _env(container, rel, unit.env)
+                _env(container, rel, work)
     if kind == "CronJob":
         schedule = _get(doc, "spec", "schedule")
         unit.schedule = str(schedule) if schedule is not None else None
@@ -326,13 +339,167 @@ def _docs(files: Files, rel: str, found: Findings) -> list[LineDict]:
     return [d for d in docs if isinstance(d, LineDict) and "apiVersion" in d and "kind" in d]
 
 
+@dataclass
+class _Nearest:
+    """ConfigMap одного имени по файлу и по каталогу (последний в порядке обхода)."""
+
+    by_file: dict[str, _ConfigMap] = field(default_factory=dict)
+    by_dir: dict[str, _ConfigMap] = field(default_factory=dict)
+    last: _ConfigMap | None = None
+
+    def find(self, rel: str, anywhere: bool) -> _ConfigMap | None:
+        """ConfigMap того же файла, иначе того же каталога, иначе ближайшего каталога-предка
+        (ТЗ §15 п. 14 Ж2); anywhere — при отсутствии такого последний с этим именем (envFrom
+        читался так и раньше)."""
+        if rel in self.by_file:
+            return self.by_file[rel]
+        folder = paths.parent(rel)
+        for _ in range(64):
+            if folder in self.by_dir:
+                return self.by_dir[folder]
+            if not folder:
+                break
+            folder = paths.parent(folder)
+        return self.last if anywhere else None
+
+
+def _config_values(workloads: list[_Workload], configs: dict[str, list[_ConfigMap]]) -> None:
+    """envFrom — все ключи data ConfigMap, configMapKeyRef — значение ключа: адрес в нём
+    даёт связь так же, как литеральное value (ТЗ §15 п. 14 Ж2)."""
+    index: dict[str, _Nearest] = {}
+    for name, maps in configs.items():
+        near = index[name] = _Nearest()
+        for each in maps:
+            near.by_file[each.rel] = each
+            near.by_dir[paths.parent(each.rel)] = each
+            near.last = each
+    empty = _Nearest()
+    for work in workloads:
+        for name, rel in work.config_refs:
+            config = index.get(name, empty).find(rel, anywhere=True)
+            if config is not None:
+                work.unit.env += config.data.values()
+        for var, name, key in work.key_refs:
+            keyed = index.get(name, empty).find(var.loc.path, anywhere=False)
+            source = keyed.data.get(key) if keyed is not None else None
+            if source is None or source.value is None:
+                continue
+            var.value = source.value
+            var.dynamic = "$(" in source.value or is_dynamic(source.value)
+            var.value_loc = source.loc
+
+
+def _config_map(doc: LineDict, rel: str, configs: dict[str, list[_ConfigMap]]) -> None:
+    name = _get(doc, "metadata", "name")
+    data = doc.get("data")
+    if isinstance(name, str) and isinstance(data, LineDict):
+        configs.setdefault(name, []).append(_ConfigMap(rel, {
+            str(k): EnvVar(str(k), Loc(rel, data.line_of(k)), None if v is None else str(v))
+            for k, v in data.items()
+        }))
+
+
+def _patch_docs(body: str, line: int, rel: str, found: Findings) -> list[LineDict]:
+    """Документы встроенного патча: номера строк те же, что в kustomization.yaml (текст
+    блока начинается со строки после ключа). Патч JSON 6902 (список операций op) не
+    читается, подсказка."""
+    try:
+        docs = load_all("\n" * line + body)
+    except (YamlTooLarge, BadYaml):
+        found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
+        return []
+    out: list[LineDict] = []
+    for doc in docs:
+        if isinstance(doc, list) and any(isinstance(op, dict) and "op" in op for op in doc):
+            found.hints.append(Hint("unparsed", {
+                "kind": "file", "name": rel, "reason": texts.REASON_JSON_PATCH,
+                "source": f"{rel}:{line}",
+            }))
+        elif isinstance(doc, LineDict) and "kind" in doc and _get(doc, "metadata", "name"):
+            out.append(doc)
+    return out
+
+
+def _kustomization(
+    files: Files, rel: str, found: Findings, patches: list[_Workload],
+    configs: dict[str, list[_ConfigMap]],
+) -> None:
+    """Встроенные патчи kustomization.yaml (ТЗ §15 п. 14 Ж2): строки patches[].patch и
+    patchesStrategicMerge с документом, у которого есть kind и metadata.name. Нагрузка
+    сливается с нагрузкой того же имени, ConfigMap добавляется к найденным; патчи файлами
+    (path:) читает обход как обычные манифесты."""
+    text = files.read(rel)
+    if text is None or "patch" not in text:
+        return
+    try:
+        docs = load_all(text)
+    except YamlTooLarge:
+        files.refuse(rel)
+        return
+    except BadYaml:
+        found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
+        return
+    for doc in docs:
+        if not isinstance(doc, LineDict):
+            continue
+        bodies: list[tuple[str, int]] = []
+        items = doc.get("patches")
+        if isinstance(items, LineList):
+            for item in items:
+                if isinstance(item, LineDict) and isinstance(item.get("patch"), str):
+                    bodies.append((item["patch"], item.line_of("patch")))
+        items = doc.get("patchesStrategicMerge")
+        if isinstance(items, LineList):
+            for i, item in enumerate(items):
+                if isinstance(item, str) and "\n" in item.strip():
+                    bodies.append((item, items.line_at(i)))
+        for body, line in bodies:
+            for patch in _patch_docs(body, line, rel, found):
+                kind = str(patch.get("kind"))
+                if kind in WORKLOADS:
+                    work = _workload(patch, kind, rel)
+                    if work is not None:
+                        patches.append(work)
+                elif kind == "ConfigMap":
+                    _config_map(patch, rel, configs)
+
+
+def _apply_patches(patches: list[_Workload], workloads: list[_Workload]) -> None:
+    """Патч сливается с нагрузкой того же имени (первой по пути файла): переменные с тем же
+    именем заменяются, новые добавляются, образ и команда — только если у нагрузки их нет.
+    Патч без нагрузки этого имени (база вне репозитория) объекта не создаёт."""
+    by_name: dict[str, _Workload] = {}
+    for work in workloads:
+        by_name.setdefault(work.unit.name, work)
+    for patch in patches:
+        base = by_name.get(patch.unit.name)
+        if base is None:
+            continue
+        unit = base.unit
+        names = {e.name for e in patch.unit.env}
+        unit.env = [e for e in unit.env if e.name not in names] + patch.unit.env
+        unit.image = unit.image or patch.unit.image
+        if not unit.command and patch.unit.command:
+            unit.command, unit.command_loc = patch.unit.command, patch.unit.command_loc
+        unit.extra_locs.append(patch.unit.loc)
+        base.config_refs += patch.config_refs
+        base.key_refs += patch.key_refs
+
+
+_KUSTOMIZATION = frozenset({"kustomization.yaml", "kustomization.yml"})
+
+
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     workloads: list[_Workload] = []
     services: list[_Service] = []
-    configs: dict[str, list[EnvVar]] = {}
+    configs: dict[str, list[_ConfigMap]] = {}
     policies: list[_Policy] = []
+    patches: list[_Workload] = []
     for rel in files.select(is_candidate):
+        if paths.name(rel).lower() in _KUSTOMIZATION:
+            _kustomization(files, rel, found, patches, configs)
+            continue
         docs = _docs(files, rel, found)
         if rendered(docs):
             found.hints.append(unparsed_hint(rel, texts.REASON_HELM_RENDERED))
@@ -359,16 +526,9 @@ def parse(files: Files, ctx: Context) -> Findings:
                 if policy is not None:
                     policies.append(policy)
             elif kind == "ConfigMap":
-                name = _get(doc, "metadata", "name")
-                data = doc.get("data")
-                if isinstance(name, str) and isinstance(data, LineDict):
-                    configs[name] = [
-                        EnvVar(str(k), Loc(rel, data.line_of(k)), None if v is None else str(v))
-                        for k, v in data.items()
-                    ]
-    for work in workloads:
-        for ref in work.config_refs:
-            work.unit.env += configs.get(ref, [])
+                _config_map(doc, rel, configs)
+    _apply_patches(patches, workloads)
+    _config_values(workloads, configs)
     for svc in sorted(services, key=lambda s: s.name):
         for work in workloads:
             if svc.selector:
