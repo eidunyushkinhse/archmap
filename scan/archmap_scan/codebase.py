@@ -28,7 +28,7 @@ from archmap_scan.walk import (
 )
 
 PYTHON, NODE, GO, RUBY = "Python", "Node.js", "Go", "Ruby"
-DOTNET, JAVA = ".NET", "Java"
+DOTNET, JAVA, RUST = ".NET", "Java", "Rust"
 
 LANG_EXTS: dict[str, tuple[str, ...]] = {
     PYTHON: (".py",),
@@ -38,6 +38,7 @@ LANG_EXTS: dict[str, tuple[str, ...]] = {
     # Только параметры конфигурации (ТЗ §15 п. 14 Е4); .kt у пакета Kotlin не читается.
     DOTNET: (".cs",),
     JAVA: (".java",),
+    RUST: (".rs",),  # только параметры конфигурации (ТЗ §15 п. 14 И2)
 }
 # Собранный и сжатый код, объявления типов: исполняемого кода продукта там нет.
 _GENERATED_SUFFIXES = (".min.js", ".bundle.js", ".d.ts", ".d.mts", ".d.cts")

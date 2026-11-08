@@ -120,7 +120,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
-  `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`), каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания `celerybeat`,
+  `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`), `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания `celerybeat`,
   `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -357,3 +357,11 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `[package] name`, каталог кода — каталог крейта, Rust, роль по словам имени), склейка по
     имени с сервисом compose или k8s, которому достаётся каталог крейта вместо общего;
     библиотечный крейт не контейнер, признак разработки по пути Dockerfile и Cargo.toml (И1).
+  - параметры Rust (`parsers/rustenv.py`, стек по Cargo.toml, маска `codetext.RUST`):
+    `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре,
+    `nested` — не параметр), clap `#[arg(env = "X")]` и `#[clap(…)]` с `default_value` или
+    `default_value_t`, тип по типу поля, `Option<…>` не обязателен; `std::env::var("X")`,
+    `env::var_os` с дефолтом из `.unwrap_or("v")`, `.unwrap()`, `.expect` и `?` —
+    обязателен; `env!` и `option_env!` — `hints.unassigned` «переменная времени сборки»,
+    `CARGO_*` не пишутся; модуль `#[cfg(test)]` не читается; «Rust» ушёл из `unsupported`
+    семьи config (И2).

@@ -605,8 +605,12 @@ REASON_TEST_HELPER = "тестовая обвязка, не код сервис�
 REASON_OS_VARIABLE = "переменная операционной системы или CI"
 # Причины, по которым найденное в факты не записано не из-за владельца: в счёт «без
 # владельца» такие подсказки не входят.
+REASON_BUILD_VARIABLE = (
+    "переменная времени сборки: значение подставляет компилятор, это не параметр запуска"
+)
 ASIDE_REASONS = frozenset({
     REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER, REASON_OS_VARIABLE,
+    REASON_BUILD_VARIABLE,
 })
 TOOLING_REASONS = frozenset({REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER})
 

@@ -28,6 +28,7 @@ MANIFESTS: dict[str, str | bytes] = {
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
+    "rs/Cargo.toml": '[package]\nname = "x"\n',
 }
 
 # Подключение клиента: без него разборщики каналов JS и Go файл не читают.
@@ -115,6 +116,12 @@ STARTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Параметры Rust (ТЗ §15 п. 14 И2): атрибуты envconfig и clap, env::var, макросы, тесты.
+STARTS["rs/main.rs"] = (
+    "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",
+    "#[arg(env)]\n#[serde(", 'std::env::var("', "env::var(", 'env!("', "#[cfg(test)]\nmod t {",
+    "r#\"", "'", 'env::var("X").unwrap_or("',
+)
 # DDL в шаблонах миграций (ТЗ §15 п. 14 З2): шаблон, вставка, откат, sql.raw.
 STARTS["js/migrations/1-a.ts"] = (
     "sql`", "sql`CREATE TABLE t (", "sql`CREATE TABLE ${", "sql`CREATE TABLE t AS SELECT ",
@@ -162,6 +169,7 @@ VALID: dict[str, str] = {
     "go/main.go": 'package main\nfunc main() {\n\tr := gin.Default()\n\tr.GET("/' + A + '", h)\n}\n',
     "cs/App.cs": 'class A {\n  void F() {\n    var x = Configuration["' + A + '"];\n  }\n}\n',
     "java/App.java": 'class A {\n  String x = System.getenv("' + A + '");\n}\n',
+    "rs/main.rs": 'fn main() {\n    let x = std::env::var("' + A + '").unwrap();\n}\n',
 }
 
 
@@ -218,6 +226,22 @@ KYSELY = {
     "unclosed-params": "function down(" * (PAYLOAD // 14),
     "ctas": "sql`CREATE TABLE t AS SELECT " + "a.b AS c, " * 25_000 + "(" * 1000 + "`",
 }
+
+
+# Rust: тысячи атрибутов, сплошные атрибуты без поля, модули тестов, время жизни.
+RUST = {
+    "attributes": '#[envconfig(from = "A", default = "1")]\npub a: u16,\n' * 1999,
+    "attr-chain": "#[envconfig(default = 1)]" + "#[a]" * (PAYLOAD // 4),
+    "open-attr": "#[envconfig(" + "(" * (PAYLOAD // 2),
+    "test-modules": "#[cfg(test)]\nmod t {\n" * (PAYLOAD // 20),
+    "lifetimes": "fn f<'a>(x: &'a str) " * (PAYLOAD // 20),
+    "reads": 'std::env::var("A").unwrap_or_else(|_| "b".into());\n' * 1999,
+}
+
+
+@pytest.mark.parametrize("kind", sorted(RUST))
+def test_rust_config(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rs/main.rs": RUST[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(KYSELY))

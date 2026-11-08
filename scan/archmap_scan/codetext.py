@@ -1,5 +1,5 @@
-"""Текст кода JavaScript/TypeScript, Go, C# и Java для разборщиков на регулярных выражениях
-(ТЗ §6.2).
+"""Текст кода JavaScript/TypeScript, Go, C#, Java и Rust для разборщиков на регулярных
+выражениях (ТЗ §6.2).
 
 Маска — текст той же длины, где комментарии заменены пробелами, а содержимое строк —
 пробелами между сохранёнными кавычками (переводы строк сохраняются). Регулярные выражения
@@ -20,7 +20,7 @@ from bisect import bisect_right
 from archmap_scan import texts
 from archmap_scan.walk import Files
 
-JS, GO, CS, JAVA = "js", "go", "cs", "java"
+JS, GO, CS, JAVA, RUST = "js", "go", "cs", "java", "rust"
 
 _C_COMMENTS = r"//[^\n]*|/\*[\s\S]*?(?:\*/|\Z)"
 # Подстановка интерполированной строки C#: «{выражение}», строки внутри без вложенных скобок.
@@ -61,6 +61,16 @@ _TOKENS = {
         + r'|"(?:[^"\\\n]|\\[\s\S])*"?'
     ),
 }
+# Rust (ТЗ §15 п. 14 И2): сырая строка r"…", r#"…"# и br"…" (до кавычки с тем же числом «#»),
+# символ ровно из одного знака или экранирования ('a', '\n', '\u{1F600}'): время жизни 'a
+# литералом не считается, иначе код между двумя временами жизни ушёл бы в маску. Обычная
+# строка Rust бывает в несколько строк.
+_TOKENS[RUST] = re.compile(
+    _C_COMMENTS
+    + r'|(?<![A-Za-z0-9_])b?r(?P<hashes>#{0,10})"[\s\S]*?(?:"(?P=hashes)|\Z)'
+    + r"|'(?:\\(?:u\{[0-9a-fA-F]{1,6}\}|[^\n])|[^'\\\n])'"
+    + r'|"(?:[^"\\]|\\[\s\S])*"?'
+)
 _NOT_NEWLINE = re.compile(r"[^\n]")
 
 # Строковый литерал в маске (содержимое уже пробелы): одинарные, двойные, обратные кавычки.
@@ -106,6 +116,8 @@ def mask(text: str, lang: str) -> str:
             out.append(_NOT_NEWLINE.sub(" ", tok))
         elif lang == CS and tok.startswith('$"') and not tok.startswith('$""'):
             out.append(_holes(tok))
+        elif lang == RUST and tok[0] in "rb":
+            out.append(_raw(tok))
         elif lang == CS and tok[0] in "$@":
             # Префикс дословной или сырой строки остаётся, содержимое — пробелы.
             quote = tok.index('"')
@@ -120,6 +132,15 @@ def mask(text: str, lang: str) -> str:
         pos = end
     out.append(text[pos:])
     return "".join(out)
+
+
+def _raw(tok: str) -> str:
+    """Маска сырой строки Rust: префикс до кавычки и закрывающая кавычка с «#» остаются,
+    содержимое — пробелы."""
+    quote = tok.index('"')
+    closing = '"' + "#" * tok[:quote].count("#")
+    end = len(tok) - len(closing) if len(tok) > quote + 1 and tok.endswith(closing) else len(tok)
+    return tok[:quote + 1] + _NOT_NEWLINE.sub(" ", tok[quote + 1:end]) + tok[end:]
 
 
 def _holes(tok: str) -> str:

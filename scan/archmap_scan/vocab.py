@@ -436,10 +436,10 @@ def is_os_variable(name: str) -> bool:
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
 # Языки, параметры конфигурации в коде которых читает ярус кода, и библиотеки
 # конфигурации, которые он не читает (ТЗ §6.4: ключи viper). CODE_LANGUAGES — языки, код
-# которых читается во всех семьях яруса кода; у .NET и Java читаются только параметры
-# конфигурации (ТЗ §15 п. 14 Е4), прочие семьи у них по-прежнему названы языком.
+# которых читается во всех семьях яруса кода; у .NET, Java и Rust читаются только параметры
+# конфигурации (ТЗ §15 п. 14 Е4, И2), прочие семьи у них по-прежнему названы языком.
 CODE_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
-CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java"}
+CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java", "Rust"}
 # Spring Boot читает параметры из application.yml и @Value("${X}"), а не System.getenv: у Java
 # с ним чтение кода неполное, и стек назван (ТЗ §15 п. 14 Е4, решение исполнителя).
 UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (

@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from archmap_scan import texts
-from archmap_scan.parsers import dotnetenv, goenv, javaenv, nodeenv, pyenv
+from archmap_scan.parsers import dotnetenv, goenv, javaenv, nodeenv, pyenv, rustenv
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
 Row = tuple[str, str | None, bool, bool | None, str | None, str]
@@ -264,6 +264,43 @@ def test_java_getenv() -> None:
     ]
     assert sorted(str(loc) for loc in model.params["ads"]["DISABLE_TRACING"].locs) == [
         f"{src}:15", "ads/src/main/java/shop/ads/Names.java:4",
+    ]
+
+
+def test_rust_env() -> None:
+    """Параметры в коде Rust (ТЗ §15 п. 14 И2). Найдено в PostHog
+    rust/capture/src/config.rs:306 `#[envconfig(from = "KAFKA_REPLAY_ENVELOPE_COMPRESSION",
+    default = "none")]` и поля без from; в Lemmy crates/server/src/lib.rs:95 `#[arg(long,
+    default_value_t = false, env = "LEMMY_DISABLE_ACTIVITY_SENDING")]` и
+    crates/utils/src/settings/mod.rs:39 `env::var("LEMMY_CONFIG_LOCATION")`. Ловушки:
+    структура с derive(Envconfig) без полей; nested = true; атрибут serde между envconfig
+    и полем; env::var(&name) — подсказка; env!("CARGO_PKG_VERSION") не параметр и не
+    подсказка, option_env! — переменная времени сборки; время жизни 'static маску не
+    рвёт; комментарий и модуль #[cfg(test)] не читаются."""
+    root = FIXTURES / "rust-env"
+    config, main = "server/src/config.rs", "server/src/main.rs"
+    assert _params(rustenv, root) == [
+        ("CONFIG_PATH", "config.hjson", True, False, "string", f"{main}:16"),
+        ("DATABASE_URL", None, False, True, "string", f"{config}:19"),
+        ("DISABLE_HTTP", "false", True, False, "bool", f"{main}:5"),
+        ("KAFKA_HOSTS", "kafka:9092", True, False, "string", f"{config}:8"),
+        ("LOG_LEVEL", "info", True, False, "string", f"{main}:7"),
+        ("PORT", "3000", True, False, "int", f"{config}:11"),
+        ("REDIS_URL", None, False, False, "string", f"{config}:15"),
+        ("SERVICE_URL", None, False, True, None, f"{main}:17"),
+    ]
+    assert _hints(rustenv, root) == [
+        ("&name", texts.REASON_DYNAMIC_PARAM, f"{main}:19"),
+        ("CI_PIPELINE", texts.REASON_BUILD_VARIABLE, f"{main}:20"),
+    ]
+    model = model_of(root)
+    assert sorted(model.params["server"]) == [
+        "CONFIG_PATH", "DATABASE_URL", "DISABLE_HTTP", "KAFKA_HOSTS", "LOG_LEVEL", "PORT",
+        "REDIS_URL", "SERVICE_URL",
+    ]
+    # Основания: строка атрибута и строка поля.
+    assert sorted(str(loc) for loc in model.params["server"]["REDIS_URL"].locs) == [
+        f"{config}:15", f"{config}:17",
     ]
 
 
