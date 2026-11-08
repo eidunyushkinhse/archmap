@@ -1,0 +1,9 @@
+services:
+  capture:
+    image: ghcr.io/example/capture:master
+    build:
+      context: rust/
+      args:
+        BIN: capture
+  plain:
+    build: ./plain

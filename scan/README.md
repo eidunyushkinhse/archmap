@@ -352,3 +352,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     уже найденный в коде, даёт одну запись с `openapi_source`; файл в каталоге документации и
     файл чужого API (все `servers` на внешних доменах) маршрутов не дают, владелец не
     определим — `hints.openapi_files` с перечнем сервисов (З3).
+  - Dockerfile с `ARG X` и `cargo build --bin $X` рядом с Cargo.toml с `[workspace]`
+    (`parsers/buildfiles.py`): кандидат на каждый член workspace с `src/main.rs` (имя из
+    `[package] name`, каталог кода — каталог крейта, Rust, роль по словам имени), склейка по
+    имени с сервисом compose или k8s, которому достаётся каталог крейта вместо общего;
+    библиотечный крейт не контейнер, признак разработки по пути Dockerfile и Cargo.toml (И1).

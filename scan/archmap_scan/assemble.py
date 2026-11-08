@@ -877,6 +877,7 @@ def _objects(
         _go_module_name(p.name) for p in findings.packages if p.kind == "go.mod" and p.name
     )
     for obj in by_name.values():
+        _crate_dir(obj)
         if obj.code_dir is None:
             obj.code_dir = _workspace_dir(obj, spaces)
         if obj.code_dir in (None, ctx.scope):
@@ -901,6 +902,14 @@ def _objects(
             findings.root_stack if obj.code_dir == ctx.scope else None,
         )
     return objs
+
+
+def _crate_dir(obj: Obj) -> None:
+    """Каталог крейта Cargo workspace вместо общего каталога сборки (ТЗ §15 п. 14 И1): сервис
+    compose capture собирается из rust/ с BIN capture, а его код — rust/capture/."""
+    crate = next((u for u in obj.units if u.workspace is not None), None)
+    if crate is not None and obj.code_dir in (None, crate.workspace):
+        obj.code_dir = crate.build_dir
 
 
 def _free_packages(

@@ -14,7 +14,15 @@ Zabbix не держит манифестов развёртывания: про
   остаётся общим.
 
 Результат лежит отдельно (Findings.build_units): сборка берёт его только вместо
-единственного неявного контейнера корня, если манифестов нет (assemble.py). Сборку Java
+единственного неявного контейнера корня, если манифестов нет (assemble.py).
+
+Исключение — бинарные крейты Cargo workspace (ТЗ §15 п. 14 И1): Dockerfile, где ARG
+задаёт переменную сборки `--bin $X` (PostHog rust/Dockerfile: ARG BIN, cargo build --bin
+$BIN), рядом с Cargo.toml с [workspace] даёт обычного кандидата (Findings.units) на каждый
+член workspace с src/main.rs: имя из [package] name, каталог кода — каталог крейта,
+технология Rust, роль по словам имени (как у Procfile). Кандидат склеивается по имени с
+сервисом compose или k8s и даёт ему каталог крейта вместо общего каталога workspace.
+Признак разработки — по пути Dockerfile и Cargo.toml крейта (политика Б). Сборку Java
 (build.xml) сборщик не читает: стек назван в покрытии контейнеров. Каталоги для разработки
 (walk.is_dev_code) не читаются; tests и подобные исключены обходом. Маркер Bazel или CMake
 в корне (root_stack) даёт стек репозитория, и тогда каталоги cmd/ модулей Go процессами не
@@ -25,10 +33,11 @@ from __future__ import annotations
 
 import re
 
-from archmap_scan import paths, texts, vocab
+from archmap_scan import paths, texts, tomlite, vocab
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Loc, Unit
-from archmap_scan.walk import Files, is_dev_code
+from archmap_scan.parsers.dockerfile import is_dockerfile
+from archmap_scan.walk import Files, dev_sign, is_dev_code, manifest_sign
 
 NAME = "buildfiles"
 _PROGRAMS = re.compile(r"[ \t]*(?:bin|sbin|libexec)_PROGRAMS[ \t]*\+?=")
@@ -36,6 +45,10 @@ _WORD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.+-]{0,199}")
 _MAIN = re.compile(r"^func[ \t]+main[ \t]*\([ \t]*\)", re.MULTILINE)
 _C_EXTS = (".c",)
 _CPP_EXTS = (".cpp", ".cc", ".cxx")
+# Переменная сборки бинарника крейта: «ARG BIN» и «cargo build --bin $BIN» (или ${BIN}).
+_ARG = re.compile(r"^[ \t]*ARG[ \t]+([A-Za-z_][A-Za-z0-9_]{0,63})", re.MULTILINE | re.IGNORECASE)
+_BIN_USE = re.compile(r"--bin[ \t=]{1,10}[\"']?\$\{?([A-Za-z_][A-Za-z0-9_]{0,63})")
+_MAX_MEMBERS = 500
 
 
 def _logical_lines(text: str) -> list[list[tuple[int, str]]]:
@@ -131,6 +144,81 @@ def _go(files: Files, found: Findings) -> None:
         ))
 
 
+def bin_arg(text: str) -> str | None:
+    """Имя ARG, которым Dockerfile выбирает бинарник крейта (`--bin $BIN`), или None."""
+    declared = set(_ARG.findall(text))
+    for m in _BIN_USE.finditer(text):
+        if m.group(1) in declared:
+            return m.group(1)
+    return None
+
+
+def _member_dirs(files: Files, folder: str, members: list[object]) -> list[str]:
+    """Каталоги членов workspace: путь как написан или «каталог/*» (подкаталоги с
+    Cargo.toml); прочие шаблоны не раскрываются."""
+    crates: dict[str, list[str]] = {}
+    for rel in files.paths:
+        if paths.name(rel) == "Cargo.toml":
+            crate = paths.parent(rel)
+            crates.setdefault(paths.parent(crate), []).append(crate)
+    out: list[str] = []
+    for item in members[:_MAX_MEMBERS]:
+        if not isinstance(item, str) or not item.strip("./"):
+            continue
+        if item.endswith("/*") and "*" not in item[:-2]:
+            base = paths.join(folder, item[:-2])
+            out += sorted(crates.get(base, [])) if base is not None else []
+        elif "*" not in item:
+            member = paths.join(folder, item)
+            if member is not None:
+                out.append(member)
+    return list(dict.fromkeys(out))
+
+
+def _crate(
+    files: Files, present: set[str], member: str, docker: str, workspace: str,
+) -> Unit | None:
+    """Кандидат крейта с src/main.rs: имя из [package] name, строка имени — основание."""
+    manifest = paths.join(member, "Cargo.toml") or "Cargo.toml"
+    main = paths.join(member, "src/main.rs") or "src/main.rs"
+    if manifest not in present or main not in present or is_dev_code(manifest):
+        return None
+    text = files.read(manifest)
+    doc = tomlite.parse(text) if text is not None else None
+    name = doc.get("package", "name") if doc is not None else None
+    if not isinstance(name, str) or not name:
+        return None
+    line = (doc.line("package", "name") if doc is not None else None) or 1
+    role = vocab.role_by_command(name.replace("-", " ").replace("_", " "))
+    return Unit(
+        name=name, parser=NAME, loc=Loc(manifest, line), build_dir=member, dockerfile=docker,
+        language="Rust", role=role, dev=manifest_sign(docker) or dev_sign(manifest),
+        workspace=workspace,
+    )
+
+
+def _cargo(files: Files, found: Findings) -> None:
+    """Бинарные крейты workspace у Dockerfile с ARG для --bin (ТЗ §15 п. 14 И1)."""
+    present = set(files.paths)
+    for rel in files.select(is_dockerfile):
+        folder = paths.parent(rel)
+        cargo = paths.join(folder, "Cargo.toml") or "Cargo.toml"
+        if cargo not in present:
+            continue
+        text = files.read(rel)
+        if text is None or bin_arg(text) is None:
+            continue
+        cargo_text = files.read(cargo)
+        doc = tomlite.parse(cargo_text) if cargo_text is not None else None
+        members = doc.get("workspace", "members") if doc is not None else None
+        if not isinstance(members, list):
+            continue
+        for member in _member_dirs(files, folder, members):
+            unit = _crate(files, present, member, rel, folder)
+            if unit is not None:
+                found.units.append(unit)
+
+
 _BAZEL_MARKERS = ("WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel", "BUILD.bazel")
 _CMAKE_MARKER = "CMakeLists.txt"
 
@@ -152,6 +240,7 @@ def parse(files: Files, ctx: Context) -> Findings:
     # Модули Go при маркере Bazel или CMake в корне — SDK и утилиты: процессов не дают.
     if found.root_stack is None:
         _go(files, found)
+    _cargo(files, found)
     if any(paths.name(p) == "build.xml" and not is_dev_code(p) for p in files.paths):
         found.build_unsupported.append(texts.STACK_ANT)
     return found

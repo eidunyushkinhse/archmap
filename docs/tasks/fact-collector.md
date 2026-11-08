@@ -243,7 +243,7 @@ archmap-scan/
 | Источник | Что берёт | Куда кладёт |
 |---|---|---|
 | `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов; у сервиса с образом прокси (nginx, HAProxy, Caddy, Traefik, Envoy) файлы томов из репозитория и многострочные значения `environment`: `upstream { server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen` HAProxy дают связи прокси → объект с этим `host`, технология HTTP (ч. 3, Ж3) |
-| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT` | `technology`, `source.path`, команда для `entrypoints` |
+| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology`, `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
 | systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
@@ -1362,3 +1362,28 @@ unread: {too_large: 3, binary: 0}
      каталоге кода у контейнеров образа, собранного в репозитории, либо ручной выбор
      агентом по подсказке. Grafana (вне перемера): 314 операций двух копий файла у
      `grafana`, 236 совпали с маршрутами кода, 78 новых записей.
+   - И1 (решение исполнителя): Dockerfile подходит, если в нём объявлен `ARG X` и есть
+     `--bin $X`, `--bin ${X}` или `--bin=$X`; Cargo.toml с `[workspace]` берётся только из
+     каталога Dockerfile. Члены workspace — пути как написаны и шаблон `каталог/*`
+     (подкаталоги с Cargo.toml); другие шаблоны и `exclude` не читаются, не больше 500
+     членов. Крейт без `src/main.rs` (библиотека, только `src/bin/*.rs` у `logs-ingestion`
+     PostHog) контейнером не становится, как велит пункт. Роль — по словам имени крейта
+     (`batch-import-worker`, `flags-consumer` — воркеры), без слов — по общим правилам
+     (сервис); воркером по умолчанию, как у Procfile, крейт не считается: бинарник бывает и
+     сервером HTTP. Признак разработки — по пути Dockerfile (`walk.manifest_sign`) и по пути
+     Cargo.toml крейта (`walk.dev_sign`): `personhog-test-harness` PostHog с частью `test`
+     уходит в `hints.profiles`. Кандидат крейта получает Dockerfile (`Unit.dockerfile`),
+     поэтому сам Dockerfile отдельного контейнера `rust` не даёт. Склейка по имени с
+     сервисом compose или k8s: каталог кода объекта — каталог крейта, если сборка сервиса
+     шла из каталога workspace или каталога не было (`assemble._crate_dir`); у сервисов с
+     другим именем (`capture-ai` с `BIN: capture`) каталог прежний. PostHog: 19 новых
+     контейнеров Rust (affected-services, batch-import-worker, capture-apm-metrics,
+     capture-load-gen, cohort-event-shuffler, cohort-seeder, cohort-stream-processor,
+     embedding-worker, flags-consumer, ingestion-consumer, ingestion-control-plane,
+     kafka-assigner, kafka-deduplicator, personhog-parity-monitor, personhog-stateright,
+     pgapi, pgcollector, property-vals-rs, replay-recorder-v4), у 13 сервисов compose
+     каталог кода `rust/<крейт>` и `source.path`, `cymbal` и `personhog-changelog-relay`
+     получили технологию Rust вместо имени образа; ok-объектов потеряно 0, связи прежние.
+     Среди новых есть похожие на инструменты разработки (`capture-load-gen`,
+     `personhog-stateright`, `affected-services`, `cohort-seeder`,
+     `ai-research/replay-recorder-v4`): правило пункта их не отличает, вердикт за судьёй.

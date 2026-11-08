@@ -170,3 +170,50 @@ def test_bazel_and_cmake_root_markers(tmp_path: Path) -> None:
     })
     model = model_of(tmp_path / "cmake")
     assert model.objects == [] and stats.stacks(model) == [vocab.STACK_CMAKE]
+
+
+def test_cargo_workspace_binaries() -> None:
+    """Бинарные крейты Cargo workspace при Dockerfile с ARG BIN (ТЗ §15 п. 14 И1). Найдено в
+    PostHog: rust/Cargo.toml (members, 83 члена), rust/Dockerfile:9 ARG BIN и cargo build
+    --bin $BIN; в compose не все бинарники (batch-import-worker). Ловушки: библиотечный
+    крейт без src/main.rs; член по шаблону tools/* в каталоге с test в имени (манифест
+    разработки, в hints.profiles); Dockerfile без ARG BIN (plain/: правило не действует,
+    каталог кода прежний); крейт с именем сервиса compose (capture: один объект с каталогом
+    крейта вместо общего rust/)."""
+    model = model_of(FIXTURES / "cargo-workspace")
+    objs = {o.name: o for o in model.objects}
+    assert sorted(objs) == ["batch-import-worker", "capture", "plain"]
+    assert [(o.code_dir, o.technology, o.role) for o in objs.values()] == [
+        ("rust/batch-import-worker", "Rust", vocab.ROLE_WORKER),
+        ("rust/capture", "Rust", vocab.ROLE_SERVICE),
+        ("plain", "Rust", vocab.ROLE_SERVICE),
+    ]
+    assert objs["capture"].parsers == ["compose", "buildfiles"]
+    assert "rust/capture/Cargo.toml:2" in {str(loc) for loc in objs["capture"].locs}
+    assert [(h["name"], h["source"]) for h in model.hints["profiles"]] == [
+        ("test-harness", "rust/tools/test-harness/Cargo.toml:2"),
+    ]
+
+
+def test_cargo_bin_arg() -> None:
+    """ARG, которым Dockerfile выбирает бинарник: `--bin $BIN`, `--bin ${BIN}`, `--bin=$X`;
+    ARG без такого использования и `--bin` с необъявленной переменной не в счёт."""
+    assert buildfiles.bin_arg("ARG BIN\nRUN cargo build --bin $BIN\n") == "BIN"
+    assert buildfiles.bin_arg("arg APP\nRUN cargo build --bin=${APP}\n") == "APP"
+    assert buildfiles.bin_arg("ARG BIN\nRUN cargo build --release\n") is None
+    assert buildfiles.bin_arg("RUN cargo build --bin $BIN\n") is None
+
+
+def test_cargo_hostile_is_fast(tmp_path: Path) -> None:
+    """Враждебный Dockerfile и workspace: тысячи ARG и --bin, сотни тысяч членов, шаблоны."""
+    many = {f"rust/a/c{i}/Cargo.toml": f'[package]\nname = "c{i}"\n' for i in range(2000)}
+    tree(tmp_path, {
+        **many,
+        "rust/Dockerfile": "ARG B\n" * 100_000 + "RUN cargo build --bin $" * 50_000,
+        "rust/Cargo.toml": "[workspace]\nmembers = [" + '"a/*", "b", ' * 100_000 + "]\n",
+    })
+    ctx, files = files_of(tmp_path)
+    started = time.perf_counter()
+    buildfiles.parse(files, ctx)
+    took = time.perf_counter() - started
+    assert took < time_limit(), f"{took:.2f} с"
