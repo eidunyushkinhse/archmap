@@ -105,3 +105,57 @@ def test_helm_rendered_output_not_read() -> None:
     ]
     assert {h.data["reason"] for h in found.hints} == {texts.REASON_HELM_RENDERED}
     assert found.notes == {"containers": [texts.NOTE_HELM_RENDERED]}
+
+
+def test_network_policy_links() -> None:
+    """Связи NetworkPolicy (ТЗ §15 п. 14 Ж1). Найдено в Argo CD:
+    manifests/base/redis/argocd-redis-network-policy.yaml:19 — ingress.from[].podSelector
+    (app.kubernetes.io/name: argocd-server) к поду spec.podSelector argocd-redis; связей между
+    компонентами в env манифестов нет. Ловушки: пиры namespaceSelector и ipBlock связей не
+    дают; podSelector {} у пира и у политики (все поды) — подсказки; метка без пода —
+    подсказка; пара api → redis из env и из двух политик — одна связь с тремя основаниями."""
+    root = FIXTURES / "k8s-network-policy"
+    ctx, files = files_of(root)
+    found = k8s.parse(files, ctx)
+    assert [(lk.src, lk.dst, str(lk.loc)) for lk in found.links] == [
+        ("web", "redis", "deploy/policies.yaml:13"),
+        ("api", "redis", "deploy/policies.yaml:16"),
+        ("api", "redis", "deploy/policies.yaml:36"),
+    ]
+    assert sorted((h.data["name"], h.data["reason"], h.data["source"]) for h in found.hints) == [
+        ("all-pods", texts.REASON_POLICY_ALL_PODS, "deploy/open.yaml:4"),
+        ("app.kubernetes.io/name=worker→redis", texts.REASON_POD_NOT_FOUND,
+         "deploy/policies.yaml:19"),
+        ("все поды→api", texts.REASON_POLICY_ALL_PODS, "deploy/policies.yaml:39"),
+    ]
+    model = model_of(root)
+    links = {(lk.src.name, lk.dst.name): lk for lk in model.links}
+    assert sorted(links) == [("api", "redis"), ("web", "redis")]
+    assert sorted(str(loc) for loc in links[("api", "redis")].locs) == [
+        "deploy/apps.yaml:29", "deploy/policies.yaml:16", "deploy/policies.yaml:36",
+    ]
+    web = links[("web", "redis")]
+    assert (web.technology, web.channel, web.sync) == ("Redis", None, None)
+
+
+def test_network_policy_shared_label_is_fast(tmp_path: Path) -> None:
+    """Враждебный вход: тысячи нагрузок с одной меткой и тысячи пиров политики. Пары не
+    размножаются (у пира больше 50 пар — подсказка), разбор укладывается в предел."""
+    pod = (
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: w{i}\nspec:\n  template:\n"
+        "    metadata:\n      labels:\n        app: x\n"
+    )
+    peers = "".join("    - podSelector:\n        matchLabels:\n          app: x\n" for _ in range(2000))
+    policy = (
+        "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: p\nspec:\n"
+        "  podSelector:\n    matchLabels:\n      app: x\n  ingress:\n  - from:\n" + peers
+    )
+    root = tree(tmp_path, {
+        "k8s/pods.yaml": "---\n".join(pod.format(i=i) for i in range(2000)),
+        "k8s/policy.yaml": policy,
+    })
+    ctx, files = files_of(root)
+    started = time.perf_counter()
+    found = k8s.parse(files, ctx)
+    assert time.perf_counter() - started < 10 * time_limit()
+    assert found.links == [] and len(found.hints) == 2000

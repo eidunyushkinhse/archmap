@@ -68,6 +68,21 @@ class Unit:
 
 
 @dataclass
+class ManifestLink:
+    """Связь, которую манифест называет сам (ТЗ §15 п. 14 Ж1, Ж3): NetworkPolicy между подами,
+    прокси к адресу своего файла конфигурации. src — имя кандидата в объект (Unit) того же
+    разборщика, dst — имя такого кандидата или host (by_host). Объекты концов находит сборка;
+    конец не объект — подсказка, а не связь."""
+
+    src: str
+    dst: str
+    loc: Loc
+    parser: str
+    technology: str | None = None
+    by_host: bool = False
+
+
+@dataclass
 class Dockerfile:
     path: str
     dir: str
@@ -273,6 +288,8 @@ class Findings:
     # Разборщики кода, чей стек в репозитории есть (они читали файлы): по ним семья «пусто»
     # отличается от «не опознан стек».
     applied: set[str] = field(default_factory=set)
+    # Связи, которые манифесты называют сами (NetworkPolicy, конфигурация прокси).
+    links: list[ManifestLink] = field(default_factory=list)
     # Файлы кода в каталогах для разработки, которые разборщик не читал: имя разборщика →
     # файлы (ТЗ §4, покрытие skipped.dev_code по семьям).
     dev_code: dict[str, set[str]] = field(default_factory=dict)
@@ -301,6 +318,7 @@ class Findings:
         self.channels.extend(other.channels)
         self.schedules.extend(other.schedules)
         self.applied |= other.applied
+        self.links.extend(other.links)
         for parser, rels in other.dev_code.items():
             self.dev_code.setdefault(parser, set()).update(rels)
         self.build_units.extend(other.build_units)

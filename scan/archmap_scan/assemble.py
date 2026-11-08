@@ -19,6 +19,7 @@ from archmap_scan.model import (
     Findings,
     ImageBuild,
     Loc,
+    ManifestLink,
     Package,
     TableSet,
     Unit,
@@ -1248,10 +1249,37 @@ def _add_link(
     link.parsers.add(parser)
 
 
-def _links(model: Model, env_of: dict[str, list[tuple[EnvVar, str]]]) -> list[Link]:
+def _manifest_links(
+    model: Model, found: list[ManifestLink], by_host: dict[str, Obj],
+    links: dict[tuple[str, str], Link],
+) -> None:
+    """Связи, названные манифестами (ТЗ §15 п. 14 Ж1, Ж3): концы по имени кандидата того же
+    разборщика или по host; технология по виду цели (у сервиса — своя у связи). Та же пара
+    из окружения или depends_on — одна связь с основаниями всех источников."""
+    by_unit = {(u.parser, u.name): o for o in model.objects for u in o.units}
+    for item in found:
+        src = by_unit.get((item.parser, item.src))
+        dst = by_host.get(item.dst.lower()) if item.by_host else by_unit.get((item.parser, item.dst))
+        if src is not None and src is dst:
+            continue
+        if src is None or dst is None:
+            model.hint("unassigned", {
+                "kind": "edge", "name": f"{item.src}→{item.dst}",
+                "reason": texts.REASON_LINK_NOT_OBJECT, "source": str(item.loc),
+            })
+            continue
+        tech = dst.technology if dst.shape != SERVICE else item.technology
+        _add_link(links, src, dst, tech, item.loc, item.parser)
+
+
+def _links(
+    model: Model, env_of: dict[str, list[tuple[EnvVar, str]]],
+    manifest_links: list[ManifestLink] | None = None,
+) -> list[Link]:
     by_host = {o.host.lower(): o for o in model.objects if o.host}
     by_name = {o.name: o for o in model.objects}
     links: dict[tuple[str, str], Link] = {}
+    _manifest_links(model, manifest_links or [], by_host, links)
     for src in model.objects:
         if src.shape == DATABASE:
             # База, которая сама читает брокер (ClickHouse с движком Kafka у PostHog):
@@ -1359,7 +1387,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _redis_brokers(model.objects, [v for vs in env_of.values() for v, _ in vs]
                    + [v for ef in findings.env_files for v in ef.vars])
     model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
-    model.links = _links(model, env_of)
+    model.links = _links(model, env_of, findings.links)
     _queue_brokers(model, findings.packages)
     _sources(model, ctx)
     _entrypoints(model)

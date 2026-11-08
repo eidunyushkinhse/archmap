@@ -247,7 +247,7 @@ archmap-scan/
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
 | systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
-| k8s без шаблонов: `*.y*ml` с `apiVersion`+`kind` в `Deployment\|StatefulSet\|DaemonSet\|Job\|CronJob\|Service\|ConfigMap` (несколько документов в файле) | имя, образы контейнеров пода, `env`/`envFrom` (имена), `schedule` у CronJob, имя Service | объекты, `host` = имя Service (сопоставление по `selector`/`metadata.name`), расписания в `entrypoints.schedules`, параметры в config |
+| k8s без шаблонов: `*.y*ml` с `apiVersion`+`kind` в `Deployment\|StatefulSet\|DaemonSet\|Job\|CronJob\|Service\|ConfigMap\|NetworkPolicy` (несколько документов в файле) | имя, образы контейнеров пода, `env`/`envFrom` (имена), `schedule` у CronJob, имя Service; у NetworkPolicy поды `spec.podSelector`, `ingress.from[].podSelector`, `egress.to[].podSelector` (ч. 3, Ж1) | объекты, `host` = имя Service (сопоставление по `selector`/`metadata.name`), расписания в `entrypoints.schedules`, параметры в config; связи «использует» источник ingress → под политики и под политики → цель egress по метке `app.kubernetes.io/name` или `app` шаблона Deployment/StatefulSet, без канала и sync, та же пара из env — одна связь |
 | Helm: `Chart.yaml`, `values.yaml` | имя чарта, образы в values (`image.repository`) | объекты по образам; `templates/` не разбираются (Go-шаблоны), в coverage `partial` с пояснением |
 | манифесты сборки: `package.json`, `pyproject.toml`, `requirements*.txt`, `Pipfile`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle*`, `Gemfile`, `composer.json`, `mix.exs` | имя пакета, зависимости (имена, без версий), workspaces/монорепо | `technology` контейнера (язык + фреймворк по словарю 6.5), опознание стека для статусов `unsupported`, клиентские библиотеки как подсказка вида зависимости (драйвер Postgres, клиент Kafka) |
 | `.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `env.example` | имена, значения как дефолты по инварианту 6 | семья config контейнера, к которому отнесён файл (раздел 7) |
@@ -1227,3 +1227,18 @@ unread: {too_large: 3, binary: 0}
      (`vocab.CODE_LANGUAGES`); у пакета Java со Spring Boot в config остаётся
      «Java: Spring Boot» (`application.yml` и `@Value` не читаются, §6.4), иначе Petclinic
      получил бы covered без единого чтения.
+   - Ж1 (решение исполнителя): под выбирается по одной метке селектора: сначала
+     `app.kubernetes.io/name`, иначе `app`; прочие метки селектора не сверяются. Основание
+     связи — строка этой метки в пире (`argocd-redis-network-policy.yaml:19`), иначе строка
+     пира. Пир с `namespaceSelector` (и вместе с `podSelector`: поды другого пространства
+     имён) или `ipBlock` молча пропускается; правило `ingress: - {}` без `from` (доступ
+     отовсюду) связей и подсказок не даёт. `podSelector: {}` у политики (одна подсказка на
+     политику, имя — `metadata.name`) и у пира (подсказка на пир) — `hints.unassigned` с
+     причиной «политика сетевого доступа относится ко всем подам»; пир, чья метка выбирает
+     больше 50 пар подов, — та же подсказка (враждебный вход не размножает связи). Метка без
+     Deployment или StatefulSet — «под по меткам не найден», конец, не ставший объектом
+     (под из файла разработки), — «другой конец связи не объект схемы». Технология связи —
+     технология цели, если цель база или брокер, у сервиса пусто. Связь к самому себе
+     (egress redis-ha → redis-ha) не рисуется. Пара из env (`REDIS_ADDR`) и из политики —
+     одна связь со всеми основаниями; подсказка depends_on для пары, уже нарисованной
+     политикой, не пишется.

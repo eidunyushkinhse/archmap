@@ -315,3 +315,9 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     (`Integer.parseInt`, `bool.TryParse`); имя константой с final, const или readonly того же
     файла, файла класса или статического импорта; каталоги тестов `*Tests/` не читаются; у
     Java со Spring Boot в `unsupported` остаётся «Java: Spring Boot» (Е4).
+  - `NetworkPolicy` (`k8s.py`): источник `ingress.from[].podSelector` использует под
+    `spec.podSelector`, под политики использует цель `egress.to[].podSelector`; под по метке
+    `app.kubernetes.io/name` или `app` шаблона Deployment или StatefulSet; связь без канала и
+    sync, пара из env — одна связь; `namespaceSelector` и `ipBlock` пропускаются,
+    `podSelector: {}` и метка без пода — `hints.unassigned`; концы собирает
+    `assemble._manifest_links` по `Findings.links` (Ж1).
