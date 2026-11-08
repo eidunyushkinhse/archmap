@@ -28,6 +28,7 @@ frontend Online Boutique):
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from archmap_scan import codebase, codetext, gocode, paths, secrets, texts
@@ -96,6 +97,8 @@ class _Repo:
     files: Files
     modules: list[tuple[str, str]]
     by_dir: dict[str, list[str]]
+    # Файлы кода Go в порядке обхода: отбор по пакетам делается один раз на оба прохода.
+    rels: list[str] = field(default_factory=list)
     # Разобранные файлы с обёртками: их маска нужна и второму проходу (вызовы рядом с
     # определением), а таких файлов немного.
     codes: dict[str, codetext.Code] = field(default_factory=dict)
@@ -190,10 +193,20 @@ def _repo(files: Files, ctx: Context) -> _Repo:
         ((p.name, p.dir) for p in codebase.packages(files, ctx) if p.kind == "go.mod" and p.name),
         key=lambda m: -len(m[0]),
     )
+    rels = codebase.code_files(files, ctx, codebase.GO)
     by_dir: dict[str, list[str]] = {}
-    for rel in codebase.code_files(files, ctx, codebase.GO):
+    for rel in rels:
         by_dir.setdefault(paths.parent(rel), []).append(rel)
-    return _Repo(files, modules, by_dir)
+    return _Repo(files, modules, by_dir, rels)
+
+
+def _sources(repo: _Repo, needles: tuple[str, ...]) -> Iterator[tuple[str, str]]:
+    """(файл, текст) кода Go с одной из подстрок needles, как codebase.sources, но по
+    списку файлов, уже отобранному для каталогов пакетов."""
+    for rel in repo.rels:
+        text = repo.files.read(rel, keep=False)
+        if text is not None and any(n in text for n in needles):
+            yield rel, text
 
 
 def _tags(raw: str) -> dict[str, str]:
@@ -431,13 +444,13 @@ def parse(files: Files, ctx: Context) -> Findings:
     wrappers: dict[tuple[str, str], _Wrapper] = {}
     named: list[_Named] = []
     repo = _repo(files, ctx)
-    for rel, text in codebase.sources(files, ctx, codebase.GO, None, _NEEDLES):
+    for rel, text in _sources(repo, _NEEDLES):
         code = codetext.load(files, rel, text, codetext.GO)
         if code is not None:
             _scan(code, rel, found, wrappers, named, repo)
     if wrappers:
         needles = tuple(sorted({w.name + "(" for w in wrappers.values()}))
-        for rel, text in codebase.sources(files, ctx, codebase.GO, None, needles):
+        for rel, text in _sources(repo, needles):
             code = repo.code(rel, text)
             if code is not None:
                 repo.note(rel, code)
