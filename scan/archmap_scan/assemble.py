@@ -1114,6 +1114,53 @@ def _merge_duplicates(model: Model, prefixes: list[str] | None = None) -> None:
         })
 
 
+def _command_only(obj: Obj) -> bool:
+    """Процесс, заданный только командой: программа Procfile или x-programs, юнит systemd
+    или supervisor без своего Dockerfile, образа и контекста сборки."""
+    if not obj.is_container or obj.dockerfile is not None:
+        return False
+    return any(u.command for u in obj.units) and not any(
+        u.image or u.build_dir is not None or u.dockerfile for u in obj.units
+    )
+
+
+def _takes_code(builder: Obj, folder: str, language: str | None) -> bool:
+    """Контейнер сборки забирает код процесса из каталога folder: тот же язык, а каталоги
+    вложены один в другой (self-hosted/ Sentry в корне программ), либо язык одного не
+    определён, а сборка охватывает каталог процесса (контекст сборки services/orders и
+    Procfile там же). Сборка без языка во вложенном каталоге (logstash в tools/ AWX) код
+    корня не забирает."""
+    home = builder.code_dir
+    if home is None:
+        return False
+    if builder.language is not None and language is not None:
+        return builder.language == language and (
+            paths.under(home, folder) or paths.under(folder, home)
+        )
+    return paths.under(folder, home)
+
+
+def _program_dirs(model: Model) -> None:
+    """Процесс, заданный только командой, каталога кода не получает (ТЗ §15 п. 13 Д10), если
+    в репозитории есть контейнер со своей сборкой (Dockerfile или контекст сборки) того же
+    языка или без определённого языка (_takes_code). Код тогда остаётся у контейнера сборки
+    (у Sentry src/ у self-hosted, а не у 21 программы x-programs из корня), а процесс даёт
+    воркеры, консьюмеры, расписания из команды и связи. Без контейнеров со сборкой
+    программы владеют своим каталогом, как раньше. Склейки по имени и по команде (§13.5) уже
+    сделаны: склеенный объект — уже не процесс только из команды."""
+    builders = [
+        o for o in model.objects
+        if o.is_container and o.code_dir is not None and not _command_only(o)
+        and (o.dockerfile is not None or any(u.build_dir is not None for u in o.units))
+    ]
+    for obj in model.objects:
+        folder = obj.code_dir
+        if folder is None or not _command_only(obj):
+            continue
+        if any(_takes_code(b, folder, obj.language) for b in builders):
+            obj.code_dir = None
+
+
 def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
     """Репозиторий без манифестов контейнеров: один контейнер с именем корня (ТЗ §7). При
     маркере сборки в корне Cargo.toml и go.mod — SDK и утилиты, контейнера не дают (ТЗ §15
@@ -1287,6 +1334,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
         p.lower() for p in (model.system.rsplit("/", 1)[-1], ctx.root.name) if p
     ))
     _merge_duplicates(model, prefixes)
+    _program_dirs(model)
     _dev_objects(model)
     if not any(o.is_container for o in model.objects):
         # Манифестов нет: процессы по файлам сборки (ТЗ §13.4), иначе единственный неявный

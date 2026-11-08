@@ -28,8 +28,12 @@ def test_procfile_web_joins_compose_container() -> None:
     assert names == ["beat", "orders", "worker"]
     orders = model.obj("orders")
     assert orders is not None and orders.parsers == ["compose", "procfile"]
-    # Три процесса из одного каталога: путь к коду не ставится никому.
-    assert model.hints["shared_code"][0]["containers"] == ["beat", "orders", "worker"]
+    # worker и beat заданы только командой, а каталог services/orders собирает orders: код у
+    # него (ТЗ §15 п. 13 Д10), путь к коду ставится, общего каталога нет.
+    assert [(o.name, o.code_dir) for o in model.objects] == [
+        ("beat", None), ("orders", "services/orders"), ("worker", None),
+    ]
+    assert orders.path == "services/orders" and "shared_code" not in model.hints
     assert [w.queues for w in model.workers["worker"]] == [["orders", "emails"]]
     assert model.workers["beat"][0].command == "celery -A orders beat"
 

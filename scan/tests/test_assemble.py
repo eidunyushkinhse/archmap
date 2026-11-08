@@ -357,6 +357,51 @@ def test_merge_by_system_prefix() -> None:
     ]
 
 
+def test_command_only_process_gets_no_code_dir(tmp_path: Path) -> None:
+    """Д10 (ТЗ §15 п. 13): процесс, заданный только командой (Procfile, x-programs, юнит
+    systemd без своей сборки), каталога кода не получает, если рядом есть контейнер со
+    своей сборкой того же языка: у Sentry 21 программа x-programs из корня забрала код src/
+    у self-hosted, и 109 параметров писались каждому процессу. (а) Procfile рядом с
+    Dockerfile корня: параметр и маршрут у контейнера Dockerfile, у worker и scheduler только
+    воркеры. Ловушки: (б) Procfile без Dockerfile владеет корнем, как раньше; (в) программа
+    с именем сервиса compose склеивается с ним и факты получает по сервису."""
+    model = model_of(FIXTURES / "procfile-build")
+    assert [(o.name, o.code_dir) for o in model.objects] == [
+        ("scheduler", None), ("worker", None), ("Ярмарка", ""),
+    ]
+    assert {k: sorted(v) for k, v in model.params.items()} == {"Ярмарка": ["DATABASE_URL"]}
+    assert list(model.http) == ["Ярмарка"] and sorted(model.workers) == ["scheduler", "worker"]
+    assert _obj(model, "Ярмарка").path is None and "shared_code" not in model.hints
+    app = "import os\nDATABASE_URL = os.environ['DATABASE_URL']\n"
+    tree(tmp_path / "solo", {
+        "requirements.txt": "celery\n", "app.py": app,
+        "Procfile": "web: gunicorn app:app\nworker: celery -A app worker\n",
+    })
+    solo = model_of(tmp_path / "solo")
+    assert [(o.name, o.code_dir) for o in solo.objects] == [("web", ""), ("worker", "")]
+    assert sorted(solo.params) == ["web", "worker"]
+    # Ловушка (AWX): сборка без языка во вложенном каталоге (logstash в tools/) код корня у
+    # процесса на Python не забирает.
+    tree(tmp_path / "tools", {
+        "requirements.txt": "celery\n", "app.py": app, "Procfile": "web: gunicorn app:app\n",
+        "tools/logstash/Dockerfile": "FROM docker.elastic.co/logstash/logstash:8.15.0\n",
+        "compose.yaml": "services:\n  logstash:\n    build: tools/logstash\n",
+    })
+    tools = model_of(tmp_path / "tools")
+    assert [(o.name, o.code_dir) for o in tools.objects] == [
+        ("logstash", "tools/logstash"), ("web", ""),
+    ]
+    assert sorted(tools.params) == ["web"]
+    tree(tmp_path / "named", {
+        "requirements.txt": "celery\n", "app.py": app, "Dockerfile": "FROM python:3.12\n",
+        "compose.yaml": "services:\n  worker:\n    build: .\n",
+        "Procfile": "worker: celery -A app worker\nbeat: celery -A app beat\n",
+    })
+    named = model_of(tmp_path / "named")
+    assert [(o.name, o.code_dir) for o in named.objects] == [("beat", None), ("worker", "")]
+    assert sorted(named.params) == ["worker"]
+
+
 def test_compose_in_code_dir_of_other_container_is_stand() -> None:
     """Compose-файл в каталоге кода контейнера из другого боевого файла — стенд разработки
     компонента (livestream/ и rust/ PostHog): каталог сборки capture (rust/) и каталог

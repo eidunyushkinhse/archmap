@@ -313,7 +313,8 @@ def _programs(doc: LineDict) -> list[tuple[str, LineDict, int]]:
 
 
 def _program_unit(name: str, entry: LineDict, rel: str, line: int, scope: str) -> Unit:
-    """Процесс программы x-programs (ТЗ §15 п. 13 В5): как строка Procfile с кодом в корне."""
+    """Процесс программы x-programs (ТЗ §15 п. 13 В5): как строка Procfile с кодом в корне
+    (сборка снимает его, если есть контейнер со своей сборкой, Д10)."""
     command, cmd_line = _command(entry)
     text = command or ""
     return Unit(

@@ -1,0 +1,4 @@
+# Д10: программы без своей сборки код не получают, он у контейнера Dockerfile.
+web: gunicorn app:app
+worker: celery -A app worker
+scheduler: celery -A app beat
