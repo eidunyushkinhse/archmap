@@ -115,6 +115,13 @@ STARTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# DDL в шаблонах миграций (ТЗ §15 п. 14 З2): шаблон, вставка, откат, sql.raw.
+STARTS["js/migrations/1-a.ts"] = (
+    "sql`", "sql`CREATE TABLE t (", "sql`CREATE TABLE ${", "sql`CREATE TABLE t AS SELECT ",
+    "sql<", "sql.raw(`", "function down(", "export async function down(db) {", "down = (",
+    "down(db) {",
+)
+
 CASES = [(name, start) for name, starts in STARTS.items() for start in starts]
 
 
@@ -197,6 +204,25 @@ CLIKE = {
     "cs/App.cs:verbatim": '@"' + '""' * (PAYLOAD // 2),
     "cs/App.cs:coalesce": 'Configuration["A"] ?? ' * 1999,
 }
+
+
+# Миграции с шаблонами sql (ТЗ §15 п. 14 З2): тысячи шаблонов и инструкций, вставки без
+# конца, вложенные и закрытые откаты, длинный список SELECT в CREATE TABLE … AS.
+KYSELY = {
+    "templates": "sql`CREATE TABLE t (a int)`;\n" * (PAYLOAD // 30),
+    "statements": "sql`" + "ALTER TABLE t ADD c int;" * (PAYLOAD // 24) + "`",
+    "holes": "sql`CREATE TABLE " + "${" * (PAYLOAD // 2) + "`",
+    "closed-holes": "sql`CREATE TABLE t (" + "a ${b}, " * (PAYLOAD // 9) + ")`",
+    "downs": "function down(db) {" * (PAYLOAD // 19),
+    "closed-downs": "function down() {}\nsql`CREATE TABLE t (a int)`;\n" * (PAYLOAD // 50),
+    "unclosed-params": "function down(" * (PAYLOAD // 14),
+    "ctas": "sql`CREATE TABLE t AS SELECT " + "a.b AS c, " * 25_000 + "(" * 1000 + "`",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(KYSELY))
+def test_kysely_migrations(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "js/migrations/1-a.ts": KYSELY[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(CLIKE))

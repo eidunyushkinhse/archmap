@@ -1,7 +1,8 @@
 """Ограниченная грамматика SQL DDL (ТЗ §6.3): таблицы и колонки после цепочки миграций.
 
-CREATE TABLE с колонками и ограничениями таблицы, CREATE TABLE … AS (таблица без колонок:
-колонки из запроса сборщик не выводит, таблица названа в подсказках), ALTER TABLE (ADD, DROP,
+CREATE TABLE с колонками и ограничениями таблицы, CREATE TABLE … AS SELECT (колонки по именам
+списка SELECT: псевдоним «AS имя» или имя колонки, без типа; выражение без имени, «*» и запрос не
+SELECT колонок не дают, таблица названа в подсказках; ТЗ §15 п. 14 З2), ALTER TABLE (ADD, DROP,
 RENAME, ALTER и MODIFY колонок, ключи), DROP TABLE, RENAME TABLE. Кавычки «"», «`» и «[]»; имя
 без кавычек складывается в нижний регистр, как в PostgreSQL (fold, у MySQL выключено).
 Временные таблицы (TEMP) в схему не попадают. Инструкции, которые к структуре таблиц не
@@ -72,6 +73,13 @@ _COLUMN_STOP = frozenset({
     "COLLATE", "GENERATED", "AUTO_INCREMENT", "AUTOINCREMENT", "IDENTITY", "COMMENT", "ON",
     "CHARSET", "AS", "KEY",
 })
+# Слова, на которых кончается список SELECT в CREATE TABLE … AS.
+_SELECT_STOP = frozenset({
+    "FROM", "INTO", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "UNION", "EXCEPT",
+    "INTERSECT", "WINDOW", "OFFSET", "FETCH",
+})
+# Значения, которые именем колонки списка SELECT не служат («SELECT NULL» — ?column?).
+_SELECT_VALUES = frozenset({"NULL", "TRUE", "FALSE"})
 _TABLE_CONSTRAINTS = frozenset({
     "CONSTRAINT", "PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "KEY", "INDEX", "FULLTEXT",
     "SPATIAL", "EXCLUDE", "LIKE", "PERIOD",
@@ -107,6 +115,9 @@ def split_statements(text: str) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     buf: list[str] = []
     first: list[int] = []  # позиция первого значимого символа инструкции в тексте
+    # Номер строки считается от начала прошлой инструкции, а не от начала текста: иначе
+    # тысячи инструкций в одном файле разбирались бы за квадрат длины.
+    lines = _Lines(text)
     pos = 0
     n = len(text)
 
@@ -127,7 +138,7 @@ def split_statements(text: str) -> list[tuple[int, str]]:
         ch = text[i]
         keep(pos, i)
         if ch == ";":
-            _flush(out, buf, text, first)
+            _flush(out, buf, lines, first)
             buf, first = [], []
             pos = i + 1
             continue
@@ -167,14 +178,28 @@ def split_statements(text: str) -> list[tuple[int, str]]:
             continue
         keep(i, i + 1)
         pos = i + 1
-    _flush(out, buf, text, first)
+    _flush(out, buf, lines, first)
     return out
 
 
-def _flush(out: list[tuple[int, str]], buf: list[str], text: str, first: list[int]) -> None:
+class _Lines:
+    """Номер строки по позиции для позиций по возрастанию: счёт от прошлой позиции."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.pos = 0
+        self.line = 1
+
+    def at(self, pos: int) -> int:
+        self.line += self.text.count("\n", self.pos, pos)
+        self.pos = pos
+        return self.line
+
+
+def _flush(out: list[tuple[int, str]], buf: list[str], lines: _Lines, first: list[int]) -> None:
     stmt = "".join(buf).strip()
     if stmt and first:
-        out.append((text.count("\n", 0, first[0]) + 1, stmt))
+        out.append((lines.at(first[0]), stmt))
 
 
 def tokenize(stmt: str) -> list[Tok]:
@@ -210,7 +235,7 @@ class Schema:
     fold: bool = True
     # Непонятые инструкции: место, первые слова, ключ таблицы (если его видно).
     skips: list[tuple[Loc, str, tuple[str, str] | None]] = field(default_factory=list)
-    # Таблицы из CREATE TABLE … AS: колонки из запроса не выведены.
+    # Таблицы из CREATE TABLE … AS, у которых не все колонки запроса получили имя.
     queried: list[tuple[Loc, Table]] = field(default_factory=list)
 
     @property
@@ -465,9 +490,7 @@ def _create(p: _Parser, schema: Schema, loc: Loc) -> bool:
     if target is None:
         return False
     if p.take("AS"):
-        # CREATE TABLE … AS SELECT: таблица есть, колонки из запроса сборщик не выводит.
-        table = schema.create(Table(name=target[1], schema=target[0]), loc)
-        schema.queried.append((loc, table))
+        _create_as(p, schema, target, loc)
         return True
     if not p.op("("):
         return False
@@ -490,6 +513,80 @@ def _create(p: _Parser, schema: Schema, loc: Loc) -> bool:
             table.columns.append(col)
     schema.create(table, loc)
     return True
+
+
+def _create_as(p: _Parser, schema: Schema, target: tuple[str | None, str], loc: Loc) -> None:
+    """CREATE TABLE … AS SELECT: колонки по именам списка SELECT, без типа (Lemmy
+    comment_actions); не все колонки с именем — таблица в подсказках."""
+    table = schema.create(Table(name=target[1], schema=target[0]), loc)
+    names, complete = _select_names(p)
+    if not table.columns:
+        table.columns = [Column(name=name, required=False, locs=[loc]) for name in names]
+    if not complete:
+        schema.queried.append((loc, table))
+
+
+def _select_names(p: _Parser) -> tuple[list[str], bool]:
+    """Имена колонок списка SELECT после AS и признак, что имя есть у каждой: псевдоним «AS
+    имя», иначе имя колонки («person_id», «c.comment_id»). Выражение без псевдонима, «*» и
+    запрос не SELECT (TABLE, VALUES, WITH) имени не дают."""
+    while p.op("("):
+        pass
+    if not p.take("SELECT"):
+        return [], False
+    if p.take("DISTINCT"):
+        tok = p.peek(1)
+        if p.up() == "ON" and tok is not None and tok.kind == "op" and tok.text == "(":
+            p.i += 1
+            p.skip_group()
+    else:
+        p.take("ALL")
+    names: list[str] = []
+    complete = True
+    while p.peek() is not None:
+        name = _item_name(p, _select_item(p))
+        if name is None:
+            complete = False
+        elif name not in names:
+            names.append(name)
+        if not p.op(","):
+            break
+    return names, complete
+
+
+def _select_item(p: _Parser) -> list[Tok]:
+    """Токены одного элемента списка SELECT на его уровне (скобки — одним токеном group)."""
+    toks: list[Tok] = []
+    while True:
+        tok = p.peek()
+        if tok is None or (tok.kind == "op" and tok.text in (",", ")")) or tok.up in _SELECT_STOP:
+            return toks
+        if tok.kind == "op" and tok.text == "(":
+            p.skip_group()
+            toks.append(Tok("group", "", tok.start, tok.end))
+            continue
+        toks.append(tok)
+        p.i += 1
+
+
+def _item_name(p: _Parser, toks: list[Tok]) -> str | None:
+    last = toks[-1] if toks else None
+    if last is None or last.kind not in ("word", "ident"):
+        return None
+    aliased = len(toks) >= 2 and toks[-2].up == "AS"
+    if not aliased and not _column_ref(toks):
+        return None
+    return last.text.lower() if p.fold and last.kind == "word" else last.text
+
+
+def _column_ref(toks: list[Tok]) -> bool:
+    """«имя» или «т.имя»: имена через точку; NULL, TRUE и FALSE — значения, не колонки."""
+    if len(toks) == 1:
+        return toks[0].up not in _SELECT_VALUES
+    return len(toks) % 2 == 1 and all(
+        t.kind in ("word", "ident") if k % 2 == 0 else (t.kind == "op" and t.text == ".")
+        for k, t in enumerate(toks)
+    )
 
 
 def _alter_action(p: _Parser, table: Table, schema: Schema, loc: Loc) -> bool:
@@ -662,6 +759,13 @@ def _target(toks: list[Tok], fold: bool) -> tuple[str, str] | None:
     p = _Parser(toks[i:], "", fold)
     target = p.qualified()
     return None if target is None else _key(*target)
+
+
+def table_of(stmt: str, fold: bool = True) -> tuple[str, str] | None:
+    """Ключ таблицы инструкции CREATE, ALTER, DROP или RENAME TABLE (схема, имя) или None."""
+    if len(stmt) > MAX_STATEMENT:
+        return None
+    return _target(tokenize(stmt), fold)
 
 
 def apply(stmt: str, loc: Loc, schema: Schema) -> None:

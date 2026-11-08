@@ -150,7 +150,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - литерал с конкатенацией (`"/"+root`, `"OTEL_"+name`) уходит в `dynamic_names`, а не в
     факты (`codetext.Code.joined`, `pycode.joined`);
   - файл k8s отбрасывается как шаблон только по признаку Helm (`k8s._HELM`);
-  - `sqlddl.py`: `CREATE TABLE … AS` даёт таблицу без колонок с подсказкой, имя без кавычек в
+  - `sqlddl.py`: `CREATE TABLE … AS` даёт таблицу без колонок с подсказкой (с части 3 —
+    колонки по именам списка SELECT, З2), имя без кавычек в
     нижнем регистре (кроме MySQL, MariaDB, SQLite и SQL Server), `RENAME CONSTRAINT` и
     `ALTER TRIGGER` понятны, временные таблицы не создаются;
   - пример окружения по суффиксу `example|sample|template|dist` и `example.env`
@@ -337,3 +338,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `add_foreign_key` — ссылка колонки; индексы, представления с heredoc и прочие инструкции
     пропускаются, `enable_extension` и `create_schema` — `hints.unassigned`; диалект по
     драйверу в Gemfile; рядом `db/structure.sql` — читается только он (З1).
+  - миграции `.ts` и `.js` в каталоге `migrations` (`parsers/kysely.py`, семья tables, стек
+    Node.js): шаблоны ``sql`…` `` и ``sql.raw(`…`)`` вне тела `down` отдаются `sqlddl.py` в
+    порядке имён с числами по значению, читаются только CREATE, ALTER, DROP и RENAME;
+    вставка `${…}` на месте имени таблицы или колонки — `hints.dynamic_names` (kind table),
+    в типе — текстом; диалект по драйверу в package.json; «Kysely» уходит из `unsupported`,
+    когда его миграции прочитаны. `CREATE TABLE … AS SELECT` (`sqlddl.py`) — колонки по
+    псевдонимам `AS имя` и именам колонок списка, «*» и выражение без имени — подсказка (З2).

@@ -268,10 +268,11 @@ archmap-scan/
 
 | Источник | Разбор |
 |---|---|
-| SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
+| SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
 | Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
 | Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
 
+| Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается |
 | Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
 Для не покрытых владельцем таблиц (раздел 7) записи идут в `hints.unassigned`.
@@ -279,6 +280,7 @@ archmap-scan/
 ### 6.4 Не в нулевой версии (в coverage как `unsupported` с именем стека, где стек опознан)
 
 Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
+построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
 Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET, ключи viper и Spring
 `@Value`, исходящие HTTP-вызовы в коде, компоненты, внешние SaaS и люди, описания и подписи со
 смыслом, поля сообщений каналов, содержимое OpenAPI, Redis/SQS/Pub/Sub как каналы, «мёртвый
@@ -1299,3 +1301,33 @@ unread: {too_large: 3, binary: 0}
      `postgres`), а контейнеры rails, sidekiq и web собраны из корня и каталога кода не
      получили (§15 п. 13), поэтому база по каталогу не находится; правило владельца не
      расширялось.
+   - З2 (решение исполнителя): кроме тегированных шаблонов ``sql`…` `` (и `sql<Тип>`)
+     читается текстовый аргумент ``sql.raw(`…`)``: это тот же SQL для Kysely, и у immich
+     переименование таблиц `StandardizeNames` идёт только им (с вставками имён, поэтому
+     подсказка, а не переименование). Тело функции `down` (функция, свойство или
+     переменная со стрелкой, метод) не читается: иначе откат удалял бы таблицы, созданные
+     `up`. Из шаблона применяются только инструкции CREATE, ALTER, DROP и RENAME: фрагменты
+     для построителя (``sql`now()` ``) и запросы данных пропуском не считаются. Зависимость
+     kysely не требуется (шаблоны `sql` есть и у других библиотек), стек — пакет Node.js;
+     владелец каталога миграций — контейнер Node.js (`file_owners` с языком). Вставка
+     заменяется заглушкой `archmap_dyn_N`: таблица с ней в имени (CREATE TABLE
+     `${sql.table(x)}`), цель инструкции таблицы (`ALTER TABLE "${old}" RENAME TO …`), колонка
+     и ссылка на таблицу с ней в схему не попадают, а пишутся в `hints.dynamic_names` с
+     `kind: table`, именем `${выражение}` и местом вставки; число таких подсказок —
+     `coverage.tables.dynamic_names`. В типе колонки (`"embedding" ${sql.raw(t)}(512)`)
+     остаётся текст вставки, на месте значения (`DEFAULT ${x}`) заглушка ничего не меняет.
+     Стек «Kysely» снимается с `unsupported` у пакета, в каталоге которого прочитан набор
+     kysely: иначе (построитель схемы) он остаётся. Пределы файла: 5000 шаблонов,
+     20 000 «;» и вставок; сверх — файл непрочитан. `CREATE TABLE … AS SELECT`: имя колонки —
+     псевдоним `AS имя` или имя колонки (`person_id`, `c.comment_id`; PostgreSQL называет её
+     так же), тип не выводится, обязательность `false` до `ALTER … SET NOT NULL`; «*»,
+     выражение без псевдонима и запрос не SELECT (`TABLE`, `VALUES`, `WITH`) оставляют
+     подсказку «колонки из запроса» (её текст уточнён). Побочно: номер строки инструкции в
+     `sqlddl.split_statements` считается от прошлой инструкции (было от начала текста, то
+     есть квадратично по числу инструкций; враждебный файл из 80 000 `ALTER` шёл 29 с).
+     immich: 72 таблицы у `database` (PostgreSQL по `"pg"` в `server/package.json`), 7
+     удалены, одна подсказка о динамическом имени (`StandardizeNames.ts:40`); 30 таблиц,
+     которые эта миграция переименовывает в цикле по массиву имён, остаются под прежними
+     именами (`users`, `assets`), и `ALTER` поздних миграций к новым именам (`asset`) им не
+     применяются. Lemmy: у `comment_actions` и семи других таблиц из запроса колонки и
+     первичный ключ, подсказок «колонки из запроса» 8 → 0.

@@ -170,13 +170,13 @@ class Table:
 class TableSet:
     """Таблицы одного набора миграций (каталог) после применения всей цепочки."""
 
-    parser: str  # sql | alembic | django
+    parser: str  # sql | alembic | django | rails-schema | kysely
     dir: str
     tables: list[Table] = field(default_factory=list)
     dropped: int = 0
     skipped: int = 0
     skipped_examples: list[tuple[Loc, str]] = field(default_factory=list)
-    # Таблицы из CREATE TABLE … AS (место и имя): колонки из запроса не выведены.
+    # Таблицы из CREATE TABLE … AS (место и имя), у которых не все колонки получили имя.
     queried: list[tuple[Loc, str]] = field(default_factory=list)
     # Миграции данных (RunPython): структуру таблиц не меняют, поэтому это не пропуск, но
     # счёт в покрытии виден отдельно.

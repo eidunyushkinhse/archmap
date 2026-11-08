@@ -9,7 +9,7 @@ import yaml
 
 from archmap_scan import sqlddl, texts
 from archmap_scan.model import Loc, Table
-from archmap_scan.parsers import railsschema, sql
+from archmap_scan.parsers import kysely, railsschema, sql
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
@@ -173,8 +173,11 @@ def test_statistics_are_not_table_structure() -> None:
 
 
 def test_create_as_case_and_skip_examples() -> None:
-    """CREATE TABLE … AS даёт таблицу без колонок и подсказку «колонки из запроса»; имя без
-    кавычек в нижнем регистре; примеры пропусков сначала о живых таблицах (ТЗ §15 п. 10 А3)."""
+    """CREATE TABLE … AS SELECT даёт колонки по именам списка SELECT (ТЗ §15 п. 14 З2; Lemmy
+    migrations/2025-08-01-000016_smoosh-tables-together/up.sql:6 `CREATE TABLE comment_actions
+    AS SELECT max(liked) AS liked, person_id, …`), а «*» — таблицу без колонок и подсказку
+    «колонки из запроса»; имя без кавычек в нижнем регистре; примеры пропусков сначала о
+    живых таблицах (ТЗ §15 п. 10 А3)."""
     ctx, files = files_of(FIXTURES / "sql-chain")
     (chain,) = sql.parse(files, ctx).table_sets
     assert chain.dialect == "PostgreSQL"
@@ -184,9 +187,13 @@ def test_create_as_case_and_skip_examples() -> None:
     assert _cols(tables["language"])[0] == ("id", "serial", True, True, None)
     assert _cols(tables["post"])[1] == ("language_id", "int", False, False, "language.id")
     assert _cols(tables["Audit"]) == [("Id", "int", False, False, None)]
-    assert tables["post_actions"].columns == [] and tables["post_saved_combined"].columns == []
+    # Имена колонок из запроса, первичный ключ из ALTER TABLE после него; тип не выводится.
+    assert _cols(tables["post_actions"]) == [
+        ("person_id", None, True, True, None), ("post_id", None, True, True, None),
+        ("score", None, False, False, None),
+    ]
+    assert tables["post_saved_combined"].columns == []
     assert [(str(loc), name) for loc, name in chain.queried] == [
-        ("migrations/0003_smoosh.sql:2", "post_actions"),
         ("migrations/0003_smoosh.sql:7", "post_saved_combined"),
     ]
     # RENAME CONSTRAINT понят и в счёт не идёт; ADD (…) не понят четыре раза.
@@ -202,7 +209,7 @@ def test_create_as_case_and_skip_examples() -> None:
     ]
     queried = [h["name"] for h in model.hints["unassigned"]
                if h["reason"] == texts.REASON_COLUMNS_FROM_QUERY]
-    assert queried == ["post_actions", "post_saved_combined"]
+    assert queried == ["post_saved_combined"]
 
 
 def test_mysql_keeps_unquoted_case(tmp_path: Path) -> None:
@@ -315,3 +322,56 @@ def test_rails_schema_hostile_is_fast(tmp_path: Path) -> None:
         railsschema.parse(files, ctx)
         took = time.perf_counter() - started
         assert took < 1.0, f"{kind}: {took:.2f} с"
+
+
+def test_kysely_templates() -> None:
+    """DDL в шаблонах sql`…` миграций (ТЗ §15 п. 14 З2). Найдено в immich:
+    server/src/schema/migrations/1744910873969-InitialMigration.ts:111 ``await sql`CREATE
+    TABLE "users" (…)`.execute(db)``, 102 файла из 105, а таблиц у базы не было. Ловушки:
+    шаблон с SELECT и фрагменты не DDL; шаблон в комментарии и файл вне migrations/ не
+    читаются; тело down (DROP TABLE) не читается; порядок 1, 2, 10 по числу (ALTER из 10
+    после CREATE из 2); вставка на месте значения и типа подсказки не даёт, на месте имени
+    таблицы (sql.table, sql.raw с RENAME у StandardizeNames immich) — подсказка;
+    экранированная «`» шаблон не рвёт; CREATE TABLE … AS в обычном .sql (Lemmy)."""
+    root = FIXTURES / "kysely-migrations"
+    ctx, files = files_of(root)
+    found = kysely.parse(files, ctx)
+    (ts,) = found.table_sets
+    assert (ts.dir, ts.dialect, str(ts.dialect_loc)) == (
+        "server/src/schema/migrations", "PostgreSQL", "server/package.json:5",
+    )
+    assert (ts.skipped, ts.dropped, ts.queried) == (0, 0, [])
+    tables = {t.name: _cols(t) for t in ts.tables}
+    assert tables == {
+        "users": [
+            ("id", "uuid", True, True, None), ("email", "character varying", False, True, None),
+            ("status", "character varying", False, True, None),
+        ],
+        "smart_search": [
+            ("assetId", "uuid", False, True, "users.id"),
+            ("embedding", "${sql.raw(vectorType)}(512)", False, True, None),
+        ],
+        "albums": [
+            ("id", "uuid", False, True, None), ("ownerId", "uuid", False, True, "users.id"),
+            ("name", "character varying", False, True, None),
+            ("description", "text", False, True, None),
+        ],
+    }
+    assert [(h.section, h.data["name"], h.data["source"]) for h in found.hints] == [
+        ("dynamic_names", "${sql.table(tableName)}", "server/src/schema/migrations/2-AddAlbums.ts:5"),
+        ("dynamic_names", "${oldName}", "server/src/schema/migrations/10-Standardize.ts:8"),
+    ]
+    assert {h.data["reason"] for h in found.hints} == {texts.REASON_DYNAMIC_TABLE}
+    (actions,) = sql.parse(files, ctx).table_sets
+    by_name = {t.name: _cols(t) for t in actions.tables}
+    assert by_name["comment_actions"] == [
+        ("liked", None, False, False, None), ("person_id", None, True, True, None),
+        ("comment_id", None, True, True, None), ("vote_is_upvote", None, False, False, None),
+    ]
+    assert [(str(loc), name) for loc, name in actions.queried] == [
+        ("server/sql/0001_actions.sql:15", "comment_counts"),
+    ]
+    model = model_of(root)
+    assert sorted(t.name for t in model.tables["database"]) == [
+        "albums", "comment_actions", "comment_counts", "smart_search", "users",
+    ]

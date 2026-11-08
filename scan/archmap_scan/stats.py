@@ -81,6 +81,7 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     tables.contributed = _ordered(model.table_stats.parsers)
     tables.skipped = dict(sorted(model.table_stats.skipped.items()))
     tables.dropped = model.table_stats.dropped
+    tables.dynamic_names = _hints_of(model, "dynamic_names", "table")
     if model.table_stats.errors:
         tables.error = "; ".join(model.table_stats.errors)
     params = [p for table in model.params.values() for p in table.values()]
@@ -242,6 +243,14 @@ def _label(language: str, name: str) -> str:
     return name if language in vocab.CODE_LANGUAGES else f"{language}: {name}"
 
 
+def _kysely_read(findings: Findings, manifest: str) -> bool:
+    """Миграции пакета с Kysely прочитаны: набор таблиц разборщика kysely лежит в каталоге
+    пакета (ТЗ §15 п. 14 З2). Построитель схемы `db.schema.createTable` не читается, и без
+    такого набора стек остаётся в unsupported."""
+    folder = paths.parent(manifest)
+    return any(ts.parser == "kysely" and paths.under(ts.dir, folder) for ts in findings.table_sets)
+
+
 def code_unsupported(
     findings: Findings, containers: Sequence[Obj] | None = None,
 ) -> dict[str, list[str]]:
@@ -284,7 +293,7 @@ def code_unsupported(
         if config_lib:
             add("config", _label(pkg.language, config_lib))
         schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
-        if schema:
+        if schema and not (schema == "Kysely" and _kysely_read(findings, pkg.path)):
             add("tables", schema)
     for fam in _LANGUAGE_FAMILIES:
         for language in unread:

@@ -1493,7 +1493,7 @@ def _tables(
                     same.columns.append(col)
 
 
-_MIGRATION_LANGUAGE = {"alembic": "Python", "django": "Python"}
+_MIGRATION_LANGUAGE = {"alembic": "Python", "django": "Python", "kysely": "Node.js"}
 
 
 def _sqlite_default_hint(model: Model, ts: TableSet) -> None:
