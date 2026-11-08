@@ -132,10 +132,8 @@ class Repo:
     def __init__(self, files: Files, ctx: Context, language: str, lang: str) -> None:
         self.files = files
         self.lang = lang
-        self.by_stem: dict[str, list[str]] = {}
-        for rel in codebase.code_files(files, ctx, language):
-            name = paths.name(rel)
-            self.by_stem.setdefault(name[:name.rfind(".")], []).append(rel)
+        self.language = language
+        self._by_stem: dict[str, list[str]] | None = None
         self._consts: dict[str, dict[str, tuple[str, Loc] | None]] = {}
         self._imports: dict[str, list[tuple[bool, str, bool]]] = {}
         self._resolved: dict[tuple[str, str], tuple[str, Loc] | None] = {}
@@ -154,10 +152,20 @@ class Repo:
         self._consts[rel] = _constants(rel, code) if code is not None else {}
         self._imports[rel] = _imports(code) if code is not None else []
 
+    def by_stem(self) -> dict[str, list[str]]:
+        """Файлы кода языка по имени без расширения (считается при первом «Класс.ИМЯ»)."""
+        if self._by_stem is None:
+            self._by_stem = {}
+            for rel in self.files.paths:
+                if codebase.is_code_file(rel, self.language):
+                    name = paths.name(rel)
+                    self._by_stem.setdefault(name[:name.rfind(".")], []).append(rel)
+        return self._by_stem
+
     def _class_file(self, rel: str, cls: str) -> str | None:
         """Файл класса cls для файла rel: единственный в репозитории, выбранный импортом
         Java или лежащий в том же каталоге (тот же пакет)."""
-        cands = self.by_stem.get(cls, [])
+        cands = self.by_stem().get(cls, [])
         if len(cands) <= 1:
             return cands[0] if cands else None
         self._load(rel)
