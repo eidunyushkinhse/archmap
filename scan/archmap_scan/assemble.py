@@ -9,7 +9,7 @@ depends_on в связи не идут (порядок запуска не вы�
 
 from __future__ import annotations
 
-from archmap_scan import codefacts, owners, paths, secrets, texts, vocab
+from archmap_scan import codefacts, openapi_owner, owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.dialect import SQLITE
 from archmap_scan.links import hosts_in, link_technology
@@ -1398,23 +1398,36 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _params(model, findings, env_of)
     _clients(model, findings)
     _tables(model, findings, env_of)
-    _openapi(model, findings)
     codefacts.attach(model, findings, env_of)
+    # После маршрутов кода: путь из файла, уже найденный в коде, не дублируется (З3).
+    _openapi(model, findings)
     return model
 
 
 def _openapi(model: Model, findings: Findings) -> None:
-    """Файлы OpenAPI — подсказка агенту с контейнером-владельцем, если он один (ТЗ §6.1)."""
+    """Файлы OpenAPI: операции — маршруты владельца, если он определим механически (ТЗ §15
+    п. 14 З3), и подсказка агенту с владельцем или причиной, почему его нет (ТЗ §6.1)."""
     containers = [o for o in model.objects if o.is_container]
     for spec in sorted(findings.openapi, key=lambda s: s.path):
         data: dict[str, object] = {"kind": "openapi", "name": spec.path}
-        found = owners.code_owners(spec.path, containers)
-        if len(found) == 1:
-            data["object"] = found[0].name
         if spec.operations is None:
             data["reason"] = spec.reason or texts.REASON_OPENAPI_TOO_LARGE
+        elif spec.in_docs:
+            data["reason"] = texts.REASON_OPENAPI_DOCS
+        elif openapi_owner.foreign(spec):
+            data["reason"] = texts.REASON_OPENAPI_FOREIGN
         else:
-            data["reason"] = texts.REASON_OPENAPI_DOCS if spec.in_docs else texts.REASON_OPENAPI_FILE
+            obj, pool = openapi_owner.owner(spec, containers)
+            if obj is not None:
+                data["object"] = obj.name
+                data["reason"] = texts.REASON_OPENAPI_FILE
+                openapi_owner.attach(model, spec, obj)
+            else:
+                # Без сервисов и без операций причина прежняя: выбирать было не из кого.
+                data["reason"] = (
+                    openapi_owner.no_owner_reason(pool) if spec.ops and pool
+                    else texts.REASON_OPENAPI_FILE
+                )
         data["source"] = spec.path
         if spec.operations is not None:
             data["operations"] = spec.operations

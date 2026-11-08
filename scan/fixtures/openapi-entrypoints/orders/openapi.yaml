@@ -1,0 +1,16 @@
+openapi: 3.0.3
+info:
+  title: Orders
+  version: "1"
+servers:
+  - url: /
+  - url: https://orders.example.com
+paths:
+  /orders:
+    post:
+      summary: создать заказ
+    get:
+      summary: список
+  /orders/{order_id}:
+    get:
+      summary: заказ

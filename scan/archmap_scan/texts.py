@@ -563,6 +563,17 @@ REASON_OPENAPI_TOO_LARGE = "файл больше предела разбора 
 REASON_BAD_OPENAPI = "файл OpenAPI не разбирается"
 REASON_OPENAPI_REFS = "пути заданы ссылками, которые не удалось развернуть, операции не посчитаны"
 REASON_OPENAPI_FILE = "спецификацию сборщик не импортирует, её добавляют в разделе «OpenAPI» объекта"
+REASON_OPENAPI_FOREIGN = (
+    "спецификация чужого API: все адреса в servers на внешних доменах, маршрутами объекта не стала"
+)
+
+
+def openapi_no_owner(names: list[str], more: int) -> str:
+    """«владелец не определим: контейнеры a, b и ещё 3» (ТЗ §15 п. 14 З3)."""
+    shown = ", ".join(names)
+    if more > 0:
+        shown += f" и ещё {more}"
+    return f"владелец не определим: контейнеры {shown}"
 REASON_OPENAPI_DOCS = (
     "найден в каталоге документации; спецификацию сборщик не импортирует, её добавляют в "
     "разделе «OpenAPI» объекта"

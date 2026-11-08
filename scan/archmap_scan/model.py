@@ -143,6 +143,11 @@ class OpenApi:
     operations: int | None  # None — операции не посчитаны, причина в reason
     reason: str | None = None  # None при operations None — файл больше предела разбора
     in_docs: bool = False  # файл в исключённом каталоге документации (ТЗ §15 п. 13 Д2)
+    # Операции (метод, путь как в файле, строка ключа пути), info.title, адреса servers[].url
+    # (у Swagger 2.0 — host и basePath) для маршрутов владельца (ТЗ §15 п. 14 З3).
+    ops: list[tuple[str, str, Loc]] = field(default_factory=list)
+    title: str | None = None
+    servers: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -1,0 +1,14 @@
+{
+  "swagger": "2.0",
+  "info": {"title": "Search service", "version": "1"},
+  "basePath": "/api",
+  "paths": {
+    "/items": {
+      "get": {"summary": "поиск"}
+    },
+    "/items/{id}": {
+      "get": {"summary": "товар"},
+      "delete": {"summary": "убрать"}
+    }
+  }
+}

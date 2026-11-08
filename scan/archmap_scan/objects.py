@@ -100,6 +100,8 @@ class HttpEntry:
     loc: Loc
     parser: str
     prefix_unresolved: bool = False
+    # Тот же метод и путь в файле OpenAPI владельца: второе основание (ТЗ §15 п. 14 З3).
+    openapi: Loc | None = None
 
 
 @dataclass

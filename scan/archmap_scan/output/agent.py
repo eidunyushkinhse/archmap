@@ -87,6 +87,8 @@ def _http(model: Model, name: str) -> list[dict[str, object]]:
         if entry.prefix_unresolved:
             item["prefix_unresolved"] = True
         item["source"] = str(entry.loc)
+        if entry.openapi is not None:
+            item["openapi_source"] = str(entry.openapi)
         out.append(item)
     return out
 

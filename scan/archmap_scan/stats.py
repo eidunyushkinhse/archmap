@@ -94,6 +94,10 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     config.contributed = _ordered({x for p in params for x in p.parsers} | code_parsers)
     config.from_code = bool(code_parsers)
     _code_family(out["http_routes"], model, "route", sum(len(v) for v in model.http.values()))
+    if any(e.parser == "openapi" for entries in model.http.values() for e in entries):
+        # Маршруты из файла OpenAPI (ТЗ §15 п. 14 З3): разборщик не яруса кода, from_code тот же.
+        routes = out["http_routes"]
+        routes.contributed = _ordered(set(routes.contributed) | {"openapi"})
     _code_family(out["channels"], model, "channel", sum(len(v) for v in model.channels.values()))
     containers = [o for o in model.objects if o.is_container]
     # Контейнеры по файлам сборки или неявный контейнер корня границу системы не задают
