@@ -18,10 +18,12 @@ hints.unassigned. Брокера этого вида в манифестах н�
 связь: публикация — контейнер → брокер «публикует», потребление — брокер → контейнер
 «доставляет» (подпись называет действие источника связи), с channel и sync: false; одна
 связь на пару, направление и канал. Связь «использует» той же пары из манифестов (адрес в
-окружении, depends_on) остаётся рядом: это другой факт со своим основанием, и связи кода
-его не вытесняют (ТЗ §15 п. 13 В1: иначе sidekiq → redis Mastodon и web → kafka PostHog,
-верные связи корнер-кейсов, пропали бы). Связь, контейнер которой не определим, уходит в
-hints.unassigned, а канал при этом пишется.
+окружении, depends_on) при этом не рисуется в любом направлении пары: связь с каналом
+сильнее (ТЗ §15 п. 13 В1, часть 2б: «использует» sidekiq → redis уходит и при связях
+redis → sidekiq «доставляет»). ArchMap при ввозе отмечает связь с брокером без канала
+замечанием, а рядом со связями с каналом такая связь ничего не добавляет. «Использует» к
+базе и к брокеру без связей с каналом остаётся. Связь, контейнер которой не определим,
+уходит в hints.unassigned, а канал при этом пишется.
 
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
 нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
@@ -405,8 +407,14 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
                 channel=use.name, kind=use.kind, broker=broker.name, loc=use.loc,
                 parser=use.parser,
             ))
-    # Связи кода не вытесняют «использует» той же пары из манифестов: оба факта остаются.
-    model.links.sort(key=lambda lk: (lk.src.name, lk.dst.name, lk.label, lk.channel or ""))
+    # Связь с каналом сильнее «использует» той же пары объектов из манифестов; пара без
+    # учёта направления (у базы каналов не бывает, её связи не задеты).
+    paired = {frozenset((lk.src.name, lk.dst.name)) for lk in model.links if lk.channel}
+    model.links = sorted(
+        (lk for lk in model.links
+         if lk.channel or frozenset((lk.src.name, lk.dst.name)) not in paired),
+        key=lambda lk: (lk.src.name, lk.dst.name, lk.label, lk.channel or ""),
+    )
     for items in model.consumers.values():
         items.sort(key=lambda c: (c.channel, c.loc))
 

@@ -9,7 +9,7 @@ families:
   containers: {status: covered, found: 3, parsers: [compose, dockerfile, procfile]}
   databases: {status: covered, found: 1, parsers: [compose]}
   brokers: {status: covered, found: 2, parsers: [compose]}
-  edges: {status: covered, found: 10, parsers: [compose, env-example, celery, kafka]}
+  edges: {status: covered, found: 8, parsers: [compose, env-example, celery, kafka]}
   tables: {status: covered, found: 2, parsers: [alembic], dropped: 1}
   config: {status: covered, found: 15, parsers: [compose, env-example, python-env, node-env], dynamic_names: 1}
   channels: {status: covered, found: 4, parsers: [compose, celery, kafka], dynamic_names: 1}

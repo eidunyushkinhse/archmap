@@ -55,7 +55,6 @@ def test_bullmq_queues() -> None:
     ]
     links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
     assert links == {
-        ("server", "redis", "использует", None),
         ("server", "redis", "публикует", "exports"),
         ("server", "redis", "публикует", "hashed"),
         ("redis", "server", "доставляет", "thumbnailGeneration"),
@@ -108,7 +107,9 @@ def test_sidekiq_queues_and_schedule() -> None:
     assert sorted(model.channels["redis"]) == ["default", "ingress", "mailers", "pull", "push"]
     links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
     assert links == {
-        ("web", "redis", "использует", None), ("sidekiq", "redis", "использует", None),
+        # «использует» sidekiq → redis вытеснена связями с каналом той же пары (ТЗ §15 п. 13
+        # В1, часть 2б); у web связей с каналом нет, его «использует» остаётся.
+        ("web", "redis", "использует", None),
         ("redis", "sidekiq", "доставляет", "default"),
         ("redis", "sidekiq", "доставляет", "ingress"),
         ("redis", "sidekiq", "доставляет", "pull"),

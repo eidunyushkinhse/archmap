@@ -111,13 +111,17 @@ def _compose(brokers: str, env: str = "") -> str:
     )
 
 
-def test_channel_edges_keep_uses_link(tmp_path: Path) -> None:
-    """Связи по каналу из кода и «использует» по адресу брокера из манифеста — разные
-    факты: оба остаются (ТЗ §15 п. 13 В1, верная связь sidekiq → redis Mastodon)."""
+def test_channel_edges_replace_uses_link(tmp_path: Path) -> None:
+    """Связь с каналом сильнее «использует» той же пары из манифестов (ТЗ §15 п. 13 В1,
+    часть 2б: решение части 2 оставлять обе отменено). Ловушки: «использует» к базе не
+    трогается (каналов у базы не бывает), «использует» к брокеру без единой связи с каналом
+    остаётся."""
     tree(tmp_path, {
         "docker-compose.yml": _compose(
-            "  bus:\n    image: bitnami/kafka\n",
-            "    environment:\n      KAFKA_BOOTSTRAP: bus:9092\n",
+            "  bus:\n    image: bitnami/kafka\n  db:\n    image: postgres:16\n"
+            "  mq:\n    image: rabbitmq:4\n",
+            "    environment:\n      KAFKA_BOOTSTRAP: bus:9092\n"
+            "      DATABASE_URL: postgres://app@db:5432/app\n      AMQP_URL: amqp://mq:5672\n",
         ),
         "api/requirements.txt": "kafka-python\n",
         "api/app.py": KAFKA_APP,
@@ -125,8 +129,9 @@ def test_channel_edges_keep_uses_link(tmp_path: Path) -> None:
     model = model_of(tmp_path)
     links = [(lk.src.name, lk.dst.name, lk.label, lk.channel, lk.sync) for lk in model.links]
     assert links == [
-        ("api", "bus", "использует", None, None),
         ("api", "bus", "публикует", "orders", False),
+        ("api", "db", "использует", None, None),
+        ("api", "mq", "использует", None, None),
         ("bus", "api", "доставляет", "payments", False),
     ]
     assert sorted(model.channels["bus"]) == ["orders", "payments"]

@@ -24,17 +24,10 @@ nodes/Ярмарка / redis:
 - docker-compose.yml:36
 edges/billing-worker→orders:
 - docker-compose.yml:25
-edges/billing-worker→redis:
-- docker-compose.yml:24
-- docker-compose.yml:26
 edges/billing-worker→redis#billing:
 - services/billing-worker/billing/app.py:13
 edges/events→orders#payments.completed:
 - services/orders/orders/events.py:5
-edges/orders→events:
-- docker-compose.yml:14
-- docker-compose.yml:18
-- services/orders/.env.example:3
 edges/orders→events#orders.created:
 - services/orders/orders/api/routes.py:15
 edges/orders→orders-db:

@@ -93,7 +93,7 @@ def test_colon_values_are_double_quoted() -> None:
 def test_summary_words(tmp_path: Path) -> None:
     out = _scan(FIXTURES / "compose", tmp_path / "out")
     text = _read(out, "summary.txt")
-    assert "Найдено: 5 контейнеров, 2 базы данных, 1 брокер, 6 связей, 8 параметров" in text
+    assert "Найдено: 5 контейнеров, 2 базы данных, 1 брокер, 5 связей, 8 параметров" in text
     assert "«Новый проект»" in text and "«Импорт»" in text and "«Обновить из кода»" in text
     for bad in (", " + "\u2014", "." * 3, "\u2026"):
         assert bad not in text
