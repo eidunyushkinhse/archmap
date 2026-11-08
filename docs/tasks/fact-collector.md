@@ -259,7 +259,7 @@ archmap-scan/
 |---|---|---|
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
 | | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
-| | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
+| | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле; `имя + "/p"` на известном маршрутизаторе — путь литерала с `prefix_unresolved`, `"/a" + "/b"` — путь целиком, методы `.Methods(http.MethodGet)` (ч. 4, К5) | регулярные выражения |
 | | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints |
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"` или `Microsoft.AspNetCore.*`): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints, маршрут по соглашению `/Контроллер/действие` с `prefix_unresolved: true` |
 | | Rust: actix-web (`Cargo.toml` с actix-web): `.route("/p", web::get().to(h))` и другие методы (`web::method`, `web::to` — ANY), `web::resource("/p").route(web::get()…)` и `.to(h)`, `web::scope("/v1")` с вложенными `.service(web::scope(…))`, `#[get("/p")]` и `#[route("/p", method = "GET")]` над `fn` (ч. 4, К3) | один проход по парным скобкам маски Rust; атрибут — путь без префикса; константа `const` файла раскрывается, `format!` и переменная в hints |
@@ -1656,3 +1656,19 @@ unread: {too_large: 3, binary: 0}
      подсказок о маршрутах 11 → 7. Ожидание пункта «318 → около 364» считало 46 подсказками.
      Кандидат судьи `RouteKey.Asset` ищется по имени в `entrypoints.yaml`, а после
      раскрытия там пути, а не имя: `remeasure.py` покажет «нет» (без ключа `expect`).
+   - К5 (решение исполнителя): слева от «+» допускается имя или поле (`cfg.Base`), справа —
+     один или несколько литералов до конца аргумента (`base + "/api" + "/v1"` → `/api/v1`);
+     префикс групп получателя складывается, флаг `prefix_unresolved` ставится всегда, функция
+     регистрации с параметром (п. 3) для такой записи места вызова не ищет. Склейка только
+     литералов на любом получателе, кроме клиентов, — путь целиком: пункт прямо отменяет
+     решение п. 10 А («склейка из двух литералов не исключение»), фикстура `go-http` и тест
+     склейки обновлены (`"/api" + "/v2"` у `joinapi` теперь маршрут). Сверх пункта:
+     `.Methods(http.MethodGet, http.MethodHead)` читается константами пакета http (у Online
+     Boutique все методы так и записаны; без этого каждая запись была бы ANY). Online
+     Boutique: `frontend` +16 записей из 13 регистраций (`/`, `/product/{id}` и `/cart` с GET
+     и HEAD; `/cart/checkout` POST среди них; `/robots.txt` и `/_healthz` без `.Methods` — ANY),
+     подсказок о маршрутах 14 → 1 (`url` в `frontend/packaging_info.go:54`); `PathPrefix(baseUrl +
+     "/static/")` префиксом не считается, маршрута не даёт. Argo CD: +3 записи только этого
+     вида (`server/server.go`: `extension.URLPrefix+"/"` и `common.DexAPIEndpoint+"/"` как
+     `ANY /`, `base+"/argocd-linux"`), подсказок 8 → 5. Grafana: без изменений (531
+     маршрут, 3 подсказки).

@@ -123,6 +123,25 @@ STARTS["rb/config/routes.rb"] = (
     "match 'a', via: [", "=begin\n", "c = { id: /", 'get "#{', "member { get :",
     "resources :a, only: %i[", "mount A => '",
 )
+# Путь склейкой у Go (ТЗ §15 п. 15 К5): имя и литерал, литералы подряд, методы константами.
+STARTS["go/main.go"] += (
+    'r := mux.NewRouter()\nr.HandleFunc(base + "', 'r := mux.NewRouter()\nr.HandleFunc(base + ',
+    'r.HandleFunc("/a" + "', 'r := mux.NewRouter()\nr.HandleFunc(base+"/a", h).Methods(http.',
+    'r.HandleFunc("/a" + "/b" + ',
+)
+GO_CONCAT = {
+    "calls": "r := mux.NewRouter()\n"
+    + 'r.HandleFunc(base + "/a" + "/b", h).Methods(http.MethodGet, http.MethodHead)\n' * 20_000,
+    "parts": 'r := mux.NewRouter()\nr.HandleFunc(base + ' + '"/a" + ' * (PAYLOAD // 7) + '"/b", h)\n',
+    "pluses": "r := mux.NewRouter()\nr.HandleFunc(base " + "+ " * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(GO_CONCAT))
+def test_go_concat_path(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_CONCAT[kind]}))
+
+
 # Префикс NestJS членом перечисления (ТЗ §15 п. 15 К4).
 STARTS["js/app.js"] += (
     "@Controller(A.", "@Controller(A.B", "@Controller(A.B)\nclass C {\n  @Get('",

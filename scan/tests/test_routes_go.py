@@ -22,6 +22,8 @@ def _routes(root: Path) -> list[tuple[str, str, bool, str, str]]:
 
 def test_fixture() -> None:
     assert _routes(FIXTURES / "go-http") == [
+        # Склейка двух литералов — путь целиком (К5); mux — параметр без мест вызова.
+        ("ANY", "/api/v2", True, "net/http", "internal/joinapi/router.go:9"),
         ("ANY", "/health", False, "net/http", "cmd/std/main.go:6"),
         ("ANY", "/plain", False, "net/http", "internal/joinapi/router.go:11"),
         ("ANY", "/static/", False, "net/http", "cmd/std/main.go:9"),
@@ -54,7 +56,6 @@ def test_dynamic_only_on_known_routers(tmp_path: Path) -> None:
     assert [(h.data["name"], h.data["source"]) for h in hints] == [
         ("pathVar", "internal/ginapi/router.go:13"),
         ('"/"+root+"/"', "internal/joinapi/router.go:7"),
-        ('"/api" + "/v2"', "internal/joinapi/router.go:9"),
     ]
     tree(tmp_path, {
         "go.mod": "module x\n",
@@ -246,17 +247,50 @@ def test_gocode_functions_and_calls() -> None:
 
 
 def test_joined_literal_is_not_a_route() -> None:
-    """«"/"+root+"/"» и «"/api" + "/v2"» (Argo CD server/server.go): литерал лишь часть
-    пути, маршрута «/» и «/api» нет, обе склейки в подсказках с причиной; обычный литерал
-    рядом остаётся маршрутом (ТЗ §15 п. 10 А)."""
+    """«"/"+root+"/"» (Argo CD server/server.go): литерал лишь часть пути, маршрута «/» нет,
+    склейка в подсказках с причиной (ТЗ §15 п. 10 А). Склейка двух литералов «"/api" +
+    "/v2"» с части 4 — путь целиком (ТЗ §15 п. 15 К5); обычный литерал рядом остаётся
+    маршрутом."""
     ctx, files = files_of(FIXTURES / "go-http")
     found = gohttp.parse(files, ctx)
     joined = [r for r in found.routes if r.loc.path == "internal/joinapi/router.go"]
-    assert [(r.method, r.path) for r in joined] == [("ANY", "/plain")]
+    assert sorted((r.method, r.path) for r in joined) == [("ANY", "/api/v2"), ("ANY", "/plain")]
     reasons = {
         h.data["name"]: h.data["reason"] for h in found.hints
         if str(h.data["source"]).startswith("internal/joinapi/")
     }
-    assert reasons == {
-        '"/"+root+"/"': texts.REASON_JOINED_NAME, '"/api" + "/v2"': texts.REASON_JOINED_NAME,
-    }
+    assert reasons == {'"/"+root+"/"': texts.REASON_JOINED_NAME}
+
+
+def test_prefix_variable(tmp_path: Path) -> None:
+    """«имя + "/литерал"» на известном объекте маршрутизации (Online Boutique
+    baseUrl+"/cart/checkout"): путь литерала с нерешённым префиксом, методы из .Methods с
+    константами http.MethodGet; поле слева и несколько литералов тоже. «"/x" + имя», «a +
+    b» и склейка на неизвестном получателе — подсказки, как раньше (ТЗ §15 п. 15 К5)."""
+    tree(tmp_path, {
+        "go.mod": "module x\n\nrequire github.com/gorilla/mux v1.8.1\n",
+        "main.go": 'package main\nimport "github.com/gorilla/mux"\nfunc main() {\n'
+        "\tr := mux.NewRouter()\n"
+        '\tr.HandleFunc(baseUrl+"/cart/checkout", h).Methods(http.MethodPost)\n'
+        '\tr.HandleFunc(baseUrl + "/", h).Methods(http.MethodGet, http.MethodHead)\n'
+        '\tr.HandleFunc(cfg.Base + "/api" + "/v1", h).Methods("PUT")\n'
+        '\tr.HandleFunc("/x" + tail, h)\n'
+        "\tr.HandleFunc(a + b, h)\n"
+        '\tother.HandleFunc(base + "/y", h)\n'
+        '\thttp.HandleFunc(prefix + "/z", h)\n'
+        "}\n",
+    })
+    assert _routes(tmp_path) == [
+        ("ANY", "/z", True, "gorilla/mux", "main.go:11"),
+        ("GET", "/", True, "gorilla/mux", "main.go:6"),
+        ("HEAD", "/", True, "gorilla/mux", "main.go:6"),
+        ("POST", "/cart/checkout", True, "gorilla/mux", "main.go:5"),
+        ("PUT", "/api/v1", True, "gorilla/mux", "main.go:7"),
+    ]
+    ctx, files = files_of(tmp_path)
+    hints = gohttp.parse(files, ctx).hints
+    assert [(h.data["name"], h.data["reason"], h.data["source"]) for h in hints] == [
+        ('"/x" + tail', texts.REASON_JOINED_NAME, "main.go:8"),
+        ("a + b", texts.REASON_DYNAMIC_ROUTE, "main.go:9"),
+        ('base + "/y"', texts.REASON_DYNAMIC_ROUTE, "main.go:10"),
+    ]
