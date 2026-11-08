@@ -194,6 +194,9 @@ class CodeParam:
     has_default: bool = False  # дефолт есть, даже если не литерал
     required: bool | None = None
     type: str | None = None
+    # Другие основания той же записи: место объявления константы, которой задано имя (ТЗ
+    # §15 п. 14 Е1). Владельца выбирают по loc, эти места только идут в evidence.
+    extra_locs: list[Loc] = field(default_factory=list)
 
 
 @dataclass

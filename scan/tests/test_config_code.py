@@ -82,10 +82,48 @@ def test_go_fixture() -> None:
     ctx, files = files_of(FIXTURES / "go-env")
     hints = goenv.parse(files, ctx).hints
     # Argo CD util/trace/trace.go: «"OTEL_EXPORTER_OTLP_" + name» не параметр, а подсказка.
-    assert [(h.data["name"], h.data["reason"]) for h in hints] == [
+    # Имя идентификатором ждёт раскрытия константой и пишется в подсказки последним: порядок
+    # по месту (в hints.yaml записи всё равно отсортированы).
+    assert sorted(
+        ((h.data["name"], h.data["reason"]) for h in hints), key=lambda r: r[0] != "key",
+    ) == [
         ("key", texts.REASON_DYNAMIC_PARAM),
         ('"OTEL_EXPORTER_OTLP_" + name', texts.REASON_JOINED_NAME),
     ]
+
+
+def test_go_wrappers_and_constants() -> None:
+    """Обёртки чтения и имя константой (ТЗ §15 п. 14 Е1). Найдено в Argo CD:
+    util/env/env.go (ParseNumFromEnv, StringFromEnv), вызов
+    env.StringFromEnv(common.EnvGnuPGHome, …) и константа common/common.go:293; в Online
+    Boutique src/frontend/main.go:178 mustMapEnv(&svc.collectorAddr, "COLLECTOR_SERVICE_ADDR").
+    Ловушки: функция с литералом внутри (Port) — обычное чтение, не обёртка; то же имя
+    StringFromEnv в пакете legacy окружение не читает; константа чужого модуля и выражение —
+    подсказки; обёртка в тестовом файле main_test.go не читается."""
+    assert _params(goenv, FIXTURES / "go-env-wrapper") == [
+        ("PORT", None, False, None, None, "envutil/env.go:28"),
+        ("SHOP_ADDR", None, False, None, None, "cmd/shop/main.go:24"),
+        ("SHOP_CACHE_SIZE", "128", True, None, "int", "cmd/shop/main.go:16"),
+        ("SHOP_GNUPGHOME", None, True, None, "string", "cmd/shop/main.go:15"),
+        ("SHOP_GNUPGHOME", None, False, None, None, "cmd/shop/main.go:17"),
+        ("SHOP_REGION", "eu", True, None, "string", "cmd/shop/main.go:13"),
+        ("SHOP_WORKERS", "4", True, None, "int", "cmd/shop/main.go:14"),
+    ]
+    ctx, files = files_of(FIXTURES / "go-env-wrapper")
+    hints = goenv.parse(files, ctx).hints
+    assert sorted((h.data["name"], h.data["reason"], h.data["source"]) for h in hints) == [
+        ('"SHOP_"+os.Args[0]', texts.REASON_JOINED_NAME, "cmd/shop/main.go:20"),
+        ("other.EnvName", texts.REASON_DYNAMIC_PARAM, "cmd/shop/main.go:19"),
+    ]
+    model = model_of(FIXTURES / "go-env-wrapper")
+    (owner,) = model.params
+    gpg = model.params[owner]["SHOP_GNUPGHOME"]
+    # Одна запись с двумя местами чтения и местом объявления константы.
+    assert sorted(str(loc) for loc in gpg.locs) == [
+        "cmd/shop/main.go:15", "cmd/shop/main.go:17", "common/common.go:5",
+    ]
+    assert "SHOP_TEST_ONLY" not in model.params[owner]
+    assert "NOT_A_PARAM" not in model.params[owner]
 
 
 COMPOSE = """services:

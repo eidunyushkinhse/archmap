@@ -33,6 +33,9 @@ KJS, AMQP, NJS = "require('kafkajs');\n", "require('amqplib');\n", "require('nat
 BMQ = "require('bullmq');\n"
 KGO, NGO = 'import "github.com/segmentio/kafka-go"\n', 'import "github.com/nats-io/nats.go"\n'
 
+# Обёртка чтения окружения Go: строковый параметр уходит в os.Getenv (ТЗ §15 п. 14 Е1).
+GO_WRAP = "func w(k string) string {\n\treturn os.Getenv(k)\n}\n"
+
 # Начала строк, после которых разборщик доходит до содержимого: имя файла → начала.
 STARTS: dict[str, tuple[str, ...]] = {
     "py/app.py": (
@@ -82,6 +85,9 @@ STARTS: dict[str, tuple[str, ...]] = {
         # Функция регистрации с параметром-маршрутизатором и её вызовы (ТЗ §15 п. 3).
         'func reg(r chi.Router) {\n\tr.Get("/x", h)\n}\nreg(', "func (s *S) reg(r chi.Router",
         'func reg(r chi.Router) {\n\tr.Get("/x", h)\n}\nfunc main() {\n\treg(' + "reg(" * 9,
+        # Обёртка чтения окружения, её вызовы и имя константой (ТЗ §15 п. 14 Е1).
+        GO_WRAP + 'func main() {\n\tw("', GO_WRAP + "func main() {\n\tw(", 'const (\n\tA = "',
+        "const A = `", 'os.Getenv(A)\nconst A = "', "os.Getenv(c.", "os.Getenv(",
     ),
 }
 
@@ -140,6 +146,10 @@ GO_PACKAGE = {
     "member-calls": "a.reg(g)\n" * (PAYLOAD // 9),
     "definitions": "func (s *S) reg(" * (PAYLOAD // 16),
     "bodies": "func f() {\n" * (PAYLOAD // 11),
+    # Вызовы обёртки, чтения по константе и длинный блок констант (ТЗ §15 п. 14 Е1).
+    "wrapper-calls": "}\n" + GO_WRAP + 'w("X")\n' * (PAYLOAD // 7),
+    "named-reads": "os.Getenv(c.X)\n" * (PAYLOAD // 15),
+    "const-block": "const (\n" + '\tA = "x"\n' * (PAYLOAD // 9) + ")\nos.Getenv(A)\n",
 }
 
 

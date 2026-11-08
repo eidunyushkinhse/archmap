@@ -195,6 +195,7 @@ def _merge(param: Param, reads: list[CodeParam]) -> None:
     reads = sorted(reads, key=lambda r: r.loc)
     for read in reads:
         param.locs.add(read.loc)
+        param.locs.update(read.extra_locs)
         param.parsers.add(read.parser)
     if param.default is None:
         for read in reads:
