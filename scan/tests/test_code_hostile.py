@@ -21,7 +21,7 @@ MANIFESTS: dict[str, str | bytes] = {
         '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
         ' "nats": "*", "bullmq": "*"}}'
     ),
-    "rb/Gemfile": 'gem "sidekiq"\n',
+    "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\n',
     "go/go.mod": (
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
         "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n)\n"
@@ -116,6 +116,13 @@ STARTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Маршруты Rails (ТЗ §15 п. 15 К1): незакрытые строки, литералы, heredoc и блоки маски Ruby.
+STARTS["rb/config/routes.rb"] = (
+    "Rails.application.routes.draw do\n  get '", "resources :", "get ", "scope '",
+    "  get '/a', to: redirect { |p| ", "%w(", "x = <<~A\n", "concern :a do\n", "draw(:",
+    "match 'a', via: [", "=begin\n", "c = { id: /", 'get "#{', "member { get :",
+    "resources :a, only: %i[", "mount A => '",
+)
 # Параметры Rust (ТЗ §15 п. 14 И2): атрибуты envconfig и clap, env::var, макросы, тесты.
 STARTS["rs/main.rs"] = (
     "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",
@@ -170,6 +177,7 @@ VALID: dict[str, str] = {
     "cs/App.cs": 'class A {\n  void F() {\n    var x = Configuration["' + A + '"];\n  }\n}\n',
     "java/App.java": 'class A {\n  String x = System.getenv("' + A + '");\n}\n',
     "rs/main.rs": 'fn main() {\n    let x = std::env::var("' + A + '").unwrap();\n}\n',
+    "rb/config/routes.rb": "Rails.application.routes.draw do\n  get '/" + A + "', to: 'a#b'\nend\n",
 }
 
 
@@ -226,6 +234,27 @@ KYSELY = {
     "unclosed-params": "function down(" * (PAYLOAD // 14),
     "ctas": "sql`CREATE TABLE t AS SELECT " + "a.b AS c, " * 25_000 + "(" * 1000 + "`",
 }
+
+
+# Rails: много инструкций и блоков, повторы тел concern и draw, heredoc с разными именами.
+RAILS = {
+    "statements": "x = foo(bar, baz) + qux(1, 2) do\nend\n" * 25_000,
+    "verbs": "get 'abcdefghijklmnopqrstuvwxyz', to: 'a#b'\n" * 4900,
+    "resources": "resources :a, only: [:show, :index], path: 'x', param: :y do\nend\n" * 2400,
+    "concerns": "concern :a do\nend\n" + "".join(
+        f"concern :c{i} do\n  concerns :{'a' if i == 0 else f'c{i - 1}'}\n"
+        f"  concerns :{'a' if i == 0 else f'c{i - 1}'}\nend\n" for i in range(40)
+    ) + "concerns :c39\n",
+    "heredocs": "".join(f"x = <<~A{i}\nA{i}\n" for i in range(24_000)),
+    "frames": ("if a\n" * 40 + "end\n" * 40) * 600,
+    "braces": "member { get :a }\n" * 4000,
+    "brackets": "(/" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(RAILS))
+def test_rails_routes(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rb/config/routes.rb": RAILS[kind]}))
 
 
 # Rust: тысячи атрибутов, сплошные атрибуты без поля, модули тестов, время жизни.

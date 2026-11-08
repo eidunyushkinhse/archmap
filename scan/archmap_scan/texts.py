@@ -601,6 +601,8 @@ REASON_NO_BROKER = "брокер не найден в манифестах"
 REASON_MANY_BROKERS = "несколько брокеров этого вида, владелец не определим"
 REASON_NO_RUNNER = "среди контейнеров файла нет процесса, который запускает {program}"
 REASON_NO_PROCESS = "процесс консьюмера {name} в манифестах не найден"
+# mount в маршрутах Rails (ТЗ §15 п. 15 К1): путь виден, маршрутов внутри сборщик не читает.
+REASON_RAILS_MOUNT = "движок Rails смонтирован по этому пути, его маршруты сборщик не читает"
 
 # Служебные каталоги, конфиги инструментов и переменные ОС (ТЗ §13.1): записи кода из них
 # не факты сервиса, а окружение разработчика и CI. Они не удаляются, а лежат в подсказках.
@@ -615,7 +617,7 @@ REASON_BUILD_VARIABLE = (
 )
 ASIDE_REASONS = frozenset({
     REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER, REASON_OS_VARIABLE,
-    REASON_BUILD_VARIABLE,
+    REASON_BUILD_VARIABLE, REASON_RAILS_MOUNT,
 })
 TOOLING_REASONS = frozenset({REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER})
 

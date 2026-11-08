@@ -71,7 +71,7 @@ def _strings(value: str) -> list[str]:
     return [m.group(1) for m in _STR.finditer(value)]
 
 
-def _singular(name: str) -> str:
+def singular(name: str) -> str:
     """Единственное число имени таблицы по правилам Rails для внешнего ключа: accounts →
     account, statuses → status, policies → policy, boxes → box."""
     for tail, repl in (("ies", "y"), ("sses", "ss"), ("uses", "us"), ("xes", "x"),
@@ -154,7 +154,7 @@ def _foreign(tables: dict[str, Table], m: re.Match[str]) -> None:
         return
     opts = _options(m.group(3))
     column = _strings(opts["column"])[0] if "column" in opts and _strings(opts["column"]) \
-        else _singular(target) + "_id"
+        else singular(target) + "_id"
     key = _strings(opts["primary_key"])[0] if "primary_key" in opts and \
         _strings(opts["primary_key"]) else "id"
     col = source.column(column)

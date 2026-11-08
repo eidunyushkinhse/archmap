@@ -123,7 +123,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
 - Таблицы: `sql`, `alembic`, `django`, схема Rails `railsschema` и `kysely` (ярус кода), разбор
   DDL у SQL-файлов и шаблонов Kysely общий (`sqlddl.py`). `openapi_owner.py` отдаёт операции
   файла OpenAPI маршрутами сервису, который его отдаёт, или оставляет подсказку с причиной.
-- Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
+- Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`,
+  `rails-routes` (маска Ruby — `codetext.RUBY`), параметры
   `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
   `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
   `celerybeat`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
@@ -387,3 +388,15 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     имени константой кэшируется по каталогу пакета и идентификатору; `gocode.call_spans`
     ищет вызовы вперёд только по нужным именам и останавливается, когда у каждого имени
     набран предел вызовов (Ф2).
+- Правила части 4 (фаза 4а, ТЗ §15 п. 15, по строке на пункт):
+  - маршруты Rails (`parsers/rails_routes.py`, стек — Gemfile с rails или railties, маска
+    `codetext.RUBY`): `config/routes.rb` и `config/routes/*.rb` построчно, стек блоков `do` …
+    `end`; глаголы с литералом или символом, `match` с `via:`, `root`, `resources` (семь операций
+    без PUT) и `resource` (шесть) с `only:`, `except:`, `path:`, `param:`, `member`/`collection`
+    и `on:`, вложенные под `/имя/:имя_в_единственном_числе_id`, `namespace` и `scope` дают
+    префикс, `concern` читается в месте `concerns`, `draw(:имя)` — файл `config/routes/имя.rb`
+    на месте вызова, неподключённые файлы `routes/` — от корня; `mount` — подсказка, путь с
+    `#{…}` или переменной — подсказка о динамическом пути; владелец среди контейнеров файла —
+    тот, чья команда запускает puma, unicorn, passenger, thin или `rails server`, контейнер с
+    sidekiq в команде маршрутов не получает (`codefacts.route_owner`); Ruby с rails не назван в
+    `unsupported` маршрутов (`vocab.FAMILY_LANGUAGES`) (К1).

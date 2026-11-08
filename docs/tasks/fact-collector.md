@@ -260,6 +260,7 @@ archmap-scan/
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
 | | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
 | | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
+| | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
 | каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
@@ -280,7 +281,7 @@ archmap-scan/
 
 Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
 построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
-Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET/Rust,
+Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Laravel/Phoenix/.NET/Rust (Rails читается с части 4, К1),
 ключи viper и Spring `@Value`, параметры Kotlin, исходящие HTTP-вызовы в коде, компоненты,
 внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
 (кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
@@ -1540,3 +1541,48 @@ unread: {too_large: 3, binary: 0}
      32 → 36 МБ, у остальных рост не больше 2 МБ. Не решено: время Argo CD;
      программа `cmd/` с именем не как у команды контейнера (`cmd/argocd-notification`)
      уходит в подсказки.
+15. **Решения исполнителя части 4** (2026-11-09, ветка feat/scan-4, сборщик 0.5.0 без выпуска;
+   маршруты Rails, ASP.NET Core, actix-web и NestJS, расписания через библиотеки и обёртки,
+   хвосты части 3; владелец может отменить, числа перемера в конце пункта).
+   - К1 (решение исполнителя): Ruby читается по своей маске (`codetext.RUBY`: комментарий `#`,
+     `=begin` … `=end`, `__END__`, строки в `'` и `"` в несколько строк, литералы `%w[]`,
+     `%i[]`, `%r{}` с одним уровнем вложенных скобок, heredoc `<<~ИМЯ`, `<<-ИМЯ`, `<<'ИМЯ'` и
+     `<<ИМЯ` с заглавным именем, регулярное выражение `/…/` после `(`, `,`, `=`, `:`, `{`, `[`);
+     конец heredoc ищется одним выражением по строкам из одного слова, без регулярного
+     выражения на имя. Инструкция собирается из строк, пока скобки не закрыты или строка
+     кончается `,`, `\`, `=>`, `||`, `&&`; блок открывают `do` в конце инструкции и `if`,
+     `unless`, `while`, `until`, `case`, `begin`, `for`, `def`, `class`, `module` в её начале
+     (внутри `def`, `class` и `module` записей нет: у Mastodon `def redirect_with_vary`).
+     Вложенный ресурс идёт под `/имя/:<имя в единственном числе>_<param>` по правилу
+     единственного числа схемы Rails (З1, `railsschema.singular`), как это делает сама Rails
+     (`/users/:account_username/statuses/:id` у Mastodon), а не под `/имя/:имя_id` буквой
+     пункта. Глагол прямо в блоке ресурса вложен так же, `member` и `on: :member` дают путь
+     члена `/имя/:id`, `collection` — `/имя`; `namespace` и `scope` внутри ресурса берут
+     префикс вложенного и сбрасывают ресурс. `concern :имя do … end` записей не даёт: его
+     тело читается там, где его подключают (`concerns :имя` и `concerns:` у ресурса),
+     основание — строка в теле concern; так у Mastodon `followers` и `outbox` идут под
+     `/users/:account_username/` и `/ap/users/:account_id/`, а не от корня (буква пункта
+     «содержимое без префикса» дала бы маршруты, которых в приложении нет). `scope
+     '(:locale)'` даёт префикс как написан (`/(:locale)/about`), нормализацию Rails в
+     `(/:locale)` сборщик не делает. `mount` — `hints.unassigned` с видом route, именем
+     «движок путь» и причиной `REASON_RAILS_MOUNT`; в счёт «без владельца» она не входит
+     (`texts.ASIDE_REASONS`). Перебор списка путей (`%w(…).each { |path| get path }` у
+     Mastodon `web_app.rb`, `pages_actions.each do |action|` у Forem) даёт подсказку о
+     динамическом пути, список не раскрывается. `devise_for`, `shallow:`, `path_names:` и
+     неявный `(.:format)` не читаются. Карта маршрутов движка (`X::Engine.routes.draw`) даёт
+     записи с `prefix_unresolved`. Файл отбирается по пути, игл нет. Пределы: 50 000 строк
+     файла, 5000 записей на файл, 50 вложенных блоков, 50 000 инструкций на карту (тела
+     concern и draw повторяются); сверх — карта не пишется, файл непрочитан. Владелец:
+     `codefacts.route_owner` считает веб-сервером и команду с puma, unicorn, passenger, thin,
+     falcon или `rails server` (`rails s`), а контейнер, чья команда запускает sidekiq, среди
+     владельцев файла маршрутов не считается. Покрытие: Rails в `vocab.ROUTE_FRAMEWORKS`,
+     язык Ruby с rails в зависимостях пакета в `unsupported` маршрутов не назван
+     (`vocab.FAMILY_LANGUAGES`, по пакету, а не по языку целиком). Mastodon: маршрутов 4 → 715
+     (`web` 711, из них `api.rb` 291, `admin.rb` 210, `routes.rb` 129, `settings.rb` 65,
+     `fasp.rb` 16; `streaming` 4 прежние), подсказок `mount` 3 (`letter_opener`, `sidekiq`,
+     `pghero`), динамических путей 1 (`web_app.rb:38`). Число скептика 332 считало объявления
+     без раскрытия `resources`. Forem: 0 → 841 у `web` (команда `bundle exec rails server -b
+     0.0.0.0`; у `rails` команда `bundle exec rails` без server, `sidekiq` исключён),
+     `api.rb` подключён дважды (`draw :api` в scope `v1` и `v0` с `module:` без пути) и даёт те же
+     пути, записанные один раз; подсказок `mount` 6, динамических путей 6 (пути с
+     `#{ENV.fetch(…)}` и `probe_path`).
