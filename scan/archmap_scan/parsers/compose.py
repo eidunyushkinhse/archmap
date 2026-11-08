@@ -48,6 +48,7 @@ from archmap_scan.model import (
     Unit,
     unparsed_hint,
 )
+from archmap_scan.parsers import proxyconf
 from archmap_scan.walk import Files, is_compose_name, manifest_sign, name_tokens
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
@@ -289,6 +290,8 @@ def _unit(
         else None,
     )
     _env(svc, rel, unit.env, dotenv)
+    if image is not None and proxyconf.is_proxy(image):
+        unit.links = proxyconf.links(name, svc, rel, unit.env, files, found.hints)
     unit.depends_on = _depends(svc, rel, dotenv)
     for key, reason in (("extends", texts.REASON_EXTENDS), ("env_file", texts.REASON_ENV_FILE)):
         if key in svc:
@@ -338,6 +341,7 @@ def _merge(into: Unit, other: Unit) -> None:
     seen = {d for d, _ in into.depends_on}
     into.depends_on += [(d, loc) for d, loc in other.depends_on if d not in seen]
     into.extra_locs.append(other.loc)
+    into.links += other.links
 
 
 def _is_yaml(rel: str) -> bool:

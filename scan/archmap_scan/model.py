@@ -68,6 +68,9 @@ class Unit:
     dev: str | None = None
     dev_hints: list[Hint] = field(default_factory=list)
     dev_notes: list[str] = field(default_factory=list)  # пометки семьи containers
+    # Связи из файлов конфигурации прокси (ТЗ §15 п. 14 Ж3): едут с кандидатом и попадают в
+    # схему, только если он стал объектом.
+    links: list[ManifestLink] = field(default_factory=list)
 
 
 @dataclass

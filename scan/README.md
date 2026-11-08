@@ -326,3 +326,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     основаниях; встроенные патчи `kustomization.yaml` (`patches[].patch`,
     `patchesStrategicMerge`) с `kind` и `metadata.name` сливаются с нагрузкой того же имени,
     `$patch: delete` пропускается, JSON 6902 — `hints.unparsed` (Ж2).
+  - сервис compose с образом прокси (`parsers/proxyconf.py`): файлы томов из репозитория
+    (каталог — файлы без подкаталогов) и многострочные значения environment; `upstream {
+    server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen`
+    HAProxy дают связи прокси → объект с этим host, технология HTTP; хост не объект —
+    `hints.unassigned`, файл вне репозитория или не найден — `hints.unparsed` (Ж3).

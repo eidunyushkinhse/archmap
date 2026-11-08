@@ -1268,7 +1268,8 @@ def _manifest_links(
                 "reason": texts.REASON_LINK_NOT_OBJECT, "source": str(item.loc),
             })
             continue
-        tech = dst.technology if dst.shape != SERVICE else item.technology
+        # Технология, названная источником (HTTP у прокси), иначе технология базы или брокера.
+        tech = item.technology or (dst.technology if dst.shape != SERVICE else None)
         _add_link(links, src, dst, tech, item.loc, item.parser)
 
 
@@ -1389,7 +1390,8 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _redis_brokers(model.objects, [v for vs in env_of.values() for v, _ in vs]
                    + [v for ef in findings.env_files for v in ef.vars])
     model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
-    model.links = _links(model, env_of, findings.links)
+    unit_links = [lk for o in model.objects for u in o.units for lk in u.links]
+    model.links = _links(model, env_of, [*findings.links, *unit_links])
     _queue_brokers(model, findings.packages)
     _sources(model, ctx)
     _entrypoints(model)
