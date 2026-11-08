@@ -595,6 +595,33 @@ def test_image_vocabulary_and_redis_queue_broker() -> None:
     }
 
 
+def test_image_dictionary_by_name_part() -> None:
+    """Слово словаря образов среди частей имени через дефис и подчёркивание (ТЗ §15 п. 14
+    И3): timescale/timescaledb-ha и quay.io/sclorg/postgresql-15-c9s — PostgreSQL (Keycloak,
+    operator/src/test/resources/example-postgres.yaml), ghcr.io/getsentry/docker-redis-cluster
+    — Redis (Sentry, devservices/config.yml), jwilder/nginx-proxy — прокси nginx (Grafana,
+    devenv/docker/ha_test/docker-compose.yaml). Ловушки: my-app-redis-client (слово client)
+    и postgres-exporter остаются сервисами, redis_mongodb с двумя технологиями тоже."""
+    model = model_of(FIXTURES / "image-dictionary")
+    kinds = {o.name: (o.shape, o.technology, o.role) for o in model.objects}
+    assert kinds["metrics"] == ("database", "PostgreSQL", "БД")
+    assert kinds["legacy"] == ("database", "PostgreSQL", "БД")
+    assert kinds["sessions"] == ("database", "Redis", "кэш")
+    assert kinds["edge"] == ("service", "nginx", vocab.ROLE_PROXY)
+    assert kinds["cache-tool"] == ("service", "my-app-redis-client", "сервис")
+    assert kinds["pg-metrics"] == ("service", "postgres-exporter", "сервис")
+    assert kinds["bundle"] == ("service", "redis_mongodb", "сервис")
+
+
+def test_image_dictionary_hostile_is_fast() -> None:
+    """Имя образа на 2 МБ из частей словаря и разделителей разбирается за линейное время."""
+    started = time.perf_counter()
+    for image in ("redis-" * 300_000 + "client", "-_" * 1_000_000, "postgres_" * 200_000,
+                  "x/" * 500_000 + "clickhouse-" * 100_000):
+        vocab.image_kind(image)
+    assert time.perf_counter() - started < time_limit()
+
+
 def test_queue_broker_by_manifest_next_to_dockerfile() -> None:
     """Монорепозиторий собирает сервис из корня, а библиотека очередей в манифесте рядом с
     его Dockerfile (immich: контекст «../», server/Dockerfile, bullmq в server/package.json):

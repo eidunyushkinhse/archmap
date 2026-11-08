@@ -23,6 +23,11 @@ def test_image_name_and_kind() -> None:
     assert redis is not None and redis.technology == "Redis"
     assert vocab.image_kind("grafana/mimir-alpine") is None
     assert vocab.image_kind("alpine") is None
+    # Программы вокруг базы или брокера со словом словаря в имени вида не получают (И3).
+    for image in ("provectuslabs/kafka-ui", "supabase/postgres-meta", "strimzi/kafka-connect",
+                  "cgr.dev/chainguard/minio-client", "clickhouse/clickhouse-keeper",
+                  "opensearchproject/opensearch-dashboards", "natsio/nats-box"):
+        assert vocab.image_kind(image) is None, image
 
 
 def test_image_language() -> None:

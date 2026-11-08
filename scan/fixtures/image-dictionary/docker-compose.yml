@@ -1,0 +1,20 @@
+# Слово словаря среди частей имени образа (ТЗ §15 п. 14 И3).
+services:
+  # Обёртки над базами: слово словаря не последней частью имени.
+  metrics:
+    image: timescale/timescaledb-ha:pg16
+  sessions:
+    image: ghcr.io/getsentry/docker-redis-cluster:7.0.10
+  legacy:
+    image: quay.io/sclorg/postgresql-15-c9s:latest
+  edge:
+    image: jwilder/nginx-proxy:1.6
+  # Ловушка: слово client рядом с именем Redis, это клиент, а не база.
+  cache-tool:
+    image: registry.example.com/my-app-redis-client:2.1
+  # Ловушка: экспорт метрик PostgreSQL остаётся сервисом.
+  pg-metrics:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+  # Ловушка: две технологии в имени, вид не выбирается наугад.
+  bundle:
+    image: example/redis_mongodb:1.0
