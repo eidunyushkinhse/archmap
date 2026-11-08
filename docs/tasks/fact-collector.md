@@ -1148,3 +1148,17 @@ unread: {too_large: 3, binary: 0}
      Nomad система `nomad` и 2 → 1 (объект корневого Dockerfile назывался `nomad-ui` по
      системе, теперь `nomad` и совпал с юнитом systemd), остальные 11 без изменений объектов
      и связей.
+   - Остаток после части 2б (перемер 2026-11-08 на 2f47cf9a против выводов судьи части 2):
+     регрессий шести вердиктов нет, кроме прежней базы Lemmy под именем postgres; «заменена
+     связью с каналом» ровно две связи (`sidekiq → redis` Mastodon, `web → kafka` PostHog),
+     «ушла с объектом» прежние связи объектов разработки (Lemmy 5, PostHog 16). Связи: Mastodon
+     11 → 11 (минус «использует» `sidekiq → redis`, плюс `redis → sidekiq [scheduler]`),
+     PostHog 133 → 132, Forem 12 → 11, `yarmarka.expected` 10 → 8. Sentry: layers-check
+     проходит (core 24 узла, 30 связей, 52 канала; scanner_false `devserver` и
+     `taskworker-sentry`), `facts/self-hosted.config.yaml` 109 параметров, маршруты 945 у
+     `self-hosted`, связь `self-hosted → PostgreSQL`. Mastodon: параметры
+     `mastodon-prometheus-exporter` из примера окружения корня ушли к web и sidekiq (Д10).
+     Дым: объекты прежние, связи прежние, кроме Forem. Время на машине перемера выросло у
+     всех репозиториев в 1,3–1,6 раза (PostHog 49 с, n8n 10 с при пределах 45 и 10 с); замер
+     той же машиной сборок частей 2 и 2б подряд даёт те же числа (PostHog 49,4 и 48,9 против
+     49,0 и 50,4 с, n8n в среднем 9,3 и 9,3 с), то есть это не код.
