@@ -123,6 +123,11 @@ STARTS["rb/config/routes.rb"] = (
     "match 'a', via: [", "=begin\n", "c = { id: /", 'get "#{', "member { get :",
     "resources :a, only: %i[", "mount A => '",
 )
+# Префикс NestJS членом перечисления (ТЗ §15 п. 15 К4).
+STARTS["js/app.js"] += (
+    "@Controller(A.", "@Controller(A.B", "@Controller(A.B)\nclass C {\n  @Get('",
+    "@Controller(A.B)\nenum A {\n  B = '",
+)
 # Маршруты ASP.NET Core (ТЗ §15 п. 15 К2): вызовы Map*, группы, атрибуты и классы контроллеров.
 STARTS["cs/App.cs"] += (
     'app.MapGet("', "app.MapGet($\"{", "app.MapGet<", 'var g = app.MapGroup("', "g.MapGet(\"/a\", ",
@@ -291,6 +296,24 @@ ASPNET = {
 @pytest.mark.parametrize("kind", sorted(ASPNET))
 def test_aspnet_routes(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "cs/App.cs": ASPNET[kind]}))
+
+
+# Перечисления для префикса @Controller(Имя.Член) (ТЗ §15 п. 15 К4): тысячи перечислений,
+# огромное тело, тело без конца, сплошные кавычки. Перечисления читаются из файлов .ts.
+NEST_ENUM = {
+    "enums": "export enum A { B = 'b' }\n" * 3000,
+    "members": "export enum A {\n" + "  B = 'b',\n" * (PAYLOAD // 10) + "}\n",
+    "open": "export enum A {" + " B = 'b'," * (PAYLOAD // 9),
+    "quotes": "export enum A {" + "'" * PAYLOAD,
+}
+NEST_CONTROLLER = "@Controller(A.B)\nexport class C {\n  @Get('x')\n  x() {}\n}\n"
+
+
+@pytest.mark.parametrize("kind", sorted(NEST_ENUM))
+def test_nest_enum_prefix(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {
+        **MANIFESTS, "js/app.ts": NEST_CONTROLLER, "js/enum.ts": NEST_ENUM[kind],
+    }))
 
 
 # Rust: тысячи атрибутов, сплошные атрибуты без поля, модули тестов, время жизни.

@@ -258,7 +258,7 @@ archmap-scan/
 | Семья | Стек | Что ищет (только литералы) |
 |---|---|---|
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
-| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
+| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
 | | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
 | | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints |
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"` или `Microsoft.AspNetCore.*`): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints, маршрут по соглашению `/Контроллер/действие` с `prefix_unresolved: true` |
@@ -1640,3 +1640,19 @@ unread: {too_large: 3, binary: 0}
      241. PostHog: actix-web в крейтах Rust нет, там axum, маршрутов не прибавилось, покрытие
      `Rust` → `Rust: axum`. OpenTelemetry Demo: `shipping` `GET /health` и `#[post]`
      `/get-quote`, `/ship-order`; email на Sinatra назван `Ruby: Sinatra` вместо `Ruby`.
+   - К4 (решение исполнителя): перечисление ищется в файлах `.ts` всех пакетов Node.js
+     репозитория (`export enum`, `const enum`, `declare enum`), сначала в пакете файла
+     контроллера; нет в нём — в любом пакете, и при разных значениях члена в нескольких
+     пакетах — подсказка с новой причиной `REASON_ENUM_AMBIGUOUS` (одинаковые значения
+     неоднозначностью не считаются). Член числом, выражением или не найденный — подсказка о
+     динамическом пути, маршруты контроллера с `prefix_unresolved`, как раньше. Индекс
+     перечислений строится один раз за запуск и только при первом `@Controller(Имя.Член)`;
+     пропуск кода для разработки при этом поиске в покрытие маршрутов не идёт (маршрутов там
+     не искали). Пределы: 2000 перечислений на файл, тело до 50 тыс. знаков. immich: число
+     маршрутов не меняется (318), потому что 46 маршрутов четырёх контроллеров
+     `@Controller(RouteKey.Asset|User)` уже были записаны с `prefix_unresolved`, а в подсказках
+     лежали 4 записи о самих контроллерах, а не 46; теперь у этих 46 решённый префикс (`asset`
+     19, `user` 18, `asset-media` 5, `video-stream` 4; `/api/assets/…`, `/api/users/…`),
+     подсказок о маршрутах 11 → 7. Ожидание пункта «318 → около 364» считало 46 подсказками.
+     Кандидат судьи `RouteKey.Asset` ищется по имени в `entrypoints.yaml`, а после
+     раскрытия там пути, а не имя: `remeasure.py` покажет «нет» (без ключа `expect`).
