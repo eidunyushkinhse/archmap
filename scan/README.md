@@ -124,7 +124,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   DDL у SQL-файлов и шаблонов Kysely общий (`sqlddl.py`). `openapi_owner.py` отдаёт операции
   файла OpenAPI маршрутами сервису, который его отдаёт, или оставляет подсказку с причиной.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`,
-  `rails-routes` (маска Ruby — `codetext.RUBY`), параметры
+  `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, параметры
   `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
   `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
   `celerybeat`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
@@ -400,3 +400,15 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     тот, чья команда запускает puma, unicorn, passenger, thin или `rails server`, контейнер с
     sidekiq в команде маршрутов не получает (`codefacts.route_owner`); Ruby с rails не назван в
     `unsupported` маршрутов (`vocab.FAMILY_LANGUAGES`) (К1).
+  - маршруты ASP.NET Core (`parsers/aspnet.py`, стек — проект `*.csproj` с
+    `Sdk="Microsoft.NET.Sdk.Web"` или зависимостью `Microsoft.AspNetCore.*`, маска
+    `codetext.CS`): `MapGet`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods` с
+    методами строками или `HttpMethods.X`, `MapHealthChecks` как GET; `var g = X.MapGroup("п")`
+    даёт префикс вызовам на g в том же файле (последнее присваивание до вызова, группа группы
+    складывается), группа с путём не литералом и вызов на цепочке дают `prefix_unresolved`;
+    контроллер — класс с `[ApiController]` или наследник `Controller`/`ControllerBase`, его
+    `[Route]` — префикс, `[Http*]` и `[Route]` метода — маршрут (`ANY` без глагола), `[controller]`
+    и `[action]` подставляются, шаблон с `/` или `~/` идёт от корня; метод без `[Route]` у себя и
+    у класса идёт по соглашению `/Контроллер/действие` с `prefix_unresolved`; `MapGrpcService`
+    и `MapHub` не маршруты, файлы и каталоги тестов не читаются; пакет .NET без ASP.NET Core в
+    `unsupported` маршрутов не назван (`vocab.FAMILY_ONLY_STACK`) (К2).

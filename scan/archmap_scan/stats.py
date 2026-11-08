@@ -274,7 +274,8 @@ def code_unsupported(
         ("workers", vocab.UNSUPPORTED_WORKER_DEPS), ("schedules", vocab.UNSUPPORTED_SCHEDULE_DEPS),
     )
     # Языки без чтения кода по семьям: язык, код которого семья читает при стеке пакета
-    # (vocab.family_reads, маршруты Rails), у такого пакета в семье не называется.
+    # (vocab.family_reads, маршруты Rails и ASP.NET Core), у такого пакета в семье не
+    # называется; пакет .NET без ASP.NET Core маршрутов не держит (vocab.FAMILY_ONLY_STACK).
     unread: dict[str, list[str]] = {fam: [] for fam in _LANGUAGE_FAMILIES}
 
     def add(fam: str, name: str) -> None:
@@ -296,6 +297,8 @@ def code_unsupported(
         if pkg.language not in vocab.CODE_LANGUAGES:
             for fam in _LANGUAGE_FAMILIES:
                 if pkg.language in unread[fam]:
+                    continue
+                if (fam, pkg.language) in vocab.FAMILY_ONLY_STACK:
                     continue
                 if not vocab.family_reads(fam, pkg.language, pkg.deps):
                     unread[fam].append(pkg.language)

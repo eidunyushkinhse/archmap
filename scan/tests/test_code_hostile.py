@@ -123,6 +123,14 @@ STARTS["rb/config/routes.rb"] = (
     "match 'a', via: [", "=begin\n", "c = { id: /", 'get "#{', "member { get :",
     "resources :a, only: %i[", "mount A => '",
 )
+# Маршруты ASP.NET Core (ТЗ §15 п. 15 К2): вызовы Map*, группы, атрибуты и классы контроллеров.
+STARTS["cs/App.cs"] += (
+    'app.MapGet("', "app.MapGet($\"{", "app.MapGet<", 'var g = app.MapGroup("', "g.MapGet(\"/a\", ",
+    'app.MapMethods("/a", new[] { "', 'app.MapMethods("/a", [HttpMethods.', "[HttpGet(\"",
+    "[Route(\"", "[ApiController]\nclass A : ControllerBase {\n  [HttpGet]\n  [",
+    "class A : Controller {\n  [HttpPost(\"a\")]\n  public Task<",
+    "class A : Controller {\n  [Route(\"a\")]\n  ",
+)
 # Параметры Rust (ТЗ §15 п. 14 И2): атрибуты envconfig и clap, env::var, макросы, тесты.
 STARTS["rs/main.rs"] = (
     "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",
@@ -255,6 +263,28 @@ RAILS = {
 @pytest.mark.parametrize("kind", sorted(RAILS))
 def test_rails_routes(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "rb/config/routes.rb": RAILS[kind]}))
+
+
+# ASP.NET Core: тысячи вызовов и атрибутов, цепочка групп, классы контроллеров, блоки
+# атрибутов без метода, аргументы MapMethods без конца.
+ASPNET = {
+    "maps": 'app.MapGet("/abcdefghijklmnopqrstuvwxyz", () => Results.Ok());\n' * 1999,
+    "groups": "".join(f'var g = g.MapGroup("x{i}");\n' for i in range(999))
+    + 'g.MapGet("/a", h);\n' * 999,
+    "actions": "[ApiController]\n[Route(\"api/[controller]\")]\nclass AController : ControllerBase {\n"
+    + '  [HttpGet("a/{id}")]\n  [Route("b")]\n  public IActionResult GetAsync(int id) => Ok();\n' * 999
+    + "}\n",
+    "classes": "[ApiController]\nclass AController : ControllerBase { }\n" * 1999,
+    "attr-chain": "class AController : Controller {\n  [HttpGet]" + "[A]" * (PAYLOAD // 3),
+    "no-method": "class AController : Controller {\n" + "  [HttpGet] int x;\n" * (PAYLOAD // 20),
+    "methods-args": 'app.MapMethods("/a", new[] { ' + '"GET", ' * (PAYLOAD // 7),
+    "open-attr": "class AController : Controller {\n  [HttpGet(" + "[" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(ASPNET))
+def test_aspnet_routes(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "cs/App.cs": ASPNET[kind]}))
 
 
 # Rust: тысячи атрибутов, сплошные атрибуты без поля, модули тестов, время жизни.

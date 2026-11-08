@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from archmap_scan import dialect
@@ -466,14 +467,24 @@ ROUTE_FRAMEWORKS = frozenset({
     "Echo", "chi", "Fiber", "Rails",
 })
 # Языки вне CODE_LANGUAGES, код которых ярус кода читает в одной семье, и зависимости пакета,
-# при которых читает (ТЗ §15 п. 15): маршруты Rails. Пакет такого языка с одной из
-# зависимостей своим языком в unsupported семьи не называется.
+# при которых читает (ТЗ §15 п. 15): маршруты Rails и ASP.NET Core. Пакет такого языка с одной
+# из зависимостей своим языком в unsupported семьи не называется.
 FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
-    "http_routes": {"Ruby": ("rails", "railties")},
+    "http_routes": {
+        "Ruby": ("rails", "railties"),
+        # Веб-проект .NET (Sdk="Microsoft.NET.Sdk.Web") или зависимость Microsoft.AspNetCore.*.
+        ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
+    },
 }
+# Семья и язык, у которых других стеков, кроме зависимостей FAMILY_LANGUAGES, нет: пакет без
+# них в семье непрочитанным не называется. Маршруты HTTP на .NET обслуживает ASP.NET Core
+# (веб-SDK или Microsoft.AspNetCore.*), у библиотек, воркеров и приложений MAUI без него
+# маршрутов нет (ТЗ §15 п. 15 К2, решение исполнителя). У Ruby без Rails есть Sinatra и
+# другие стеки, его пакет без rails по-прежнему назван.
+FAMILY_ONLY_STACK = frozenset({("http_routes", ".NET")})
 
 
-def family_reads(family: str, language: str, deps: tuple[str, ...]) -> bool:
+def family_reads(family: str, language: str, deps: Iterable[str]) -> bool:
     """Код пакета языка language с зависимостями deps ярус кода читает в семье family:
     зависимость равна ключу или начинается с «ключ.» (Microsoft.AspNetCore.*)."""
     keys = FAMILY_LANGUAGES.get(family, {}).get(language, ())

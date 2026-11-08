@@ -1,0 +1,23 @@
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+var prefix = builder.Configuration["Prefix"];
+
+// app.MapGet("/commented", () => "нет");
+var api = app.MapGroup("/api/v1");
+api.MapGet("/items", () => Results.Ok());
+api.MapPost("/items", (Item item) => Results.Created());
+api.MapPut("/items/{id:int}", (int id) => Results.Ok());
+api.MapDelete("/items/{id:int}", (int id) => Results.NoContent());
+var admin = api.MapGroup("admin");
+admin.MapPatch("/users/{id}", (int id) => Results.Ok());
+app.MapMethods("/check", [HttpMethods.Options, HttpMethods.Head], () => Results.Ok());
+app.MapMethods("/legacy", new[] { "GET", "POST" }, () => Results.Ok());
+app.MapHealthChecks("/health");
+app.MapGrpcService<GreeterService>();
+app.MapHub<ChatHub>("/hubs/chat");
+var note = "app.MapGet(\"/in-string\")";
+app.MapGet($"/{prefix}/dynamic", () => "x");
+var group = app.MapGroup(prefix);
+group.MapGet("/unresolved", () => "x");
+app.MapControllers();
+app.Run();

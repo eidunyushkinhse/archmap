@@ -68,12 +68,12 @@ def test_code_unsupported_stacks() -> None:
     ctx, files = files_of(FIXTURES / "manifests")
     found = manifests.parse(files, ctx)
     stacks = stats.code_unsupported(found)
-    # Маршруты FastAPI, Flask, Django, chi и Rails (ТЗ §15 п. 15 К1) читает ярус кода: в «не
-    # умею» их нет, и Ruby с rails в Gemfile в маршрутах не назван. Фреймворк языка, код на
-    # котором сборщик не читает, назван с языком (ТЗ §15 п. 10 А12); язык без известного
-    # фреймворка назван сам (.NET), а не пропущен.
+    # Маршруты FastAPI, Flask, Django, chi, Rails (ТЗ §15 п. 15 К1) и ASP.NET Core (К2) читает
+    # ярус кода: в «не умею» их нет, Ruby с rails в Gemfile и .NET с веб-SDK в маршрутах не
+    # названы, решение .sln без зависимостей тоже (у .NET маршруты только у ASP.NET Core).
+    # Фреймворк языка, код на котором сборщик не читает, назван с языком (ТЗ §15 п. 10 А12).
     assert stacks["http_routes"] == [
-        ".NET", "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Rust: actix-web",
+        "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Rust: actix-web",
     ]
     # Параметры в коде Python, Node.js, Go, .NET и Java читает ярус кода (ТЗ §15 п. 14 Е4):
     # язык не назван, но у Java со Spring Boot параметры application.yml и @Value не читаются,

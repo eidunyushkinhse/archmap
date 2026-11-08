@@ -14,6 +14,7 @@ from archmap_scan.context import Context
 from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     alembic,
+    aspnet,
     buildfiles,
     bullmq,
     celery,
@@ -99,6 +100,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(nest.NAME, ("http_routes",), nest.parse, code=True),
     ParserSpec(gohttp.NAME, ("http_routes",), gohttp.parse, code=True),
     ParserSpec(rails_routes.NAME, ("http_routes",), rails_routes.parse, code=True),
+    ParserSpec(aspnet.NAME, ("http_routes",), aspnet.parse, code=True),
     ParserSpec(pyenv.NAME, ("config",), pyenv.parse, code=True),
     ParserSpec(nodeenv.NAME, ("config",), nodeenv.parse, code=True),
     ParserSpec(goenv.NAME, ("config",), goenv.parse, code=True),
