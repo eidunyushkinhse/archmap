@@ -45,6 +45,24 @@ CANDIDATES: dict[str, tuple[str, str]] = {
     "app/migrations/0001_init.py": ("class Migration:\n    operations = ['", "']\n"),
     "api/openapi.yaml": ("openapi: 3.0.0\npaths:\n  /p: ", "\n"),
     "ops/crontab": ("* * * * * ", "\n"),
+    # Схема Rails, патч kustomize, NetworkPolicy и конфигурация прокси (ТЗ §15 п. 14).
+    "db/schema.rb": (
+        'ActiveRecord::Schema[8.0].define(version: 1) do\n  create_table "t", force: :cascade'
+        ' do |t|\n    t.string "', '"\n  end\nend\n',
+    ),
+    "k8s/kustomization.yaml": (
+        "patches:\n- patch: |-\n    apiVersion: apps/v1\n    kind: Deployment\n    metadata:\n"
+        "      name: ", "\n",
+    ),
+    "k8s/policy.yaml": (
+        "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: p\nspec:\n"
+        "  podSelector:\n    matchLabels:\n      app: ", "\n",
+    ),
+    "proxy/compose.yaml": (
+        "services:\n  proxy:\n    image: nginx\n    volumes:\n      - ./nginx.conf:/etc/n.conf\n"
+        "    environment:\n      CADDYFILE: |\n        reverse_proxy ", "\n",
+    ),
+    "proxy/nginx.conf": ("upstream a {\n    server ", ";\n}\n"),
 }
 
 

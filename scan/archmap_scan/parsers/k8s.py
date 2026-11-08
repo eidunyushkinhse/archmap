@@ -8,8 +8,11 @@ StatefulSet, DaemonSet, Job, CronJob — кандидаты в объекты: �
 источник ingress.from[].podSelector использует под spec.podSelector, под spec.podSelector
 использует цель egress.to[].podSelector; поды сопоставляются Deployment и StatefulSet по
 метке app.kubernetes.io/name или app шаблона пода. Пиры с namespaceSelector и ipBlock связей
-не дают; podSelector {} (все поды) и метки без пода — подсказки. Файлы с разметкой Helm (_HELM) — шаблоны чарта, их разбирает
-только helm.py; «{{ИМЯ}}» в данных ConfigMap (подстановка при старте) шаблоном не считается.
+не дают; podSelector {} (все поды) и метки без пода — подсказки. Значение configMapKeyRef
+берётся из data ConfigMap того же файла, каталога или предка, встроенные патчи
+kustomization.yaml сливаются с нагрузкой того же имени (ТЗ §15 п. 14 Ж2). Файлы с разметкой
+Helm (_HELM) — шаблоны чарта, их разбирает только helm.py; «{{ИМЯ}}» в данных ConfigMap
+(подстановка при старте) шаблоном не считается.
 Отрендеренный шаблон Helm (RELEASE-NAME в именах или образах, rendered) не разбирается.
 """
 

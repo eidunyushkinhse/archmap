@@ -272,12 +272,14 @@ archmap-scan/
 | Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
 | Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
 
+| Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
+
 Для не покрытых владельцем таблиц (раздел 7) записи идут в `hints.unassigned`.
 
 ### 6.4 Не в нулевой версии (в coverage как `unsupported` с именем стека, где стек опознан)
 
-Prisma `schema.prisma`, Rails `schema.rb`/`structure.sql` (SQL-часть разберёт 6.3), Liquibase (снят
-владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET, ключи viper и Spring
+Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
+Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET, ключи viper и Spring
 `@Value`, исходящие HTTP-вызовы в коде, компоненты, внешние SaaS и люди, описания и подписи со
 смыслом, поля сообщений каналов, содержимое OpenAPI, Redis/SQS/Pub/Sub как каналы, «мёртвый
 код» и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
@@ -1276,3 +1278,24 @@ unread: {too_large: 3, binary: 0}
      Технология связи HTTP и у цели-базы (MinIO `objectstorage` у PostHog). Связи едут с
      кандидатом (`Unit.links`): у сервиса разработки, не ставшего объектом, они пропадают
      вместе с ним, а не превращаются в подсказки.
+   - З1 (решение исполнителя): `default:` читается, но не пишется: у колонки в
+     `facts/*.tables.yaml` поля дефолта нет и у SQL-разборщика (контракт тот же). Первичный
+     ключ `id` bigint ставится, если нет `id: false`; `id: :uuid` (символ) задаёт тип,
+     `primary_key: "var"` — имя, список `primary_key: ["a", "b"]` — составной ключ без своего
+     `id`, колонки ключа обязательны. Ссылка `add_foreign_key` без `column:` идёт в колонку
+     `единственное_число_цели_id` по правилам Rails (`statuses` → `status_id`, `policies` →
+     `policy_id`); колонка не найдена — ссылки нет. Тип `t.column "к", :тип` — второй
+     аргумент. `enable_extension` и `create_schema` идут в `hints.unassigned` с причиной
+     «расширение или схема базы в schema.rb: таблиц не задаёт»: в схему базы им писать некуда.
+     Прочие инструкции define (`create_trigger` с цепочкой вызовов через «.» в конце строки и
+     блоком `do … end` у Forem, `execute` с heredoc) пропускаются целиком, со счётчиком, если
+     инструкции нет в перечне известных (`add_index`, `create_view`, `create_enum`,
+     `create_function`, `create_trigger` и т. п.). Диалект без драйвера в Gemfile пакета
+     файла не ставится (технология базы прежняя). `db/structure.sql` рядом отменяет чтение
+     `schema.rb`: это тот же снимок, а два источника дали бы таблицы дважды.
+     Владелец базы — по §7 без изменений. Mastodon: 116 таблиц у `db` (PostgreSQL по
+     `gem "pg"`), `unsupported` таблиц ушёл. Forem: 133 таблицы, но все в `hints.unassigned`
+     «несколько баз, владелец не определим»: в двух файлах compose две базы (`db` и
+     `postgres`), а контейнеры rails, sidekiq и web собраны из корня и каталога кода не
+     получили (§15 п. 13), поэтому база по каталогу не находится; правило владельца не
+     расширялось.

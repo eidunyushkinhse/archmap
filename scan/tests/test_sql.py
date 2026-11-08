@@ -1,4 +1,4 @@
-"""SQL DDL: грамматика, цепочка миграций, владельцы баз, файлы таблиц."""
+"""SQL DDL и схема Rails: грамматика, цепочка миграций, владельцы баз, файлы таблиц."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import yaml
 
 from archmap_scan import sqlddl, texts
 from archmap_scan.model import Loc, Table
-from archmap_scan.parsers import sql
+from archmap_scan.parsers import railsschema, sql
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
@@ -239,3 +239,79 @@ def test_dialect_dirs_are_one_database() -> None:
             texts.embedded_database("customers/src/main/resources/db/mysql/"),
         ),
     ]
+
+
+def test_rails_schema() -> None:
+    """Схема Rails db/schema.rb (ТЗ §15 п. 14 З1). Найдено в Mastodon: db/schema.rb
+    create_table "account_aliases", force: :cascade do |t| … t.string "acct", default: "",
+    null: false … end и add_foreign_key; 116 таблиц, а схема Rails была в unsupported.
+    Ловушки: db/migrate/*.rb не читаются; spec/dummy/db/schema.rb (тестовое приложение)
+    не читается; create_view с heredoc и create_trigger с цепочкой вызовов и блоком do
+    (Forem) таблиц не дают; enable_extension и create_schema — подсказки; непонятая строка
+    таблицы — счётчик пропусков."""
+    root = FIXTURES / "rails-schema"
+    ctx, files = files_of(root)
+    found = railsschema.parse(files, ctx)
+    (ts,) = found.table_sets
+    tables = {t.name: _cols(t) for t in ts.tables}
+    assert tables == {
+        "accounts": [
+            ("id", "bigint", True, True, None), ("username", "string", False, True, None),
+            ("created_at", "datetime", False, True, None),
+        ],
+        "statuses": [
+            ("id", "uuid", True, True, None), ("account_id", "bigint", False, True, "accounts.id"),
+            ("target_id", "bigint", False, False, None),
+            ("target_type", "string", False, False, None), ("text", "text", False, False, None),
+            ("created_at", "datetime", False, True, None),
+            ("updated_at", "datetime", False, True, None),
+        ],
+        "account_tags": [
+            ("account_id", "bigint", False, True, "accounts.id"),
+            ("tag_id", "bigint", False, True, "tags.id"),
+        ],
+        "settings": [("var", "string", True, True, None), ("value", "jsonb", False, False, None)],
+    }
+    assert (ts.dialect, str(ts.dialect_loc)) == ("PostgreSQL", "Gemfile:4")
+    assert (ts.skipped, ts.skipped_examples) == (1, [(Loc("db/schema.rb", 22), "t.frobnicate_weird")])
+    assert [(h.data["name"], h.data["reason"]) for h in found.hints] == [
+        ("enable_extension plpgsql", texts.REASON_RAILS_NOT_TABLE),
+        ("create_schema billing", texts.REASON_RAILS_NOT_TABLE),
+    ]
+    model = model_of(root)
+    assert sorted(t.name for t in model.tables["db"]) == [
+        "account_tags", "accounts", "settings", "statuses",
+    ]
+
+
+def test_rails_structure_sql_wins(tmp_path: Path) -> None:
+    """Рядом db/structure.sql: схема Rails не читается, таблицы даёт SQL-разборщик (один
+    источник)."""
+    root = tree(tmp_path, {
+        "db/schema.rb": 'ActiveRecord::Schema.define do\n  create_table "a" do |t|\n  end\nend\n',
+        "db/structure.sql": "CREATE TABLE b (id bigint PRIMARY KEY);\n",
+    })
+    ctx, files = files_of(root)
+    assert railsschema.parse(files, ctx).table_sets == []
+    assert [t.name for ts in sql.parse(files, ctx).table_sets for t in ts.tables] == ["b"]
+
+
+def test_rails_schema_hostile_is_fast(tmp_path: Path) -> None:
+    """Враждебная схема Rails: тысячи таблиц и опций, незакрытый heredoc, сплошные блоки
+    do и продолжения строк. Разбор построчный, каждая строка — выражения с пределами."""
+    head = "ActiveRecord::Schema.define do\n"
+    payloads = {
+        "tables": head + 'create_table "t", force: :cascade do |t|\n  t.string "a"\nend\n' * 40_000,
+        "options": head + 'create_table "t", ' + "a: 1, " * 300_000 + "do |t|\nend\n",
+        "row": head + 'create_table "t" do |t|\n  t.string "a", ' + "n: :x, " * 300_000 + "\nend\n",
+        "heredoc": head + "create_view \"v\", sql: <<-SQL\n" + "x\n" * 1_000_000,
+        "blocks": head + "foo do\n" * 300_000,
+        "chain": head + "foo.\n" * 500_000,
+    }
+    for kind, text in payloads.items():
+        root = tree(tmp_path / kind, {"db/schema.rb": text})
+        ctx, files = files_of(root)
+        started = time.perf_counter()
+        railsschema.parse(files, ctx)
+        took = time.perf_counter() - started
+        assert took < 1.0, f"{kind}: {took:.2f} с"

@@ -524,6 +524,7 @@ REASON_SQLITE_DEFAULT = (
 REASON_NO_DATABASE = "база не найдена в манифестах"
 REASON_MANY_DATABASES = "несколько баз, владелец не определим"
 REASON_SKIPPED_STATEMENT = "инструкция миграции не разобрана, её изменения в таблицы не попали"
+REASON_RAILS_NOT_TABLE = "расширение или схема базы в schema.rb: таблиц не задаёт"
 REASON_COLUMNS_FROM_QUERY = (
     "колонки из запроса: таблица создана из SELECT, и её колонки сборщик не выводит"
 )

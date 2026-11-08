@@ -331,3 +331,9 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen`
     HAProxy дают связи прокси → объект с этим host, технология HTTP; хост не объект —
     `hints.unassigned`, файл вне репозитория или не найден — `hints.unparsed` (Ж3).
+  - схема Rails `db/schema.rb` (`parsers/railsschema.py`, семья tables) читается построчно без
+    исполнения Ruby: `create_table` с `id:`/`primary_key:`, строки `t.тип "колонка"` (тип как
+    написан, `null: false` — обязательна), `t.references` — `имя_id`, `t.timestamps`,
+    `add_foreign_key` — ссылка колонки; индексы, представления с heredoc и прочие инструкции
+    пропускаются, `enable_extension` и `create_schema` — `hints.unassigned`; диалект по
+    драйверу в Gemfile; рядом `db/structure.sql` — читается только он (З1).
