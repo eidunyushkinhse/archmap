@@ -351,3 +351,51 @@ def test_owner_of_other_language_does_not_take_file() -> None:
     assert hints == [
         ("NODE_ENV", texts.REASON_OTHER_LANGUAGE, "app/javascript/environment.ts:2"),
     ]
+
+
+_GO_MAIN = 'package main\n\nimport "os"\n\nfunc main() {\n\t_ = os.Getenv("%s")\n}\n'
+_GO_BASE = {"go.mod": "module example.com/x\n\ngo 1.23\n", "Dockerfile": "FROM golang:1.23\n"}
+
+
+def _go_cmd_model(tmp_path: Path, compose: str, programs: dict[str, str]) -> dict[str, set[str]]:
+    files: dict[str, str | bytes] = {**_GO_BASE, "docker-compose.yml": compose}
+    files.update({f"cmd/{name}/main.go": _GO_MAIN % var for name, var in programs.items()})
+    model = model_of(tree(tmp_path, files))
+    return {owner: set(params) for owner, params in model.params.items()}
+
+
+def test_go_cmd_programs(tmp_path: Path) -> None:
+    """Каталог cmd/<имя>/ принадлежит контейнеру этой программы (ТЗ §15 п. 14 Ф1). Найдено в
+    Argo CD: шесть контейнеров Go из одного корня, а
+    cmd/argocd-application-controller/commands/argocd_application_controller.go:292
+    (ARGOCD_APPLICATION_CONTROLLER_LOGLEVEL) записывался всем шести как общий код. Контейнер
+    программы по имени (worker) или по программе команды (/usr/local/bin/api); маршрут из
+    cmd/api тоже только у api. Ловушки: программа cmd/migrate без контейнера уходит в
+    подсказки, общий код internal/ остаётся у обоих; (а) одна программа cmd/server у
+    контейнера app с командой ./server — как раньше; (б) app без команды и cmd/app, cmd/tool
+    — cmd/tool в подсказки; (в) контейнеры x и y без команд и cmd/a, cmd/b — правило не
+    включается, общий код у обоих."""
+    model = model_of(FIXTURES / "go-cmd-dirs")
+    params = {owner: set(p) for owner, p in model.params.items()}
+    assert params == {
+        "api": {"API_PORT", "SHARED_LOG_LEVEL"}, "worker": {"WORKER_QUEUE", "SHARED_LOG_LEVEL"},
+    }
+    assert [(e.method, e.path) for e in model.http["api"]] == [("ANY", "/health")]
+    assert "worker" not in model.http or not model.http["worker"]
+    assert [
+        (h["name"], h["reason"], h["source"]) for h in model.hints["unassigned"]
+        if h["kind"] == "config"
+    ] == [("MIGRATE_DSN", texts.no_program_container("cmd/migrate"), "cmd/migrate/main.go:7")]
+
+    one = "services:\n  app:\n    build: .\n    command: ./server\n"
+    assert _go_cmd_model(tmp_path / "a", one, {"server": "SERVER_PORT"}) == {
+        "app": {"SERVER_PORT"},
+    }
+    bare = "services:\n  app:\n    build: .\n"
+    assert _go_cmd_model(tmp_path / "b", bare, {"app": "APP_PORT", "tool": "TOOL_TOKEN"}) == {
+        "app": {"APP_PORT"},
+    }
+    two = "services:\n  x:\n    build: .\n  y:\n    build: .\n"
+    assert _go_cmd_model(tmp_path / "c", two, {"a": "A_PORT", "b": "B_PORT"}) == {
+        "x": {"A_PORT", "B_PORT"}, "y": {"A_PORT", "B_PORT"},
+    }

@@ -311,6 +311,9 @@ class Findings:
     # не дал ни одного контейнера; тогда же в покрытии названы непрочитанные файлы сборки.
     build_units: list[Unit] = field(default_factory=list)
     build_unsupported: list[str] = field(default_factory=list)
+    # Каталоги программ Go по соглашению «<каталог>/cmd/<имя>/» с файлами кода Go (ТЗ §15
+    # п. 14 Ф1): по ним владелец файла под cmd/<имя>/ выбирается среди контейнеров каталога.
+    go_programs: set[str] = field(default_factory=set)
     # Стек по маркеру сборки в корне (vocab.STACK_BAZEL, STACK_CMAKE; ТЗ §15 п. 12 С12).
     root_stack: str | None = None
 
@@ -339,4 +342,5 @@ class Findings:
         for stack in other.build_unsupported:
             if stack not in self.build_unsupported:
                 self.build_unsupported.append(stack)
+        self.go_programs |= other.go_programs
         self.root_stack = self.root_stack or other.root_stack

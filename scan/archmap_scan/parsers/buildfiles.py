@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import re
 
-from archmap_scan import paths, texts, tomlite, vocab
+from archmap_scan import codebase, paths, texts, tomlite, vocab
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Loc, Unit
 from archmap_scan.parsers.dockerfile import is_dockerfile
@@ -144,6 +144,19 @@ def _go(files: Files, found: Findings) -> None:
         ))
 
 
+def _go_programs(files: Files, found: Findings) -> None:
+    """Каталоги «<каталог>/cmd/<имя>» с файлами кода Go в любом месте под ними (ТЗ §15 п. 14
+    Ф1): соглашение Go для исполняемых программ. Файл прямо в cmd/ программы не задаёт;
+    каталоги для разработки не считаются, как и при чтении кода."""
+    for rel in files.paths:
+        if "cmd/" not in rel or not codebase.is_code_file(rel, codebase.GO) or is_dev_code(rel):
+            continue
+        parts = rel.split("/")
+        for i in range(len(parts) - 2):
+            if parts[i] == "cmd":
+                found.go_programs.add("/".join(parts[:i + 2]))
+
+
 def bin_arg(text: str) -> str | None:
     """Имя ARG, которым Dockerfile выбирает бинарник крейта (`--bin $BIN`), или None."""
     declared = set(_ARG.findall(text))
@@ -241,6 +254,7 @@ def parse(files: Files, ctx: Context) -> Findings:
     if found.root_stack is None:
         _go(files, found)
     _cargo(files, found)
+    _go_programs(files, found)
     if any(paths.name(p) == "build.xml" and not is_dev_code(p) for p in files.paths):
         found.build_unsupported.append(texts.STACK_ANT)
     return found

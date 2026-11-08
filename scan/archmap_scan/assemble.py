@@ -1404,6 +1404,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _queue_brokers(model, findings.packages)
     _sources(model, ctx)
     _entrypoints(model)
+    _go_programs(model, findings)
     _params(model, findings, env_of)
     _clients(model, findings)
     _tables(model, findings, env_of)
@@ -1411,6 +1412,19 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     # После маршрутов кода: путь из файла, уже найденный в коде, не дублируется (З3).
     _openapi(model, findings)
     return model
+
+
+def _go_programs(model: Model, findings: Findings) -> None:
+    """Программы cmd/<имя>/ в каталоге кода каждого контейнера (ТЗ §15 п. 14 Ф1): по ним
+    owners.file_owners отдаёт файл под cmd/<имя>/ контейнеру этой программы."""
+    for obj in model.objects:
+        if not obj.is_container or obj.code_dir is None:
+            continue
+        prefix = obj.code_dir + "/cmd/" if obj.code_dir else "cmd/"
+        obj.go_programs = frozenset(
+            d[len(prefix):] for d in findings.go_programs
+            if d.startswith(prefix) and "/" not in d[len(prefix):]
+        )
 
 
 def _openapi(model: Model, findings: Findings) -> None:

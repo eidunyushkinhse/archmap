@@ -1,0 +1,8 @@
+# Две программы Go из одного корня по соглашению cmd/<имя>/ (ТЗ §15 п. 14 Ф1).
+services:
+  api:
+    build: .
+    command: /usr/local/bin/api
+  worker:
+    build: .
+    command: worker

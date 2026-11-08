@@ -34,6 +34,8 @@ class Obj:
     dockerfile: Dockerfile | None = None
     package_locs: list[Loc] = field(default_factory=list)
     language: str | None = None  # язык кода контейнера: по нему отбираются манифесты и файлы
+    # Имена программ cmd/<имя>/ с кодом Go в каталоге кода контейнера (ТЗ §15 п. 14 Ф1).
+    go_programs: frozenset[str] = frozenset()
 
     @property
     def is_container(self) -> bool:
