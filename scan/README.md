@@ -53,8 +53,9 @@ git окажется сам ArchMap, и пути в выводе будут от
 ## Сборка файла
 
 ```bash
-python3 scan/build.py            # → scan/dist/archmap-scan.pyz, печатает размер и sha256
-python3 scan/build.py --out ПУТЬ
+scan/venv/bin/python scan/build.py   # → scan/dist/archmap-scan.pyz, печатает размер и sha256
+                                     # (другой интерпретатор кладёт другой PyYAML и даёт другой sha256)
+scan/venv/bin/python scan/build.py --out ПУТЬ
 python3 -I -S scan/dist/archmap-scan.pyz scan/fixtures/yarmarka --out /tmp/y --no-git
 ```
 
