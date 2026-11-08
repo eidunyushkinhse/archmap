@@ -77,7 +77,10 @@ def test_sidekiq_queues_and_schedule() -> None:
     классы разных модулей различаются (Mastodon: DistributionWorker и
     ActivityPub::DistributionWorker < ActivityPub::RawDistributionWorker в app/workers/);
     очередь выражением уходит в подсказки; закомментированный include и perform_async не
-    читаются."""
+    читаются. Очередь записи расписания (часть 2б, Ф3): Scheduler::VacuumScheduler без своей
+    очереди потребляет scheduler из записи (Mastodon: классы Scheduler::*); ловушки: своя
+    очередь PushUpdateWorker (push) сильнее записи, запись без queue: даёт очередь класса
+    (Scheduler::CleanupScheduler — default)."""
     ctx, files = files_of(FIXTURES / "sidekiq-queues")
     found = sidekiq.parse(files, ctx)
     assert _rows(found) == [
@@ -89,22 +92,27 @@ def test_sidekiq_queues_and_schedule() -> None:
         ("push", "consume", "app/workers/distribution.rb:14"),
         ("push", "consume", "app/workers/push_update_worker.rb:2"),
         ("default", "consume", "app/workers/scheduler/cleanup_scheduler.rb:3"),
+        ("scheduler", "consume", "app/workers/scheduler/vacuum_scheduler.rb:3"),
         ("pull", "consume", "app/workers/unmerge_worker.rb:2"),
         ("default", None, "config/sidekiq.yml:4"),
         ("push", None, "config/sidekiq.yml:5"),
         ("mailers", None, "config/sidekiq.yml:6"),
         ("pull", None, "config/sidekiq.yml:7"),
+        ("scheduler", None, "config/sidekiq.yml:8"),
     ]
     assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
         ("QUEUE_NAME", "app/workers/application_worker.rb:10"),
     ]
     assert [(s.name, s.schedule, s.task, str(s.loc)) for s in found.schedules] == [
-        ("cleanup_scheduler", "5m", "Scheduler::CleanupScheduler", "config/sidekiq.yml:10"),
+        ("cleanup_scheduler", "5m", "Scheduler::CleanupScheduler", "config/sidekiq.yml:11"),
         ("vacuum_scheduler", "<%= Random.rand(0..59) %> 3 * * *", "Scheduler::VacuumScheduler",
-         "config/sidekiq.yml:13"),
+         "config/sidekiq.yml:14"),
+        ("push_refresh", "1h", "PushUpdateWorker", "config/sidekiq.yml:19"),
     ]
     model = model_of(FIXTURES / "sidekiq-queues")
-    assert sorted(model.channels["redis"]) == ["default", "ingress", "mailers", "pull", "push"]
+    assert sorted(model.channels["redis"]) == [
+        "default", "ingress", "mailers", "pull", "push", "scheduler",
+    ]
     links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
     assert links == {
         # «использует» sidekiq → redis вытеснена связями с каналом той же пары (ТЗ §15 п. 13
@@ -114,9 +122,12 @@ def test_sidekiq_queues_and_schedule() -> None:
         ("redis", "sidekiq", "доставляет", "ingress"),
         ("redis", "sidekiq", "доставляет", "pull"),
         ("redis", "sidekiq", "доставляет", "push"),
+        ("redis", "sidekiq", "доставляет", "scheduler"),
     }
-    assert len(model.consumers["sidekiq"]) == 9 and "web" not in model.consumers
-    assert [s.name for s in model.schedules["sidekiq"]] == ["cleanup_scheduler", "vacuum_scheduler"]
+    assert len(model.consumers["sidekiq"]) == 10 and "web" not in model.consumers
+    assert [s.name for s in model.schedules["sidekiq"]] == [
+        "cleanup_scheduler", "vacuum_scheduler", "push_refresh",
+    ]
 
 
 def test_sidekiq_without_runner(tmp_path: Path) -> None:

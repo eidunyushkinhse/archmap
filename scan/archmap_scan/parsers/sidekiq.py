@@ -12,6 +12,8 @@ hints.dynamic_names. YAML, который и так не разбирается,
 без неё очередь базового класса или default. Публикации (perform_async) не читаются: их
 слишком много и они размазаны по коду. Владелец потребителя и расписания среди контейнеров
 файла тот, чья команда запускает sidekiq (runner, codefacts). Брокер Redis по клиенту.
+Класс из записи расписания с queue: X без своей очереди в sidekiq_options потребляет X
+(часть 2б): у Mastodon классы Scheduler::* — очередь scheduler.
 """
 
 from __future__ import annotations
@@ -138,7 +140,11 @@ def _schedule_text(entry: dict[Any, Any], erbs: list[str]) -> str | None:
     return None
 
 
-def _schedules(rel: str, doc: Any, erbs: list[str], found: Findings) -> None:
+def _schedules(
+    rel: str, doc: Any, erbs: list[str], found: Findings, scheduled: dict[str, list[str]],
+) -> None:
+    """Расписания раздела :schedule:; очередь записи (queue: X) — в scheduled по имени
+    класса (ТЗ §15 п. 13 В3, часть 2б): sidekiq-scheduler кладёт задачу в очередь записи."""
     scheduler, _line = _key(doc, "scheduler")
     table, _line = _key(scheduler, "schedule")
     if not isinstance(table, dict):
@@ -158,9 +164,19 @@ def _schedules(rel: str, doc: Any, erbs: list[str], found: Findings) -> None:
             task=_erb_in(str(task), erbs) if isinstance(task, str) else None,
             loc=Loc(rel, line), parser=NAME, runner=RUNNER,
         ))
+        queue = entry.get("queue")
+        if not isinstance(task, str) or not isinstance(queue, (str, int)) or not str(queue):
+            continue
+        queue = str(queue).strip().removeprefix(":")
+        if _PLACEHOLDER_RE.search(queue) or _PLACEHOLDER_RE.search(task):
+            _hint(found, _erb_in(queue, erbs), Loc(rel, line))
+            continue
+        queues = scheduled.setdefault(task.strip().removeprefix("::"), [])
+        if queue and queue not in queues:
+            queues.append(queue)
 
 
-def _config(rel: str, text: str, found: Findings) -> None:
+def _config(rel: str, text: str, found: Findings, scheduled: dict[str, list[str]]) -> None:
     clean, erbs = _erb_out(text)
     try:
         doc = yamlload.load(clean)
@@ -173,7 +189,7 @@ def _config(rel: str, text: str, found: Findings) -> None:
         else:
             found.channels.append(_use(name, None, Loc(rel, line), None))
     if isinstance(doc, dict):
-        _schedules(rel, doc, erbs, found)
+        _schedules(rel, doc, erbs, found, scheduled)
 
 
 # Классы воркеров
@@ -201,10 +217,12 @@ def _queue_in(text: str, start: int, end: int) -> tuple[str | None, str | None]:
 
 
 class _Workers:
-    """Классы воркеров Sidekiq: полное имя (с модулями) → очередь (None — default)."""
+    """Классы воркеров Sidekiq: полное имя (с модулями) → очередь (None — default).
+    scheduled — очереди записей расписания по имени класса."""
 
-    def __init__(self, found: Findings) -> None:
+    def __init__(self, found: Findings, scheduled: dict[str, list[str]] | None = None) -> None:
         self.found = found
+        self.scheduled = scheduled or {}
         self.queues: dict[str, str | None] = {}
         self.by_short: dict[str, list[str]] = {}
         self.seen: set[tuple[str, int]] = set()  # (файл, позиция класса)
@@ -224,9 +242,15 @@ class _Workers:
         name = queue or inherited
         full = src.names[i]
         if full not in self.queues:
+            # Наследникам достаётся очередь класса, а не записи расписания: в записи стоит
+            # только этот класс.
             self.queues[full] = name
             self.by_short.setdefault(_short(full), []).append(full)
-        self.found.channels.append(_use(name or DEFAULT_QUEUE, "consume", loc, RUNNER))
+        # Своя очередь класса сильнее записи расписания, запись сильнее очереди базового
+        # класса и default (sidekiq-scheduler ставит задачу в очередь записи).
+        targets = [queue] if queue else self.scheduled.get(full) or [name or DEFAULT_QUEUE]
+        for target in targets:
+            self.found.channels.append(_use(target, "consume", loc, RUNNER))
 
     def resolve(self, base: str, owner: str) -> str | None:
         """Базовый класс по имени, как его пишет наследник: полное имя, имя в модулях
@@ -323,6 +347,7 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not codebase.stack_present(files, ctx, codebase.RUBY, WANTED):
         return found
     found.applied.add(NAME)
+    scheduled: dict[str, list[str]] = {}
     for rel in files.paths:
         if paths.parent(rel).rsplit("/", 1)[-1] != "config":
             continue
@@ -330,8 +355,8 @@ def parse(files: Files, ctx: Context) -> Findings:
             continue
         text = files.read(rel)
         if text is not None:
-            _config(rel, text, found)
-    workers = _Workers(found)
+            _config(rel, text, found, scheduled)
+    workers = _Workers(found, scheduled)
     for rel, text in codebase.sources(files, ctx, codebase.RUBY, WANTED, ("Sidekiq::",)):
         _direct(rel, text, workers)
     _inherited(files, ctx, workers)

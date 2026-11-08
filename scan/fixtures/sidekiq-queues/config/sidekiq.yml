@@ -5,6 +5,7 @@
   - [push, 6]
   - mailers
   - [pull]
+  - [scheduler]
 :scheduler:
   :schedule:
     cleanup_scheduler:
@@ -13,3 +14,9 @@
     vacuum_scheduler:
       cron: '<%= Random.rand(0..59) %> 3 * * *'
       class: Scheduler::VacuumScheduler
+      queue: scheduler
+    # Ловушка: своя очередь класса (push) сильнее очереди записи.
+    push_refresh:
+      every: '1h'
+      class: PushUpdateWorker
+      queue: scheduler

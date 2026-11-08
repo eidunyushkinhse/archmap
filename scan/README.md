@@ -232,8 +232,9 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - Sidekiq (`parsers/sidekiq.py`): `:queues:` из `config/sidekiq*.yml` объявляют очереди Redis,
     `:scheduler: :schedule:` даёт расписания (ERB как написано), класс с `include
     Sidekiq::Worker` или `Sidekiq::Job` и его наследники потребляют очередь `sidekiq_options
-    queue:` (иначе `default`); владелец среди контейнеров файла тот, чья команда запускает
-    sidekiq (`ChannelUse.runner`, В3);
+    queue:` (иначе очередь записи `:schedule:` с `queue:`, где стоит класс, иначе `default`);
+    владелец среди контейнеров файла тот, чья команда запускает sidekiq (`ChannelUse.runner`,
+    В3);
   - реестр консьюмеров `KAFKA_CONSUMERS` (`pyregistry.consumer_registry`): ключ — процесс,
     `topic` и ключи со словом topic — потребление, `dlq_topic` и `stale_topic` — публикация;
     объект процесса по имени или по `consumer <имя>` в команде, без объекта — подсказка (В4);
