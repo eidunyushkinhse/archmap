@@ -383,6 +383,22 @@ KYSELY = {
     "closed-downs": "function down() {}\nsql`CREATE TABLE t (a int)`;\n" * (PAYLOAD // 50),
     "unclosed-params": "function down(" * (PAYLOAD // 14),
     "ctas": "sql`CREATE TABLE t AS SELECT " + "a.b AS c, " * 25_000 + "(" * 1000 + "`",
+    # Циклы sql.raw по спискам (М1): тысячи циклов и списков, список длиннее предела,
+    # предельный список из 1000 переименований, сплошные скобки тела, заголовки без тела.
+    "loops": "".join(
+        f"const l{i} = [{{ a: 'x', b: 'y' }}];\nfor (const {{ a, b }} of l{i}) "
+        f"sql.raw(`ALTER TABLE \"${{a}}\" RENAME TO \"${{b}}\"`);\n" for i in range(9000)
+    ),
+    "long-list": "const l = [" + "{ a: 'x', b: 'y' }, " * (PAYLOAD // 20) + "];\n"
+    "for (const { a, b } of l) sql.raw(`ALTER TABLE \"${a}\" RENAME TO \"${b}\"`);\n",
+    "full-list": "const l = ["
+    + "".join(f"{{ a: 't{i}', b: 'u{i}' }}, " for i in range(1000)) + "];\n"
+    + "".join(f"sql`CREATE TABLE t{i} (a int REFERENCES t0 (a))`;\n" for i in range(1000))
+    + "for (const { a, b } of l) sql.raw(`ALTER TABLE \"${a}\" RENAME TO \"${b}\"`);\n",
+    "loop-braces": "const l = [['x', 'y']];\nfor (const [a, b] of l) {" + "{" * (PAYLOAD // 2)
+    + "sql.raw(`DROP TABLE ${a}`)",
+    "loop-heads": "const l = [['x', 'y']];\n" + "for (const { a, b } of l) " * (PAYLOAD // 26)
+    + "sql.raw(`DROP TABLE ${a}`)",
 }
 
 

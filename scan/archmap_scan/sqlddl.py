@@ -5,6 +5,8 @@ CREATE TABLE с колонками и ограничениями таблицы,
 SELECT колонок не дают, таблица названа в подсказках; ТЗ §15 п. 14 З2), ALTER TABLE (ADD, DROP,
 RENAME, ALTER и MODIFY колонок, ключи), DROP TABLE, RENAME TABLE. Кавычки «"», «`» и «[]»; имя
 без кавычек складывается в нижний регистр, как в PostgreSQL (fold, у MySQL выключено).
+Переименование таблицы или колонки переносит и ссылки колонок других таблиц на неё («т.к»), как
+внешний ключ в базе следует за переименованием (ТЗ §15 п. 16 М1).
 Временные таблицы (TEMP) в схему не попадают. Инструкции, которые к структуре таблиц не
 относятся (индексы, данные, функции, триггеры, имена ограничений), пропускаются молча;
 непонятная инструкция пропускается со счётчиком. Разбор линейный: следующий особый символ ищется
@@ -25,6 +27,10 @@ EXAMPLES = 3
 # Сколько непонятых инструкций помнить ради выбора примеров: примеры берутся сначала из
 # тех, чьи таблицы живы в конце цепочки (ТЗ §15 п. 10 А3).
 MAX_SKIPS = 10_000
+# Сколько переписываний ссылок при переименованиях делается на цепочку: враждебная цепочка
+# из тысяч переименований таблицы с тысячами ссылок на неё дальше ссылки не переносит (они
+# остаются как написаны).
+MAX_REF_UPDATES = 200_000
 _TABLE_LEAD = frozenset({
     "CREATE", "OR", "REPLACE", "GLOBAL", "LOCAL", "TEMP", "TEMPORARY", "UNLOGGED", "TABLE",
     "ALTER", "DROP", "RENAME", "IF", "NOT", "EXISTS", "ONLY",
@@ -237,6 +243,47 @@ class Schema:
     skips: list[tuple[Loc, str, tuple[str, str] | None]] = field(default_factory=list)
     # Таблицы из CREATE TABLE … AS, у которых не все колонки запроса получили имя.
     queried: list[tuple[Loc, Table]] = field(default_factory=list)
+    # Колонки со ссылкой по имени таблицы цели в нижнем регистре: переименование таблицы или
+    # колонки переносит их ссылки (М1). Устаревшие записи (ссылку переписали, колонку
+    # удалили) проверяются по текущей ссылке и вреда не делают.
+    referrers: dict[str, list[Column]] = field(default_factory=dict)
+    ref_updates: int = 0
+
+    def refer(self, col: Column, ref: str | None) -> None:
+        """Ссылка колонки col — «т.к» или «т»; колонка запоминается у таблицы т."""
+        col.references = ref
+        if ref:
+            self.referrers.setdefault(_ref_table(ref).lower(), []).append(col)
+
+    def rename_refs(self, old: str, new: str) -> None:
+        """Таблица old стала new: ссылки «old.к» и «old» → «new.к» и «new». Каждая
+        просмотренная запись идёт в счёт MAX_REF_UPDATES."""
+        if old == new:
+            return
+        entries = self.referrers.pop(old.lower(), [])
+        moved: list[Column] = []
+        for i, col in enumerate(entries):
+            if self.ref_updates >= MAX_REF_UPDATES:
+                self.referrers[old.lower()] = entries[i:]
+                break
+            self.ref_updates += 1
+            ref = col.references
+            if ref is None or _ref_table(ref).lower() != old.lower():
+                continue
+            col.references = new + ref[len(_ref_table(ref)):]
+            moved.append(col)
+        if moved:
+            self.referrers.setdefault(new.lower(), []).extend(moved)
+
+    def rename_column_refs(self, table: str, old: str, new: str) -> None:
+        """Колонка old таблицы table стала new: ссылки «table.old» → «table.new»."""
+        target = f"{table}.{old}".lower()
+        for col in self.referrers.get(table.lower(), []):
+            if self.ref_updates >= MAX_REF_UPDATES:
+                return
+            self.ref_updates += 1
+            if col.references is not None and col.references.lower() == target:
+                col.references = f"{_ref_table(col.references)}.{new}"
 
     @property
     def examples(self) -> list[tuple[Loc, str]]:
@@ -278,6 +325,7 @@ class Schema:
         table = self.tables.pop(_key(schema, old), None)
         if table is None:
             return
+        self.rename_refs(table.name, new)
         table.name = new
         table.locs.append(loc)
         self.tables[_key(table.schema, new)] = table
@@ -292,6 +340,11 @@ class Schema:
 
 def _key(schema: str | None, name: str) -> tuple[str, str]:
     return ((schema or "").lower(), name.lower())
+
+
+def _ref_table(ref: str) -> str:
+    """Таблица ссылки «т.к» или «т»."""
+    return ref.rpartition(".")[0] or ref
 
 
 class _Parser:
@@ -450,7 +503,7 @@ def column_def(p: _Parser, schema: Schema, loc: Loc) -> Column | None:
             col.pk = True
             col.required = True
         elif p.take("REFERENCES"):
-            col.references = _references(p, schema)
+            schema.refer(col, _references(p, schema))
             _skip_fk_tail(p)
         else:
             tok = p.peek()
@@ -480,7 +533,7 @@ def _table_constraint(p: _Parser, table: Table, schema: Schema) -> None:
                     col = table.column(name)
                     if col is not None:
                         ref = refs[i] if i < len(refs) else None
-                        col.references = f"{target[1]}.{ref}" if ref else target[1]
+                        schema.refer(col, f"{target[1]}.{ref}" if ref else target[1])
     p.skip_item()
 
 
@@ -637,6 +690,7 @@ def _alter_action(p: _Parser, table: Table, schema: Schema, loc: Loc) -> bool:
         new_name = p.name()
         col = _col(table, old)
         if col is not None and new_name:
+            schema.rename_column_refs(table.name, col.name, new_name)
             col.name = new_name
             col.locs.append(loc)
         return True

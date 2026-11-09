@@ -283,7 +283,7 @@ archmap-scan/
 | SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
 | Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
 | Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
-| Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается |
+| Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается; ``sql.raw(`SQL`)`` в цикле `for (const { a, b } of СПИСОК)` или `for (const [a, b] of СПИСОК)` по массиву-литералу верхнего уровня того же файла читается для каждого элемента со значениями вместо `${a}` и `${b}`, переименование таблицы или колонки переносит ссылки на неё (ч. 5, М1) |
 | Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
 Для не покрытых владельцем таблиц (раздел 7) записи идут в `hints.unassigned`.
@@ -2140,3 +2140,39 @@ unread: {too_large: 3, binary: 0}
      `chatbot` (`compose.agent.yaml`) и `firepit` (`compose.profiling.yaml`): связей 20 → 32;
      8 подсказок depends_on `frontend-proxy` → X ушли, связь теперь нарисована. Loki без
      изменений.
+   - М1 (решение исполнителя): цикл ищется по заголовку `for (const { a, b } of ИМЯ)` или
+     `for (const [a, b] of ИМЯ)` (деструктуризация именами, `{ поле: имя }` тоже), тело — до
+     парной фигурной скобки или до «;» у тела без скобок; шаблон относится к самому
+     внутреннему такому циклу. СПИСОК — массив-литерал, объявленный `const`, `let` или `var`
+     на верхнем уровне файла один раз (тип после имени допустим, `as const` тоже); элементы —
+     объекты с полями-именами или строками и строковыми значениями или массивы строк;
+     значение со вставкой, экранированием или кавычкой внутри, другой элемент или больше 1000
+     элементов делают список нечитаемым, и шаблон читается как раньше (заглушка, подсказка
+     `dynamic_names`). Вставки шаблона — только `${имя}` из деструктуризации; выражение
+     (`${newName.toLowerCase()}`) оставляет прежнее чтение. Разворачивается только
+     ``sql.raw(`SQL`)``: у тегированного шаблона ``sql`SQL` `` вставка — параметр запроса, а не
+     текст SQL. Файл с одним `sql.raw(` без ``sql` `` тоже читается (раньше пропускался по
+     признаку ``sql` ``; у immich таких файлов с шаблоном нет). Переименование таблицы или
+     колонки в `sqlddl` (общий разбор с SQL-миграциями) переносит ссылки колонок других таблиц
+     на неё («т.к» и «т»), как внешний ключ в базе: иначе после переименований immich ссылки
+     указывали бы на исчезнувшие имена. Основание таблицы остаётся строкой создания, строка
+     переименования добавляется в основания. Пределы: 100 циклов по спискам на файл, 1000
+     элементов списка, 200 000 переписываний ссылок на цепочку (дальше ссылки остаются как
+     написаны).
+     immich: 72 таблицы, как и раньше, из них 30 под новыми именами (`album`, `album_asset`,
+     `asset`, `asset_exif`, `asset_face`, `user`, `session`, `tag`, `stack` и другие по списку
+     `StandardizeNames.ts:5`); с именами `@Table` в `server/src/schema/tables/*.table.ts`
+     совпадают 71 из 72 (было 41), лишняя `migration_overrides` создаётся миграцией без
+     описания таблицы. Колонок 513 → 528: изменения поздних миграций под новыми именами
+     теперь применяются (`FixColumnNames.ts`: `album_asset.albumId`, `assetId` вместо
+     `albumsId`, `assetsId`; `asset_face` без `personId` и с `personGroupId`; `album` без
+     `ownerId`; `asset` с `width`, `height`, `isEdited`, `checksumAlgorithm` и без
+     `deviceAssetId`, `sidecarPath`), как в описаниях таблиц. Ссылок 75, без цели 16 → 0.
+     Подсказка `${oldName}` (`StandardizeNames.ts:40`) ушла, `dynamic_names` в покрытии
+     таблиц 1 → 0. Таблицы `workflow_filter`, которую бриф называл примером
+     переименования колонки, в клоне нет: `1778614946174-UpdateWorkflowTables.ts:6` удаляет
+     её (DROP TABLE в up), переименование колонки до удаления применяется. Lemmy (общий
+     разбор SQL): ссылки за переименованиями `user_` → `person` и `tag` → `community_tag`
+     теперь следуют за таблицей, 8 ссылок без цели → 0 (`postgres.tables.yaml`, только поле
+     `references`). Остальные репозитории и дым без изменений. Кандидат вердикта immich
+     `[tables] users` теперь «нет»: таблица называется `user`.
