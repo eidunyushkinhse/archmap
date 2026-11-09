@@ -13,6 +13,7 @@ from archmap_scan.parsers import (
     appsettings,
     dotnetenv,
     goenv,
+    hjson,
     javaenv,
     nodeenv,
     pyenv,
@@ -396,6 +397,102 @@ def test_dotnet_appsettings_merge() -> None:
     assert params["EventBus:Exchange"].required is True
     assert params["Identity:Auth:Authority"].default is None
     assert len(params) == 21
+
+
+def test_hjson_defaults() -> None:
+    """config/defaults.hjson пакета (ТЗ §15 п. 16 Р2, Lemmy config/defaults.hjson): имя через
+    точку, комментарии «#», «//» и «/* */», ключ в кавычках, строка в одинарных кавычках, без
+    кавычек до конца строки, два ключа на строке через запятую, многострочная строка в тройных
+    апострофах, массив одной строкой, null без дефолта, пустой объект без параметров.
+    Ловушки: config/config.hjson (настройки экземпляра) и docker/config/defaults.hjson (рядом с
+    config/ нет манифеста сборки) не читаются."""
+    at = "config/defaults.hjson"
+    assert _params(hjson, FIXTURES / "hjson-defaults") == [
+        ("database.connection", "postgres://u:p@localhost:5432/db", True, None, "string", f"{at}:5"),
+        ("database.pool_size", "30", True, None, "int", f"{at}:6"),
+        ("hostname", "unset value here", True, None, "string", f"{at}:9"),
+        ("list", '["a", b]', True, None, "array", f"{at}:20"),
+        ("nested.deep.key", "1", True, None, "int", f"{at}:25"),
+        ("nothing", None, False, None, None, f"{at}:12"),
+        ("port", "8536", True, None, "int", f"{at}:10"),
+        ("quoted key", "single quoted", True, None, "string", f"{at}:8"),
+        ("ratio", "0.5", True, None, "float", f"{at}:11"),
+        ("text", "\n    multi\n    line\n    ", True, None, "string", f"{at}:15"),
+        ("tls", "true", True, None, "bool", f"{at}:10"),
+    ]
+    model = model_of(FIXTURES / "hjson-defaults")
+    (owner,) = model.params
+    params = model.params[owner]
+    # Дефолт по инварианту 6: адрес и имя со словом KEY не пишутся.
+    assert params["database.connection"].default is None
+    assert params["database.pool_size"].default == "30"
+    assert "FORUM_PORT" in params and len(params) == 12
+
+
+TRIPLE = "'" * 3
+
+
+def test_hjson_reader() -> None:
+    """Корень без скобок, повтор ключа (последний), ошибки синтаксиса и пределы."""
+    assert hjson.read("a: 1\nb: x # не комментарий\n") == [
+        ("a", 1, "1", "int"), ("b", 2, "x # не комментарий", "string"),
+    ]
+    assert hjson.read("{a: 1, a: 2}") == [("a", 1, "2", "int")]
+    assert hjson.read('{a: [1, {b: "c"}, [], ' + TRIPLE + "x" + TRIPLE + "]\n}") == [
+        ("a", 1, '[1, {b: "c"}, [], ' + TRIPLE + "x" + TRIPLE + "]", "array"),
+    ]
+    for bad in ("{a: 1", "{a 1}", "{: 1}", "{a: }", "{a: " + TRIPLE + "x}", '{a: "x}',
+                "{a: 1 /* без конца", "{a: 1}}", "a: [1, 2"):
+        try:
+            hjson.read(bad)
+        except hjson.BadHjson:
+            continue
+        raise AssertionError(bad)
+    for big in ("{a: " * 51 + "1" + "}" * 51, "{a: " + "[" * 50 + "]" * 50 + "}",
+                "".join(f"k{i}: 1\n" for i in range(5001))):
+        try:
+            hjson.read(big)
+        except hjson.TooBig:
+            continue
+        raise AssertionError(big[:20])
+    assert len(hjson.read("".join(f"k{i}: 1\n" for i in range(5000)))) == 5000
+
+
+# Враждебный defaults.hjson (ТЗ §15 п. 16 Р2): 2 МБ отвергаются по размеру, вплотную к 1 МБ
+# читаются в пределе времени. Исход: refused — непрочитан с подсказкой, bad — подсказка без
+# записей, ok — записи.
+HJSON_HOSTILE = {
+    "braces": ("{" * 1_000_001, "refused"),
+    "open-string": ('{a: "' + "x" * 2_000_000, "refused"),
+    "open-multiline": ("{a: " + TRIPLE + "x" * 2_000_000, "refused"),
+    "near-braces": ("{" * 990_000, "bad"),
+    "near-nested": ("{a: " * 200_000, "refused"),
+    "near-arrays": ("{a: " + "[" * 990_000, "refused"),
+    "near-open-string": ('{a: "' + "x" * 990_000, "bad"),
+    "near-open-multiline": ("{a: " + TRIPLE + "x\n" * 495_000, "bad"),
+    "near-keys": ("".join(f"k{i}: {i}\n" for i in range(5001)) + "x: " + "y" * 900_000, "refused"),
+    "near-comments": ("{a: 1" + "/* */" * 198_000 + "}", "ok"),
+    "near-hash": ("{a: 1\n" + "#\n" * 495_000 + "}", "ok"),
+    "near-array": ("{a: [" + "1," * 495_000 + "]}", "ok"),
+    "near-array-strings": ("{a: [" + '"x",' * 247_000 + "]}", "ok"),
+    # Ключи внутри длинного массива не параметры и в предел 5000 не считаются.
+    "near-array-objects": ("{a: [" + "{b: 1}" * 165_000 + "]}", "ok"),
+    "near-quoteless": ("{" + "a: b\n" * 4999 + "c: " + "d" * 970_000 + "\n}", "ok"),
+    "near-repeated-keys": ("{" + "a: b\n" * 198_000 + "}", "refused"),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(HJSON_HOSTILE))
+def test_hjson_hostile(tmp_path: Path, kind: str) -> None:
+    text, outcome = HJSON_HOSTILE[kind]
+    tree(tmp_path, {"Cargo.toml": '[package]\nname = "x"\n', "config/defaults.hjson": text})
+    ctx, files = files_of(tmp_path)
+    found, took = timed(partial(hjson.parse, files, ctx), time_limit())
+    assert took < time_limit() * 0.7, f"{took:.2f} с"
+    assert bool(files.too_large) == (outcome == "refused")
+    assert bool(found.code_params) == (outcome == "ok")
+    reasons = [h.data["reason"] for h in found.hints]
+    assert reasons == ([] if outcome == "ok" else [texts.REASON_BAD_HJSON])
 
 
 def test_java_getenv() -> None:

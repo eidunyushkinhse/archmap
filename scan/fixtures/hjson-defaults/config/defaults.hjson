@@ -1,0 +1,27 @@
+{
+  # Настройки базы, как у Lemmy
+  database: {
+    // адрес базы
+    connection: "postgres://u:p@localhost:5432/db"
+    pool_size: 30
+  }
+  "quoted key": 'single quoted'
+  hostname: unset value here
+  port: 8536, tls: true
+  ratio: 0.5
+  nothing: null
+  /* блочный
+     комментарий */
+  text:
+    '''
+    multi
+    line
+    '''
+  list: [
+    "a"
+    b
+    /* ещё */
+  ]
+  nested: { deep: { key: 1 } }
+  empty: {}
+}
