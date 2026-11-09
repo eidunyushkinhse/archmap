@@ -419,13 +419,14 @@ UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
 
 # Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
 # и schedule не ищутся); Celery beat читает разборщик celery-beat, sidekiq-scheduler из
-# config/sidekiq.yml — разборщик sidekiq, robfig/cron — go-cron (ТЗ §15 п. 15 Л2).
+# config/sidekiq.yml — разборщик sidekiq, robfig/cron — go-cron (ТЗ §15 п. 15 Л2), clokwerk —
+# clokwerk (Л3; другие планировщики Rust названы, сам Rust нет, по FAMILY_LANGUAGES).
 UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("node-cron", "node-cron"), ("cron", "cron"), ("node-schedule", "node-schedule"),
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
-    ("github.com/go-co-op/gocron", "gocron"),
-    ("clokwerk", "clokwerk"),
+    ("github.com/go-co-op/gocron", "gocron"), ("tokio-cron-scheduler", "tokio-cron-scheduler"),
+    ("job_scheduler", "job_scheduler"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -467,8 +468,8 @@ ROUTE_FRAMEWORKS = frozenset({
     "Echo", "chi", "Fiber", "Rails", "actix-web",
 })
 # Языки вне CODE_LANGUAGES, код которых ярус кода читает в одной семье, и зависимости пакета,
-# при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web. Пакет такого
-# языка с одной из зависимостей своим языком в unsupported семьи не называется.
+# при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web, расписания
+# clokwerk. Пакет такого языка своим языком в unsupported семьи не называется.
 FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
     "http_routes": {
         "Ruby": ("rails", "railties"),
@@ -476,6 +477,8 @@ FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
         ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
         "Rust": ("actix-web",),
     },
+    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3).
+    "schedules": {"Rust": ("clokwerk",)},
 }
 # Серверные фреймворки маршрутов без разборщика у языков из FAMILY_LANGUAGES (ТЗ §15 п. 15 К3,
 # решение исполнителя): пакет с ними назван в unsupported «Язык: фреймворк», пакет без
@@ -490,8 +493,8 @@ UNSUPPORTED_ROUTE_DEPS: tuple[tuple[str, str], ...] = (
 
 
 def family_language(family: str, language: str) -> bool:
-    """Маршруты на языке language семья family читает по стеку пакета (FAMILY_LANGUAGES):
-    пакет такого языка языком в unsupported семьи не называется."""
+    """Код на языке language семья family читает по стеку пакета (FAMILY_LANGUAGES): пакет
+    такого языка языком в unsupported семьи не называется."""
     return language in FAMILY_LANGUAGES.get(family, {})
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from archmap_scan import texts
-from archmap_scan.parsers import celerybeat, crontab, gocron
+from archmap_scan.parsers import celerybeat, clokwerk, crontab, gocron
 from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 Row = tuple[str, str, str | None, str]
@@ -121,6 +121,42 @@ def test_go_cron_needs_import(tmp_path: Path) -> None:
     assert _rows(gocron, tmp_path / "a") == ([], [])
     ctx, files = files_of(tmp_path / "b")
     assert gocron.NAME not in gocron.parse(files, ctx).applied
+
+
+def test_clokwerk_fixture() -> None:
+    """clokwerk (ТЗ §15 п. 15 Л3): аргумент every как написан, at через пробел, имя по первой
+    свободной функции в теле run (методы и Ok:: не считаются), без неё — место вызова;
+    комментарий и модуль тестов не читаются."""
+    rows, hints = _rows(clokwerk, FIXTURES / "rust-clokwerk")
+    assert rows == [
+        ("refresh_cache", "TimeUnits::minutes(5)", "refresh_cache", "src/main.rs:6"),
+        ("update_counts", "1.hour()", "update_counts", "src/main.rs:9"),
+        ("cleanup_old_rows", "Interval::Daily 03:00", "cleanup_old_rows", "src/main.rs:16"),
+        ("src/main.rs:19", "30.seconds()", "src/main.rs:19", "src/main.rs:19"),
+    ]
+    assert hints == []
+
+
+def test_clokwerk_coverage(tmp_path: Path) -> None:
+    """Крейт с clokwerk: семья расписаний покрыта, Rust языком не назван; крейт с
+    tokio-cron-scheduler назван стеком."""
+    from archmap_scan.scan import Options, run
+
+    tree(tmp_path / "a", {
+        **{str(p.relative_to(FIXTURES / "rust-clokwerk")): p.read_text(encoding="utf-8")
+           for p in (FIXTURES / "rust-clokwerk").rglob("*") if p.is_file()},
+        "lib/Cargo.toml": '[package]\nname = "lib"\n', "lib/src/lib.rs": "pub fn f() {}\n",
+    })
+    result = run(Options(path=str(tmp_path / "a"), out=str(tmp_path / "o1"), use_git=False))
+    stat = result.coverage.families["schedules"]
+    assert stat.status == "covered" and stat.found == 4 and stat.unsupported == []
+    tree(tmp_path / "b", {
+        "Cargo.toml": '[package]\nname = "b"\n\n[dependencies]\ntokio-cron-scheduler = "0.13"\n',
+        "src/main.rs": "fn main() {}\n",
+        "Dockerfile": 'FROM rust:1.80\nCOPY . /src\nENTRYPOINT ["b"]\n',
+    })
+    result = run(Options(path=str(tmp_path / "b"), out=str(tmp_path / "o2"), use_git=False))
+    assert result.coverage.families["schedules"].unsupported == ["Rust: tokio-cron-scheduler"]
 
 
 def test_celery_beat_needs_celery(tmp_path: Path) -> None:

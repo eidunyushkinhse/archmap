@@ -127,7 +127,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, `actix`, параметры
   `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
   `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
-  `celerybeat`, `gocron`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
+  `celerybeat`, `gocron`, `clokwerk`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
   стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -451,3 +451,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `REASON_SCHEDULE_VARIABLE`; имя и задача — функция, метод или задание вторым аргументом, у
     литеральной функции `func() {…}` — `файл:строка`; больше 2000 вызовов в файле — файл
     непрочитан (Л2).
+  - расписания clokwerk (`parsers/clokwerk.py`, стек — Cargo.toml с clokwerk, маска
+    `codetext.RUST`): `.every(аргумент)` — расписание текстом аргумента, `.at("hh:mm")` на его
+    цепочке добавляется через пробел, имя и задача — первая свободная функция в теле `.run(…)`
+    (не метод, не макрос, не конструктор с заглавной буквы), без неё — `файл:строка`; модуль
+    `#[cfg(test)]` и каталоги тестов не читаются, больше 2000 вызовов every в файле — файл
+    непрочитан. Rust в `unsupported` расписаний сам не называется (`vocab.FAMILY_LANGUAGES`),
+    tokio-cron-scheduler и job_scheduler названы стеком (Л3).

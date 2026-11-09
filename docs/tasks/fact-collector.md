@@ -267,6 +267,7 @@ archmap-scan/
 | каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`, `add_periodic_task` и обёртка над ним в файлах того же каталога, ч. 4, Л1), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
 | | Go: robfig/cron (`go.mod` с `github.com/robfig/cron`, файл с её импортом): `c.AddFunc("spec", f)`, `c.AddJob("spec", j)`, `c.Schedule(cron.Every(d), j)` (ч. 4, Л2) | расписание как написано, строковая константа файла раскрывается, выражение текстом, имя без значения в hints; имя и задача — функция или задание вторым аргументом, у литеральной функции `файл:строка` |
+| | Rust: clokwerk (`Cargo.toml` с clokwerk): `scheduler.every(TimeUnits::minutes(5))`, `.every(1.hour())`, `.every(Interval::Daily).at("03:00")`, `.run(move || f(…))` (ч. 4, Л3) | расписание текстом аргумента every и at через пробел; имя и задача — первая свободная функция в теле run, без неё `файл:строка`; модуль тестов не читается |
 
 ### 6.3 Миграции → `facts/*.tables.yaml`
 
@@ -1711,3 +1712,19 @@ unread: {too_large: 3, binary: 0}
      `hints.unassigned` с `REASON_MANY_OWNERS`; кандидат судьи `AddFunc @every` ищется в
      `entrypoints.yaml` и останется «нет». Grafana: 0 (robfig/cron только пустым импортом в
      `pkg/extensions/enterprise_imports.go`); Kubernetes из дыма: 0 (только `cron.ParseStandard`).
+   - Л3 (решение исполнителя): новый разборщик `parsers/clokwerk.py`. Расписание — текст
+     аргумента `every` как написан (`CTimeUnits::minutes(10)` у Lemmy, где clokwerk подключён
+     под другим именем), `.at("…")` на той же цепочке добавляется через пробел; цепочка
+     читается до десяти звеньев и кончается на следующем `every`. Имя и задача — первый вызов
+     свободной функции в теле `run` (имя со строчной буквы без точки перед ним, кроме ключевых
+     слов: `x.clone()`, `warn!(…)` и `Ok::<…>` не считаются), иначе `файл:строка`. Пределы:
+     аргумент и звено до 2000 знаков, тело `run` до 20 тыс., больше 2000 вызовов в файле — файл
+     непрочитан. Покрытие (сверх пункта, по образцу К3): clokwerk убран из
+     `vocab.UNSUPPORTED_SCHEDULE_DEPS`, расписания Rust вошли в `vocab.FAMILY_LANGUAGES`, и
+     Rust в `unsupported` расписаний сам не называется; известные планировщики Rust без
+     разборщика (tokio-cron-scheduler, job_scheduler) добавлены в словарь и называются
+     стеком. Lemmy: 0 → 4 расписания у `lemmy` (`crates/routes/src/utils/scheduled_tasks.rs`:
+     `plugin_hook_after` каждую минуту, `update_hot_ranks` каждые 10 минут, `active_counts`
+     ежечасно, `all_active_counts` ежедневно), семья из `unsupported` в `covered`. PostHog:
+     clokwerk и других планировщиков в крейтах нет, расписаний не прибавилось, `Rust` ушёл
+     из `unsupported` расписаний.

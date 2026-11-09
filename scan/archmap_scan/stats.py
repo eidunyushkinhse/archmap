@@ -274,9 +274,10 @@ def code_unsupported(
         ("channels", vocab.UNSUPPORTED_CHANNEL_DEPS),
         ("workers", vocab.UNSUPPORTED_WORKER_DEPS), ("schedules", vocab.UNSUPPORTED_SCHEDULE_DEPS),
     )
-    # Языки без чтения кода по семьям: язык, маршруты на котором семья читает по стеку
-    # пакета (vocab.family_language: Rails, ASP.NET Core, actix-web), языком не называется;
-    # его фреймворки без разборщика названы по vocab.UNSUPPORTED_ROUTE_DEPS.
+    # Языки без чтения кода по семьям: язык, код на котором семья читает по стеку пакета
+    # (vocab.family_language: маршруты Rails, ASP.NET Core, actix-web, расписания clokwerk),
+    # языком не называется; его стеки без разборщика названы по vocab.UNSUPPORTED_ROUTE_DEPS
+    # и UNSUPPORTED_SCHEDULE_DEPS.
     unread: dict[str, list[str]] = {fam: [] for fam in _LANGUAGE_FAMILIES}
 
     def add(fam: str, name: str) -> None:

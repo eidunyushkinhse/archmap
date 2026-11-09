@@ -29,7 +29,7 @@ MANIFESTS: dict[str, str | bytes] = {
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
-    "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\n',
+    "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\nclokwerk = "0.4"\n',
 }
 
 # Подключение клиента: без него разборщики каналов JS и Go файл не читают.
@@ -179,6 +179,11 @@ STARTS["py/app.py"] += (
     "def w(s, sch, sig):\n    s.add_periodic_task(sch, sig)\nw(s, crontab(minute='",
     "def w(s, sch, sig, name):\n    s.add_periodic_task(sch, sig, name=name)\nw(s, 1, t.s(), name='",
 )
+# Расписания clokwerk (ТЗ §15 п. 15 Л3): аргумент every, at и тело run без закрытия.
+STARTS["rs/main.rs"] += (
+    "s.every(", "s.every(1.hour()).at(\"", "s.every(1.hour()).run(|| ", "s.every(1.hour()).run(|| f(",
+    "s.every(1.hour()).at(", "s.every(TimeUnits::minutes(",
+)
 # DDL в шаблонах миграций (ТЗ §15 п. 14 З2): шаблон, вставка, откат, sql.raw.
 STARTS["js/migrations/1-a.ts"] = (
     "sql`", "sql`CREATE TABLE t (", "sql`CREATE TABLE ${", "sql`CREATE TABLE t AS SELECT ",
@@ -257,6 +262,15 @@ GO_CRON = {
     "nested": RGO + "c.AddFunc(" * (PAYLOAD // 10),
     "const-block": RGO + "const (\n" + '\tA = "x"\n' * (PAYLOAD // 9) + ")\nc.AddFunc(A, f)\n",
     "long-args": RGO + ("c.AddFunc(" + "a+" * 1500 + "b, f)\n") * 600,
+}
+# Расписания clokwerk (ТЗ §15 п. 15 Л3): вызовов сверх предела, вложенные every, длинные
+# цепочки звеньев и тела run без вызова функции.
+CLOKWERK = {
+    "calls": "s.every(1.hour()).run(|| f());\n" * (PAYLOAD // 30),
+    "nested": "s.every(" * (PAYLOAD // 8),
+    "links": ("s.every(1.hour())" + ".at(\"1\")" * 20 + ";\n") * 1900,
+    "chain": "s.every(1.hour())" + ".at(\"1\")" * (PAYLOAD // 9),
+    "bodies": ("s.every(1.hour()).run(|| {" + "x.y(); " * 2800 + "});\n") * 100,
 }
 # Схема zod с множеством ключей и констант-валидаторов (ТЗ §15 п. 14 Е3).
 JS_ZOD = {
@@ -429,3 +443,8 @@ def test_celery_wrappers(tmp_path: Path) -> None:
 @pytest.mark.parametrize("kind", sorted(GO_CRON))
 def test_go_cron(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "go/main.go": GO_CRON[kind]}))
+
+
+@pytest.mark.parametrize("kind", sorted(CLOKWERK))
+def test_clokwerk(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rs/main.rs": CLOKWERK[kind]}))
