@@ -422,12 +422,16 @@ UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
 # config/sidekiq.yml — разборщик sidekiq, robfig/cron — go-cron (ТЗ §15 п. 15 Л2), clokwerk —
 # clokwerk (Л3; другие планировщики Rust названы, сам Rust нет, по FAMILY_LANGUAGES), пакеты
 # cron и @nestjs/schedule — node-cronjob (Л4; node-cron — другая библиотека, она названа).
+# sidekiq-scheduler и sidekiq-cron читает разборщик sidekiq (ТЗ §15 п. 16 П2), другие
+# планировщики Ruby названы, сам Ruby нет.
 UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("node-cron", "node-cron"), ("node-schedule", "node-schedule"),
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
     ("github.com/go-co-op/gocron", "gocron"), ("tokio-cron-scheduler", "tokio-cron-scheduler"),
     ("job_scheduler", "job_scheduler"),
+    ("whenever", "whenever"), ("rufus-scheduler", "rufus-scheduler"), ("clockwork", "Clockwork"),
+    ("good_job", "GoodJob"), ("solid_queue", "Solid Queue"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -470,7 +474,8 @@ ROUTE_FRAMEWORKS = frozenset({
 })
 # Языки вне CODE_LANGUAGES, код которых ярус кода читает в одной семье, и зависимости пакета,
 # при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web, расписания
-# clokwerk. Пакет такого языка своим языком в unsupported семьи не называется.
+# clokwerk, sidekiq-scheduler и sidekiq-cron (п. 16 П2). Пакет такого языка своим языком в
+# unsupported семьи не называется.
 FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
     "http_routes": {
         "Ruby": ("rails", "railties"),
@@ -478,8 +483,8 @@ FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
         ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
         "Rust": ("actix-web",),
     },
-    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3).
-    "schedules": {"Rust": ("clokwerk",)},
+    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2).
+    "schedules": {"Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron")},
 }
 # Серверные фреймворки маршрутов без разборщика у языков из FAMILY_LANGUAGES (ТЗ §15 п. 15 К3,
 # решение исполнителя): пакет с ними назван в unsupported «Язык: фреймворк», пакет без

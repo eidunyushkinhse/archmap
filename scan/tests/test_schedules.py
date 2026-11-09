@@ -3,13 +3,21 @@
 
 from __future__ import annotations
 
+import shutil
 from functools import partial
 from pathlib import Path
 
 import pytest
 
-from archmap_scan import texts
-from archmap_scan.parsers import celerybeat, clokwerk, crontab, gocron, nodecron
+from archmap_scan import texts, yamlload
+from archmap_scan.parsers import (
+    celerybeat,
+    clokwerk,
+    crontab,
+    gocron,
+    nodecron,
+    sidekiq,
+)
 from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Row = tuple[str, str, str | None, str]
@@ -337,3 +345,91 @@ def test_crontab_hostile(tmp_path: Path, kind: str) -> None:
     if kind == "lines":
         # Сто двадцать тысяч записей — не crontab: файл непрочитан, записей нет.
         assert found.schedules == [] and files.too_large == {"jobs/big.cron"}
+
+
+def test_sidekiq_cron_fixture() -> None:
+    """sidekiq-cron (ТЗ §15 п. 16 П2, Forem config/schedule.yml): запись верхнего уровня с
+    cron или every и class, вставка ERB в cron как написана. Ловушки: запись без class не
+    читается, schedule.yml вне каталога config не читается. Владелец — контейнер, команда
+    которого запускает sidekiq, а не web того же каталога."""
+    rows, hints = _rows(sidekiq, FIXTURES / "sidekiq-cron")
+    assert rows == [
+        ("send_digest", "0 <%= ENV.fetch('DIGEST_HOUR', 7) %> * * *", "Emails::DigestWorker",
+         "config/schedule.yml:1"),
+        ("refresh_feeds", "10m", "Feeds::RefreshWorker", "config/schedule.yml:5"),
+    ]
+    assert hints == []
+    model = model_of(FIXTURES / "sidekiq-cron")
+    assert {k: [(s.name, str(s.loc)) for s in v] for k, v in model.schedules.items()} == {
+        "sidekiq": [
+            ("send_digest", "config/schedule.yml:1"), ("refresh_feeds", "config/schedule.yml:5"),
+        ],
+    }
+    assert not [h for h in model.hints.get("unassigned", []) if h["kind"] == "schedule"]
+
+
+def test_sidekiq_cron_without_gem(tmp_path: Path) -> None:
+    """Без sidekiq-cron в Gemfile читаются только записи с ключами cron и class: every не
+    читается. config/sidekiq_cron.yml читается тем же правилом, :queues: в нём не ищутся."""
+    root = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "sidekiq-cron", root)
+    tree(root, {
+        "Gemfile": 'gem "rails"\ngem "sidekiq"\n',
+        "config/sidekiq_cron.yml": "purge:\n  cron: \"0 4 * * *\"\n  class: PurgeWorker\n",
+    })
+    rows, _hints = _rows(sidekiq, root)
+    assert rows == [
+        ("send_digest", "0 <%= ENV.fetch('DIGEST_HOUR', 7) %> * * *", "Emails::DigestWorker",
+         "config/schedule.yml:1"),
+        ("purge", "0 4 * * *", "PurgeWorker", "config/sidekiq_cron.yml:1"),
+    ]
+
+
+def test_sidekiq_cron_coverage(tmp_path: Path) -> None:
+    """Пакет Ruby с sidekiq-cron: семья расписаний покрыта, Ruby языком не назван (ТЗ §15
+    п. 16 П2); пакет с whenever назван стеком, пакет Ruby без планировщика не назван вовсе."""
+    from archmap_scan.scan import Options, run
+
+    root = tmp_path / "a"
+    shutil.copytree(FIXTURES / "sidekiq-cron", root)
+    result = run(Options(path=str(root), out=str(tmp_path / "o1"), use_git=False))
+    stat = result.coverage.families["schedules"]
+    assert stat.status == "covered" and stat.found == 2 and stat.unsupported == []
+    tree(root, {"Gemfile": 'gem "rails"\ngem "sidekiq"\ngem "sidekiq-cron"\ngem "whenever"\n'})
+    result = run(Options(path=str(root), out=str(tmp_path / "o2"), use_git=False))
+    assert result.coverage.families["schedules"].unsupported == ["Ruby: whenever"]
+    tree(tmp_path / "b", {
+        "Gemfile": 'gem "rails"\n', "Dockerfile": "FROM ruby:3.3\nCOPY . /app\n",
+        "app/models/a.rb": "class A\nend\n",
+    })
+    result = run(Options(path=str(tmp_path / "b"), out=str(tmp_path / "o3"), use_git=False))
+    assert result.coverage.families["schedules"].unsupported == []
+
+
+SIDEKIQ_CRON_HOSTILE = {
+    "entries": "j{0}:\n  cron: \"* * * * *\"\n  class: W\n",
+    "erb": "<%= x %>",
+    "open": "<%",
+    "flow": "[",
+}
+
+
+@pytest.mark.parametrize("kind", [*sorted(SIDEKIQ_CRON_HOSTILE), "fit"])
+def test_sidekiq_cron_hostile(tmp_path: Path, kind: str) -> None:
+    """Враждебный config/schedule.yml на 2 МБ: разбор в пределе времени с запасом 30 %.
+    fit — записи вплотную к пределу YAML (256 КБ): файл читается целиком, а время почти всё
+    уходит на общий разбор YAML (около 1,3 с процессорного времени на любой такой файл), поэтому
+    предел у него втрое шире."""
+    unit = SIDEKIQ_CRON_HOSTILE["entries" if kind == "fit" else kind]
+    size = yamlload.MAX_YAML_BYTES - 100 if kind == "fit" else 2_000_000
+    if kind in ("entries", "fit"):
+        body = "".join(unit.format(f"{i:07}") for i in range(size // (len(unit) + 4)))
+    else:
+        body = "a: " + unit * (size // len(unit))
+    root = tree(tmp_path, {"Gemfile": 'gem "sidekiq"\ngem "sidekiq-cron"\n',
+                           "config/schedule.yml": body})
+    ctx, files = files_of(root)
+    limit = time_limit() * (3 if kind == "fit" else 0.7)
+    found, took = timed(partial(sidekiq.parse, files, ctx), limit)
+    assert took < limit, f"{kind}: {took:.2f} с"
+    assert len(found.schedules) == (body.count("\n") // 3 if kind == "fit" else 0)

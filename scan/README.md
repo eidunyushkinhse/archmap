@@ -504,3 +504,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     объекта задаёт свою команду. Расписание Celery beat в каталоге нескольких контейнеров
     получает единственный, чьи команды запускают `celery` со словом `beat` или ключом `-B`,
     `--beat`; таких несколько — «владелец не определим», ни одного — прежнее правило (П1).
+  - расписания sidekiq-cron (`parsers/sidekiq.py`): `config/schedule.yml`, `config/schedule.yaml`
+    и `config/sidekiq_cron.yml` в пакете Ruby с sidekiq, запись верхнего уровня с `class` и
+    `cron` или `every` даёт расписание с именем ключа и задачей `class`; без sidekiq-cron в
+    Gemfile читаются только записи с `cron` и `class`, вставки ERB как в `sidekiq.yml`. Ruby
+    в покрытии расписаний языком не называется (стек читается по sidekiq-scheduler и
+    sidekiq-cron), планировщики Ruby без разборщика (whenever, rufus-scheduler, Clockwork,
+    GoodJob, Solid Queue) названы стеком (П2).

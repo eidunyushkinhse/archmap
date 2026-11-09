@@ -1,0 +1,11 @@
+send_digest:
+  description: "Daily digest at the hour from the environment"
+  cron: "0 <%= ENV.fetch('DIGEST_HOUR', 7) %> * * *"
+  class: "Emails::DigestWorker"
+refresh_feeds:
+  every: "10m"
+  class: "Feeds::RefreshWorker"
+  args: ["all"]
+orphan_cron:
+  description: "No class: not a job"
+  cron: "*/5 * * * *"

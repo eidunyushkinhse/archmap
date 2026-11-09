@@ -86,9 +86,10 @@ def test_code_unsupported_stacks() -> None:
     # Sidekiq из кода не заводятся.
     assert stacks["channels"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
     assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
-    # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler — sidekiq,
-    # clokwerk — clokwerk (ТЗ §15 п. 15 Л3): Rust в расписаниях не назван.
-    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP", "Ruby"]
+    # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler и sidekiq-cron —
+    # sidekiq (ТЗ §15 п. 16 П2), clokwerk — clokwerk (п. 15 Л3): Rust и Ruby в расписаниях не
+    # названы.
+    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP"]
     assert stacks["tables"] == ["Ecto", "Kysely"]
 
 
