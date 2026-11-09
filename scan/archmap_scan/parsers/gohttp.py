@@ -7,7 +7,11 @@ e.POST, app.Get, группы r.Group("/v1")). Группы — присваив
 Префикс решён, если цепочка групп доходит до корня, созданного в этом же файле
 (gin.Default(), echo.New(), fiber.New(), chi.NewRouter(), mux.NewRouter(),
 http.NewServeMux()) или до пакета http; иначе маршрут помечен prefix_unresolved.
-Вызовы клиентов (client.Get("/api/…")) отсеиваются по имени получателя. Поиск идёт по
+Вызовы клиентов (client.Get("/api/…")) отсеиваются по имени получателя, запросы по виду
+вызова (ТЗ §15 п. 16 П4): функции запроса net/http (http.Get(url), http.Post) и глагол с
+одним аргументом без обработчика (api.Get(url)) ни маршрута, ни подсказки не дают. Конец
+первого аргумента виден там, где разбор и так его находит (литерал, обёртка, склейка, текст
+выражения для подсказки), отдельного прохода по аргументам нет. Поиск идёт по
 маске кода (codetext.py), выражения начинаются с «.», имя слева от точки берётся
 ручным просмотром назад.
 
@@ -67,6 +71,13 @@ _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}")
 _HEAD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}(?:\.[A-Za-z_][A-Za-z0-9_]{0,99})?")
 _PLUS = re.compile(rf"{SP}\+{SP}")
 _ARG_END = re.compile(rf"{SP}[,)]")
+# Первый аргумент последний: вызов без обработчика (ТЗ §15 п. 16 П4), если за скобкой нет
+# цепочки: ws.GET("/").To(h) у go-restful — построитель маршрута, обработчик в цепочке.
+_CLOSE = re.compile(rf"{SP}\)(?!{SP}\.)")
+_CHAIN = re.compile(rf"{SP}\.")
+# Функции пакета net/http, которые делают запрос, а не регистрируют маршрут (П4):
+# http.Get(url), http.Post(url, t, b), http.Head(url); http.PostForm под _CALL не попадает.
+_HTTP_REQUESTS = frozenset({"Get", "Post", "Head"})
 _MAX_PARTS = 50
 _HTTP_METHOD = re.compile(
     r"http[ \t]*\.[ \t]*Method(Get|Head|Post|Put|Patch|Delete|Connect|Options|Trace)\b"
@@ -318,23 +329,52 @@ def _concat(f: _File, arg: int) -> tuple[str, int, bool] | None:
     return "".join(parts), end, lead
 
 
-def _not_string(f: _File, found: Findings, recv: str, at: int, arg: int, method: str) -> None:
+def _first_arg(code: codetext.Code, start: int, limit: int = 80) -> tuple[str, bool]:
+    """Текст первого аргумента с позиции start (как codetext.expression) и признак, что он
+    последний и за скобкой вызова нет цепочки (вызов без обработчика, П4). Не видно в limit
+    знаков — признака нет."""
+    out: list[str] = []
+    depth = 0
+    mask = code.mask
+    for i in range(start, min(len(mask), start + limit)):
+        ch = mask[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                return "".join(out).strip(), ch == ")" and not _CHAIN.match(mask, i + 1)
+            depth -= 1
+        elif ch in ",;\n" and depth == 0:
+            break
+        out.append(code.text[i])
+    return "".join(out).strip(), False
+
+
+def _not_string(
+    f: _File, found: Findings, recv: str, at: int, arg: int, method: str, handler: bool,
+) -> None:
     """Путь не строкой. Подсказка — только если это точно маршрут: получатель — известный
     объект маршрутизации или в выражении есть путь («toPath("/api…")»); иначе это
-    Get(ctx, key) хранилища или кэша."""
+    Get(ctx, key) хранилища или кэша. handler — вызову нужен обработчик (глагол): с одним
+    аргументом это запрос клиента, подсказки нет (П4)."""
     mask = f.code.mask
     ch = mask[arg:arg + 1]
     if ch and (ch.isalpha() or ch == "_") and not mask.startswith("func", arg):
-        if _known(f, recv, at) or '"/' in f.code.expression(arg):
-            _dynamic(f, found, arg, method=method)
+        text, last = _first_arg(f.code, arg)
+        if not (_known(f, recv, at) or '"/' in text):
+            return
+        if handler and last:
+            return
+        _dynamic(f, found, arg, method=method, name=text)
 
 
 def _dynamic(
     f: _File, found: Findings, start: int, reason: str = texts.REASON_DYNAMIC_ROUTE,
-    method: str | None = None,
+    method: str | None = None, name: str | None = None,
 ) -> None:
     found.hints.append(route_hint(
-        f.code.expression(start), reason, Loc(f.rel, f.code.line(start)), method,
+        f.code.expression(start) if name is None else name, reason,
+        Loc(f.rel, f.code.line(start)), method,
     ))
 
 
@@ -357,6 +397,11 @@ def _scan(f: _File, found: Findings) -> None:
         if recv is None or recv in _CLIENTS:
             continue
         verb = m.group(1)
+        if recv == "http" and verb in _HTTP_REQUESTS:
+            continue  # http.Get(url): запрос клиента (П4)
+        # Глагол (Get, POST и другие) регистрирует маршрут только с обработчиком: вызов с
+        # одним аргументом — запрос клиента (П4). Handle, HandleFunc, Any и All не глаголы.
+        handler = verb.upper() in _VERBS
         arg = m.end()
         wrapped = None
         concat = None
@@ -366,7 +411,7 @@ def _scan(f: _File, found: Findings) -> None:
             if concat is None:
                 wrapped = _wrapped(f, recv, m.start(), arg)
                 if wrapped is None:
-                    _not_string(f, found, recv, m.start(), arg, _METHODS[verb])
+                    _not_string(f, found, recv, m.start(), arg, _METHODS[verb], handler)
                     continue
                 start, end, after = wrapped
         else:
@@ -379,12 +424,17 @@ def _scan(f: _File, found: Findings) -> None:
                 concat = _concat(f, start) if wrapped is None else None
                 if concat is None:
                     # «"/"+root+"/"»: литерал лишь часть пути (ТЗ §15 п. 10 А).
-                    if value.startswith("/"):
-                        _dynamic(f, found, start, texts.REASON_JOINED_NAME, _METHODS[verb])
+                    text, bare = _first_arg(code, start)
+                    if value.startswith("/") and not (handler and bare):
+                        _dynamic(
+                            f, found, start, texts.REASON_JOINED_NAME, _METHODS[verb], text,
+                        )
                     continue
         lead = False
         if concat is not None:
             value, after, lead = concat
+        if handler and _CLOSE.match(mask, after):
+            continue  # r.Get("/x"): без обработчика, запрос клиента (П4)
         method = _METHODS[verb]
         path = value
         if verb == "Handle" and value in _VERBS:

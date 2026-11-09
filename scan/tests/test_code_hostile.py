@@ -144,6 +144,30 @@ def test_go_concat_path(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_CONCAT[kind]}))
 
 
+# Запрос клиента не маршрут (ТЗ §15 п. 16 П4): вызов глагола с одним аргументом, функции
+# запроса net/http, вложенные и незакрытые вызовы.
+STARTS["go/main.go"] += (
+    "r := chi.NewRouter()\nr.Get(url", "http.Get(", "x.Get(x.Get(", "x.Get(T{", "x.Get(f(a, ",
+    'ws.Route(ws.GET("/a")', "ws.Route(ws.GET(p)",
+)
+GO_REQUESTS = {
+    # Плотные вызовы: 0,7 МБ. Два мегабайта сплошных вызовов глагола идут около 0,9 с
+    # процессорного времени и без П4 шли дольше (1,1 до 1,8 с): цена одного вызова в
+    # разборщике go-http (смежный дефект в отчёте части 5), правило П4 её только снижает.
+    "calls": "r := chi.NewRouter()\n" + "r.Get(url)\nr.Post(u, h)\n" * 30_000,
+    # Вложенные скобки в аргументе: конец первого аргумента ищется не дальше 80 знаков.
+    # Подряд вложенные вызовы глагола («x.Get(x.Get(») медленны и без П4: каждый вызов с
+    # аргументом не строкой собирает текст выражения (смежный дефект в отчёте части 5).
+    "nested": "r := chi.NewRouter()\nr.Get(" + "(" * PAYLOAD,
+    "commas": "r := chi.NewRouter()\nr.Get(" + "f(a, " * (PAYLOAD // 5),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(GO_REQUESTS))
+def test_go_client_requests(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_REQUESTS[kind]}))
+
+
 # Префикс NestJS членом перечисления (ТЗ §15 п. 15 К4).
 STARTS["js/app.js"] += (
     "@Controller(A.", "@Controller(A.B", "@Controller(A.B)\nclass C {\n  @Get('",

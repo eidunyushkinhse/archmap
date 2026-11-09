@@ -263,7 +263,7 @@ archmap-scan/
 |---|---|---|
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
 | | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
-| | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле; `имя + "/p"` на известном маршрутизаторе — путь литерала с `prefix_unresolved`, `"/a" + "/b"` — путь целиком, методы `.Methods(http.MethodGet)` (ч. 4, К5) | регулярные выражения |
+| | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле; `имя + "/p"` на известном маршрутизаторе — путь литерала с `prefix_unresolved`, `"/a" + "/b"` — путь целиком, методы `.Methods(http.MethodGet)` (ч. 4, К5); запрос клиента не маршрут: `http.Get(url)`, `http.Post`, `http.Head` и глагол с одним аргументом без цепочки за скобкой (`api.Get(url)`), а построитель go-restful `ws.GET("/p").To(h)` маршрут (ч. 5, П4) | регулярные выражения |
 | | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints |
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"` или `Microsoft.AspNetCore.*`): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints, маршрут по соглашению `/Контроллер/действие` с `prefix_unresolved: true` |
 | | Rust: actix-web (`Cargo.toml` с actix-web): `.route("/p", web::get().to(h))` и другие методы (`web::method`, `web::to` — ANY), `web::resource("/p").route(web::get()…)` и `.to(h)`, `web::scope("/v1")` с вложенными `.service(web::scope(…))`, `#[get("/p")]` и `#[route("/p", method = "GET")]` над `fn` (ч. 4, К3) | один проход по парным скобкам маски Rust; атрибут — путь без префикса; константа `const` файла раскрывается, `format!` и переменная в hints |
@@ -1950,6 +1950,24 @@ unread: {too_large: 3, binary: 0}
      17 и 21 без владельца, Kubernetes 1 и 29 без владельца; «Ярмарка» 1 (`STATUS_PATH`,
      `method: GET`, поэтому `yarmarka.expected` меняется не только строкой версии). Подсказки
      не исчезли и не появились ни у одного репозитория, ни одна запись не поменялась.
+   - П4 (решение исполнителя): «один аргумент» определяется там, где разбор и так находит
+     конец первого аргумента (литерал пути, обёртка, склейка, текст выражения для подсказки
+     не дальше 80 знаков), без отдельного прохода по аргументам: проход по скобкам всего
+     файла шёл 1,9 с на 2 МБ открывающих скобок. Отклонение от пункта: глагол с одним
+     аргументом и цепочкой за скобкой остаётся маршрутом, потому что это построитель
+     go-restful (`ws.Route(ws.GET("/").To(h))`): без этого Kubernetes потерял бы 29 маршрутов
+     без владельца (`pkg/routes/logs.go:38`, `pkg/kubelet/server/server.go:748` и другие).
+     Глаголы все семь (`OPTIONS` тоже: регистрации без обработчика не бывает), `Handle`,
+     `HandleFunc`, `Any` и `All` не глаголы. `http.PostForm` под шаблон вызова и раньше не
+     попадал. Подсказки ушли только о запросах клиентов: Online Boutique 1 → 0
+     (`src/frontend/packaging_info.go:54` `http.Get(url)`), Grafana 2 (`generate.go:60`, `:89`
+     `http.Get`), Loki 2 (`http.Get(readyURL)`, `http.Get(url)`), Kubernetes 1
+     (`visitor.go:332`), Nomad 7 (два вызова `s.vLogical.Delete(fmt.Sprintf("/auth/%s/role/%s",
+     vaultPath, role))` и подобный, пять `s.HTTPClient.Get(s.url("/v1/metrics"))` и
+     подобных); Argo CD без изменений; записей `http:` и маршрутов без владельца не убыло ни
+     у кого (`entrypoints.yaml` тот же). Фикстура: ловушки `http.Get(url)`, `http.Post(url, t,
+     b)`, `r.Get(url)` и `r.GET(urlFor("/c"))` с одним аргументом (прежде маршрут `GET /c`),
+     рядом маршруты `r.Get("/a", h)`, `http.HandleFunc("/b", h)` и `ws.GET("/logs").To(logs)`.
    - П7 (решение исполнителя): все тесты времени сборщика (`time_limit()` и пределы числом в
      `test_code_hostile`, `test_hostile`, `test_buildfiles`, `test_alembic` и ещё 15 файлах)
      меряют процессорное время `time.process_time()` вместо `time.perf_counter()` с теми же
