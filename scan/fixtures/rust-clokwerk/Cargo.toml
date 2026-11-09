@@ -1,0 +1,6 @@
+[package]
+name = "jobs"
+version = "0.1.0"
+
+[dependencies]
+clokwerk = "0.4.0"

@@ -1,0 +1,3 @@
+FROM golang:1.22 AS build
+COPY . /src
+RUN cd /src && go build -o /usr/local/bin/ ./cmd/...

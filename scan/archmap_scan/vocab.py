@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from archmap_scan import dialect
@@ -418,13 +419,15 @@ UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
 
 # Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
 # и schedule не ищутся); Celery beat читает разборщик celery-beat, sidekiq-scheduler из
-# config/sidekiq.yml — разборщик sidekiq.
+# config/sidekiq.yml — разборщик sidekiq, robfig/cron — go-cron (ТЗ §15 п. 15 Л2), clokwerk —
+# clokwerk (Л3; другие планировщики Rust названы, сам Rust нет, по FAMILY_LANGUAGES), пакеты
+# cron и @nestjs/schedule — node-cronjob (Л4; node-cron — другая библиотека, она названа).
 UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
-    ("node-cron", "node-cron"), ("cron", "cron"), ("node-schedule", "node-schedule"),
+    ("node-cron", "node-cron"), ("node-schedule", "node-schedule"),
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
-    ("github.com/robfig/cron", "robfig/cron"), ("github.com/go-co-op/gocron", "gocron"),
-    ("clokwerk", "clokwerk"),
+    ("github.com/go-co-op/gocron", "gocron"), ("tokio-cron-scheduler", "tokio-cron-scheduler"),
+    ("job_scheduler", "job_scheduler"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -463,8 +466,44 @@ UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (
 )
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
-    "Echo", "chi", "Fiber",
+    "Echo", "chi", "Fiber", "Rails", "actix-web",
 })
+# Языки вне CODE_LANGUAGES, код которых ярус кода читает в одной семье, и зависимости пакета,
+# при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web, расписания
+# clokwerk. Пакет такого языка своим языком в unsupported семьи не называется.
+FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
+    "http_routes": {
+        "Ruby": ("rails", "railties"),
+        # Веб-проект .NET (Sdk="Microsoft.NET.Sdk.Web") или зависимость Microsoft.AspNetCore.*.
+        ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
+        "Rust": ("actix-web",),
+    },
+    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3).
+    "schedules": {"Rust": ("clokwerk",)},
+}
+# Серверные фреймворки маршрутов без разборщика у языков из FAMILY_LANGUAGES (ТЗ §15 п. 15 К3,
+# решение исполнителя): пакет с ними назван в unsupported «Язык: фреймворк», пакет без
+# известного стека не назван вовсе, как у языков CODE_LANGUAGES (у Lemmy библиотечные крейты
+# без actix-web маршрутов не держат). Только для покрытия: роль и технологию объекта
+# по-прежнему даёт SERVER_FRAMEWORKS.
+UNSUPPORTED_ROUTE_DEPS: tuple[tuple[str, str], ...] = (
+    ("axum", "axum"), ("rocket", "Rocket"), ("warp", "warp"), ("poem", "poem"), ("tide", "tide"),
+    ("sinatra", "Sinatra"), ("hanami", "Hanami"), ("grape", "Grape"), ("roda", "Roda"),
+    ("fastendpoints", "FastEndpoints"), ("carter", "Carter"),
+)
+
+
+def family_language(family: str, language: str) -> bool:
+    """Код на языке language семья family читает по стеку пакета (FAMILY_LANGUAGES): пакет
+    такого языка языком в unsupported семьи не называется."""
+    return language in FAMILY_LANGUAGES.get(family, {})
+
+
+def family_reads(family: str, language: str, deps: Iterable[str]) -> bool:
+    """Код пакета языка language с зависимостями deps ярус кода читает в семье family:
+    зависимость равна ключу или начинается с «ключ.» (Microsoft.AspNetCore.*)."""
+    keys = FAMILY_LANGUAGES.get(family, {}).get(language, ())
+    return any(d.lower() == k or d.lower().startswith(k + ".") for d in deps for k in keys)
 
 # ORM и описания схем, которые сборщик пока не разбирает (ТЗ §6.4) → имя стека.
 UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (

@@ -1,11 +1,19 @@
 """Маршруты NestJS (ТЗ §6.2): @Controller('prefix') и методы @Get('p'), @Post(), @Put,
 @Patch, @Delete, @Options, @Head, @All внутри класса. Глобальный префикс
 app.setGlobalPrefix('api') в любом файле пакета добавляется ко всем маршрутам пакета;
-префикс не строкой делает их нерешёнными. Поиск идёт по маске кода (codetext.py)."""
+префикс не строкой делает их нерешёнными. Поиск идёт по маске кода (codetext.py).
+
+Префикс членом перечисления `@Controller(Имя.Член)` (ТЗ §15 п. 15 К4) раскрывается в
+строковое значение `enum Имя { Член = 'строка' }`: сначала в пакете файла контроллера, иначе
+в любом пакете репозитория; объявления с разными значениями в нескольких пакетах —
+подсказка «неоднозначно», член не строкой или не найден — подсказка, как раньше. Перечисления
+репозитория читаются один раз за запуск и только когда такой префикс встретился."""
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from typing import cast
 
 from archmap_scan import codebase, codetext, texts
 from archmap_scan.codetext import SP, STR
@@ -21,6 +29,16 @@ _METHOD = re.compile(rf"@(Get|Post|Put|Patch|Delete|Options|Head|All)[ \t]*\({SP
 _GLOBAL = re.compile(rf"\.[ \t]*setGlobalPrefix[ \t]*\({SP}({STR})?")
 _PATH_KEY = re.compile(rf"path[ \t]*:{SP}({STR})")
 _STR = re.compile(STR)
+_ID = r"[A-Za-z_$][A-Za-z0-9_$]{0,99}"
+_MEMBER_REF = re.compile(rf"({_ID})[ \t]*\.[ \t]*({_ID}){SP}[),]")
+_ENUM = re.compile(rf"\benum[ \t]+({_ID})[ \t]*\{{")
+_ENUM_ITEM = re.compile(rf"\s*({_ID})\s*(?:=\s*({STR})?)?")
+# Сколько знаков тела перечисления читается и сколько перечислений в файле.
+_MAX_ENUM = 50_000
+_MAX_ENUMS = 2000
+# Значения членов: имя перечисления → [(каталог пакета, член → строка или None)].
+_Enums = dict[str, list[tuple[str, dict[str, str | None]]]]
+Resolver = Callable[[str, str], tuple[str | None, str]]
 
 
 def _join(*parts: str) -> str:
@@ -38,9 +56,79 @@ def _dynamic(
     }))
 
 
-def _controller(code: codetext.Code, rel: str, found: Findings, start: int) -> str | None:
-    """Префикс контроллера по аргументу @Controller: строка, { path: '…' } или пусто;
-    None — префикс не строкой."""
+def _enum_members(code: codetext.Code, start: int) -> dict[str, str | None]:
+    """Члены перечисления от позиции после «{»: строковое значение или None (число,
+    выражение, без значения)."""
+    mask = code.mask
+    end = mask.find("}", start, start + _MAX_ENUM)
+    out: dict[str, str | None] = {}
+    if end < 0:
+        return out
+    at = start
+    for piece in mask[start:end].split(","):
+        m = _ENUM_ITEM.fullmatch(piece.rstrip())
+        if m is not None:
+            value = None
+            if m.group(2) is not None:
+                literal, dynamic = code.literal(at + m.start(2), at + m.end(2))
+                value = None if dynamic else literal
+            out.setdefault(m.group(1), value)
+        at += len(piece) + 1
+    return out
+
+
+def _enums(files: Files, ctx: Context) -> _Enums:
+    """Перечисления TypeScript репозитория (один разбор на запуск)."""
+    memo = files.memo.get("nest-enums")
+    if memo is not None:
+        return cast(_Enums, memo)
+    out: _Enums = {}
+    # Пропуск кода для разработки при поиске перечислений в покрытие маршрутов не идёт:
+    # маршрутов в этих файлах разборщик не искал.
+    kept, files.dev_code = files.dev_code, set()
+    for rel, text in codebase.sources(files, ctx, codebase.NODE, None, ("enum",)):
+        if not rel.endswith((".ts", ".mts", ".cts", ".tsx")):
+            continue
+        code = codetext.load(files, rel, text, codetext.JS)
+        if code is None:
+            continue
+        pkgs = codebase.owner_packages(files, ctx, rel, codebase.NODE)
+        folder = pkgs[0].dir if pkgs else ""
+        for n, m in enumerate(_ENUM.finditer(code.mask)):
+            if n >= _MAX_ENUMS:
+                break
+            out.setdefault(m.group(1), []).append((folder, _enum_members(code, m.end())))
+    files.dev_code = kept
+    files.memo["nest-enums"] = out
+    return out
+
+
+def _resolver(files: Files, ctx: Context, rel: str) -> Resolver:
+    """Значение члена перечисления для контроллера файла rel и причина подсказки, если
+    значения нет."""
+    def resolve(name: str, member: str) -> tuple[str | None, str]:
+        found = _enums(files, ctx).get(name, [])
+        pkgs = codebase.owner_packages(files, ctx, rel, codebase.NODE)
+        own = [members for folder, members in found if pkgs and folder == pkgs[0].dir]
+        values = {members.get(member) for members in own or [m for _f, m in found]}
+        if len(values) > 1:
+            return None, texts.REASON_ENUM_AMBIGUOUS
+        value = next(iter(values), None)
+        return value, texts.REASON_DYNAMIC_ROUTE
+    return resolve
+
+
+def enum_value(files: Files, ctx: Context, rel: str, name: str, member: str) -> str | None:
+    """Строковое значение члена перечисления репозитория для кода файла rel (то же правило,
+    что у префикса @Controller): None — не найдено, не строка или неоднозначно."""
+    return _resolver(files, ctx, rel)(name, member)[0]
+
+
+def _controller(
+    code: codetext.Code, rel: str, found: Findings, start: int, enum: Resolver,
+) -> str | None:
+    """Префикс контроллера по аргументу @Controller: строка, член перечисления,
+    { path: '…' } или пусто; None — префикс не строкой."""
     mask = code.mask
     ch = mask[start:start + 1]
     if ch == ")":
@@ -54,8 +142,14 @@ def _controller(code: codetext.Code, rel: str, found: Findings, start: int) -> s
         return None if dynamic else value
     hit = _STR.match(mask, start)
     if hit is None:
-        _dynamic(code, rel, found, start)
-        return None
+        ref = _MEMBER_REF.match(mask, start)
+        if ref is None:
+            _dynamic(code, rel, found, start)
+            return None
+        member, reason = enum(ref.group(1), ref.group(2))
+        if member is None:
+            _dynamic(code, rel, found, start, reason)
+        return member
     value, dynamic = code.literal(hit.start(), hit.end())
     if dynamic:
         _dynamic(code, rel, found, start,
@@ -102,8 +196,9 @@ def parse(files: Files, ctx: Context) -> Findings:
         code = codetext.load(files, rel, text, codetext.JS)
         if code is None:
             continue
+        enum = _resolver(files, ctx, rel)
         controllers = [
-            (m.start(), _controller(code, rel, found, m.end()))
+            (m.start(), _controller(code, rel, found, m.end(), enum))
             for m in _CONTROLLER.finditer(code.mask)
         ]
         for m in _METHOD.finditer(code.mask):

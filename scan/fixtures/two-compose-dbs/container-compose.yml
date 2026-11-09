@@ -1,0 +1,8 @@
+# Готовый образ без кода из каталога и своя база db.
+services:
+  rails:
+    image: example/forum:development
+    environment:
+      DATABASE_URL: postgresql://forum:forum@db:5432/forum
+  db:
+    image: postgres:16

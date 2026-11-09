@@ -1,0 +1,7 @@
+services:
+  web:
+    build: .
+    command: bundle exec puma -C config/puma.rb
+  sidekiq:
+    build: .
+    command: bundle exec sidekiq

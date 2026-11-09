@@ -19,22 +19,24 @@ MANIFESTS: dict[str, str | bytes] = {
     "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\n",
     "js/package.json": (
         '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
-        ' "nats": "*", "bullmq": "*"}}'
+        ' "nats": "*", "bullmq": "*", "cron": "*", "@nestjs/schedule": "*"}}'
     ),
-    "rb/Gemfile": 'gem "sidekiq"\n',
+    "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\n',
     "go/go.mod": (
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
-        "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n)\n"
+        "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n"
+        "\tgithub.com/robfig/cron/v3 v3.0.1\n)\n"
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
-    "rs/Cargo.toml": '[package]\nname = "x"\n',
+    "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\nclokwerk = "0.4"\n',
 }
 
 # Подключение клиента: без него разборщики каналов JS и Go файл не читают.
 KJS, AMQP, NJS = "require('kafkajs');\n", "require('amqplib');\n", "require('nats');\n"
 BMQ = "require('bullmq');\n"
 KGO, NGO = 'import "github.com/segmentio/kafka-go"\n', 'import "github.com/nats-io/nats.go"\n'
+RGO = 'import "github.com/robfig/cron/v3"\n'
 
 # Схема zod применяется к окружению (ТЗ §15 п. 14 Е3).
 ZOD = "E.safeParse(process.env);\n"
@@ -116,11 +118,77 @@ STARTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Маршруты Rails (ТЗ §15 п. 15 К1): незакрытые строки, литералы, heredoc и блоки маски Ruby.
+STARTS["rb/config/routes.rb"] = (
+    "Rails.application.routes.draw do\n  get '", "resources :", "get ", "scope '",
+    "  get '/a', to: redirect { |p| ", "%w(", "x = <<~A\n", "concern :a do\n", "draw(:",
+    "match 'a', via: [", "=begin\n", "c = { id: /", 'get "#{', "member { get :",
+    "resources :a, only: %i[", "mount A => '",
+)
+# Путь склейкой у Go (ТЗ §15 п. 15 К5): имя и литерал, литералы подряд, методы константами.
+STARTS["go/main.go"] += (
+    'r := mux.NewRouter()\nr.HandleFunc(base + "', 'r := mux.NewRouter()\nr.HandleFunc(base + ',
+    'r.HandleFunc("/a" + "', 'r := mux.NewRouter()\nr.HandleFunc(base+"/a", h).Methods(http.',
+    'r.HandleFunc("/a" + "/b" + ',
+)
+GO_CONCAT = {
+    "calls": "r := mux.NewRouter()\n"
+    + 'r.HandleFunc(base + "/a" + "/b", h).Methods(http.MethodGet, http.MethodHead)\n' * 20_000,
+    "parts": 'r := mux.NewRouter()\nr.HandleFunc(base + ' + '"/a" + ' * (PAYLOAD // 7) + '"/b", h)\n',
+    "pluses": "r := mux.NewRouter()\nr.HandleFunc(base " + "+ " * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(GO_CONCAT))
+def test_go_concat_path(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_CONCAT[kind]}))
+
+
+# Префикс NestJS членом перечисления (ТЗ §15 п. 15 К4).
+STARTS["js/app.js"] += (
+    "@Controller(A.", "@Controller(A.B", "@Controller(A.B)\nclass C {\n  @Get('",
+    "@Controller(A.B)\nenum A {\n  B = '",
+)
+# Маршруты ASP.NET Core (ТЗ §15 п. 15 К2): вызовы Map*, группы, атрибуты и классы контроллеров.
+STARTS["cs/App.cs"] += (
+    'app.MapGet("', "app.MapGet($\"{", "app.MapGet<", 'var g = app.MapGroup("', "g.MapGet(\"/a\", ",
+    'app.MapMethods("/a", new[] { "', 'app.MapMethods("/a", [HttpMethods.', "[HttpGet(\"",
+    "[Route(\"", "[ApiController]\nclass A : ControllerBase {\n  [HttpGet]\n  [",
+    "class A : Controller {\n  [HttpPost(\"a\")]\n  public Task<",
+    "class A : Controller {\n  [Route(\"a\")]\n  ",
+)
 # Параметры Rust (ТЗ §15 п. 14 И2): атрибуты envconfig и clap, env::var, макросы, тесты.
 STARTS["rs/main.rs"] = (
     "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",
     "#[arg(env)]\n#[serde(", 'std::env::var("', "env::var(", 'env!("', "#[cfg(test)]\nmod t {",
     "r#\"", "'", 'env::var("X").unwrap_or("',
+)
+# Маршруты actix-web (ТЗ §15 п. 15 К3): вызовы route, scope и resource, атрибуты обработчиков.
+STARTS["rs/main.rs"] += (
+    '.route("', ".route(", 'web::scope("', "web::scope(", 'web::resource("/a").route(', '#[get("',
+    '#[route("/a", method = "', 'App::new().service(web::scope("/a").service(',
+    '.route("/a", web::', "const A: &str = \"",
+)
+# Расписания robfig/cron (ТЗ §15 п. 15 Л2): литерал, константа, выражение, задание.
+STARTS["go/main.go"] += (
+    RGO + 'c.AddFunc("', RGO + "c.AddFunc(", RGO + "c.AddFunc(fmt.Sprintf(", RGO + 'c.AddJob("1", ',
+    RGO + "c.Schedule(cron.Every(", RGO + 'const A = "1"\nc.AddFunc(A, ', RGO + "c.AddFunc(`",
+)
+# Обёртка над add_periodic_task и её вызовы (ТЗ §15 п. 15 Л1): незакрытые аргументы.
+STARTS["py/app.py"] += (
+    "def w(s, sch, sig):\n    s.add_periodic_task(sch, sig)\nw(s, crontab(minute='",
+    "def w(s, sch, sig, name):\n    s.add_periodic_task(sch, sig, name=name)\nw(s, 1, t.s(), name='",
+)
+# Расписания clokwerk (ТЗ §15 п. 15 Л3): аргумент every, at и тело run без закрытия.
+STARTS["rs/main.rs"] += (
+    "s.every(", "s.every(1.hour()).at(\"", "s.every(1.hour()).run(|| ", "s.every(1.hour()).run(|| f(",
+    "s.every(1.hour()).at(", "s.every(TimeUnits::minutes(",
+)
+# Расписания cron и @nestjs/schedule (ТЗ §15 п. 15 Л4): декоратор, конструктор, объект.
+STARTS["js/app.js"] += (
+    "@Cron('", "@Cron(CronExpression.", "@Cron(`", "@Cron(A, { name: '", "new CronJob('",
+    "new CronJob(this.", "x.create({ name: '", "x.create({ onTick: f, expression: '",
+    "x.create({ onTick: f, expression: ", "CronJob.from({ cronTime: '", "{ onTick, ",
 )
 # DDL в шаблонах миграций (ТЗ §15 п. 14 З2): шаблон, вставка, откат, sql.raw.
 STARTS["js/migrations/1-a.ts"] = (
@@ -170,6 +238,7 @@ VALID: dict[str, str] = {
     "cs/App.cs": 'class A {\n  void F() {\n    var x = Configuration["' + A + '"];\n  }\n}\n',
     "java/App.java": 'class A {\n  String x = System.getenv("' + A + '");\n}\n',
     "rs/main.rs": 'fn main() {\n    let x = std::env::var("' + A + '").unwrap();\n}\n',
+    "rb/config/routes.rb": "Rails.application.routes.draw do\n  get '/" + A + "', to: 'a#b'\nend\n",
 }
 
 
@@ -191,6 +260,44 @@ GO_PACKAGE = {
     "wrapper-calls": "}\n" + GO_WRAP + 'w("X")\n' * (PAYLOAD // 7),
     "named-reads": "os.Getenv(c.X)\n" * (PAYLOAD // 15),
     "const-block": "const (\n" + '\tA = "x"\n' * (PAYLOAD // 9) + ")\nos.Getenv(A)\n",
+}
+# Расписания robfig/cron (ТЗ §15 п. 15 Л2): вызовов сверх предела, вложенные вызовы без
+# запятой, длинный блок констант и длинные выражения на месте расписания.
+GO_CRON = {
+    "calls": RGO + 'c.AddFunc("1", f)\n' * (PAYLOAD // 18),
+    "nested": RGO + "c.AddFunc(" * (PAYLOAD // 10),
+    "const-block": RGO + "const (\n" + '\tA = "x"\n' * (PAYLOAD // 9) + ")\nc.AddFunc(A, f)\n",
+    "long-args": RGO + ("c.AddFunc(" + "a+" * 1500 + "b, f)\n") * 600,
+}
+# Расписания clokwerk (ТЗ §15 п. 15 Л3): вызовов сверх предела, вложенные every, длинные
+# цепочки звеньев и тела run без вызова функции.
+CLOKWERK = {
+    "calls": "s.every(1.hour()).run(|| f());\n" * (PAYLOAD // 30),
+    "nested": "s.every(" * (PAYLOAD // 8),
+    "links": ("s.every(1.hour())" + ".at(\"1\")" * 20 + ";\n") * 1900,
+    "chain": "s.every(1.hour())" + ".at(\"1\")" * (PAYLOAD // 9),
+    "bodies": ("s.every(1.hour()).run(|| {" + "x.y(); " * 2800 + "});\n") * 100,
+}
+# Расписания cron и @nestjs/schedule (ТЗ §15 п. 15 Л4): объекты регистрации сверх предела,
+# onTick в глубокой вложенности и в огромном объекте, декораторы без закрытия.
+NODE_CRON = {
+    "objects": "x.create({ name: 'a', expression: '1', onTick: f });\n" * (PAYLOAD // 52),
+    "deep": "{" * (PAYLOAD // 2 - 1000) + "onTick, expression: e }\n" * 1000,
+    "keys": "x.create({ onTick: f, expression: '1', " + "a: 1, " * (PAYLOAD // 6) + "})",
+    "big-object": "x.create({ " + "onTick: f, " * 1900 + "a: [" * 50000 + "]" * 50000 + "})",
+    "decorators": "@Cron(" * (PAYLOAD // 6),
+    "constructors": "new CronJob(this.a, f);\n" * 1900 + "x" * (PAYLOAD // 2),
+}
+# Код, который называет файл OpenAPI (ТЗ §15 п. 15 Н1): тысячи литералов и вхождений имени
+# в одном литерале, длинный заголовок импортов Go, длинная цепочка пакетов.
+SERVED_SPEC = "openapi: 3.0.0\npaths: {}\n"
+SERVED = {
+    "js/app.js:calls": "x('openapi.yaml');\n" * (PAYLOAD // 20),
+    "js/app.js:one-literal": "'" + "/openapi.yaml" * (PAYLOAD // 14) + "'",
+    "js/app.js:comment": "// " + "openapi.yaml " * (PAYLOAD // 14),
+    "go/main.go:imports": "package main\nimport (\n" + '\t"x/y"\n' * (PAYLOAD // 8)
+    + ')\nvar s = "openapi.yaml"\n',
+    "go/main.go:literals": 'package main\nvar s = "openapi.yaml"\n' * (PAYLOAD // 36),
 }
 # Схема zod с множеством ключей и констант-валидаторов (ТЗ §15 п. 14 Е3).
 JS_ZOD = {
@@ -228,6 +335,67 @@ KYSELY = {
 }
 
 
+# Rails: много инструкций и блоков, повторы тел concern и draw, heredoc с разными именами.
+RAILS = {
+    "statements": "x = foo(bar, baz) + qux(1, 2) do\nend\n" * 25_000,
+    "verbs": "get 'abcdefghijklmnopqrstuvwxyz', to: 'a#b'\n" * 4900,
+    "resources": "resources :a, only: [:show, :index], path: 'x', param: :y do\nend\n" * 2400,
+    "concerns": "concern :a do\nend\n" + "".join(
+        f"concern :c{i} do\n  concerns :{'a' if i == 0 else f'c{i - 1}'}\n"
+        f"  concerns :{'a' if i == 0 else f'c{i - 1}'}\nend\n" for i in range(40)
+    ) + "concerns :c39\n",
+    "heredocs": "".join(f"x = <<~A{i}\nA{i}\n" for i in range(24_000)),
+    "frames": ("if a\n" * 40 + "end\n" * 40) * 600,
+    "braces": "member { get :a }\n" * 4000,
+    "brackets": "(/" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(RAILS))
+def test_rails_routes(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rb/config/routes.rb": RAILS[kind]}))
+
+
+# ASP.NET Core: тысячи вызовов и атрибутов, цепочка групп, классы контроллеров, блоки
+# атрибутов без метода, аргументы MapMethods без конца.
+ASPNET = {
+    "maps": 'app.MapGet("/abcdefghijklmnopqrstuvwxyz", () => Results.Ok());\n' * 1999,
+    "groups": "".join(f'var g = g.MapGroup("x{i}");\n' for i in range(999))
+    + 'g.MapGet("/a", h);\n' * 999,
+    "actions": "[ApiController]\n[Route(\"api/[controller]\")]\nclass AController : ControllerBase {\n"
+    + '  [HttpGet("a/{id}")]\n  [Route("b")]\n  public IActionResult GetAsync(int id) => Ok();\n' * 999
+    + "}\n",
+    "classes": "[ApiController]\nclass AController : ControllerBase { }\n" * 1999,
+    "attr-chain": "class AController : Controller {\n  [HttpGet]" + "[A]" * (PAYLOAD // 3),
+    "no-method": "class AController : Controller {\n" + "  [HttpGet] int x;\n" * (PAYLOAD // 20),
+    "methods-args": 'app.MapMethods("/a", new[] { ' + '"GET", ' * (PAYLOAD // 7),
+    "open-attr": "class AController : Controller {\n  [HttpGet(" + "[" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(ASPNET))
+def test_aspnet_routes(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "cs/App.cs": ASPNET[kind]}))
+
+
+# Перечисления для префикса @Controller(Имя.Член) (ТЗ §15 п. 15 К4): тысячи перечислений,
+# огромное тело, тело без конца, сплошные кавычки. Перечисления читаются из файлов .ts.
+NEST_ENUM = {
+    "enums": "export enum A { B = 'b' }\n" * 3000,
+    "members": "export enum A {\n" + "  B = 'b',\n" * (PAYLOAD // 10) + "}\n",
+    "open": "export enum A {" + " B = 'b'," * (PAYLOAD // 9),
+    "quotes": "export enum A {" + "'" * PAYLOAD,
+}
+NEST_CONTROLLER = "@Controller(A.B)\nexport class C {\n  @Get('x')\n  x() {}\n}\n"
+
+
+@pytest.mark.parametrize("kind", sorted(NEST_ENUM))
+def test_nest_enum_prefix(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {
+        **MANIFESTS, "js/app.ts": NEST_CONTROLLER, "js/enum.ts": NEST_ENUM[kind],
+    }))
+
+
 # Rust: тысячи атрибутов, сплошные атрибуты без поля, модули тестов, время жизни.
 RUST = {
     "attributes": '#[envconfig(from = "A", default = "1")]\npub a: u16,\n' * 1999,
@@ -237,6 +405,25 @@ RUST = {
     "lifetimes": "fn f<'a>(x: &'a str) " * (PAYLOAD // 20),
     "reads": 'std::env::var("A").unwrap_or_else(|_| "b".into());\n' * 1999,
 }
+
+
+# actix-web: тысячи вызовов и атрибутов, глубокая вложенность scope, сплошные скобки и
+# разделители, тысячи констант, атрибут без конца.
+ACTIX = {
+    "routes": "cfg" + '.route("/abcdefghijklmnopqrstuvwxyz", web::get().to(h))\n' * 4999 + ";\n",
+    "attrs": '#[get("/abcdefghij")]\nasync fn a() {}\n' * 4999,
+    "scopes": 'web::scope("/a").service(' * (PAYLOAD // 26),
+    "parens": "(" * PAYLOAD,
+    "separators": ",;" * (PAYLOAD // 2),
+    "consts": 'const A: &str = "/a";\n' * (PAYLOAD // 22) + ".route(A, web::get().to(h))\n",
+    "attr-chain": '#[get("/a")]' + "#[a]" * (PAYLOAD // 4),
+    "open-attr": '#[get("/a"' + "[" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(ACTIX))
+def test_actix_routes(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rs/main.rs": ACTIX[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(RUST))
@@ -263,3 +450,51 @@ def test_zod_schema(tmp_path: Path, kind: str) -> None:
 @pytest.mark.parametrize("kind", sorted(GO_PACKAGE))
 def test_go_package_pass(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "go/main.go": GO_REG + GO_PACKAGE[kind]}))
+
+
+# Тысячи обёрток add_periodic_task с разными именами и их вызовы в соседнем файле (ТЗ §15
+# п. 15 Л1): имён для поиска вызовов не больше celerybeat._MAX_WRAPPERS.
+CELERY_WRAPPERS = "".join(
+    f"def w{i}(s, sch, sig):\n    s.add_periodic_task(sch, sig)\n" for i in range(3000)
+)
+CELERY_CALLS = "".join(f"w{i}(s, crontab(), t.s())\n" for i in range(3000))
+
+
+def test_celery_wrappers(tmp_path: Path) -> None:
+    extra: dict[str, str | bytes] = {f"py/m{i}.py": "x = 1\n" * 200 for i in range(50)}
+    _check(tree(tmp_path, {
+        **MANIFESTS, **extra, "py/celery.py": CELERY_WRAPPERS, "py/calls.py": CELERY_CALLS,
+    }))
+
+
+@pytest.mark.parametrize("kind", sorted(GO_CRON))
+def test_go_cron(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "go/main.go": GO_CRON[kind]}))
+
+
+@pytest.mark.parametrize("kind", sorted(CLOKWERK))
+def test_clokwerk(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rs/main.rs": CLOKWERK[kind]}))
+
+
+@pytest.mark.parametrize("kind", sorted(NODE_CRON))
+def test_node_cron(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "js/app.js": NODE_CRON[kind]}))
+
+
+@pytest.mark.parametrize("kind", sorted(SERVED))
+def test_served(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":")[0]
+    _check(tree(tmp_path, {**MANIFESTS, "openapi.yaml": SERVED_SPEC, name: SERVED[kind]}))
+
+
+def test_served_package_chain(tmp_path: Path) -> None:
+    """Цепочка из 3000 пакетов Go, каждый импортирует следующий: импортёры собираются не
+    дальше трёх шагов."""
+    files: dict[str, str | bytes] = {
+        **MANIFESTS, "openapi.yaml": SERVED_SPEC,
+        "go/p0/a.go": 'package p0\nvar s = "openapi.yaml"\n',
+    }
+    for i in range(1, 3000):
+        files[f"go/p{i}/a.go"] = f'package p{i}\nimport "x/p{i - 1}"\n'
+    _check(tree(tmp_path, files))

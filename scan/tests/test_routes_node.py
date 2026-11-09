@@ -64,6 +64,30 @@ def test_nest_fixture() -> None:
     ]
 
 
+def test_nest_enum_prefix() -> None:
+    """@Controller(Имя.Член) раскрывается в строку члена перечисления (ТЗ §15 п. 15 К4):
+    перечисление в другом файле пакета, `const enum`, своё перечисление пакета важнее
+    одноимённого в другом пакете; член числом, член не найден и одноимённые перечисления
+    других пакетов с разными значениями — подсказки, маршруты с нерешённым префиксом."""
+    rel = "server/src/controllers/asset.controller.ts"
+    assert _routes(nest, FIXTURES / "nest-enum-prefix") == [
+        ("GET", "/", True, "NestJS", f"{rel}:22"),
+        ("GET", "/", True, "NestJS", f"{rel}:28"),
+        ("GET", "/assets/:id", False, "NestJS", f"{rel}:7"),
+        ("GET", "/server-api/x", False, "NestJS", f"{rel}:34"),
+        ("GET", "/users/me", False, "NestJS", f"{rel}:16"),
+        ("GET", "/y", True, "NestJS", f"{rel}:40"),
+        ("POST", "/assets", False, "NestJS", f"{rel}:10"),
+    ]
+    ctx, files = files_of(FIXTURES / "nest-enum-prefix")
+    hints = nest.parse(files, ctx).hints
+    assert [(h.data["name"], h.data["reason"], h.data["source"]) for h in hints] == [
+        ("RouteKey.Count", texts.REASON_DYNAMIC_ROUTE, f"{rel}:20"),
+        ("RouteKey.Missing", texts.REASON_DYNAMIC_ROUTE, f"{rel}:26"),
+        ("Shared.Api", texts.REASON_ENUM_AMBIGUOUS, f"{rel}:38"),
+    ]
+
+
 def test_mask_keeps_length_and_hides_comments() -> None:
     text = "a.get('/x') // b.get('/y')\n/* c.get('/z') */ s = \"q\\\"w\"; t = `l1\nl2`\n"
     code = codetext.Code(text, codetext.JS)

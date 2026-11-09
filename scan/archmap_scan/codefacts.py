@@ -4,8 +4,9 @@
 среди контейнеров одного каталога — того же языка. Файл вне каталогов всех контейнеров —
 общий код: его записи уходят в hints.unassigned, если контейнер в репозитории не один
 (единственный контейнер владеет и общим кодом своего языка, owners.sole_owner). Маршрут HTTP получает один контейнер:
-среди нескольких владельцев — тот, что запускает веб-сервер (uwsgi, gunicorn, uvicorn и
-подобные), иначе единственный с ролью «сервис». Параметр конфигурации получает каждый
+среди нескольких владельцев — тот, что запускает веб-сервер (uwsgi, gunicorn, uvicorn, puma,
+«rails server» и подобные), иначе единственный с ролью «сервис»; контейнер, чья команда
+запускает sidekiq, маршрутов не получает. Параметр конфигурации получает каждый
 контейнер файла (правило продукта: одинаковый параметр у двух контейнеров — две записи),
 как и параметры из примера окружения.
 
@@ -75,12 +76,17 @@ _CLIENT_TECH = {
 _CLIENT_BROKER = {"Kafka": "Kafka", "RabbitMQ": "RabbitMQ", "NATS": "NATS"}
 _CLIENT_ORDER = ("Kafka", "RabbitMQ", "NATS", "Celery")
 _LABEL = {"publish": texts.LABEL_PUBLISHES, "consume": texts.LABEL_DELIVERS}
-# Слова команды запуска, по которым контейнер считается веб-сервером своего кода.
+# Слова команды запуска, по которым контейнер считается веб-сервером своего кода; у Ruby —
+# серверы приложений Rails (ТЗ §15 п. 15 К1) и «rails server» или «rails s» словами подряд.
 _WEB_WORDS = frozenset({
     "uwsgi", "gunicorn", "uvicorn", "hypercorn", "daphne", "granian", "runserver",
-    "waitress-serve",
+    "waitress-serve", "puma", "unicorn", "passenger", "thin", "falcon",
 })
 _WORDS = re.compile(r"[a-z][a-z-]*")
+_RAILS_SERVER = re.compile(r"(?<![\w-])rails[ \t]+(?:server|s)(?![\w-])")
+# Программы, которые маршрутов HTTP не обслуживают: контейнер, чья команда их запускает,
+# среди владельцев файла маршрутов не считается (ТЗ §15 п. 15 К1: sidekiq рядом с web).
+_NOT_HTTP_PROGRAMS = frozenset({"sidekiq"})
 _CONSUMER_ARG = re.compile(r"(?<![\w-])consumer[ \t]+([A-Za-z0-9][\w.:-]{0,199})")
 # Разборщики яруса кода: только их записи бывают из служебных каталогов (файл crontab и
 # команды воркеров из манифестов — не код).
@@ -126,13 +132,21 @@ def _process_owner(containers: Sequence[Obj], process: str) -> Obj | None:
 
 def _serves_http(obj: Obj) -> bool:
     return any(
-        u.command and _WEB_WORDS & set(_WORDS.findall(u.command.lower())) for u in obj.units
+        u.command and (
+            _WEB_WORDS & set(_WORDS.findall(u.command.lower()))
+            or _RAILS_SERVER.search(u.command.lower()) is not None
+        )
+        for u in obj.units
     )
 
 
 def route_owner(path: str, containers: Sequence[Obj]) -> tuple[Obj | None, str | None]:
     """Контейнер маршрута из файла path или причина, почему его нет."""
     found = owners.file_owners(path, containers)
+    if len(found) > 1:
+        found = [
+            o for o in found if not any(_runs(o, prog) for prog in _NOT_HTTP_PROGRAMS)
+        ] or found
     if len(found) == 1:
         return found[0], None
     if not found:

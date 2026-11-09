@@ -270,10 +270,15 @@ def code_unsupported(
         "tables": [],
     }
     tables = (
-        ("http_routes", vocab.SERVER_FRAMEWORKS), ("channels", vocab.UNSUPPORTED_CHANNEL_DEPS),
+        ("http_routes", vocab.SERVER_FRAMEWORKS), ("http_routes", vocab.UNSUPPORTED_ROUTE_DEPS),
+        ("channels", vocab.UNSUPPORTED_CHANNEL_DEPS),
         ("workers", vocab.UNSUPPORTED_WORKER_DEPS), ("schedules", vocab.UNSUPPORTED_SCHEDULE_DEPS),
     )
-    unread: list[str] = []
+    # Языки без чтения кода по семьям: язык, код на котором семья читает по стеку пакета
+    # (vocab.family_language: маршруты Rails, ASP.NET Core, actix-web, расписания clokwerk),
+    # языком не называется; его стеки без разборщика названы по vocab.UNSUPPORTED_ROUTE_DEPS
+    # и UNSUPPORTED_SCHEDULE_DEPS.
+    unread: dict[str, list[str]] = {fam: [] for fam in _LANGUAGE_FAMILIES}
 
     def add(fam: str, name: str) -> None:
         if name not in found[fam]:
@@ -291,8 +296,12 @@ def code_unsupported(
                     add(fam, _label(pkg.language, lib))
         if pkg.language not in vocab.CONFIG_LANGUAGES:
             add("config", pkg.language)
-        if pkg.language not in vocab.CODE_LANGUAGES and pkg.language not in unread:
-            unread.append(pkg.language)
+        if pkg.language not in vocab.CODE_LANGUAGES:
+            for fam in _LANGUAGE_FAMILIES:
+                if pkg.language in unread[fam]:
+                    continue
+                if not vocab.family_language(fam, pkg.language):
+                    unread[fam].append(pkg.language)
         config_lib = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
         if config_lib:
             add("config", _label(pkg.language, config_lib))
@@ -300,7 +309,7 @@ def code_unsupported(
         if schema and not (schema == "Kysely" and _kysely_read(findings, pkg.path)):
             add("tables", schema)
     for fam in _LANGUAGE_FAMILIES:
-        for language in unread:
+        for language in unread[fam]:
             if not any(item.startswith(language + ": ") for item in found[fam]):
                 add(fam, language)
     return {fam: sorted(items, key=str.lower) for fam, items in found.items() if items}

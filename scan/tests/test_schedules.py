@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from archmap_scan import texts
-from archmap_scan.parsers import celerybeat, crontab
+from archmap_scan.parsers import celerybeat, clokwerk, crontab, gocron, nodecron
 from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 Row = tuple[str, str, str | None, str]
@@ -36,6 +36,181 @@ def test_celery_beat_fixture() -> None:
     # Ключ выражением — подсказка; строка в комментарии, запись без schedule и файл в
     # tests/ расписаний не дали.
     assert hints == [("PREFIX + '-sync'", "proj/celery_app.py:12")]
+
+
+def test_celery_wrapper_fixture() -> None:
+    """Обёртка над add_periodic_task (ТЗ §15 п. 15 Л1): вызовы с аргументами по позициям и
+    по именам дают расписания, расписание полем настроек — подсказку; вызов внутри самой
+    обёртки расписанием не считается, прямой вызов рядом не задваивается."""
+    rows, hints = _rows(celerybeat, FIXTURES / "celery-wrapper")
+    assert rows == [
+        ("expire unused datasets", "crontab(minute='37')", "cleanup", "app/celery.py:19"),
+        ("ping every 30 seconds", "30.0", "ping", "app/celery.py:20"),
+        ("hourly report", "timedelta(hours=1)", "report", "app/celery.py:21"),
+        ("morning digest", "crontab(hour=6)", "digest", "app/celery.py:22"),
+        ("direct ping", "60", "ping", "app/celery.py:25"),
+    ]
+    assert hints == [("settings.SYNC_SCHEDULE", "app/celery.py:23")]
+    ctx, files = files_of(FIXTURES / "celery-wrapper")
+    found = celerybeat.parse(files, ctx)
+    assert found.hints[0].data["reason"] == texts.REASON_SCHEDULE_VARIABLE
+
+
+def test_celery_wrapper_package(tmp_path: Path) -> None:
+    """Вызов обёртки читается в файлах того же каталога и без слов beat_schedule и
+    periodic_task; в другом каталоге и при двух определениях обёртки в пакете вызов
+    расписанием не считается (глубина одна, одно определение)."""
+    tree(tmp_path, {
+        "requirements.txt": "celery\n",
+        "pkg/util.py": "def every(sender, spec, job):\n    sender.add_periodic_task(spec, job)\n",
+        "pkg/jobs.py": "def setup(sender):\n    every(sender, crontab(minute=5), report.s())\n",
+        "other/jobs.py": "def setup(sender):\n    every(sender, crontab(minute=6), report.s())\n",
+        "dup/a.py": "def every(sender, spec, job):\n    sender.add_periodic_task(spec, job)\n",
+        "dup/b.py": "def every(sender, spec, job):\n    sender.add_periodic_task(spec, job)\n"
+        "def setup(sender):\n    every(sender, crontab(minute=7), report.s())\n",
+    })
+    rows, hints = _rows(celerybeat, tmp_path)
+    assert rows == [("report", "crontab(minute=5)", "report", "pkg/jobs.py:2")]
+    assert hints == []
+
+
+def test_celery_wrapper_cap(tmp_path: Path) -> None:
+    """Обёрток за запуск не больше _MAX_WRAPPERS: вызовы остальных не читаются, а вызов
+    add_periodic_task в их теле всё равно не расписание."""
+    count = celerybeat._MAX_WRAPPERS + 5
+    tree(tmp_path, {
+        "requirements.txt": "celery\n",
+        "pkg/util.py": "".join(
+            f"def w{i:03}(s, spec, job):\n    s.add_periodic_task(spec, job)\n" for i in range(count)
+        ),
+        "pkg/jobs.py": "".join(f"w{i:03}(s, crontab(minute=5), report.s())\n" for i in range(count)),
+    })
+    rows, hints = _rows(celerybeat, tmp_path)
+    assert len(rows) == celerybeat._MAX_WRAPPERS
+    assert rows[-1][3] == f"pkg/jobs.py:{celerybeat._MAX_WRAPPERS}"
+    assert hints == []
+
+
+def test_go_cron_fixture() -> None:
+    """robfig/cron (ТЗ §15 п. 15 Л2): литерал и константа файла раскрываются, выражение
+    пишется текстом, у литеральной функции имя — место вызова; переменная без значения —
+    подсказка, комментарий и файл _test.go не читаются."""
+    rows, hints = _rows(gocron, FIXTURES / "go-cron")
+    assert rows == [
+        ("refresh", "@every 10m", "refresh", "main.go:16"),
+        ("s.cleanup", "0 3 * * *", "s.cleanup", "main.go:17"),
+        ("reportJob", "0 0 * * *", "reportJob", "main.go:19"),
+        ("reportJob", "cron.Every(time.Hour)", "reportJob", "main.go:20"),
+        ("main.go:21", 'fmt.Sprintf("@every %s", interval)', "main.go:21", "main.go:21"),
+    ]
+    assert hints == [("spec", "main.go:18")]
+    ctx, files = files_of(FIXTURES / "go-cron")
+    assert gocron.parse(files, ctx).hints[0].data["reason"] == texts.REASON_SCHEDULE_VARIABLE
+
+
+def test_go_cron_needs_import(tmp_path: Path) -> None:
+    """Файл без импорта robfig/cron не читается (AddFunc другой библиотеки), модуль без
+    зависимости — тоже."""
+    body = 'package x\nfunc f() {\n\tc.AddFunc("@daily", job)\n}\n'
+    tree(tmp_path / "a", {
+        "go.mod": "module a\n\nrequire github.com/robfig/cron/v3 v3.0.1\n", "x.go": body,
+    })
+    tree(tmp_path / "b", {
+        "go.mod": "module b\n", "x.go": 'package x\nimport "github.com/robfig/cron/v3"\n' + body,
+    })
+    assert _rows(gocron, tmp_path / "a") == ([], [])
+    ctx, files = files_of(tmp_path / "b")
+    assert gocron.NAME not in gocron.parse(files, ctx).applied
+
+
+def test_clokwerk_fixture() -> None:
+    """clokwerk (ТЗ §15 п. 15 Л3): аргумент every как написан, at через пробел, имя по первой
+    свободной функции в теле run (методы и Ok:: не считаются), без неё — место вызова;
+    комментарий и модуль тестов не читаются."""
+    rows, hints = _rows(clokwerk, FIXTURES / "rust-clokwerk")
+    assert rows == [
+        ("refresh_cache", "TimeUnits::minutes(5)", "refresh_cache", "src/main.rs:6"),
+        ("update_counts", "1.hour()", "update_counts", "src/main.rs:9"),
+        ("cleanup_old_rows", "Interval::Daily 03:00", "cleanup_old_rows", "src/main.rs:16"),
+        ("src/main.rs:19", "30.seconds()", "src/main.rs:19", "src/main.rs:19"),
+    ]
+    assert hints == []
+
+
+def test_clokwerk_coverage(tmp_path: Path) -> None:
+    """Крейт с clokwerk: семья расписаний покрыта, Rust языком не назван; крейт с
+    tokio-cron-scheduler назван стеком."""
+    from archmap_scan.scan import Options, run
+
+    tree(tmp_path / "a", {
+        **{str(p.relative_to(FIXTURES / "rust-clokwerk")): p.read_text(encoding="utf-8")
+           for p in (FIXTURES / "rust-clokwerk").rglob("*") if p.is_file()},
+        "lib/Cargo.toml": '[package]\nname = "lib"\n', "lib/src/lib.rs": "pub fn f() {}\n",
+    })
+    result = run(Options(path=str(tmp_path / "a"), out=str(tmp_path / "o1"), use_git=False))
+    stat = result.coverage.families["schedules"]
+    assert stat.status == "covered" and stat.found == 4 and stat.unsupported == []
+    tree(tmp_path / "b", {
+        "Cargo.toml": '[package]\nname = "b"\n\n[dependencies]\ntokio-cron-scheduler = "0.13"\n',
+        "src/main.rs": "fn main() {}\n",
+        "Dockerfile": 'FROM rust:1.80\nCOPY . /src\nENTRYPOINT ["b"]\n',
+    })
+    result = run(Options(path=str(tmp_path / "b"), out=str(tmp_path / "o2"), use_git=False))
+    assert result.coverage.families["schedules"].unsupported == ["Rust: tokio-cron-scheduler"]
+
+
+def test_node_cron_fixture() -> None:
+    """Пакеты cron и @nestjs/schedule (ТЗ §15 п. 15 Л4): @Cron с литералом и членом
+    CronExpression (неизвестный — как написан), new CronJob, объект регистрации с name и
+    expression или cronTime и onTick, имя членом перечисления репозитория; выражение полем
+    конфигурации и именем — подсказки. Обновление без onTick, тип, разбор параметра,
+    new CronJob(параметр, …) и комментарий записей не дают."""
+    rows, hints = _rows(nodecron, FIXTURES / "node-cron")
+    at = "src/jobs.service.ts"
+    assert sorted(rows, key=lambda r: int(r[3].rsplit(":", 1)[1])) == [
+        ("handleTick", "45 * * * * *", "handleTick", f"{at}:8"),
+        ("hourly-report", "0 * * * *", "hourly-report", f"{at}:11"),
+        ("cleanupNight", "0 3 * * *", "cleanupNight", f"{at}:14"),
+        ("quarterly", "CronExpression.EVERY_QUARTER", "quarterly", f"{at}:17"),
+        ("cleanup", "0 5 * * *", "cleanup", f"{at}:21"),
+        ("sync-library", "*/10 * * * *", "sync-library", f"{at}:29"),
+        ("monthly", "0 0 1 * *", "monthly", f"{at}:36"),
+    ]
+    assert hints == [
+        ("this.config.cleanup.cron", f"{at}:22"),
+        ("this.config.backup.cronExpression", f"{at}:25"),
+        ("expression", f"{at}:34"),
+    ]
+    ctx, files = files_of(FIXTURES / "node-cron")
+    reasons = [h.data["reason"] for h in nodecron.parse(files, ctx).hints]
+    assert reasons == [
+        texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_VARIABLE,
+    ]
+    # Строка сводки говорит и о расписании, а не только об имени.
+    assert texts.dynamic_line("schedules", 3) == (
+        "Расписаний с именем или расписанием, заданным выражением в коде: 3, перечень в "
+        "agent/hints.yaml."
+    )
+
+
+def test_node_cron_stack(tmp_path: Path) -> None:
+    """Пакет node-cron — другая библиотека: разборщик не идёт, стек назван в покрытии."""
+    from archmap_scan.scan import Options, run
+
+    tree(tmp_path / "a", {
+        "package.json": '{"dependencies": {"cron": "3"}}\n',
+        "index.js": "new CronJob('0 5 * * *', job);\n",
+        "Dockerfile": 'FROM node:20\nCOPY . /app\nCMD ["node", "index.js"]\n',
+    })
+    result = run(Options(path=str(tmp_path / "a"), out=str(tmp_path / "o1"), use_git=False))
+    stat = result.coverage.families["schedules"]
+    assert stat.status == "covered" and stat.found == 1 and stat.contributed == [nodecron.NAME]
+    tree(tmp_path / "b", {
+        "package.json": '{"dependencies": {"node-cron": "3"}}\n',
+        "index.js": "new CronJob('0 5 * * *', job);\n",
+    })
+    ctx, files = files_of(tmp_path / "b")
+    assert nodecron.NAME not in nodecron.parse(files, ctx).applied
 
 
 def test_celery_beat_needs_celery(tmp_path: Path) -> None:

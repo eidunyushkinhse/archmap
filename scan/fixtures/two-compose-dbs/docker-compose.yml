@@ -1,0 +1,9 @@
+# Разработка: код из каталога, база postgres; адреса базы в окружении web нет.
+services:
+  web:
+    build: .
+    command: bundle exec rails server -b 0.0.0.0
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres:16

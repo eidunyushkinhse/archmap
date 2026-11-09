@@ -16,6 +16,12 @@ http.NewServeMux()) или до пакета http; иначе маршрут п�
 (group.Delete(toMacaronPath("/api/v1/…")) у Grafana); на неизвестном получателе или в
 другом виде путь остаётся подсказкой «путь задан выражением».
 
+Путь склейкой (ТЗ §15 п. 15 К5): «имя + "/литерал"» на известном объекте маршрутизации
+даёт маршрут с путём литерала и prefix_unresolved (baseUrl+"/cart/checkout" у Online
+Boutique), склейка литералов «"/x" + "/y"» — путь целиком; «"/литерал" + имя» и склейка
+без литерала остаются подсказками. Методы из .Methods(…) — строками и константами
+http.MethodGet и подобными.
+
 Префикс через параметр функции регистрации (ТЗ §15 п. 3): файлы одного каталога (пакет)
 разбираются в два прохода. Маршрут, цепочка групп которого обрывается на параметре
 функции (registerFolderAPI(apiRoute …) у Grafana), ждёт второго прохода: места вызова
@@ -57,6 +63,14 @@ _METHODS_CALL = re.compile(r"[ \t]*\.[ \t]*Methods[ \t]*\(")
 _WRAPPED = re.compile(rf"[A-Za-z_][A-Za-z0-9_]{{0,99}}[ \t]*\({SP}({STR}){SP}\)")
 _STR = re.compile(STR)
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}")
+# Склейка пути: имя (или поле) слева, «+», литералы, конец аргумента.
+_HEAD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}(?:\.[A-Za-z_][A-Za-z0-9_]{0,99})?")
+_PLUS = re.compile(rf"{SP}\+{SP}")
+_ARG_END = re.compile(rf"{SP}[,)]")
+_MAX_PARTS = 50
+_HTTP_METHOD = re.compile(
+    r"http[ \t]*\.[ \t]*Method(Get|Head|Post|Put|Patch|Delete|Connect|Options|Trace)\b"
+)
 _NEEDLES = (
     ".HandleFunc(", ".Handle(", ".GET(", ".POST(", ".PUT(", ".DELETE(", ".PATCH(", ".Get(",
     ".Post(", ".Put(", ".Delete(", ".Patch(", ".Any(", ".All(", ".Group(", ".Route(",
@@ -259,12 +273,49 @@ def _methods(f: _File, end: int) -> list[str] | None:
         while pos < len(mask) and mask[pos] in " \t\r\n,":
             pos += 1
         s = _STR.match(mask, pos)
-        if s is None:
+        if s is not None:
+            value, _dyn = f.code.literal(s.start(), s.end())
+            out.append(value.upper())
+            pos = s.end()
+            continue
+        const = _HTTP_METHOD.match(mask, pos)
+        if const is None:
             break
-        value, _dyn = f.code.literal(s.start(), s.end())
-        out.append(value.upper())
-        pos = s.end()
+        out.append(const.group(1).upper())
+        pos = const.end()
     return out or None
+
+
+def _concat(f: _File, arg: int) -> tuple[str, int, bool] | None:
+    """Путь склейкой с позиции arg до конца аргумента: литералы через «+» («"/x" + "/y"»)
+    или имя и литералы за ним («baseUrl + "/x"»). Путь, позиция после последнего литерала
+    и признак имени слева; None — склейка другого вида или не склейка."""
+    mask = f.code.mask
+    pos = arg
+    lead = False
+    if _STR.match(mask, pos) is None:
+        head = _HEAD.match(mask, pos)
+        plus = _PLUS.match(mask, head.end()) if head is not None else None
+        if plus is None:
+            return None
+        lead, pos = True, plus.end()
+    parts: list[str] = []
+    end = pos
+    for _ in range(_MAX_PARTS):
+        s = _STR.match(mask, pos)
+        if s is None:
+            return None
+        parts.append(f.code.literal(s.start(), s.end())[0])
+        end = s.end()
+        plus = _PLUS.match(mask, end)
+        if plus is None:
+            break
+        pos = plus.end()
+    else:
+        return None
+    if _ARG_END.match(mask, end) is None or (not lead and len(parts) < 2):
+        return None
+    return "".join(parts), end, lead
 
 
 def _not_string(f: _File, found: Findings, recv: str, at: int, arg: int) -> None:
@@ -308,21 +359,32 @@ def _scan(f: _File, found: Findings) -> None:
         verb = m.group(1)
         arg = m.end()
         wrapped = None
+        concat = None
         if m.group(2) is None:
-            wrapped = _wrapped(f, recv, m.start(), arg)
-            if wrapped is None:
-                _not_string(f, found, recv, m.start(), arg)
-                continue
-            start, end, after = wrapped
+            # «baseUrl + "/x"» на известном объекте маршрутизации (К5).
+            concat = _concat(f, arg) if _known(f, recv, m.start()) else None
+            if concat is None:
+                wrapped = _wrapped(f, recv, m.start(), arg)
+                if wrapped is None:
+                    _not_string(f, found, recv, m.start(), arg)
+                    continue
+                start, end, after = wrapped
         else:
             start, end = m.start(2), m.end(2)
             after = end
-        value, _dyn = code.literal(start, end)
-        if code.joined(start, end):
-            # «"/"+root+"/"»: литерал лишь часть пути (ТЗ §15 п. 10 А).
-            if value.startswith("/"):
-                _dynamic(f, found, start, texts.REASON_JOINED_NAME)
-            continue
+        if concat is None:
+            value, _dyn = code.literal(start, end)
+            if code.joined(start, end):
+                # «"/x" + "/y"»: путь целиком (К5).
+                concat = _concat(f, start) if wrapped is None else None
+                if concat is None:
+                    # «"/"+root+"/"»: литерал лишь часть пути (ТЗ §15 п. 10 А).
+                    if value.startswith("/"):
+                        _dynamic(f, found, start, texts.REASON_JOINED_NAME)
+                    continue
+        lead = False
+        if concat is not None:
+            value, after, lead = concat
         method = _METHODS[verb]
         path = value
         if verb == "Handle" and value in _VERBS:
@@ -347,7 +409,8 @@ def _scan(f: _File, found: Findings) -> None:
         if verb in ("HandleFunc", "Handle") and method == "ANY":
             methods = _methods(f, after) or methods
         base, ok, last, at = _chain(f, recv, m.start())
-        param = None if ok else _param_of(f, last, at)
+        param = None if ok or lead else _param_of(f, last, at)
+        ok = ok and not lead
         loc = Loc(f.rel, code.line(m.start()))
         for meth in methods:
             if param is not None:

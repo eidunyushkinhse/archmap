@@ -6,7 +6,9 @@
 info.title или servers[].url. Файл в исключённом каталоге документации (Д2) и файл чужого
 API (все адреса servers на внешнем домене) владельца не получают. Маршрут из файла с тем же
 методом и путём, что уже найден в коде у владельца, не дублируется: у записи кода появляется
-второе основание. Остальное остаётся подсказкой hints.openapi_files с причиной.
+второе основание. Если владельца так не найти, его ищут по коду, который называет файл
+литералом его имени (served, ТЗ §15 п. 15 Н1). Остальное остаётся подсказкой
+hints.openapi_files с причиной.
 """
 
 from __future__ import annotations
@@ -14,8 +16,8 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from archmap_scan import owners, texts, vocab
-from archmap_scan.model import OpenApi
+from archmap_scan import owners, paths, texts, vocab
+from archmap_scan.model import OpenApi, ServedRef
 from archmap_scan.objects import HttpEntry, Model, Obj
 
 NAME = "openapi"
@@ -78,6 +80,51 @@ def owner(spec: OpenApi, containers: Sequence[Obj]) -> tuple[Obj | None, list[Ob
     words = set(_WORD.findall(text))
     named = [o for o in pool if _mentions(o, text, words)]
     return (named[0] if len(named) == 1 else None), pool
+
+
+def _services(rel: str, containers: Sequence[Obj]) -> list[Obj]:
+    return [o for o in owners.file_owners(rel, containers) if o.role == vocab.ROLE_SERVICE]
+
+
+def served(
+    spec: OpenApi, refs: Sequence[ServedRef], containers: Sequence[Obj],
+) -> tuple[Obj | None, list[Obj]]:
+    """Владелец по коду, который называет файл литералом его имени (ТЗ §15 п. 15 Н1), и
+    сервисы-кандидаты для подсказки. Сначала владельцы самих файлов кода (owners.file_owners,
+    с правилом Ф1): у кого он один, тот и владелец. Если все такие файлы общий код, то у файлов
+    Go — сервисы, чей собственный код импортирует их пакет (до трёх шагов, ServedRef.importers):
+    по каждому литералу множество таких сервисов, владелец — единственный общий для всех
+    литералов; несколько общих или ни одного общего — подсказка с перечислением."""
+    base = paths.name(spec.path)
+    mine = [r for r in refs if r.name == base]
+    definite: dict[str, Obj] = {}
+    for ref in mine:
+        found = _services(ref.loc.path, containers)
+        if len(found) == 1:
+            definite[found[0].name] = found[0]
+    if definite:
+        objs = [definite[k] for k in sorted(definite)]
+        return (objs[0] if len(objs) == 1 else None), objs
+    reach: list[dict[str, Obj]] = []
+    for ref in mine:
+        got: dict[str, Obj] = {}
+        for rel in ref.importers or ():
+            found = _services(rel, containers)
+            if len(found) == 1:
+                got[found[0].name] = found[0]
+        if got:
+            reach.append(got)
+    if not reach:
+        return None, []
+    common = set(reach[0]).intersection(*reach[1:])
+    pool = {k: v for r in reach for k, v in r.items() if not common or k in common}
+    objs = [pool[k] for k in sorted(pool)]
+    return (objs[0] if len(common) == 1 else None), objs
+
+
+def served_reason(objs: Sequence[Obj]) -> str:
+    names = [o.name for o in objs]
+    return texts.openapi_served_many(names[:_MAX_NAMES], len(names) - _MAX_NAMES)
 
 
 def no_owner_reason(pool: Sequence[Obj]) -> str:

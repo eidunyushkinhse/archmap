@@ -258,11 +258,17 @@ archmap-scan/
 | Семья | Стек | Что ищет (только литералы) |
 |---|---|---|
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
-| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
-| | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
+| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
+| | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле; `имя + "/p"` на известном маршрутизаторе — путь литерала с `prefix_unresolved`, `"/a" + "/b"` — путь целиком, методы `.Methods(http.MethodGet)` (ч. 4, К5) | регулярные выражения |
+| | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints |
+| | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"` или `Microsoft.AspNetCore.*`): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints, маршрут по соглашению `/Контроллер/действие` с `prefix_unresolved: true` |
+| | Rust: actix-web (`Cargo.toml` с actix-web): `.route("/p", web::get().to(h))` и другие методы (`web::method`, `web::to` — ANY), `web::resource("/p").route(web::get()…)` и `.to(h)`, `web::scope("/v1")` с вложенными `.service(web::scope(…))`, `#[get("/p")]` и `#[route("/p", method = "GET")]` над `fn` (ч. 4, К3) | один проход по парным скобкам маски Rust; атрибут — путь без префикса; константа `const` файла раскрывается, `format!` и переменная в hints |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
 | каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
-| воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
+| воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`, `add_periodic_task` и обёртка над ним в файлах того же каталога, ч. 4, Л1), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
+| | Go: robfig/cron (`go.mod` с `github.com/robfig/cron`, файл с её импортом): `c.AddFunc("spec", f)`, `c.AddJob("spec", j)`, `c.Schedule(cron.Every(d), j)` (ч. 4, Л2) | расписание как написано, строковая константа файла раскрывается, выражение текстом, имя без значения в hints; имя и задача — функция или задание вторым аргументом, у литеральной функции `файл:строка` |
+| | Rust: clokwerk (`Cargo.toml` с clokwerk): `scheduler.every(TimeUnits::minutes(5))`, `.every(1.hour())`, `.every(Interval::Daily).at("03:00")`, `.run(move || f(…))` (ч. 4, Л3) | расписание текстом аргумента every и at через пробел; имя и задача — первая свободная функция в теле run, без неё `файл:строка`; модуль тестов не читается |
+| | Node: пакеты `cron` и `@nestjs/schedule` (`package.json`): `@Cron("expr")` и `@Cron(CronExpression.X)` над методом, `new CronJob("expr", f)`, объект `{ name, expression | cronTime, onTick }` (`create({ … })`, `CronJob.from({ … })`) (ч. 4, Л4) | выражение как написано, член `CronExpression.X` по словарю (`EVERY_HOUR` → `0 * * * *`), имя из `name:`, члена перечисления, имени метода или функции; выражение полем конфигурации или именем в hints |
 
 ### 6.3 Миграции → `facts/*.tables.yaml`
 
@@ -280,7 +286,9 @@ archmap-scan/
 
 Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
 построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
-Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET/Rust,
+Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Laravel/Phoenix и Rust без actix-web (Rails, ASP.NET Core и actix-web читаются с части 4, К1–К3),
+планировщики в коде без разборщика (node-cron, node-schedule, Agenda, schedule, APScheduler, gocron,
+tokio-cron-scheduler и другие; robfig/cron, clokwerk, пакеты cron и @nestjs/schedule читаются с части 4, Л2–Л4),
 ключи viper и Spring `@Value`, параметры Kotlin, исходящие HTTP-вызовы в коде, компоненты,
 внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
 (кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
@@ -330,11 +338,17 @@ Liquibase (снят владельцем), Helm `templates/`, маршруты S
   код и его факты остаются у контейнера сборки (§15 п. 13 Д10). Файл Go под
   `<каталог кода>/cmd/<имя>/` при двух и более программах `cmd/` в каталоге, из которых хотя
   бы одной соответствует контейнер, принадлежит только контейнерам этой программы (имя
-  контейнера или программа его команды равны `<имя>`); у программы без контейнера записи
+  контейнера или программа его команды равны `<имя>`; программа команды совпадает и при
+  конечной «s» у одного из имён, и как `<имя>-controller` или `<имя>-server` при имени
+  контейнера с тем же хвостом, если в каталоге нет своей программы с именем команды, ч. 4,
+  Н3); у программы без контейнера записи
   уходят в `hints.unassigned` с причиной «код программы из cmd/<имя>/, у которой нет
   контейнера в манифестах» (§15 п. 14 Ф1).
 - **База для миграций.** Цепочка: (1) контейнер, владеющий каталогом миграций, и адрес базы в
-  его `environment`/дефолтах → объект-база с таким `host`; (2) единственная реляционная база в
+  его `environment`/дефолтах → объект-база с таким `host`; (1а) владелец каталога есть, адреса
+  базы в его окружении нет, а в файлах его манифестов (тот же файл compose, тот же каталог
+  манифестов k8s или Helm) ровно одна реляционная база → она; владельцы в файлах с разными
+  базами → дальше по цепочке (ч. 4, Н2); (2) единственная реляционная база в
   манифестах; (3) баз в манифестах нет, а миграции есть (Sentry, Zulip: база живёт в другом
   репозитории) → объект-база по признакам миграций: `technology` и имя по диалекту (Django
   `ENGINE` в настройках, URL в `alembic.ini`/`env.py`, типы `SERIAL`/`JSONB`/`AUTO_INCREMENT`
@@ -1540,3 +1554,292 @@ unread: {too_large: 3, binary: 0}
      32 → 36 МБ, у остальных рост не больше 2 МБ. Не решено: время Argo CD;
      программа `cmd/` с именем не как у команды контейнера (`cmd/argocd-notification`)
      уходит в подсказки.
+15. **Решения исполнителя части 4** (2026-11-09, ветка feat/scan-4, сборщик 0.5.0 без выпуска;
+   маршруты Rails, ASP.NET Core, actix-web и NestJS, расписания через библиотеки и обёртки,
+   хвосты части 3; владелец может отменить, числа перемера в конце пункта).
+   - К1 (решение исполнителя): Ruby читается по своей маске (`codetext.RUBY`: комментарий `#`,
+     `=begin` … `=end`, `__END__`, строки в `'` и `"` в несколько строк, литералы `%w[]`,
+     `%i[]`, `%r{}` с одним уровнем вложенных скобок, heredoc `<<~ИМЯ`, `<<-ИМЯ`, `<<'ИМЯ'` и
+     `<<ИМЯ` с заглавным именем, регулярное выражение `/…/` после `(`, `,`, `=`, `:`, `{`, `[`);
+     конец heredoc ищется одним выражением по строкам из одного слова, без регулярного
+     выражения на имя. Инструкция собирается из строк, пока скобки не закрыты или строка
+     кончается `,`, `\`, `=>`, `||`, `&&`; блок открывают `do` в конце инструкции и `if`,
+     `unless`, `while`, `until`, `case`, `begin`, `for`, `def`, `class`, `module` в её начале
+     (внутри `def`, `class` и `module` записей нет: у Mastodon `def redirect_with_vary`).
+     Вложенный ресурс идёт под `/имя/:<имя в единственном числе>_<param>` по правилу
+     единственного числа схемы Rails (З1, `railsschema.singular`), как это делает сама Rails
+     (`/users/:account_username/statuses/:id` у Mastodon), а не под `/имя/:имя_id` буквой
+     пункта. Глагол прямо в блоке ресурса вложен так же, `member` и `on: :member` дают путь
+     члена `/имя/:id`, `collection` — `/имя`; `namespace` и `scope` внутри ресурса берут
+     префикс вложенного и сбрасывают ресурс. `concern :имя do … end` записей не даёт: его
+     тело читается там, где его подключают (`concerns :имя` и `concerns:` у ресурса),
+     основание — строка в теле concern; так у Mastodon `followers` и `outbox` идут под
+     `/users/:account_username/` и `/ap/users/:account_id/`, а не от корня (буква пункта
+     «содержимое без префикса» дала бы маршруты, которых в приложении нет). `scope
+     '(:locale)'` даёт префикс как написан (`/(:locale)/about`), нормализацию Rails в
+     `(/:locale)` сборщик не делает. `mount` — `hints.unassigned` с видом route, именем
+     «движок путь» и причиной `REASON_RAILS_MOUNT`; в счёт «без владельца» она не входит
+     (`texts.ASIDE_REASONS`). Перебор списка путей (`%w(…).each { |path| get path }` у
+     Mastodon `web_app.rb`, `pages_actions.each do |action|` у Forem) даёт подсказку о
+     динамическом пути, список не раскрывается. `devise_for`, `shallow:`, `path_names:` и
+     неявный `(.:format)` не читаются. Карта маршрутов движка (`X::Engine.routes.draw`) даёт
+     записи с `prefix_unresolved`. Файл отбирается по пути, игл нет. Пределы: 50 000 строк
+     файла, 5000 записей на файл, 50 вложенных блоков, 50 000 инструкций на карту (тела
+     concern и draw повторяются); сверх — карта не пишется, файл непрочитан. Владелец:
+     `codefacts.route_owner` считает веб-сервером и команду с puma, unicorn, passenger, thin,
+     falcon или `rails server` (`rails s`), а контейнер, чья команда запускает sidekiq, среди
+     владельцев файла маршрутов не считается. Покрытие: Rails в `vocab.ROUTE_FRAMEWORKS`,
+     язык Ruby с rails в зависимостях пакета в `unsupported` маршрутов не назван
+     (`vocab.FAMILY_LANGUAGES`, по пакету, а не по языку целиком; с К3 язык с чтением маршрутов по
+     стеку не называется вовсе, названы фреймворки без разборщика). Mastodon: маршрутов 4 → 715
+     (`web` 711, из них `api.rb` 291, `admin.rb` 210, `routes.rb` 129, `settings.rb` 65,
+     `fasp.rb` 16; `streaming` 4 прежние), подсказок `mount` 3 (`letter_opener`, `sidekiq`,
+     `pghero`), динамических путей 1 (`web_app.rb:38`). Число скептика 332 считало объявления
+     без раскрытия `resources`. Forem: 0 → 841 у `web` (команда `bundle exec rails server -b
+     0.0.0.0`; у `rails` команда `bundle exec rails` без server, `sidekiq` исключён),
+     `api.rb` подключён дважды (`draw :api` в scope `v1` и `v0` с `module:` без пути) и даёт те же
+     пути, записанные один раз; подсказок `mount` 6, динамических путей 6 (пути с
+     `#{ENV.fetch(…)}` и `probe_path`).
+   - К2 (решение исполнителя): `parsers/aspnet.py` читает минимальный API и атрибуты
+     контроллеров по маске C#. Группа берётся по последнему присваиванию имени до вызова в
+     том же файле (`g = app.MapGroup(…)` дважды даёт разные префиксы), получатель не группа
+     этого файла (`app`, `endpoints`) — корень, вызов на цепочке (`app.MapGroup("/x").MapGet`)
+     пишется с `prefix_unresolved`. Строка `$"…"` без подстановки — литерал, с подстановкой —
+     подсказка. `[controller]` — имя класса без суффикса `Controller` как написано, `[action]` —
+     имя метода без суффикса `Async`, как их подставляет ASP.NET Core; несколько `[Route]` у
+     метода дают по маршруту на каждый, глагол без шаблона берёт шаблоны `[Route]` метода.
+     Сверх пункта: метод с `[Http*]` без шаблона в контроллере без `[Route]` у класса и метода
+     идёт по маршруту по соглашению (`MapDefaultControllerRoute`, у eShop `Identity.API`):
+     путь `/Контроллер/действие` с `prefix_unresolved`, шаблон соглашения не читается, методы
+     без атрибутов записей не дают. `[Route]` класса не литералом — одна подсказка на класс.
+     Покрытие: `.NET` в `unsupported` маршрутов не называется у пакетов без ASP.NET Core
+     (библиотеки, воркер `Microsoft.NET.Sdk.Worker`, MAUI, решение `.sln`): маршрутов HTTP у
+     .NET без него нет, а иначе у eShop семья осталась бы `partial` с «код на .NET сборщик
+     пока не читает» при 48 найденных маршрутах (правило обобщено в К3). Проект только с
+     `<FrameworkReference Include="Microsoft.AspNetCore.App" />` манифесты зависимостью не
+     называют, его код не читается и не называется (смежный пробел, не исправлен). eShop:
+     0 → 48 маршрутов у единственного контейнера `eshop` (`Catalog.API` 17, `Ordering.API` 7,
+     `Webhooks.API` 4, `WebhookClient` 3, `eShop.ServiceDefaults` 3: `/`, `/health`, `/alive`;
+     `Identity.API` 14 по соглашению с `prefix_unresolved`), `http_routes` из `unsupported` в
+     `covered`; версии v1 и v2 одного пути `GET /api/catalog/items` — две записи со своими
+     строками. Online Boutique: `cartservice` `GET /` (`Startup.cs:77`), `MapGrpcService` не
+     маршрут; OpenTelemetry Demo: `cart` `GET /` (`Program.cs:125`).
+   - К3 (решение исполнителя): `parsers/actix.py` идёт одним проходом по скобкам и
+     разделителям маски Rust со стеком уровней: у уровня префикс снаружи и текущая цепочка
+     `scope` или `resource`; цепочка кончается на «,» или «;» своего уровня или закрывающей
+     скобке, а открытая на её цепочке скобка (`.service(`, `.configure(|cfg| { … })`) даёт
+     уровень с её префиксом. Пути склеиваются подряд, как у actix-web (`scope("/api/v3")` +
+     `scope("/post")` + `""` = `/api/v3/post`), без двойных «/» и от корня
+     (`.well-known/webfinger` у Lemmy → `/.well-known/webfinger`). Имена без `web::` (у Lemmy
+     `use actix_web::web::*`) читаются так же, определение `fn scope(` вызовом не считается.
+     `.route("п", выражение)` с методом не из `web::get()` и подобных — ANY. Атрибуты
+     обработчиков записываются как написаны, без префикса и без `prefix_unresolved`: scope, в
+     котором обработчик подключён `.service(h)`, механически не находится (по пункту).
+     `web::redirect("из", "в")` маршрутом не считается (у Lemmy 5). Пределы: выражение в
+     скобках 200 тыс. знаков, вложенность 1000 уровней, 5000 записей и 400 тыс. скобок и
+     разделителей на файл; сверх — файл непрочитан. Покрытие (сверх пункта, пересмотр правила
+     К1 и К2): язык, маршруты на котором читаются по стеку пакета (`vocab.family_language`:
+     Ruby, .NET, Rust), в `unsupported` маршрутов сам не называется, как Python, Node.js и Go;
+     серверные фреймворки этих языков без разборщика названы по новому словарю
+     `vocab.UNSUPPORTED_ROUTE_DEPS` (axum, Rocket, warp, poem, tide, Sinatra, Hanami, Grape,
+     Roda, FastEndpoints, Carter; только покрытие, роль и технологию объекта он не меняет).
+     Иначе у Lemmy семья осталась бы `partial` с «код на Rust сборщик пока не читает» из-за
+     библиотечных крейтов без actix-web (`db_schema`, `db_views/*` и других). Lemmy: 0 → 240
+     маршрутов у `lemmy` (`api/routes` 157, `api/routes_v3` 52, `apub` 18, `feeds` 8, `nodeinfo` 2,
+     `webfinger` 1, `prometheus_metrics` 1, `server` 1: `/sitemap.xml`), подсказок 0, два вызова
+     в модулях тестов не читаются; `http_routes` из `unsupported` в `covered`. Число скептика
+     241. PostHog: actix-web в крейтах Rust нет, там axum, маршрутов не прибавилось, покрытие
+     `Rust` → `Rust: axum`. OpenTelemetry Demo: `shipping` `GET /health` и `#[post]`
+     `/get-quote`, `/ship-order`; email на Sinatra назван `Ruby: Sinatra` вместо `Ruby`.
+   - К4 (решение исполнителя): перечисление ищется в файлах `.ts` всех пакетов Node.js
+     репозитория (`export enum`, `const enum`, `declare enum`), сначала в пакете файла
+     контроллера; нет в нём — в любом пакете, и при разных значениях члена в нескольких
+     пакетах — подсказка с новой причиной `REASON_ENUM_AMBIGUOUS` (одинаковые значения
+     неоднозначностью не считаются). Член числом, выражением или не найденный — подсказка о
+     динамическом пути, маршруты контроллера с `prefix_unresolved`, как раньше. Индекс
+     перечислений строится один раз за запуск и только при первом `@Controller(Имя.Член)`;
+     пропуск кода для разработки при этом поиске в покрытие маршрутов не идёт (маршрутов там
+     не искали). Пределы: 2000 перечислений на файл, тело до 50 тыс. знаков. immich: число
+     маршрутов не меняется (318), потому что 46 маршрутов четырёх контроллеров
+     `@Controller(RouteKey.Asset|User)` уже были записаны с `prefix_unresolved`, а в подсказках
+     лежали 4 записи о самих контроллерах, а не 46; теперь у этих 46 решённый префикс (`asset`
+     19, `user` 18, `asset-media` 5, `video-stream` 4; `/api/assets/…`, `/api/users/…`),
+     подсказок о маршрутах 11 → 7. Ожидание пункта «318 → около 364» считало 46 подсказками.
+     Кандидат судьи `RouteKey.Asset` ищется по имени в `entrypoints.yaml`, а после
+     раскрытия там пути, а не имя: `remeasure.py` покажет «нет» (без ключа `expect`).
+   - К5 (решение исполнителя): слева от «+» допускается имя или поле (`cfg.Base`), справа —
+     один или несколько литералов до конца аргумента (`base + "/api" + "/v1"` → `/api/v1`);
+     префикс групп получателя складывается, флаг `prefix_unresolved` ставится всегда, функция
+     регистрации с параметром (п. 3) для такой записи места вызова не ищет. Склейка только
+     литералов на любом получателе, кроме клиентов, даёт путь целиком: пункт прямо отменяет
+     решение п. 10 А («склейка из двух литералов не исключение»), фикстура `go-http` и тест
+     склейки обновлены (`"/api" + "/v2"` у `joinapi` теперь маршрут). Сверх пункта:
+     `.Methods(http.MethodGet, http.MethodHead)` читается константами пакета http (у Online
+     Boutique все методы так и записаны; без этого каждая запись была бы ANY). Online
+     Boutique: `frontend` +16 записей из 13 регистраций (`/`, `/product/{id}` и `/cart` с GET
+     и HEAD; `/cart/checkout` POST среди них; `/robots.txt` и `/_healthz` без `.Methods` — ANY),
+     подсказок о маршрутах 14 → 1 (`url` в `frontend/packaging_info.go:54`); `PathPrefix(baseUrl +
+     "/static/")` префиксом не считается, маршрута не даёт. Argo CD: +3 записи только этого
+     вида (`server/server.go`: `extension.URLPrefix+"/"` и `common.DexAPIEndpoint+"/"` как
+     `ANY /`, `base+"/argocd-linux"`), подсказок 8 → 5. Grafana: без изменений (531
+     маршрут, 3 подсказки).
+   - Л1 (решение исполнителя): обёртка — функция уровня модуля, в теле которой
+     `add_periodic_task` (любой получатель: `sender.`, `app.`) получает её параметр на месте
+     расписания; параметры задачи и `name=` берутся, только если на их местах тоже стоят
+     параметры. Вызов `add_periodic_task` внутри обёртки расписанием не считается (у PostHog
+     прежде давал мусорную запись `task_signature` с расписанием `schedule`). Вызовы обёртки
+     ищутся в файлах того же каталога, где она определена (у PostHog определение и 64 вызова в
+     одном `posthog/tasks/scheduled.py`); два определения с одним именем в каталоге —
+     неоднозначно, такие вызовы не читаются; обёртка обёртки не ищется (глубина одна). Имя
+     записи — `name=` строкой, иначе имя задачи; задача по аргументу на месте подписи, как у
+     прямого вызова (`task.s()` → `task`). Расписание именем или полем (`settings.X`) —
+     подсказка с новой причиной `REASON_SCHEDULE_VARIABLE` и именем как написано. Предел: не
+     больше 100 обёрток за запуск (первые по порядку файлов), потому что имя каждой становится
+     строкой поиска по файлам Python пакета; вызов `add_periodic_task` в теле остальных тоже
+     не расписание. Второй проход разбирает только файлы каталогов с обёртками, где есть текст
+     `имя(`. PostHog: 77 →
+     140 расписаний (+64 вызова обёртки, −1 мусорная запись), кандидат `expire unused datasets`
+     (`crontab(minute='37')`, `expire_datasets`, `scheduled.py:282`) есть. Владелец как и
+     прежде не определён: `posthog/` — код нескольких контейнеров, все 140 записей в
+     `hints.unassigned` с `REASON_MANY_OWNERS` (до пункта там же лежали 77). Остаток: планировщик
+     у PostHog запускает `worker` из `docker-compose.base.yml` (`./bin/docker-worker-celery
+     --with-scheduler`), но по команде через скрипт роль планировщика не опознаётся; правило
+     владельца расписаний пункт не меняет.
+   - Л2 (решение исполнителя): новый разборщик `parsers/gocron.py` читает только файлы,
+     которые импортируют `github.com/robfig/cron` (у `AddFunc` и `Schedule` других библиотек
+     другой смысл). Расписание: литерал, строковая константа или переменная верхнего уровня
+     того же файла (`gocode.string_constants`, как у параметров Е1), выражение — текстом как
+     написано (`fmt.Sprintf("@every %s", cacheExpiration)`); имя без строкового значения в файле
+     (поле, параметр) — подсказка `REASON_SCHEDULE_VARIABLE`. Имя и задача — имя функции,
+     метода (`s.cleanup`) или переменной задания вторым аргументом, у литеральной функции и
+     прочего выражения — `файл:строка`. Файлы `_test.go` не читаются (walk), больше 2000
+     вызовов в файле — файл непрочитан. Покрытие: robfig/cron убран из
+     `vocab.UNSUPPORTED_SCHEDULE_DEPS` (gocron от go-co-op остаётся). Argo CD: +1 расписание
+     (`controller/metrics/metrics.go:380`, `fmt.Sprintf("@every %s", cacheExpiration)`, имя
+     `controller/metrics/metrics.go:380`: задача — литеральная функция). По Ф1 владельца у файла
+     нет: `controller/` вне `cmd/<имя>`, это код всех контейнеров корня, запись в
+     `hints.unassigned` с `REASON_MANY_OWNERS`; кандидат судьи `AddFunc @every` ищется в
+     `entrypoints.yaml` и останется «нет». Grafana: 0 (robfig/cron только пустым импортом в
+     `pkg/extensions/enterprise_imports.go`); Kubernetes из дыма: 0 (только `cron.ParseStandard`).
+   - Л3 (решение исполнителя): новый разборщик `parsers/clokwerk.py`. Расписание — текст
+     аргумента `every` как написан (`CTimeUnits::minutes(10)` у Lemmy, где clokwerk подключён
+     под другим именем), `.at("…")` на той же цепочке добавляется через пробел; цепочка
+     читается до десяти звеньев и кончается на следующем `every`. Имя и задача — первый вызов
+     свободной функции в теле `run` (имя со строчной буквы без точки перед ним, кроме ключевых
+     слов: `x.clone()`, `warn!(…)` и `Ok::<…>` не считаются), иначе `файл:строка`. Пределы:
+     аргумент и звено до 2000 знаков, тело `run` до 20 тыс., больше 2000 вызовов в файле — файл
+     непрочитан. Покрытие (сверх пункта, по образцу К3): clokwerk убран из
+     `vocab.UNSUPPORTED_SCHEDULE_DEPS`, расписания Rust вошли в `vocab.FAMILY_LANGUAGES`, и
+     Rust в `unsupported` расписаний сам не называется; известные планировщики Rust без
+     разборщика (tokio-cron-scheduler, job_scheduler) добавлены в словарь и называются
+     стеком. Lemmy: 0 → 4 расписания у `lemmy` (`crates/routes/src/utils/scheduled_tasks.rs`:
+     `plugin_hook_after` каждую минуту, `update_hot_ranks` каждые 10 минут, `active_counts`
+     ежечасно, `all_active_counts` ежедневно), семья из `unsupported` в `covered`. PostHog:
+     clokwerk и других планировщиков в крейтах нет, расписаний не прибавилось, `Rust` ушёл
+     из `unsupported` расписаний.
+   - Л4 (решение исполнителя): новый разборщик `parsers/nodecron.py` с именем `node-cronjob`
+     (пакет `node-cron` — другая библиотека со своим API, он остаётся в
+     `vocab.UNSUPPORTED_SCHEDULE_DEPS` и назван в покрытии; `cron` оттуда убран). Механика
+     immich: задания регистрируются не декоратором, а вызовом
+     `this.cronRepository.create({ name, expression, onTick, start })` в сервисах
+     (`queue.service.ts` ночные задания, `database-backup.service.ts` `backupDatabase`,
+     `library.service.ts`, `version.service.ts`, `integrity.service.ts` три проверки);
+     `CronRepository.create` сам зовёт `new CronJob(expression, onTick, …)`. Выражения берутся из
+     системной конфигурации (`database.cronExpression` и другие поля; значения по умолчанию —
+     члены `CronExpression.X` в `defaults` из `dtos/config.dto.ts`), ночное — из
+     `asNightlyTasksCron(config)`, проверка версии — шаблоном со случайной минутой. Поэтому
+     правило: объект с ключами своего уровня `expression` или `cronTime` и `onTick` —
+     регистрация; без `onTick` (`update({ name, expression })`, схемы и индексы с ключом
+     `expression`) — нет; тип или интерфейс (на своём уровне «;») и образец разбора параметра
+     (`create({ name, expression, onTick }: CronCreate)`, `({ onTick }) =>`) — нет;
+     `new CronJob(имя, …)` с параметром на месте выражения не читается вовсе (это код самой
+     обёртки). Имя: `name:` строкой, членом строкового перечисления репозитория
+     (`CronJob.NightlyJobs` у immich → `NightlyJobs`, тот же индекс, что у К4) или как написано; без
+     ключа `name` — функция в `onTick: f`, иначе `файл:строка`. Выражение полем объекта —
+     подсказка с новой причиной `REASON_SCHEDULE_CONFIG` и ключом как написан
+     (`database.cronExpression`), именем или шаблоном с подстановкой —
+     `REASON_SCHEDULE_VARIABLE`. Словарь `CronExpression` — по пункту, в виде из пяти полей;
+     неизвестный член пишется как написан. Пределы: объект до 5000 знаков, больше 2000
+     совпадений в файле — файл непрочитан. immich: 7 регистраций, все подсказками (5 полей
+     конфигурации, `cronExpression` и `expression` переменными), записей 0; семья
+     расписаний из `unsupported` (`cron`) в `empty` с `dynamic_names: 7`. Кандидат судьи
+     `backupDatabase` ищется в `entrypoints.yaml` и останется «нет»: расписание этого задания
+     известно только при запуске. Строка сводки о таких подсказках (после перемера 4b) —
+     «Расписаний с именем или расписанием, заданным выражением в коде: N»: прежнее «с именем»
+     было неверно для подсказок Л1 и Л4, где имя известно, а расписание нет.
+   - Н1 (решение исполнителя): код, который отдаёт файл, ищет отдельный разборщик
+     `parsers/served.py` (`openapi-served`, без семьи покрытия): он работает, только если в
+     репозитории есть файлы OpenAPI вне каталогов документации, и ищет строковый литерал,
+     равный базовому имени файла или кончающийся на `/имя` (`"swagger.json"`,
+     `"assets/swagger.json"`, `"/swagger.json"`), в коде Python (ast), Node.js, Go, C#, Java,
+     Rust и Ruby (маска; имя в комментарии не литерал). Литерал решает только за файл, базовое
+     имя которого в репозитории одно (два `swagger.json` — литерал не говорит, какой).
+     Владелец: у кого из сервисов файл кода с литералом единственный (`owners.file_owners`, Ф1),
+     тот и владелец; если все такие файлы общий код, у файлов Go берутся файлы, импортирующие
+     их пакет. Отклонение от пункта: не один шаг, а до трёх, через общий код: у Argo CD пакеты
+     с литералом (`util/swagger`, `util/assets`) импортирует общий `server/server.go`, а его —
+     `cmd/argocd-server/commands`, и одного шага не хватает. Сервис засчитывается по
+     импортёру, который принадлежит только ему. Второе отклонение: по каждому литералу своё
+     множество сервисов, владелец — единственный общий для всех литералов (пересечение), а не
+     объединение. У Argo CD `util/assets` (`assets.Embedded.ReadFile("swagger.json")`)
+     импортирует ещё `util/rbac`, а через него код почти всех программ: объединение дало бы
+     четыре сервиса, пересечение с `util/swagger` (только `argocd-server`) даёт одного.
+     Несколько общих или ни одного общего при непустых множествах — подсказка с новой
+     причиной `texts.openapi_served_many` и перечнем. Пределы: 100 литералов на файл, 2000
+     вхождений имени на файл, 2000 файлов-импортёров на литерал (больше — импортёры не
+     считаются), заголовок файла Go до первого объявления не длиннее 200 тыс. знаков. Argo CD:
+     `assets/swagger.json` теперь у `argocd-server`, +106 маршрутов (`framework: openapi`),
+     подсказка о файле с владельцем. Цепочка: `util/swagger` → `server/server.go` →
+     `cmd/argocd-server/commands/argocd_server.go`; `server` импортирует ещё
+     `cmd/argocd/commands/headless` — это клиент `argocd`, у которого нет контейнера, он в
+     счёт не идёт; литерал в `ui/src/app/webpack.config.js` — код без контейнера, тоже не в
+     счёт. Keycloak и n8n: без изменений (у Keycloak владелец уже был, у n8n литералы
+     `openapi.yml` в коде без контейнера). Фикстура `openapi-served`: программы `cmd/api` и
+     `cmd/admin` (вторая программа — сервис, а не воркер: файл OpenAPI ищет владельца только
+     среди сервисов, и при воркере владелец нашёлся бы прежним правилом).
+   - Н2 (решение исполнителя): шаг (1а) цепочки §7 стоит в `owners.database_for` после адреса
+     в окружении и только когда адрес не указал ни на одну базу. «Файл манифеста» объекта —
+     файлы его единиц (`Unit.loc` и `extra_locs`): у compose сам файл, у k8s и Helm каталог
+     файла (объекты одного развёртывания лежат в нескольких файлах каталога). Владельцы
+     каталога миграций — все `owners.file_owners` каталога; их файлы объединяются, и если в
+     объединении ровно одна реляционная база, таблицы у неё, иначе (две и больше или ни
+     одной) дальше по прежней цепочке. Forem: 133 → 0 таблиц в подсказках, все 133 у
+     `postgres`. Каталог `db/` принадлежит контейнерам с кодом из каталога `rails`, `web` и
+     `sidekiq` (все в `docker-compose.yml`, адрес базы в их окружении `localhost`), а в этом
+     файле одна база `postgres`; `db` из `container-compose.yml` описана рядом с контейнерами
+     на готовом образе без кода из каталога, они каталогом миграций не владеют. Фикстура
+     `two-compose-dbs`; ловушка в тесте: тот же `web` ещё в третьем файле рядом с `mysql` —
+     подсказка «несколько баз», как раньше.
+   - Н3 (решение исполнителя): правило в `owners._same_program` (его зовёт `_runs_program`).
+     Имя контейнера по-прежнему сравнивается с программой точно; нечётко сравнивается только
+     программа команды: равны, отличаются конечной «s» у одного из имён, или команда —
+     `<имя>-controller`/`<имя>-server` при имени контейнера с тем же хвостом. Сверх пункта:
+     нечёткое совпадение не действует, если у каталога кода есть своя программа с именем
+     команды (`cmd/app` и `cmd/apps` при команде `apps` — только `cmd/apps`), иначе одна команда
+     забрала бы две программы. Ловушки в тесте: `cmd/app` и `apps` совпадают, `cmd/app` и
+     `application` нет, `-server` у команды контейнера `web` без такого хвоста не действует.
+     Argo CD: код `cmd/argocd-notification/` теперь у `argocd-notifications-controller`
+     (команда `/usr/local/bin/argocd-notifications`): 8 записей параметров и маршрут `ANY
+     /metrics` ушли из подсказок к нему (`unassigned` параметров 33 → 25, маршрутов у него
+     0 → 1). Число имён параметров остаётся 109, а не 117 из ожидания пункта: все восемь имён
+     уже были у контейнера из окружения манифеста k8s, записи из кода к ним добавили тип и
+     значение по умолчанию (`ARGOCD_NOTIFICATIONS_CONTROLLER_LOGFORMAT`: `string`, `json`).
+   - Перемер части 4 (исполнитель, после блоков К, Л и Н; сборки 0.5.0 2741118a, fd375988,
+     a60cc478 против базы судьи judge6): шесть вердиктов без регрессий после каждого блока;
+     Sentry: `layers-check` с кодом 0, core 24/30/52 без изменений; дым 15 репозиториев с
+     кодом 0, клоны чистые, изменения только по пунктам (OpenTelemetry Demo К2, К3, Л3; eShop
+     К2; Loki К5; Forem К1, Н2; n8n Л4 и Kubernetes Л2 только списком разборщиков в покрытии).
+     Кандидаты судьи «есть»: `/cart/checkout`, `/icon`, `health`, `/api/v1/applications`;
+     «нет» по устройству проверки, которая ищет имя только в `entrypoints.yaml`:
+     `cartservice GET /` (маршрут есть, `Startup.cs:77`), `RouteKey.Asset` (раскрыт в путь),
+     `scheduler.every` (у Lemmy расписания под именами функций), `AddFunc @every`,
+     `expire unused datasets` (в подсказках без владельца), `backupDatabase` (подсказка о
+     расписании из конфигурации). Время после блока Н, минимум из трёх по процессорному
+     времени против 0.4.0: Mastodon −3 %, Lemmy +8 %, immich +13 %, eShop +22 %
+     (0,54 → 0,66 с), Argo CD +5 %, PostHog +2 %; память не больше +1 МБ. У eShop прирост
+     не в разборе (все разборщики вместе 0,06 с), а в запуске: файл везёт исходники без
+     байткода, и каждый запуск компилирует модули, а в части 4 их на 14 больше (под
+     профилировщиком `compile` 0,41 → 0,48 с); на коротком прогоне это больше 20 %. Прирост
+     принят владельцем 2026-11-09: сокращать время ценой качества не нужно, сборщик работает
+     столько, сколько нужно, предел записей на файл у разборщиков Python не заводится. Не
+     решено: владелец расписаний PostHog (`worker` с `--with-scheduler`).

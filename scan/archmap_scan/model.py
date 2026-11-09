@@ -154,6 +154,17 @@ class OpenApi:
 
 
 @dataclass
+class ServedRef:
+    """Литерал с базовым именем файла OpenAPI в коде (ТЗ §15 п. 15 Н1: "swagger.json" в коде,
+    который отдаёт файл) и файлы Go, импортирующие пакет этого файла (до трёх шагов по
+    импортам; пусто — не Go, None — больше предела)."""
+
+    name: str
+    loc: Loc
+    importers: tuple[str, ...] | None = ()
+
+
+@dataclass
 class Column:
     name: str
     type: str | None = None
@@ -314,6 +325,8 @@ class Findings:
     # Каталоги программ Go по соглашению «<каталог>/cmd/<имя>/» с файлами кода Go (ТЗ §15
     # п. 14 Ф1): по ним владелец файла под cmd/<имя>/ выбирается среди контейнеров каталога.
     go_programs: set[str] = field(default_factory=set)
+    # Код, который называет файл OpenAPI литералом (ТЗ §15 п. 15 Н1): владелец файла по нему.
+    served: list[ServedRef] = field(default_factory=list)
     # Стек по маркеру сборки в корне (vocab.STACK_BAZEL, STACK_CMAKE; ТЗ §15 п. 12 С12).
     root_stack: str | None = None
 
@@ -343,4 +356,5 @@ class Findings:
             if stack not in self.build_unsupported:
                 self.build_unsupported.append(stack)
         self.go_programs |= other.go_programs
+        self.served.extend(other.served)
         self.root_stack = self.root_stack or other.root_stack
