@@ -186,6 +186,11 @@ def test_node_cron_fixture() -> None:
     assert reasons == [
         texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_VARIABLE,
     ]
+    # Строка сводки говорит и о расписании, а не только об имени.
+    assert texts.dynamic_line("schedules", 3) == (
+        "Расписаний с именем или расписанием, заданным выражением в коде: 3, перечень в "
+        "agent/hints.yaml."
+    )
 
 
 def test_node_cron_stack(tmp_path: Path) -> None:
