@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from archmap_scan import texts
-from archmap_scan.parsers import celerybeat, crontab
+from archmap_scan.parsers import celerybeat, crontab, gocron
 from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 Row = tuple[str, str, str | None, str]
@@ -89,6 +89,38 @@ def test_celery_wrapper_cap(tmp_path: Path) -> None:
     assert len(rows) == celerybeat._MAX_WRAPPERS
     assert rows[-1][3] == f"pkg/jobs.py:{celerybeat._MAX_WRAPPERS}"
     assert hints == []
+
+
+def test_go_cron_fixture() -> None:
+    """robfig/cron (ТЗ §15 п. 15 Л2): литерал и константа файла раскрываются, выражение
+    пишется текстом, у литеральной функции имя — место вызова; переменная без значения —
+    подсказка, комментарий и файл _test.go не читаются."""
+    rows, hints = _rows(gocron, FIXTURES / "go-cron")
+    assert rows == [
+        ("refresh", "@every 10m", "refresh", "main.go:16"),
+        ("s.cleanup", "0 3 * * *", "s.cleanup", "main.go:17"),
+        ("reportJob", "0 0 * * *", "reportJob", "main.go:19"),
+        ("reportJob", "cron.Every(time.Hour)", "reportJob", "main.go:20"),
+        ("main.go:21", 'fmt.Sprintf("@every %s", interval)', "main.go:21", "main.go:21"),
+    ]
+    assert hints == [("spec", "main.go:18")]
+    ctx, files = files_of(FIXTURES / "go-cron")
+    assert gocron.parse(files, ctx).hints[0].data["reason"] == texts.REASON_SCHEDULE_VARIABLE
+
+
+def test_go_cron_needs_import(tmp_path: Path) -> None:
+    """Файл без импорта robfig/cron не читается (AddFunc другой библиотеки), модуль без
+    зависимости — тоже."""
+    body = 'package x\nfunc f() {\n\tc.AddFunc("@daily", job)\n}\n'
+    tree(tmp_path / "a", {
+        "go.mod": "module a\n\nrequire github.com/robfig/cron/v3 v3.0.1\n", "x.go": body,
+    })
+    tree(tmp_path / "b", {
+        "go.mod": "module b\n", "x.go": 'package x\nimport "github.com/robfig/cron/v3"\n' + body,
+    })
+    assert _rows(gocron, tmp_path / "a") == ([], [])
+    ctx, files = files_of(tmp_path / "b")
+    assert gocron.NAME not in gocron.parse(files, ctx).applied
 
 
 def test_celery_beat_needs_celery(tmp_path: Path) -> None:

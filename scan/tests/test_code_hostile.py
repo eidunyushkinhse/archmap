@@ -24,7 +24,8 @@ MANIFESTS: dict[str, str | bytes] = {
     "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\n',
     "go/go.mod": (
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
-        "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n)\n"
+        "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n"
+        "\tgithub.com/robfig/cron/v3 v3.0.1\n)\n"
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
@@ -35,6 +36,7 @@ MANIFESTS: dict[str, str | bytes] = {
 KJS, AMQP, NJS = "require('kafkajs');\n", "require('amqplib');\n", "require('nats');\n"
 BMQ = "require('bullmq');\n"
 KGO, NGO = 'import "github.com/segmentio/kafka-go"\n', 'import "github.com/nats-io/nats.go"\n'
+RGO = 'import "github.com/robfig/cron/v3"\n'
 
 # Схема zod применяется к окружению (ТЗ §15 п. 14 Е3).
 ZOD = "E.safeParse(process.env);\n"
@@ -167,6 +169,11 @@ STARTS["rs/main.rs"] += (
     '#[route("/a", method = "', 'App::new().service(web::scope("/a").service(',
     '.route("/a", web::', "const A: &str = \"",
 )
+# Расписания robfig/cron (ТЗ §15 п. 15 Л2): литерал, константа, выражение, задание.
+STARTS["go/main.go"] += (
+    RGO + 'c.AddFunc("', RGO + "c.AddFunc(", RGO + "c.AddFunc(fmt.Sprintf(", RGO + 'c.AddJob("1", ',
+    RGO + "c.Schedule(cron.Every(", RGO + 'const A = "1"\nc.AddFunc(A, ', RGO + "c.AddFunc(`",
+)
 # Обёртка над add_periodic_task и её вызовы (ТЗ §15 п. 15 Л1): незакрытые аргументы.
 STARTS["py/app.py"] += (
     "def w(s, sch, sig):\n    s.add_periodic_task(sch, sig)\nw(s, crontab(minute='",
@@ -242,6 +249,14 @@ GO_PACKAGE = {
     "wrapper-calls": "}\n" + GO_WRAP + 'w("X")\n' * (PAYLOAD // 7),
     "named-reads": "os.Getenv(c.X)\n" * (PAYLOAD // 15),
     "const-block": "const (\n" + '\tA = "x"\n' * (PAYLOAD // 9) + ")\nos.Getenv(A)\n",
+}
+# Расписания robfig/cron (ТЗ §15 п. 15 Л2): вызовов сверх предела, вложенные вызовы без
+# запятой, длинный блок констант и длинные выражения на месте расписания.
+GO_CRON = {
+    "calls": RGO + 'c.AddFunc("1", f)\n' * (PAYLOAD // 18),
+    "nested": RGO + "c.AddFunc(" * (PAYLOAD // 10),
+    "const-block": RGO + "const (\n" + '\tA = "x"\n' * (PAYLOAD // 9) + ")\nc.AddFunc(A, f)\n",
+    "long-args": RGO + ("c.AddFunc(" + "a+" * 1500 + "b, f)\n") * 600,
 }
 # Схема zod с множеством ключей и констант-валидаторов (ТЗ §15 п. 14 Е3).
 JS_ZOD = {
@@ -409,3 +424,8 @@ def test_celery_wrappers(tmp_path: Path) -> None:
     _check(tree(tmp_path, {
         **MANIFESTS, **extra, "py/celery.py": CELERY_WRAPPERS, "py/calls.py": CELERY_CALLS,
     }))
+
+
+@pytest.mark.parametrize("kind", sorted(GO_CRON))
+def test_go_cron(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "go/main.go": GO_CRON[kind]}))

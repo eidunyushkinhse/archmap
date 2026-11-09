@@ -30,6 +30,7 @@ from archmap_scan.parsers import (
     express,
     fastapi,
     flask,
+    gocron,
     goenv,
     gohttp,
     helm,
@@ -116,6 +117,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(bullmq.NAME, _CHANNEL_FAMILIES, bullmq.parse, code=True),
     ParserSpec(sidekiq.NAME, (*_CHANNEL_FAMILIES, "schedules"), sidekiq.parse, code=True),
     ParserSpec(celerybeat.NAME, ("schedules",), celerybeat.parse, code=True),
+    ParserSpec(gocron.NAME, ("schedules",), gocron.parse, code=True),
     ParserSpec(crontab.NAME, ("schedules",), crontab.parse),
 )
 

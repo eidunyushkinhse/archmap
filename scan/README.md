@@ -127,7 +127,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, `actix`, параметры
   `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
   `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
-  `celerybeat`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
+  `celerybeat`, `gocron`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
   стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -443,3 +443,11 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `name=` или имя задачи; расписание переменной или полем (`settings.X`) — подсказка
     `REASON_SCHEDULE_VARIABLE`; два определения с одним именем в каталоге и обёртка обёртки
     не читаются, обёрток за запуск не больше 100 (Л1).
+  - расписания robfig/cron (`parsers/gocron.py`, стек — go.mod с `github.com/robfig/cron`, маска
+    `codetext.GO`): в файле с импортом robfig/cron вызовы `.AddFunc(spec, f)`, `.AddJob(spec, j)`
+    и `.Schedule(cron.Every(d), j)`; литерал и строковая константа или переменная верхнего
+    уровня файла (`gocode.string_constants`) раскрываются, выражение (`fmt.Sprintf(…)`,
+    `cron.Every(time.Hour)`) пишется текстом, имя без строкового значения в файле — подсказка
+    `REASON_SCHEDULE_VARIABLE`; имя и задача — функция, метод или задание вторым аргументом, у
+    литеральной функции `func() {…}` — `файл:строка`; больше 2000 вызовов в файле — файл
+    непрочитан (Л2).
