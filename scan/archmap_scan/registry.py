@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from archmap_scan import scripts
 from archmap_scan.context import Context
 from archmap_scan.model import Findings
 from archmap_scan.parsers import (
@@ -157,4 +158,7 @@ def collect(files: Files, ctx: Context) -> tuple[Findings, dict[str, str]]:
             # Пропущенный код в каталогах для разработки — этому разборщику (его семьям).
             part.dev_code[spec.name] = files.dev_code
         found.extend(part)
+    # Команды скриптов репозитория, которые запускают единицы (ТЗ §15 п. 16 П1): после всех
+    # разборщиков, потому что единицы и Dockerfile дают разные разборщики.
+    scripts.attach(found, files)
     return found, errors

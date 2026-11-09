@@ -1,0 +1,16 @@
+services:
+  web:
+    build: .
+    command: ./bin/start
+  worker:
+    build: .
+    command: ./bin/run-worker --with-scheduler
+  beat:
+    build: .
+    command: celery -A app beat
+  tool:
+    build: .
+    command: /usr/local/bin/tool
+  bundler:
+    build: .
+    command: ./scripts/bundle.sh

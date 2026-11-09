@@ -27,7 +27,9 @@ redis → sidekiq «доставляет»). ArchMap при ввозе отме�
 уходит в hints.unassigned, а канал при этом пишется.
 
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
-нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
+нескольких — у Celery beat единственный, чья команда (со скриптами репозитория, которые она
+запускает) запускает celery beat (ТЗ §15 п. 16 П1), иначе единственный с ролью
+«планировщик»; иначе оно уходит в hints.unassigned.
 Воркеров из кода сборщик не заводит: только из манифестов. Запись с программой-исполнителем
 (runner: классы воркеров и расписание Sidekiq) получает среди контейнеров файла тот, чья
 команда запускает эту программу (bundle exec sidekiq), а не контейнер по роли (ТЗ §15 п. 13
@@ -62,7 +64,7 @@ from archmap_scan.objects import (
     Param,
     Schedule,
 )
-from archmap_scan.parsers import celery
+from archmap_scan.parsers import celery, celerybeat
 
 EnvOf = dict[str, list[tuple[EnvVar, str]]]
 # Вид клиента → технологии брокера, который его обслуживает.
@@ -94,8 +96,20 @@ _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
 
 
 def _runs(obj: Obj, program: str) -> bool:
-    """Команда одного из манифестов объекта запускает программу (bundle exec sidekiq)."""
-    return any(vocab.command_program(u.command) == program for u in obj.units)
+    """Команда одного из манифестов объекта или скрипта репозитория, который она запускает
+    (owners.unit_commands, ТЗ §15 п. 16 П1), запускает программу (bundle exec sidekiq)."""
+    return any(
+        vocab.command_program(c) == program
+        for u in obj.units for c in owners.unit_commands(u, obj.units)
+    )
+
+
+def _runs_beat(obj: Obj) -> bool:
+    """Команда объекта (и скриптов, которые она запускает) запускает планировщик Celery:
+    celery … beat, -B или --beat (ТЗ §15 п. 16 П1)."""
+    return any(
+        vocab.runs_celery_beat(c) for u in obj.units for c in owners.unit_commands(u, obj.units)
+    )
 
 
 def _runner(
@@ -131,12 +145,11 @@ def _process_owner(containers: Sequence[Obj], process: str) -> Obj | None:
 
 
 def _serves_http(obj: Obj) -> bool:
+    """Команда объекта или скрипта, который она запускает, запускает веб-сервер."""
     return any(
-        u.command and (
-            _WEB_WORDS & set(_WORDS.findall(u.command.lower()))
-            or _RAILS_SERVER.search(u.command.lower()) is not None
-        )
+        _WEB_WORDS & set(_WORDS.findall(c.lower())) or _RAILS_SERVER.search(c.lower()) is not None
         for u in obj.units
+        for c in owners.unit_commands(u, obj.units)
     )
 
 
@@ -444,8 +457,14 @@ def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> N
             _unassigned(model, "schedule", sch.name, aside, sch.loc)
             continue
         found = owners.file_owners(sch.loc.path, containers)
+        beats = [o for o in found if _runs_beat(o)] if sch.parser == celerybeat.NAME else []
         if sch.runner:
             owner, why = _runner(sch.loc.path, sch.runner, found, containers)
+        elif beats:
+            # Расписание Celery beat исполняет контейнер, чья команда запускает celery beat
+            # (ТЗ §15 п. 16 П1); таких несколько — владелец не определим.
+            owner = beats[0] if len(beats) == 1 else None
+            why = texts.REASON_MANY_OWNERS
         else:
             owner = owners.primary(found, vocab.ROLE_SCHEDULER)
             why = texts.REASON_MANY_OWNERS if found else owners.missing_reason(

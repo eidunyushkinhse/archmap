@@ -74,6 +74,9 @@ class Unit:
     # Каталог Cargo workspace, членом которого кандидат является (ТЗ §15 п. 14 И1): у объекта
     # со сборкой из этого каталога каталог кода — каталог крейта (build_dir).
     workspace: str | None = None
+    # Простые команды скриптов репозитория, которые запускает command (./bin/x, ТЗ §15 п. 16
+    # П1): дополнительные команды единицы для владельца записей кода и роли, не записи.
+    script_commands: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -102,6 +105,8 @@ class Dockerfile:
     # COPY или ADD всего контекста сборки («COPY . ./»): код образа — каталог контекста, а не
     # каталог Dockerfile (ТЗ §15 п. 12 С5б).
     copies_context: bool = False
+    # Простые команды скриптов репозитория, которые запускает CMD (ТЗ §15 п. 16 П1).
+    script_commands: list[str] = field(default_factory=list)
 
 
 @dataclass

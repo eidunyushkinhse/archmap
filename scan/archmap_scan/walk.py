@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+from bisect import bisect_left
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -688,6 +689,28 @@ class Files:
         if keep or text is None:
             self._cache[rel] = text
         return text
+
+    def has_file(self, rel: str) -> bool:
+        """Файл rel есть в обходе (перечень отсортирован)."""
+        i = bisect_left(self.paths, rel)
+        return i < len(self.paths) and self.paths[i] == rel
+
+    def head(self, rel: str, limit: int) -> str | None:
+        """Первые limit байт файла обхода текстом, без кэша и без счёта в покрытии (скрипт
+        оболочки, ТЗ §15 п. 16 П1): None — файла нет в обходе, он не читается или двоичный."""
+        if not self.has_file(rel):
+            return None
+        full = self.root / rel
+        try:
+            if full.is_symlink() or not full.is_file():
+                return None
+            with open(full, "rb") as fh:
+                data = fh.read(limit)
+        except OSError:
+            return None
+        if b"\0" in data[:8192]:
+            return None
+        return data.decode("utf-8", "replace")
 
     def skip_dev_code(self, rel: str) -> bool:
         """Файл кода в каталоге для разработки: не читать, а пропуск записать (ТЗ §4)."""

@@ -459,6 +459,7 @@ def _dockerfile_units(
                 out.append(Unit(
                     name=name, parser="dockerfile", loc=d.from_loc, build_dir=folder,
                     dockerfile=d.path, command=d.command, command_loc=d.command_loc,
+                    script_commands=list(d.script_commands),
                     shape=shape,
                 ))
             owner_of[d.path] = list(dict.fromkeys(targets))
@@ -486,6 +487,7 @@ def _dockerfile_units(
                 out.append(Unit(
                     name=name, parser="dockerfile", loc=d.from_loc, build_dir=home,
                     dockerfile=d.path, command=d.command, command_loc=d.command_loc,
+                    script_commands=list(d.script_commands),
                     shape=shape, dev=service,
                 ))
                 owner_of.setdefault(d.path, []).append(name)
@@ -500,7 +502,7 @@ def _dockerfile_units(
             name=_own_name(d, variant, root_name), parser="dockerfile", loc=d.from_loc,
             build_dir=None if variant else d.dir,
             dockerfile=d.path, command=d.command, command_loc=d.command_loc,
-            shape=shape, dev=service,
+            script_commands=list(d.script_commands), shape=shape, dev=service,
         ))
     # Каталоги кода контейнеров (не корень): Dockerfile без своего сервиса в подкаталоге
     # каталога кода одного контейнера — его вариант (ТЗ §15 п. 12 С8: genproto/ у сервисов
@@ -573,6 +575,7 @@ def _dockerfile_units(
             place(Unit(
                 name=variant, parser="dockerfile", loc=d.from_loc, dockerfile=d.path,
                 command=d.command, command_loc=d.command_loc,
+                script_commands=list(d.script_commands),
                 shape=kind.shape if kind and kind.shape != SERVICE else None,
                 dev=service_sign(d.path),
             ), d)
@@ -702,7 +705,13 @@ def _classify(
         obj.locs.add(p.name_loc or Loc(p.path, 1))
     if obj.role is None:
         explicit = next((u.role for u in units if u.role), None)
-        by_cmd = next((r for u in units if (r := vocab.role_by_command(u.command))), None)
+        # Слова скриптов репозитория, которые запускает команда, дополняют её слова (ТЗ §15
+        # п. 16 П1); порядок «воркер раньше планировщика» тот же.
+        by_cmd = next(
+            (r for u in units
+             if (r := vocab.role_by_command(" ".join(owners.unit_commands(u, units))))),
+            None,
+        )
         if explicit:
             obj.role = explicit
         elif by_cmd:

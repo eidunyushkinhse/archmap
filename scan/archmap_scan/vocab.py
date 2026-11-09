@@ -646,9 +646,9 @@ def command_language(command: str | None, go_binaries: frozenset[str] = frozense
     return None
 
 
-def command_program(command: str | None) -> str | None:
-    """Имя программы процесса: первое слово команды после обёрток, переменных и ключей.
-    Шаблонная вставка вместо программы (<%= @bin %>) — программа неизвестна."""
+def command_path(command: str | None) -> str | None:
+    """Программа процесса как написана (с путём): первое слово команды после обёрток,
+    переменных и ключей. Шаблонная вставка вместо программы (<%= @bin %>) — None."""
     if not command:
         return None
     for token in _command_tokens(command):
@@ -660,8 +660,28 @@ def command_program(command: str | None) -> str | None:
         name, eq, _value = token.partition("=")
         if eq and name and "/" not in name:
             continue
-        return _base(token) or None
+        return token
     return None
+
+
+def command_program(command: str | None) -> str | None:
+    """Имя программы процесса: command_path без каталога (./bin/x → x)."""
+    token = command_path(command)
+    return (_base(token) or None) if token is not None else None
+
+
+def runs_celery_beat(command: str | None) -> bool:
+    """Команда запускает планировщик Celery (ТЗ §15 п. 16 П1): программа celery (и
+    python -m celery) со словом beat или ключом -B, --beat (beat внутри воркера)."""
+    if not command:
+        return False
+    tokens = _command_tokens(command)
+    program = command_program(command)
+    if program != "celery" and not any(
+        a == "-m" and b == "celery" for a, b in zip(tokens, tokens[1:], strict=False)
+    ):
+        return False
+    return any(t in ("beat", "-B", "--beat") for t in tokens)
 
 
 def technology(language: str | None, framework: str | None) -> str | None:

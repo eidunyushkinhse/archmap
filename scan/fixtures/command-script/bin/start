@@ -1,0 +1,4 @@
+#!/bin/sh
+# gunicorn в комментарии не команда
+echo "worker: справка, не команда"
+exec gunicorn app.web:web
