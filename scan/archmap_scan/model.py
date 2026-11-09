@@ -244,6 +244,9 @@ class CodeParam:
     extra_locs: list[Loc] = field(default_factory=list)
     # Описание из кода без пересказа смысла: перечень значений схемы z.enum (ТЗ §15 п. 14 Е3).
     description: str | None = None
+    # Запись файла настроек (appsettings.json, defaults.hjson; ТЗ §15 п. 16 Р1, Р2), а не
+    # чтение в коде: при слиянии дефолт берётся сначала из файла, тип сначала из кода.
+    from_file: bool = False
 
 
 @dataclass

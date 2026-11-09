@@ -230,20 +230,23 @@ def _routes(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
 def _merge(param: Param, reads: list[CodeParam]) -> None:
     """Чтения параметра в коде дополняют запись из манифестов: места в основания, дефолт
     и тип — если их ещё нет (дефолт по правилу секретов), required — если ни одно
-    чтение не даёт дефолта, а хотя бы одно без значения не обходится."""
+    чтение не даёт дефолта, а хотя бы одно без значения не обходится. Запись файла
+    настроек (from_file, ТЗ §15 п. 16 Р1) сливается с чтением того же имени, как пример
+    окружения с кодом: дефолт сначала из файла, тип сначала из кода."""
     reads = sorted(reads, key=lambda r: r.loc)
     for read in reads:
         param.locs.add(read.loc)
         param.locs.update(read.extra_locs)
         param.parsers.add(read.parser)
     if param.default is None:
-        for read in reads:
+        for read in sorted(reads, key=lambda r: not r.from_file):
             safe = secrets.safe_default(param.name, read.default)
             if safe is not None:
                 param.default = safe
                 break
     if param.type is None:
-        param.type = next((r.type for r in reads if r.type), None)
+        by_code = sorted(reads, key=lambda r: r.from_file)
+        param.type = next((r.type for r in by_code if r.type), None)
     if param.description is None:
         param.description = next((r.description for r in reads if r.description), None)
     if not any(r.has_default for r in reads) and any(r.required for r in reads):

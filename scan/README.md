@@ -124,6 +124,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   каталогом кода), склеивается в один контейнер с записью в `hints.merged` (ТЗ §13.5).
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
+- Файлы настроек проекта: `appsettings` (`appsettings.json` .NET, свой разбор JSON с
+  комментариями); записи идут чтениями кода с признаком `from_file`.
 - Таблицы: `sql`, `alembic`, `django`, схема Rails `railsschema` и `kysely` (ярус кода), разбор
   DDL у SQL-файлов и шаблонов Kysely общий (`sqlddl.py`). `openapi_owner.py` отдаёт операции
   файла OpenAPI маршрутами сервису, который его отдаёт, или оставляет подсказку с причиной;
@@ -535,3 +537,12 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `sign_out_via`); модуль без известного набора и модель без `devise` дают подсказку на
     строке `devise_for`. `shallow: true` и блок `shallow do`: index, new и create
     вложенного ресурса под родителем, остальные действия от префикса scope (П6).
+  - параметры .NET (`parsers/appsettings.py`, `parsers/dotnetenv.py`): `appsettings.json` в
+    каталоге проекта (рядом с `.csproj`, не `appsettings.<Среда>.json`, не каталог тестов) даёт
+    параметры `A:B:C` с дефолтом как написано и типом по значению (массив одной строкой, `null`
+    без дефолта); комментарии и висячие запятые допустимы, файл больше 1 МБ или глубже 50
+    уровней непрочитан. В коде `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` →
+    `ConnectionStrings:x`, раздел `GetSection("A")` с `.Get<T>()`, `.Bind(obj)`,
+    `Configure<T>(раздел)` и `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по
+    свойствам класса `T` того же проекта; класса нет — параметр `A` с типом `T`. Запись файла и чтение того же ключа
+    сливаются: дефолт из файла, тип из кода (Р1).

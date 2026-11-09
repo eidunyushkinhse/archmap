@@ -3,11 +3,22 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
+import pytest
+
 from archmap_scan import clike, texts
-from archmap_scan.parsers import dotnetenv, goenv, javaenv, nodeenv, pyenv, rustenv
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from archmap_scan.parsers import (
+    appsettings,
+    dotnetenv,
+    goenv,
+    javaenv,
+    nodeenv,
+    pyenv,
+    rustenv,
+)
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Row = tuple[str, str | None, bool, bool | None, str | None, str]
 
@@ -233,6 +244,158 @@ def test_dotnet_configuration() -> None:
         "src/Cart/Store/Keys.cs:5", "src/Cart/Store/RedisStore.cs:9",
     ]
     assert sorted(model.params) == ["Cart"]
+
+
+def test_dotnet_appsettings() -> None:
+    """appsettings.json проекта (ТЗ §15 п. 16 Р1): вложенные ключи «A:B», комментарии «//» и
+    «/* */», висячие запятые, метка порядка байтов в начале (как у eShop
+    src/Ordering.API/appsettings.json), массив одной строкой, null без дефолта, пустой объект
+    без параметров. Ловушки: appsettings.Development.json (значения сред) и appsettings.json
+    проекта тестов Shop.Tests/ не читаются."""
+    at = "src/Shop.Api/appsettings.json"
+    assert _params(appsettings, FIXTURES / "dotnet-config") == [
+        ("AllowedHosts", "*", True, None, "string", f"{at}:9"),
+        ("Cache:Enabled", "true", True, None, "bool", f"{at}:18"),
+        ("Cache:Prefix", None, False, None, None, f"{at}:18"),
+        ("Cache:Ratio", "0.5", True, None, "float", f"{at}:18"),
+        ("Cache:Ttl", "30", True, None, "int", f"{at}:18"),
+        ("ConnectionStrings:db", "Host=localhost;Database=shop", True, None, "string", f"{at}:11"),
+        ("EventBus:RetryCount", "5", True, None, "int", f"{at}:16"),
+        ("EventBus:SubscriptionClientName", "Shop", True, None, "string", f"{at}:15"),
+        ("Hosts", '["a", "b"]', True, None, "array", f"{at}:19"),
+        ("Logging:LogLevel:Default", "Information", True, None, "string", f"{at}:5"),
+        ("Logging:LogLevel:Microsoft.AspNetCore", "Warning", True, None, "string", f"{at}:6"),
+    ]
+
+
+def test_appsettings_reader() -> None:
+    """Повтор ключа даёт запись по последнему (как у .NET), ошибка синтаксиса — BadJson,
+    вложенность больше 50 — TooDeep; комментарий после корня допустим."""
+    assert appsettings.read('{"a": 1, "a": "x"}\n// конец') == [("a", 1, "x", "string")]
+    assert appsettings.read('{"a": {"b": [1, {"c": "d"}, [] ], }}') == [
+        ("a:b", 1, '[1, {"c": "d"}, []]', "array"),
+    ]
+    for bad in ('{"a": 1', '{"a" 1}', '{"a": tru}', '["a"]', '{"a": "b\n"}', '{"a": 1} 2',
+                '{"a": 1 /* без конца'):
+        try:
+            appsettings.read(bad)
+        except appsettings.BadJson:
+            continue
+        raise AssertionError(bad)
+    deep = '{"a": ' * 51 + "1" + "}" * 51
+    try:
+        appsettings.read(deep)
+    except appsettings.TooDeep:
+        pass
+    else:
+        raise AssertionError("глубина")
+    assert appsettings.read('{"a": ' * 50 + "1" + "}" * 50)[0][0] == ":".join(["a"] * 50)
+    assert appsettings.read('{"a": ' + "[" * 49 + "]" * 49 + "}")[0][2] == "[" * 49 + "]" * 49
+
+
+# Враждебный appsettings.json вплотную к пределу 1 МБ (ТЗ §15 п. 16 Р1): тысячи ключей,
+# вложенность, длинные и незакрытые строки, комментарии без конца, длинные массивы.
+_NEAR = 990_000
+APPSETTINGS_HOSTILE = {
+    "keys": "{" + "".join(f'"k{i}": {i},' for i in range(_NEAR // 14)) + "}",
+    "same-key": "{" + '"a": 1,' * (_NEAR // 7) + "}",
+    "nested": '{"a": ' * (_NEAR // 6),
+    "arrays": '{"a": ' + "[" * (_NEAR - 10),
+    "array-items": '{"a": [' + '"x",' * (_NEAR // 4) + "]}",
+    "string": '{"a": "' + "x" * _NEAR + '"}',
+    "open-string": '{"a": "' + "x" * _NEAR,
+    "escapes": '{"a": "' + "\\\"" * (_NEAR // 2) + '"}',
+    "comments": "{" + "/* */" * (_NEAR // 5) + "}",
+    "open-comments": "{" + "/*" * (_NEAR // 2),
+    "line-comments": "{\n" + "//\n" * (_NEAR // 3) + "}",
+    "objects-in-array": '{"a": [' + '{"b": 1},' * (_NEAR // 9) + "]}",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(APPSETTINGS_HOSTILE))
+def test_appsettings_hostile(tmp_path: Path, kind: str) -> None:
+    tree(tmp_path, {
+        "App/App.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
+        "App/appsettings.json": APPSETTINGS_HOSTILE[kind],
+    })
+    ctx, files = files_of(tmp_path)
+    _found, took = timed(partial(appsettings.parse, files, ctx), time_limit())
+    assert took < time_limit() * 0.7, f"{took:.2f} с"
+
+
+def test_appsettings_limits(tmp_path: Path) -> None:
+    """Файл больше 1 МБ и вложенность глубже 50 — файл непрочитан; ошибка синтаксиса —
+    файл пропущен без записей."""
+    tree(tmp_path, {
+        "A/A.csproj": "<Project></Project>\n", "A/appsettings.json": '{"a": "' + "x" * 1_000_001 + '"}',
+        "B/B.csproj": "<Project></Project>\n", "B/appsettings.json": '{"a": ' * 60 + "1" + "}" * 60,
+        "C/C.csproj": "<Project></Project>\n", "C/appsettings.json": '{"a": 1,, }',
+        "D/D.csproj": "<Project></Project>\n", "D/appsettings.json": '{"d": 1}',
+        # Файл не в каталоге проекта: не читается.
+        "E/appsettings.json": '{"e": 1}',
+    })
+    ctx, files = files_of(tmp_path)
+    found = appsettings.parse(files, ctx)
+    assert [p.name for p in found.code_params] == ["d"]
+    assert sorted(files.too_large) == ["A/appsettings.json", "B/appsettings.json"]
+
+
+def test_dotnet_binder() -> None:
+    """Чтения через биндер конфигурации (ТЗ §15 п. 16 Р1): GetValue<T> с дефолтом и без,
+    GetConnectionString, раздел с .Get<T>(), Configure<T>(раздел константой), AddOptions<T>()
+    .BindConfiguration(nameof(T)), переменная раздела перед GetValue и GetSection, .Bind(obj)
+    по объявлению obj. Свойства класса проекта: set и init, required, инициализатор-литерал;
+    static, свойство без set и свойство вложенного класса не параметры, класс того же имени
+    в другом проекте (Shared/) не берётся. Класса нет — один параметр раздела с типом как
+    написан; имя раздела переменной — подсказка. Ловушки: GetSection("Logging") без привязки,
+    чтение в комментарии и в проекте тестов."""
+    at = "src/Shop.Api/Program.cs"
+    opts = "src/Shop.Api/Options"
+    assert _params(dotnetenv, FIXTURES / "dotnet-config") == [
+        ("Cache:Ttl", "60", True, None, "int", f"{at}:2"),
+        ("Catalog:PicBaseUrl", None, False, None, "string", f"{at}:6"),
+        ("Catalog:Timeout", None, True, None, "duration", f"{at}:6"),
+        ("Catalog:UseCustomizationData", None, False, None, "bool", f"{at}:6"),
+        ("ConnectionStrings:db", None, False, None, "string", f"{at}:4"),
+        ("EventBus:Exchange", None, False, True, "string", f"{at}:5"),
+        ("EventBus:RetryCount", "10", True, None, "int", f"{at}:5"),
+        ("EventBus:SubscriptionClientName", None, False, None, "string", f"{at}:5"),
+        ("Identity:Audience", None, False, None, "string", f"{at}:10"),
+        ("Identity:Auth:Authority", "https://identity", True, None, "string", f"{at}:12"),
+        ("Identity:Auth:Scopes", None, True, None, "array", f"{at}:12"),
+        ("Missing", None, False, None, "MissingOptions", f"{at}:14"),
+        ("PaymentOptions:PaymentSucceeded", "true", True, None, "bool", f"{at}:7"),
+        ("Region", None, False, None, "string", f"{at}:3"),
+    ]
+    assert _hints(dotnetenv, FIXTURES / "dotnet-config") == [
+        ("sectionName", texts.REASON_DYNAMIC_PARAM, f"{at}:15"),
+    ]
+    ctx, files = files_of(FIXTURES / "dotnet-config")
+    found = dotnetenv.parse(files, ctx)
+    extra = {p.name: sorted(str(loc) for loc in p.extra_locs) for p in found.code_params}
+    assert extra["EventBus:RetryCount"] == [
+        f"{opts}/EventBusOptions.cs:6", f"{opts}/SectionNames.cs:5",
+    ]
+    assert extra["Catalog:Timeout"] == [f"{opts}/Settings.cs:7"]
+
+
+def test_dotnet_appsettings_merge() -> None:
+    """Запись файла и чтение в коде одного ключа — один параметр (ТЗ §15 п. 16 Р1): дефолт
+    из файла (Cache:Ttl 30, а не 60 из GetValue), тип из кода; места из обоих. Адрес из
+    свойства (https://identity) дефолтом не пишется, как у примеров окружения."""
+    model = model_of(FIXTURES / "dotnet-config")
+    assert sorted(model.params) == ["Shop.Api"]
+    params = model.params["Shop.Api"]
+    ttl = params["Cache:Ttl"]
+    assert (ttl.default, ttl.type) == ("30", "int")
+    assert sorted(str(loc) for loc in ttl.locs) == [
+        "src/Shop.Api/Program.cs:2", "src/Shop.Api/appsettings.json:18",
+    ]
+    retry = params["EventBus:RetryCount"]
+    assert (retry.default, retry.type) == ("5", "int")
+    assert params["EventBus:Exchange"].required is True
+    assert params["Identity:Auth:Authority"].default is None
+    assert len(params) == 21
 
 
 def test_java_getenv() -> None:

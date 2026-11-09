@@ -16,6 +16,7 @@ from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     actix,
     alembic,
+    appsettings,
     aspnet,
     buildfiles,
     bullmq,
@@ -93,6 +94,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(manifests.NAME, ("containers",), manifests.parse),
     ParserSpec(buildfiles.NAME, ("containers",), buildfiles.parse),
     ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
+    ParserSpec(appsettings.NAME, ("config",), appsettings.parse),
     ParserSpec(sql.NAME, ("tables",), sql.parse),
     ParserSpec(alembic.NAME, ("tables",), alembic.parse),
     ParserSpec(django.NAME, ("tables",), django.parse),

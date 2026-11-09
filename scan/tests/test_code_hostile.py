@@ -191,6 +191,19 @@ STARTS["cs/App.cs"] += (
     'app.MapControllerRoute(pattern: "{', "app.MapDefaultControllerRoute(",
     "app.MapDefaultControllerRoute();\nclass A : Controller {\n  [HttpGet]\n  public X ",
 )
+# Чтения через биндер конфигурации .NET (ТЗ §15 п. 16 Р1): GetValue, GetConnectionString,
+# разделы, привязки к классу, nameof, переменная раздела и свойства класса настроек.
+BIND = 'c.GetSection("A").Get<A>();\n'
+STARTS["cs/App.cs"] += (
+    'c.GetValue<int>("', "c.GetValue<", 'c.GetValue<int>("A", ', "c.GetValue<int>(A.",
+    'c.GetConnectionString("', "c.GetConnectionString(", 'c.GetSection("', "c.GetSection(nameof(",
+    'var s = c.GetSection("A");\ns.GetValue<int>("', 'c.GetSection("A").Get<',
+    'c.GetSection("A").Bind(', "s.Configure<A>(", "s.Configure<A>(c.GetSection(",
+    "s.AddOptions<A>().BindConfiguration(", 's.AddOptions<A>().BindConfiguration("',
+    "s.AddOptions<A>()\n  .Bind(c.GetSection(", 'var o = new A();\nc.GetSection("A").Bind(o',
+    BIND + "class A {\n  public int B { get; set; } = ", BIND + "public class A {\n  public required ",
+    BIND + "class A {\n  public ", BIND + "class A ",
+)
 # Параметры Rust (ТЗ §15 п. 14 И2): атрибуты envconfig и clap, env::var, макросы, тесты.
 STARTS["rs/main.rs"] = (
     "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",
@@ -408,6 +421,28 @@ ASPNET = {
     "methods-args": 'app.MapMethods("/a", new[] { ' + '"GET", ' * (PAYLOAD // 7),
     "open-attr": "class AController : Controller {\n  [HttpGet(" + "[" * (PAYLOAD // 2),
 }
+
+
+# Биндер конфигурации .NET (ТЗ §15 п. 16 Р1): привязок и свойств сверх предела, классы с
+# одним именем, разделы цепочкой, переменные раздела и объявления для .Bind(obj).
+DOTNET_BINDER = {
+    "binds": BIND * 1999 + "class A {\n" + "  public int B { get; set; } = 1;\n" * 3 + "}\n",
+    "props": BIND + "class A {\n" + "  public int B { get; set; } = 1;\n" * (PAYLOAD // 34) + "}\n",
+    "props-many": BIND * 50 + "class A {\n" + "  public int B { get; set; }\n" * 1000 + "}\n",
+    "classes": BIND + "class A { public int B { get; set; } }\n" * (PAYLOAD // 40),
+    "class-names": BIND + "".join(f"class A{i} {{ }}\n" for i in range(PAYLOAD // 14)),
+    "chain": 'c' + '.GetSection("a")' * (PAYLOAD // 17) + ".Get<A>();\n",
+    "vars": "".join(f'var s{i} = c.GetSection("a");\n' for i in range(1999))
+    + "".join(f'var x{i} = s{i}.GetValue<int>("b");\n' for i in range(1999)),
+    "binds-objects": "".join(f'c.GetSection("a").Bind(o{i});\n' for i in range(1999)),
+    "values": 'c.GetValue<int>("a", 1);\n' * 1999,
+    "nested-braces": BIND + "class A " + "{" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(DOTNET_BINDER))
+def test_dotnet_binder(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "cs/App.cs": DOTNET_BINDER[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(ASPNET))
