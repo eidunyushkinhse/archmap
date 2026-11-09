@@ -210,6 +210,12 @@ STARTS["rs/main.rs"] = (
     "#[arg(env)]\n#[serde(", 'std::env::var("', "env::var(", 'env!("', "#[cfg(test)]\nmod t {",
     "r#\"", "'", 'env::var("X").unwrap_or("',
 )
+# Структуры envconfig (ТЗ §15 п. 16 Р3): derive, struct, поле без атрибута.
+STARTS["rs/main.rs"] += (
+    "#[derive(", "#[derive(Envconfig)]\n", "#[derive(Envconfig)]\nstruct A {\n    ",
+    "#[derive(Envconfig)]\npub struct A {\n    pub a: Option<", "#[derive(Envconfig)]\nstruct A<",
+    "#[derive(Envconfig)]\n#[", "#[derive(Envconfig)]\nstruct A {\n    #[serde(",
+)
 # Маршруты actix-web (ТЗ §15 п. 15 К3): вызовы route, scope и resource, атрибуты обработчиков.
 STARTS["rs/main.rs"] += (
     '.route("', ".route(", 'web::scope("', "web::scope(", 'web::resource("/a").route(', '#[get("',
@@ -476,6 +482,18 @@ RUST = {
     "test-modules": "#[cfg(test)]\nmod t {\n" * (PAYLOAD // 20),
     "lifetimes": "fn f<'a>(x: &'a str) " * (PAYLOAD // 20),
     "reads": 'std::env::var("A").unwrap_or_else(|_| "b".into());\n' * 1999,
+    # Структуры envconfig (ТЗ §15 п. 16 Р3): тысячи полей без атрибута, тысячи derive,
+    # атрибуты между derive и struct, тело без конца, вложенные скобки типа.
+    "fields": "#[derive(Envconfig)]\nstruct A {\n" + "    a: Option<u32>,\n" * (PAYLOAD // 20)
+    + "}\n",
+    "derives": "#[derive(Envconfig)]\nstruct A {\n    a: u32,\n}\n" * 1999,
+    "open-derives": "#[derive(Envconfig)]\nstruct A {\n" * 1999 + "a: u32,\n" * (PAYLOAD // 9),
+    "derive-attrs": "#[derive(Envconfig)]\n" + "#[a]\n" * (PAYLOAD // 5),
+    "open-struct": "#[derive(Envconfig)]\nstruct A {\n" + "a: u32,\n" * (PAYLOAD // 8),
+    "type-brackets": "#[derive(Envconfig)]\nstruct A {\n    a: " + "Option<" * (PAYLOAD // 7)
+    + "\n}\n",
+    "field-attrs": "#[derive(Envconfig)]\nstruct A {\n"
+    + "    #[serde(default)]\n" * (PAYLOAD // 22) + "    a: u32,\n}\n",
 }
 
 

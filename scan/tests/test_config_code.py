@@ -534,17 +534,22 @@ def test_rust_env() -> None:
     default_value_t = false, env = "LEMMY_DISABLE_ACTIVITY_SENDING")]` и
     crates/utils/src/settings/mod.rs:39 `env::var("LEMMY_CONFIG_LOCATION")`. Ловушки:
     структура с derive(Envconfig) без полей; nested = true; атрибут serde между envconfig
-    и полем; env::var(&name) — подсказка; env!("CARGO_PKG_VERSION") не параметр и не
+    и полем; поля структуры без derive(Envconfig) (Outputs) не параметры, тип с «->» поле
+    не рвёт; env::var(&name) — подсказка; env!("CARGO_PKG_VERSION") не параметр и не
     подсказка, option_env! — переменная времени сборки; время жизни 'static маску не
     рвёт; комментарий и модуль #[cfg(test)] не читаются."""
     root = FIXTURES / "rust-env"
     config, main = "server/src/config.rs", "server/src/main.rs"
     assert _params(rustenv, root) == [
+        # Поля без атрибута в структуре с derive(Envconfig) (ТЗ §15 п. 16 Р3).
+        ("BATCH_SIZE", None, False, False, "int", f"{config}:25"),
         ("CONFIG_PATH", "config.hjson", True, False, "string", f"{main}:16"),
         ("DATABASE_URL", None, False, True, "string", f"{config}:19"),
         ("DISABLE_HTTP", "false", True, False, "bool", f"{main}:5"),
+        ("FLUSH_INTERVAL", None, False, True, "duration", f"{config}:29"),
         ("KAFKA_HOSTS", "kafka:9092", True, False, "string", f"{config}:8"),
         ("LOG_LEVEL", "info", True, False, "string", f"{main}:7"),
+        ("OUTPUT_KAFKA_HOSTS", None, False, True, "string", f"{config}:23"),
         ("PORT", "3000", True, False, "int", f"{config}:11"),
         ("REDIS_URL", None, False, False, "string", f"{config}:15"),
         ("SERVICE_URL", None, False, True, None, f"{main}:17"),
@@ -555,8 +560,8 @@ def test_rust_env() -> None:
     ]
     model = model_of(root)
     assert sorted(model.params["server"]) == [
-        "CONFIG_PATH", "DATABASE_URL", "DISABLE_HTTP", "KAFKA_HOSTS", "LOG_LEVEL", "PORT",
-        "REDIS_URL", "SERVICE_URL",
+        "BATCH_SIZE", "CONFIG_PATH", "DATABASE_URL", "DISABLE_HTTP", "FLUSH_INTERVAL",
+        "KAFKA_HOSTS", "LOG_LEVEL", "OUTPUT_KAFKA_HOSTS", "PORT", "REDIS_URL", "SERVICE_URL",
     ]
     # Основания: строка атрибута и строка поля.
     assert sorted(str(loc) for loc in model.params["server"]["REDIS_URL"].locs) == [
