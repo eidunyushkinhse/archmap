@@ -167,6 +167,11 @@ STARTS["rs/main.rs"] += (
     '#[route("/a", method = "', 'App::new().service(web::scope("/a").service(',
     '.route("/a", web::', "const A: &str = \"",
 )
+# Обёртка над add_periodic_task и её вызовы (ТЗ §15 п. 15 Л1): незакрытые аргументы.
+STARTS["py/app.py"] += (
+    "def w(s, sch, sig):\n    s.add_periodic_task(sch, sig)\nw(s, crontab(minute='",
+    "def w(s, sch, sig, name):\n    s.add_periodic_task(sch, sig, name=name)\nw(s, 1, t.s(), name='",
+)
 # DDL в шаблонах миграций (ТЗ §15 п. 14 З2): шаблон, вставка, откат, sql.raw.
 STARTS["js/migrations/1-a.ts"] = (
     "sql`", "sql`CREATE TABLE t (", "sql`CREATE TABLE ${", "sql`CREATE TABLE t AS SELECT ",
@@ -389,3 +394,18 @@ def test_zod_schema(tmp_path: Path, kind: str) -> None:
 @pytest.mark.parametrize("kind", sorted(GO_PACKAGE))
 def test_go_package_pass(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "go/main.go": GO_REG + GO_PACKAGE[kind]}))
+
+
+# Тысячи обёрток add_periodic_task с разными именами и их вызовы в соседнем файле (ТЗ §15
+# п. 15 Л1): имён для поиска вызовов не больше celerybeat._MAX_WRAPPERS.
+CELERY_WRAPPERS = "".join(
+    f"def w{i}(s, sch, sig):\n    s.add_periodic_task(sch, sig)\n" for i in range(3000)
+)
+CELERY_CALLS = "".join(f"w{i}(s, crontab(), t.s())\n" for i in range(3000))
+
+
+def test_celery_wrappers(tmp_path: Path) -> None:
+    extra: dict[str, str | bytes] = {f"py/m{i}.py": "x = 1\n" * 200 for i in range(50)}
+    _check(tree(tmp_path, {
+        **MANIFESTS, **extra, "py/celery.py": CELERY_WRAPPERS, "py/calls.py": CELERY_CALLS,
+    }))

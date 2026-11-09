@@ -38,6 +38,59 @@ def test_celery_beat_fixture() -> None:
     assert hints == [("PREFIX + '-sync'", "proj/celery_app.py:12")]
 
 
+def test_celery_wrapper_fixture() -> None:
+    """Обёртка над add_periodic_task (ТЗ §15 п. 15 Л1): вызовы с аргументами по позициям и
+    по именам дают расписания, расписание полем настроек — подсказку; вызов внутри самой
+    обёртки расписанием не считается, прямой вызов рядом не задваивается."""
+    rows, hints = _rows(celerybeat, FIXTURES / "celery-wrapper")
+    assert rows == [
+        ("expire unused datasets", "crontab(minute='37')", "cleanup", "app/celery.py:19"),
+        ("ping every 30 seconds", "30.0", "ping", "app/celery.py:20"),
+        ("hourly report", "timedelta(hours=1)", "report", "app/celery.py:21"),
+        ("morning digest", "crontab(hour=6)", "digest", "app/celery.py:22"),
+        ("direct ping", "60", "ping", "app/celery.py:25"),
+    ]
+    assert hints == [("settings.SYNC_SCHEDULE", "app/celery.py:23")]
+    ctx, files = files_of(FIXTURES / "celery-wrapper")
+    found = celerybeat.parse(files, ctx)
+    assert found.hints[0].data["reason"] == texts.REASON_SCHEDULE_VARIABLE
+
+
+def test_celery_wrapper_package(tmp_path: Path) -> None:
+    """Вызов обёртки читается в файлах того же каталога и без слов beat_schedule и
+    periodic_task; в другом каталоге и при двух определениях обёртки в пакете вызов
+    расписанием не считается (глубина одна, одно определение)."""
+    tree(tmp_path, {
+        "requirements.txt": "celery\n",
+        "pkg/util.py": "def every(sender, spec, job):\n    sender.add_periodic_task(spec, job)\n",
+        "pkg/jobs.py": "def setup(sender):\n    every(sender, crontab(minute=5), report.s())\n",
+        "other/jobs.py": "def setup(sender):\n    every(sender, crontab(minute=6), report.s())\n",
+        "dup/a.py": "def every(sender, spec, job):\n    sender.add_periodic_task(spec, job)\n",
+        "dup/b.py": "def every(sender, spec, job):\n    sender.add_periodic_task(spec, job)\n"
+        "def setup(sender):\n    every(sender, crontab(minute=7), report.s())\n",
+    })
+    rows, hints = _rows(celerybeat, tmp_path)
+    assert rows == [("report", "crontab(minute=5)", "report", "pkg/jobs.py:2")]
+    assert hints == []
+
+
+def test_celery_wrapper_cap(tmp_path: Path) -> None:
+    """Обёрток за запуск не больше _MAX_WRAPPERS: вызовы остальных не читаются, а вызов
+    add_periodic_task в их теле всё равно не расписание."""
+    count = celerybeat._MAX_WRAPPERS + 5
+    tree(tmp_path, {
+        "requirements.txt": "celery\n",
+        "pkg/util.py": "".join(
+            f"def w{i:03}(s, spec, job):\n    s.add_periodic_task(spec, job)\n" for i in range(count)
+        ),
+        "pkg/jobs.py": "".join(f"w{i:03}(s, crontab(minute=5), report.s())\n" for i in range(count)),
+    })
+    rows, hints = _rows(celerybeat, tmp_path)
+    assert len(rows) == celerybeat._MAX_WRAPPERS
+    assert rows[-1][3] == f"pkg/jobs.py:{celerybeat._MAX_WRAPPERS}"
+    assert hints == []
+
+
 def test_celery_beat_needs_celery(tmp_path: Path) -> None:
     tree(tmp_path, {
         "requirements.txt": "flask\n",
