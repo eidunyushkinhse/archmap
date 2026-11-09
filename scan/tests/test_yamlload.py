@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from archmap_scan.yamlload import (
@@ -15,6 +13,7 @@ from archmap_scan.yamlload import (
     load,
     load_all,
 )
+from tests.helpers import timed
 
 
 def test_lines() -> None:
@@ -40,16 +39,18 @@ def test_alias_bomb() -> None:
     for i in range(1, 9):
         refs = ", ".join([f"*a{i - 1}"] * 10)
         lines.append(f"a{i}: &a{i} [{refs}]")
-    started = time.perf_counter()
-    # В памяти псевдонимы не копируются, но любой обход значения раскрыл бы 10^9 элементов.
-    with pytest.raises(BadYaml):
-        load("\n".join(lines))
     many = "\n".join(f"k{i}: *a0" for i in range(1100))
-    with pytest.raises(BadYaml):
-        load("a0: &a0 [x]\n" + many)
-    with pytest.raises(BadYaml):
-        load("a: &a [x, *a]\n")
-    assert time.perf_counter() - started < 1.0
+
+    def run() -> None:
+        # В памяти псевдонимы не копируются, но любой обход значения раскрыл бы 10^9 элементов.
+        with pytest.raises(BadYaml):
+            load("\n".join(lines))
+        with pytest.raises(BadYaml):
+            load("a0: &a0 [x]\n" + many)
+        with pytest.raises(BadYaml):
+            load("a: &a [x, *a]\n")
+
+    assert timed(run, 1.0)[1] < 1.0
 
 
 def test_shared_anchors_within_limits() -> None:
@@ -66,18 +67,20 @@ def test_merge_bomb() -> None:
     for i in range(1, 12):
         refs = ", ".join([f"*m{i - 1}"] * 10)
         lines.append(f"m{i}: &m{i} {{<<: [{refs}]}}")
-    started = time.perf_counter()
-    with pytest.raises(BadYaml):
-        load("\n".join(lines))
-    assert time.perf_counter() - started < 1.0
+    def run() -> None:
+        with pytest.raises(BadYaml):
+            load("\n".join(lines))
+
+    assert timed(run, 1.0)[1] < 1.0
 
 
 def test_deep_nesting_and_bad_syntax() -> None:
-    started = time.perf_counter()
-    with pytest.raises(BadYaml):
-        load("[" * 5000 + "]" * 5000)
-    with pytest.raises(BadYaml):
-        load("a: [unclosed\n")
-    with pytest.raises(BadYaml):
-        load("? [a, b]\n: c\n")
-    assert time.perf_counter() - started < 1.0
+    def run() -> None:
+        with pytest.raises(BadYaml):
+            load("[" * 5000 + "]" * 5000)
+        with pytest.raises(BadYaml):
+            load("a: [unclosed\n")
+        with pytest.raises(BadYaml):
+            load("? [a, b]\n: c\n")
+
+    assert timed(run, 1.0)[1] < 1.0

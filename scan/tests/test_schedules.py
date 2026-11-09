@@ -3,14 +3,14 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 from archmap_scan import texts
 from archmap_scan.parsers import celerybeat, clokwerk, crontab, gocron, nodecron
-from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Row = tuple[str, str, str | None, str]
 
@@ -332,9 +332,8 @@ def test_crontab_hostile(tmp_path: Path, kind: str) -> None:
     # шестое слово — пользователь), а в файле .cron дают записи до предела.
     tree(tmp_path, {"jobs/big.cron" if kind == "lines" else "cron.d/job": payload})
     ctx, files = files_of(tmp_path)
-    started = time.perf_counter()
-    found = crontab.parse(files, ctx)
-    assert time.perf_counter() - started < time_limit()
+    found, took = timed(partial(crontab.parse, files, ctx), time_limit())
+    assert took < time_limit()
     if kind == "lines":
         # Сто двадцать тысяч записей — не crontab: файл непрочитан, записей нет.
         assert found.schedules == [] and files.too_large == {"jobs/big.cron"}

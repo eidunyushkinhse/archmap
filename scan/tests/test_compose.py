@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import shutil
-import time
+from functools import partial
 from pathlib import Path
 
 from archmap_scan import registry, texts
@@ -14,7 +14,7 @@ from archmap_scan.objects import Model
 from archmap_scan.parsers import compose
 from archmap_scan.walk import Files, list_files
 from archmap_scan.yamlload import MAX_YAML_BYTES
-from tests.helpers import FIXTURES, files_of, git, model_of, time_limit, tree
+from tests.helpers import FIXTURES, files_of, git, model_of, time_limit, timed, tree
 
 
 def _parse(root: Path) -> Findings:
@@ -212,12 +212,9 @@ def test_expand_is_bounded() -> None:
 
 
 def test_expand_hostile_in_time() -> None:
-    import time
-
     for value in ("${A}" * 60_000, "${A:-" * 60_000, "a$" * 120_000, "${A:-x" + "}" * 240_000):
-        started = time.perf_counter()
-        compose.expand(value)
-        assert time.perf_counter() - started < 1.0
+        _out, took = timed(partial(compose.expand, value), 1.0)
+        assert took < 1.0
 
 
 _DOTENV = (
@@ -339,8 +336,6 @@ def test_proxy_config_hostile_is_fast(tmp_path: Path) -> None:
             "p.conf": text,
         })
         ctx, files = files_of(root)
-        started = time.perf_counter()
-        found = compose.parse(files, ctx)
-        took = time.perf_counter() - started
+        found, took = timed(partial(compose.parse, files, ctx), time_limit())
         assert took < time_limit(), f"{kind}: {took:.2f} с"
         assert sum(len(u.links) for u in found.units) <= 200

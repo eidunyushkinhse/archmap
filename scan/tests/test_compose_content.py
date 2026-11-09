@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 from archmap_scan import texts
 from archmap_scan.model import Findings
 from archmap_scan.parsers import compose
-from tests.helpers import files_of, model_of, time_limit, tree
+from tests.helpers import files_of, model_of, time_limit, timed, tree
 
 DEVSERVICES = """\
 # Ignored by docker compose, used by devservices
@@ -109,12 +109,12 @@ def test_content_compose_model(tmp_path: Path) -> None:
 
 
 def test_services_line_regex_is_linear(tmp_path: Path) -> None:
-    started = time.perf_counter()
-    found = _parse(tree(tmp_path, {
+    root = tree(tmp_path, {
         "a.yml": "services:" + " " * 2_000_000 + "#\n",
         "b.yml": "x: " + "services:" * 200_000 + "\n",
-    }))
-    assert time.perf_counter() - started < time_limit()
+    })
+    found, took = timed(partial(_parse, root), time_limit())
+    assert took < time_limit()
     assert found.units == []
 
 
@@ -145,10 +145,9 @@ def test_devservices_on_hostile_description(tmp_path: Path) -> None:
         + "services:\n" + "".join(f"  {n}:\n    image: x\n" for n in names)
     )
     tree(tmp_path, {"devservices/config.yml": text})
-    started = time.perf_counter()
-    found = _parse(tmp_path)
+    found, took = timed(partial(_parse, tmp_path), time_limit())
     assert len(found.units) == len(names)
-    assert time.perf_counter() - started < time_limit()
+    assert took < time_limit()
 
 
 def test_x_programs_are_processes() -> None:

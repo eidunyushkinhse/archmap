@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from archmap_scan.links import hosts_in, link_technology
-from tests.helpers import time_limit
+from tests.helpers import time_limit, timed
 
 
 @pytest.mark.parametrize(
@@ -40,10 +38,11 @@ def test_link_technology() -> None:
 
 
 def test_hostile_values_are_fast() -> None:
-    started = time.perf_counter()
-    hosts_in("X_URL", "a" * 2_000_000)
-    hosts_in("X_URL", "://" * 300_000)
-    hosts_in("X_HOST", ("a," * 1_000_000))
-    hosts_in("X", "a" * 2_000_000 + ":1")
+    def run() -> None:
+        hosts_in("X_URL", "a" * 2_000_000)
+        hosts_in("X_URL", "://" * 300_000)
+        hosts_in("X_HOST", ("a," * 1_000_000))
+        hosts_in("X", "a" * 2_000_000 + ":1")
+
     # Под замером покрытия предел шире (helpers.time_limit): трассировка замедляет разбор.
-    assert time.perf_counter() - started < time_limit()
+    assert timed(run, time_limit())[1] < time_limit()

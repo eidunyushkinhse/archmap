@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 import yaml
@@ -11,7 +11,7 @@ from archmap_scan import sqlddl, texts
 from archmap_scan.model import Loc, Table
 from archmap_scan.parsers import kysely, railsschema, sql
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, timed, tree
 
 
 def _cols(table: Table) -> list[tuple[str, str | None, bool, bool | None, str | None]]:
@@ -114,13 +114,16 @@ def test_statement_splitting() -> None:
 
 
 def test_unterminated_and_hostile_input_is_fast() -> None:
-    started = time.perf_counter()
-    schema = sqlddl.Schema()
-    sqlddl.apply_text("CREATE TABLE t (" + "a int, " * 280_000 + ")", "x.sql", schema)
-    sqlddl.apply_text("'" + "x" * 2_000_000, "y.sql", schema)
-    sqlddl.apply_text("/*" + "*" * 2_000_000, "z.sql", schema)
-    sqlddl.apply_text("$a$" + "$" * 1_000_000, "w.sql", schema)
-    assert time.perf_counter() - started < 1.0
+    def run() -> sqlddl.Schema:
+        schema = sqlddl.Schema()
+        sqlddl.apply_text("CREATE TABLE t (" + "a int, " * 280_000 + ")", "x.sql", schema)
+        sqlddl.apply_text("'" + "x" * 2_000_000, "y.sql", schema)
+        sqlddl.apply_text("/*" + "*" * 2_000_000, "z.sql", schema)
+        sqlddl.apply_text("$a$" + "$" * 1_000_000, "w.sql", schema)
+        return schema
+
+    schema, took = timed(run, 1.0)
+    assert took < 1.0
     assert schema.skipped == 3
 
 
@@ -318,9 +321,7 @@ def test_rails_schema_hostile_is_fast(tmp_path: Path) -> None:
     for kind, text in payloads.items():
         root = tree(tmp_path / kind, {"db/schema.rb": text})
         ctx, files = files_of(root)
-        started = time.perf_counter()
-        railsschema.parse(files, ctx)
-        took = time.perf_counter() - started
+        _found, took = timed(partial(railsschema.parse, files, ctx), 1.0)
         assert took < 1.0, f"{kind}: {took:.2f} с"
 
 

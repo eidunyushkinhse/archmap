@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-import time
 from pathlib import Path
 
 import pytest
@@ -22,7 +21,7 @@ from archmap_scan.walk import (
     list_files,
     segment_match,
 )
-from tests.helpers import FIXTURES, ctx_of, git, model_of, tree
+from tests.helpers import FIXTURES, ctx_of, git, model_of, timed, tree
 
 
 def test_convention_dirs_and_names(tmp_path: Path) -> None:
@@ -130,10 +129,14 @@ def test_pattern_hits_ancestor_dirs() -> None:
 
 def test_hostile_pattern_is_fast() -> None:
     name = "a" * 3000
-    started = time.perf_counter()
-    assert not segment_match("*a*a*a*a*a*a*a*a*a*b", name)
-    assert not Pattern("**/**/**/**/**/x").matches("/".join(["a"] * 2000), False)
-    assert time.perf_counter() - started < 1.0
+    def run() -> bool:
+        return segment_match("*a*a*a*a*a*a*a*a*a*b", name) or Pattern(
+            "**/**/**/**/**/x",
+        ).matches("/".join(["a"] * 2000), False)
+
+    matched, took = timed(run, 1.0)
+    assert not matched
+    assert took < 1.0
 
 
 def test_walk_skips_tool_dirs_marker_and_out(tmp_path: Path) -> None:

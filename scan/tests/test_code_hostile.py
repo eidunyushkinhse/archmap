@@ -4,13 +4,13 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 from archmap_scan import registry
-from tests.helpers import files_of, time_limit, tree
+from tests.helpers import files_of, time_limit, timed, tree
 
 PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
@@ -205,9 +205,7 @@ def _check(root: Path) -> None:
     for spec in registry.PARSERS:
         if not spec.code:
             continue
-        started = time.perf_counter()
-        spec.parse(files, ctx)
-        took = time.perf_counter() - started
+        _found, took = timed(partial(spec.parse, files, ctx), time_limit())
         assert took < time_limit(), f"{spec.name}: {took:.2f} с"
 
 

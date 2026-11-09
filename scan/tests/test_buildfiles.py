@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 from archmap_scan import stats, texts, vocab
 from archmap_scan.model import Findings
 from archmap_scan.parsers import buildfiles
-from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 MAKEFILE = """\
 ## Process this file with automake to produce Makefile.in
@@ -124,9 +124,8 @@ def test_hostile_makefile(tmp_path: Path) -> None:
     # Почти предел размера файла (walk.MAX_BYTES): склейка строк, повторы и длинное слово.
     payload = "bin_PROGRAMS = " + "a \\\n" * 200_000 + "x" * 1_000_000 + "\n"
     ctx, files = files_of(tree(tmp_path, {"src/Makefile.am": payload, "src/a.c": ""}))
-    started = time.perf_counter()
-    found = buildfiles.parse(files, ctx)
-    assert time.perf_counter() - started < time_limit()
+    found, took = timed(partial(buildfiles.parse, files, ctx), time_limit())
+    assert took < time_limit()
     assert [u.name for u in found.build_units] == ["a"]
 
 
@@ -213,7 +212,5 @@ def test_cargo_hostile_is_fast(tmp_path: Path) -> None:
         "rust/Cargo.toml": "[workspace]\nmembers = [" + '"a/*", "b", ' * 100_000 + "]\n",
     })
     ctx, files = files_of(tmp_path)
-    started = time.perf_counter()
-    buildfiles.parse(files, ctx)
-    took = time.perf_counter() - started
+    _found, took = timed(partial(buildfiles.parse, files, ctx), time_limit())
     assert took < time_limit(), f"{took:.2f} с"
