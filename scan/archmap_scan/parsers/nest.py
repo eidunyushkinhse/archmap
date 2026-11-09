@@ -118,6 +118,12 @@ def _resolver(files: Files, ctx: Context, rel: str) -> Resolver:
     return resolve
 
 
+def enum_value(files: Files, ctx: Context, rel: str, name: str, member: str) -> str | None:
+    """Строковое значение члена перечисления репозитория для кода файла rel (то же правило,
+    что у префикса @Controller): None — не найдено, не строка или неоднозначно."""
+    return _resolver(files, ctx, rel)(name, member)[0]
+
+
 def _controller(
     code: codetext.Code, rel: str, found: Findings, start: int, enum: Resolver,
 ) -> str | None:

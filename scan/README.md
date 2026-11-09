@@ -127,7 +127,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, `actix`, параметры
   `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
   `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
-  `celerybeat`, `gocron`, `clokwerk`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
+  `celerybeat`, `gocron`, `clokwerk`, `nodecron`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
   стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -458,3 +458,14 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `#[cfg(test)]` и каталоги тестов не читаются, больше 2000 вызовов every в файле — файл
     непрочитан. Rust в `unsupported` расписаний сам не называется (`vocab.FAMILY_LANGUAGES`),
     tokio-cron-scheduler и job_scheduler названы стеком (Л3).
+  - расписания пакетов cron и @nestjs/schedule (`parsers/nodecron.py`, разборщик
+    `node-cronjob`, стек — package.json с `cron` или `@nestjs/schedule`, маска `codetext.JS`):
+    `@Cron("выражение")` и `@Cron(CronExpression.X)` над методом (член раскрывается по словарю
+    `_NEST_CRON`, неизвестный пишется как написан; имя из `name:` или имя метода),
+    `new CronJob("выражение", f)` (имя по функции, иначе `файл:строка`; параметр на месте
+    выражения не читается), объект с ключами `name`, `expression` или `cronTime` и `onTick`
+    своего уровня (`create({ name, expression, onTick })`, `CronJob.from({ cronTime, onTick })`;
+    без `onTick`, тип с «;» и образец разбора параметра не читаются; имя строкой, членом
+    перечисления репозитория, как у префикса NestJS, или функцией `onTick: f`); выражение
+    полем объекта — подсказка `REASON_SCHEDULE_CONFIG`, именем или шаблоном с подстановкой —
+    `REASON_SCHEDULE_VARIABLE`; пакет node-cron — другая библиотека, он назван в `unsupported` (Л4).

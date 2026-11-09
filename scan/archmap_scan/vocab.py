@@ -420,9 +420,10 @@ UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
 # Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
 # и schedule не ищутся); Celery beat читает разборщик celery-beat, sidekiq-scheduler из
 # config/sidekiq.yml — разборщик sidekiq, robfig/cron — go-cron (ТЗ §15 п. 15 Л2), clokwerk —
-# clokwerk (Л3; другие планировщики Rust названы, сам Rust нет, по FAMILY_LANGUAGES).
+# clokwerk (Л3; другие планировщики Rust названы, сам Rust нет, по FAMILY_LANGUAGES), пакеты
+# cron и @nestjs/schedule — node-cronjob (Л4; node-cron — другая библиотека, она названа).
 UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
-    ("node-cron", "node-cron"), ("cron", "cron"), ("node-schedule", "node-schedule"),
+    ("node-cron", "node-cron"), ("node-schedule", "node-schedule"),
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
     ("github.com/go-co-op/gocron", "gocron"), ("tokio-cron-scheduler", "tokio-cron-scheduler"),

@@ -19,7 +19,7 @@ MANIFESTS: dict[str, str | bytes] = {
     "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\n",
     "js/package.json": (
         '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
-        ' "nats": "*", "bullmq": "*"}}'
+        ' "nats": "*", "bullmq": "*", "cron": "*", "@nestjs/schedule": "*"}}'
     ),
     "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\n',
     "go/go.mod": (
@@ -184,6 +184,12 @@ STARTS["rs/main.rs"] += (
     "s.every(", "s.every(1.hour()).at(\"", "s.every(1.hour()).run(|| ", "s.every(1.hour()).run(|| f(",
     "s.every(1.hour()).at(", "s.every(TimeUnits::minutes(",
 )
+# Расписания cron и @nestjs/schedule (ТЗ §15 п. 15 Л4): декоратор, конструктор, объект.
+STARTS["js/app.js"] += (
+    "@Cron('", "@Cron(CronExpression.", "@Cron(`", "@Cron(A, { name: '", "new CronJob('",
+    "new CronJob(this.", "x.create({ name: '", "x.create({ onTick: f, expression: '",
+    "x.create({ onTick: f, expression: ", "CronJob.from({ cronTime: '", "{ onTick, ",
+)
 # DDL в шаблонах миграций (ТЗ §15 п. 14 З2): шаблон, вставка, откат, sql.raw.
 STARTS["js/migrations/1-a.ts"] = (
     "sql`", "sql`CREATE TABLE t (", "sql`CREATE TABLE ${", "sql`CREATE TABLE t AS SELECT ",
@@ -271,6 +277,16 @@ CLOKWERK = {
     "links": ("s.every(1.hour())" + ".at(\"1\")" * 20 + ";\n") * 1900,
     "chain": "s.every(1.hour())" + ".at(\"1\")" * (PAYLOAD // 9),
     "bodies": ("s.every(1.hour()).run(|| {" + "x.y(); " * 2800 + "});\n") * 100,
+}
+# Расписания cron и @nestjs/schedule (ТЗ §15 п. 15 Л4): объекты регистрации сверх предела,
+# onTick в глубокой вложенности и в огромном объекте, декораторы без закрытия.
+NODE_CRON = {
+    "objects": "x.create({ name: 'a', expression: '1', onTick: f });\n" * (PAYLOAD // 52),
+    "deep": "{" * (PAYLOAD // 2 - 1000) + "onTick, expression: e }\n" * 1000,
+    "keys": "x.create({ onTick: f, expression: '1', " + "a: 1, " * (PAYLOAD // 6) + "})",
+    "big-object": "x.create({ " + "onTick: f, " * 1900 + "a: [" * 50000 + "]" * 50000 + "})",
+    "decorators": "@Cron(" * (PAYLOAD // 6),
+    "constructors": "new CronJob(this.a, f);\n" * 1900 + "x" * (PAYLOAD // 2),
 }
 # Схема zod с множеством ключей и констант-валидаторов (ТЗ §15 п. 14 Е3).
 JS_ZOD = {
@@ -448,3 +464,8 @@ def test_go_cron(tmp_path: Path, kind: str) -> None:
 @pytest.mark.parametrize("kind", sorted(CLOKWERK))
 def test_clokwerk(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "rs/main.rs": CLOKWERK[kind]}))
+
+
+@pytest.mark.parametrize("kind", sorted(NODE_CRON))
+def test_node_cron(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "js/app.js": NODE_CRON[kind]}))

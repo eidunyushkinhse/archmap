@@ -268,6 +268,7 @@ archmap-scan/
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`, `add_periodic_task` и обёртка над ним в файлах того же каталога, ч. 4, Л1), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
 | | Go: robfig/cron (`go.mod` с `github.com/robfig/cron`, файл с её импортом): `c.AddFunc("spec", f)`, `c.AddJob("spec", j)`, `c.Schedule(cron.Every(d), j)` (ч. 4, Л2) | расписание как написано, строковая константа файла раскрывается, выражение текстом, имя без значения в hints; имя и задача — функция или задание вторым аргументом, у литеральной функции `файл:строка` |
 | | Rust: clokwerk (`Cargo.toml` с clokwerk): `scheduler.every(TimeUnits::minutes(5))`, `.every(1.hour())`, `.every(Interval::Daily).at("03:00")`, `.run(move || f(…))` (ч. 4, Л3) | расписание текстом аргумента every и at через пробел; имя и задача — первая свободная функция в теле run, без неё `файл:строка`; модуль тестов не читается |
+| | Node: пакеты `cron` и `@nestjs/schedule` (`package.json`): `@Cron("expr")` и `@Cron(CronExpression.X)` над методом, `new CronJob("expr", f)`, объект `{ name, expression | cronTime, onTick }` (`create({ … })`, `CronJob.from({ … })`) (ч. 4, Л4) | выражение как написано, член `CronExpression.X` по словарю (`EVERY_HOUR` → `0 * * * *`), имя из `name:`, члена перечисления, имени метода или функции; выражение полем конфигурации или именем в hints |
 
 ### 6.3 Миграции → `facts/*.tables.yaml`
 
@@ -1728,3 +1729,31 @@ unread: {too_large: 3, binary: 0}
      ежечасно, `all_active_counts` ежедневно), семья из `unsupported` в `covered`. PostHog:
      clokwerk и других планировщиков в крейтах нет, расписаний не прибавилось, `Rust` ушёл
      из `unsupported` расписаний.
+   - Л4 (решение исполнителя): новый разборщик `parsers/nodecron.py` с именем `node-cronjob`
+     (пакет `node-cron` — другая библиотека со своим API, он остаётся в
+     `vocab.UNSUPPORTED_SCHEDULE_DEPS` и назван в покрытии; `cron` оттуда убран). Механика
+     immich: задания регистрируются не декоратором, а вызовом
+     `this.cronRepository.create({ name, expression, onTick, start })` в сервисах
+     (`queue.service.ts` ночные задания, `database-backup.service.ts` `backupDatabase`,
+     `library.service.ts`, `version.service.ts`, `integrity.service.ts` три проверки);
+     `CronRepository.create` сам зовёт `new CronJob(expression, onTick, …)`. Выражения берутся из
+     системной конфигурации (`database.cronExpression` и другие поля; значения по умолчанию —
+     члены `CronExpression.X` в `defaults` из `dtos/config.dto.ts`), ночное — из
+     `asNightlyTasksCron(config)`, проверка версии — шаблоном со случайной минутой. Поэтому
+     правило: объект с ключами своего уровня `expression` или `cronTime` и `onTick` —
+     регистрация; без `onTick` (`update({ name, expression })`, схемы и индексы с ключом
+     `expression`) — нет; тип или интерфейс (на своём уровне «;») и образец разбора параметра
+     (`create({ name, expression, onTick }: CronCreate)`, `({ onTick }) =>`) — нет;
+     `new CronJob(имя, …)` с параметром на месте выражения не читается вовсе (это код самой
+     обёртки). Имя: `name:` строкой, членом строкового перечисления репозитория
+     (`CronJob.NightlyJobs` у immich → `NightlyJobs`, тот же индекс, что у К4) или как написано; без
+     ключа `name` — функция в `onTick: f`, иначе `файл:строка`. Выражение полем объекта —
+     подсказка с новой причиной `REASON_SCHEDULE_CONFIG` и ключом как написан
+     (`database.cronExpression`), именем или шаблоном с подстановкой —
+     `REASON_SCHEDULE_VARIABLE`. Словарь `CronExpression` — по пункту, в виде из пяти полей;
+     неизвестный член пишется как написан. Пределы: объект до 5000 знаков, больше 2000
+     совпадений в файле — файл непрочитан. immich: 7 регистраций, все подсказками (5 полей
+     конфигурации, `cronExpression` и `expression` переменными), записей 0; семья
+     расписаний из `unsupported` (`cron`) в `empty` с `dynamic_names: 7`. Кандидат судьи
+     `backupDatabase` ищется в `entrypoints.yaml` и останется «нет»: расписание этого задания
+     известно только при запуске.

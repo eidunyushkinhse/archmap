@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from archmap_scan import texts
-from archmap_scan.parsers import celerybeat, clokwerk, crontab, gocron
+from archmap_scan.parsers import celerybeat, clokwerk, crontab, gocron, nodecron
 from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 Row = tuple[str, str, str | None, str]
@@ -157,6 +157,55 @@ def test_clokwerk_coverage(tmp_path: Path) -> None:
     })
     result = run(Options(path=str(tmp_path / "b"), out=str(tmp_path / "o2"), use_git=False))
     assert result.coverage.families["schedules"].unsupported == ["Rust: tokio-cron-scheduler"]
+
+
+def test_node_cron_fixture() -> None:
+    """Пакеты cron и @nestjs/schedule (ТЗ §15 п. 15 Л4): @Cron с литералом и членом
+    CronExpression (неизвестный — как написан), new CronJob, объект регистрации с name и
+    expression или cronTime и onTick, имя членом перечисления репозитория; выражение полем
+    конфигурации и именем — подсказки. Обновление без onTick, тип, разбор параметра,
+    new CronJob(параметр, …) и комментарий записей не дают."""
+    rows, hints = _rows(nodecron, FIXTURES / "node-cron")
+    at = "src/jobs.service.ts"
+    assert sorted(rows, key=lambda r: int(r[3].rsplit(":", 1)[1])) == [
+        ("handleTick", "45 * * * * *", "handleTick", f"{at}:8"),
+        ("hourly-report", "0 * * * *", "hourly-report", f"{at}:11"),
+        ("cleanupNight", "0 3 * * *", "cleanupNight", f"{at}:14"),
+        ("quarterly", "CronExpression.EVERY_QUARTER", "quarterly", f"{at}:17"),
+        ("cleanup", "0 5 * * *", "cleanup", f"{at}:21"),
+        ("sync-library", "*/10 * * * *", "sync-library", f"{at}:29"),
+        ("monthly", "0 0 1 * *", "monthly", f"{at}:36"),
+    ]
+    assert hints == [
+        ("this.config.cleanup.cron", f"{at}:22"),
+        ("this.config.backup.cronExpression", f"{at}:25"),
+        ("expression", f"{at}:34"),
+    ]
+    ctx, files = files_of(FIXTURES / "node-cron")
+    reasons = [h.data["reason"] for h in nodecron.parse(files, ctx).hints]
+    assert reasons == [
+        texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_VARIABLE,
+    ]
+
+
+def test_node_cron_stack(tmp_path: Path) -> None:
+    """Пакет node-cron — другая библиотека: разборщик не идёт, стек назван в покрытии."""
+    from archmap_scan.scan import Options, run
+
+    tree(tmp_path / "a", {
+        "package.json": '{"dependencies": {"cron": "3"}}\n',
+        "index.js": "new CronJob('0 5 * * *', job);\n",
+        "Dockerfile": 'FROM node:20\nCOPY . /app\nCMD ["node", "index.js"]\n',
+    })
+    result = run(Options(path=str(tmp_path / "a"), out=str(tmp_path / "o1"), use_git=False))
+    stat = result.coverage.families["schedules"]
+    assert stat.status == "covered" and stat.found == 1 and stat.contributed == [nodecron.NAME]
+    tree(tmp_path / "b", {
+        "package.json": '{"dependencies": {"node-cron": "3"}}\n',
+        "index.js": "new CronJob('0 5 * * *', job);\n",
+    })
+    ctx, files = files_of(tmp_path / "b")
+    assert nodecron.NAME not in nodecron.parse(files, ctx).applied
 
 
 def test_celery_beat_needs_celery(tmp_path: Path) -> None:
