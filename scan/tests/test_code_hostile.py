@@ -288,6 +288,17 @@ NODE_CRON = {
     "decorators": "@Cron(" * (PAYLOAD // 6),
     "constructors": "new CronJob(this.a, f);\n" * 1900 + "x" * (PAYLOAD // 2),
 }
+# Код, который называет файл OpenAPI (ТЗ §15 п. 15 Н1): тысячи литералов и вхождений имени
+# в одном литерале, длинный заголовок импортов Go, длинная цепочка пакетов.
+SERVED_SPEC = "openapi: 3.0.0\npaths: {}\n"
+SERVED = {
+    "js/app.js:calls": "x('openapi.yaml');\n" * (PAYLOAD // 20),
+    "js/app.js:one-literal": "'" + "/openapi.yaml" * (PAYLOAD // 14) + "'",
+    "js/app.js:comment": "// " + "openapi.yaml " * (PAYLOAD // 14),
+    "go/main.go:imports": "package main\nimport (\n" + '\t"x/y"\n' * (PAYLOAD // 8)
+    + ')\nvar s = "openapi.yaml"\n',
+    "go/main.go:literals": 'package main\nvar s = "openapi.yaml"\n' * (PAYLOAD // 36),
+}
 # Схема zod с множеством ключей и констант-валидаторов (ТЗ §15 п. 14 Е3).
 JS_ZOD = {
     "keys": ZOD + "const E = z.object({" + "a: z.string().optional(), " * (PAYLOAD // 26) + "})",
@@ -469,3 +480,21 @@ def test_clokwerk(tmp_path: Path, kind: str) -> None:
 @pytest.mark.parametrize("kind", sorted(NODE_CRON))
 def test_node_cron(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "js/app.js": NODE_CRON[kind]}))
+
+
+@pytest.mark.parametrize("kind", sorted(SERVED))
+def test_served(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":")[0]
+    _check(tree(tmp_path, {**MANIFESTS, "openapi.yaml": SERVED_SPEC, name: SERVED[kind]}))
+
+
+def test_served_package_chain(tmp_path: Path) -> None:
+    """Цепочка из 3000 пакетов Go, каждый импортирует следующий: импортёры собираются не
+    дальше трёх шагов."""
+    files: dict[str, str | bytes] = {
+        **MANIFESTS, "openapi.yaml": SERVED_SPEC,
+        "go/p0/a.go": 'package p0\nvar s = "openapi.yaml"\n',
+    }
+    for i in range(1, 3000):
+        files[f"go/p{i}/a.go"] = f'package p{i}\nimport "x/p{i - 1}"\n'
+    _check(tree(tmp_path, files))

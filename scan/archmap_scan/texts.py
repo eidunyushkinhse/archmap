@@ -580,6 +580,17 @@ def openapi_no_owner(names: list[str], more: int) -> str:
     if more > 0:
         shown += f" и ещё {more}"
     return f"владелец не определим: контейнеры {shown}"
+
+
+def openapi_served_many(names: list[str], more: int) -> str:
+    """«файл отдаёт код нескольких контейнеров: a, b» (ТЗ §15 п. 15 Н1): литерал с именем
+    файла в коде, который импортируют несколько контейнеров."""
+    shown = ", ".join(names)
+    if more > 0:
+        shown += f" и ещё {more}"
+    return f"файл называет код нескольких контейнеров, владелец не определим: {shown}"
+
+
 REASON_OPENAPI_DOCS = (
     "найден в каталоге документации; спецификацию сборщик не импортирует, её добавляют в "
     "разделе «OpenAPI» объекта"

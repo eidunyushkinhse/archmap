@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from archmap_scan import texts
-from archmap_scan.parsers import openapi
+from archmap_scan.parsers import openapi, served
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
@@ -212,3 +213,87 @@ def test_operations_hostile_is_fast(tmp_path: Path) -> None:
     took = time.perf_counter() - started
     assert took < time_limit() * 2, f"{took:.2f} с"
     assert len(model.http["big"]) == openapi.MAX_OPS
+
+
+def _served_run(root: Path, out: Path) -> tuple[dict[str, Any], list[tuple[object, ...]]]:
+    run(Options(path=str(root), out=str(out), use_git=False))
+    entry = yaml.safe_load((out / "agent" / "entrypoints.yaml").read_text(encoding="utf-8"))
+    hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
+    return entry["containers"], [
+        (h["name"], h.get("object"), h["reason"]) for h in hints["openapi_files"]
+    ]
+
+
+def _served_files() -> dict[str, str | bytes]:
+    src = FIXTURES / "openapi-served"
+    return {
+        str(p.relative_to(src)): p.read_text(encoding="utf-8") for p in src.rglob("*") if p.is_file()
+    }
+
+
+def test_served_literals() -> None:
+    """Литерал с именем файла OpenAPI (ТЗ §15 п. 15 Н1): "/swagger.json" и
+    "assets/swagger.json" в коде Go считаются, имя в комментарии нет; у файла Go собраны
+    файлы, импортирующие его пакет."""
+    ctx, files = files_of(FIXTURES / "openapi-served")
+    found = served.parse(files, ctx)
+    assert [(r.name, str(r.loc), r.importers) for r in found.served] == [
+        ("swagger.json", "util/swagger/swagger.go:7", ("cmd/api/main.go",)),
+        ("swagger.json", "util/swagger/swagger.go:8", ("cmd/api/main.go",)),
+    ]
+
+
+def test_served_owner(tmp_path: Path) -> None:
+    """Файл OpenAPI в каталоге кода двух сервисов без совпадения имени: владелец тот сервис,
+    чей код (по Ф1 cmd/api) импортирует пакет кода, который называет файл; имя файла в
+    комментарии кода второго сервиса (jobs/) не считается."""
+    entry, hints = _served_run(FIXTURES / "openapi-served", tmp_path / "out")
+    assert [(e["method"], e["path"], e["source"]) for e in entry["api"]["http"]] == [
+        ("GET", "/orders", "assets/swagger.json:5"),
+        ("GET", "/orders/{id}", "assets/swagger.json:6"),
+    ]
+    assert entry["admin"]["http"] == []
+    assert hints == [("assets/swagger.json", "api", texts.REASON_OPENAPI_FILE)]
+
+
+def test_served_many_and_chain(tmp_path: Path) -> None:
+    """Пакет импортируют программы двух сервисов: подсказка с перечислением. Цепочка через
+    общий пакет (util/swagger → server → cmd/api) и пересечение по двум литералам: второй
+    файл кода с именем (util/assets) нужен обоим сервисам, первый только api."""
+    base = _served_files()
+    admin = 'package main\n\nimport "example.com/shop/util/swagger"\n\nfunc main() {}\n'
+    tree(tmp_path / "many", {**base, "cmd/admin/main.go": admin})
+    entry, hints = _served_run(tmp_path / "many", tmp_path / "o1")
+    assert entry["api"]["http"] == [] and entry["admin"]["http"] == []
+    assert hints == [
+        ("assets/swagger.json", None, texts.openapi_served_many(["admin", "api"], 0)),
+    ]
+    chain: dict[str, str | bytes] = {
+        **base,
+        "cmd/api/main.go": 'package main\n\nimport "example.com/shop/server"\n\nfunc main() {}\n',
+        "cmd/admin/main.go": (
+            'package main\n\nimport "example.com/shop/util/rbac"\n\nfunc main() {}\n'
+        ),
+        "server/server.go": (
+            'package server\n\nimport (\n\t"example.com/shop/util/assets"\n'
+            '\t"example.com/shop/util/swagger"\n)\n\nfunc Run() {}\n'
+        ),
+        "util/rbac/rbac.go": (
+            'package rbac\n\nimport "example.com/shop/util/assets"\n\nfunc Can() {}\n'
+        ),
+        "util/assets/assets.go": 'package assets\n\nvar Spec = "swagger.json"\n',
+    }
+    tree(tmp_path / "chain", chain)
+    entry, hints = _served_run(tmp_path / "chain", tmp_path / "o2")
+    assert len(entry["api"]["http"]) == 2 and entry["admin"]["http"] == []
+    assert hints == [("assets/swagger.json", "api", texts.REASON_OPENAPI_FILE)]
+
+
+def test_served_needs_unique_name(tmp_path: Path) -> None:
+    """Два файла OpenAPI с одним базовым именем: литерал не говорит, какой из них отдают,
+    владелец по коду не ищется."""
+    base = _served_files()
+    tree(tmp_path / "r", {**base, "other/swagger.json": base["assets/swagger.json"]})
+    entry, hints = _served_run(tmp_path / "r", tmp_path / "o")
+    assert entry["api"]["http"] == []
+    assert [h[1] for h in hints] == [None, None]

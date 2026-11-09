@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    command: /usr/local/bin/api
+    ports:
+      - "8080:8080"
+  admin:
+    build: .
+    command: /usr/local/bin/admin

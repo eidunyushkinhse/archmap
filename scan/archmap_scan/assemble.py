@@ -9,6 +9,8 @@ depends_on в связи не идут (порядок запуска не вы�
 
 from __future__ import annotations
 
+from collections import Counter
+
 from archmap_scan import codefacts, openapi_owner, owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.dialect import SQLITE
@@ -1431,6 +1433,8 @@ def _openapi(model: Model, findings: Findings) -> None:
     """Файлы OpenAPI: операции — маршруты владельца, если он определим механически (ТЗ §15
     п. 14 З3), и подсказка агенту с владельцем или причиной, почему его нет (ТЗ §6.1)."""
     containers = [o for o in model.objects if o.is_container]
+    # Литерал с базовым именем решает только за файл, чьё имя в репозитории одно (Н1).
+    bases = Counter(paths.name(s.path) for s in findings.openapi if not s.in_docs)
     for spec in sorted(findings.openapi, key=lambda s: s.path):
         data: dict[str, object] = {"kind": "openapi", "name": spec.path}
         if spec.operations is None:
@@ -1441,10 +1445,15 @@ def _openapi(model: Model, findings: Findings) -> None:
             data["reason"] = texts.REASON_OPENAPI_FOREIGN
         else:
             obj, pool = openapi_owner.owner(spec, containers)
+            many: list[Obj] = []
+            if obj is None and spec.ops and bases[paths.name(spec.path)] == 1:
+                obj, many = openapi_owner.served(spec, findings.served, containers)
             if obj is not None:
                 data["object"] = obj.name
                 data["reason"] = texts.REASON_OPENAPI_FILE
                 openapi_owner.attach(model, spec, obj)
+            elif many:
+                data["reason"] = openapi_owner.served_reason(many)
             else:
                 # Без сервисов и без операций причина прежняя: выбирать было не из кого.
                 data["reason"] = (
