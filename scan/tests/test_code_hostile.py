@@ -181,6 +181,12 @@ STARTS["cs/App.cs"] += (
     "class A : Controller {\n  [HttpPost(\"a\")]\n  public Task<",
     "class A : Controller {\n  [Route(\"a\")]\n  ",
 )
+# Шаблоны маршрутов по соглашению (ТЗ §15 п. 16 П5): незакрытый вызов, аргументы, литералы.
+STARTS["cs/App.cs"] += (
+    "app.MapControllerRoute(", 'app.MapControllerRoute("a", "', "app.MapControllerRoute(name: ",
+    'app.MapControllerRoute(pattern: "{', "app.MapDefaultControllerRoute(",
+    "app.MapDefaultControllerRoute();\nclass A : Controller {\n  [HttpGet]\n  public X ",
+)
 # Параметры Rust (ТЗ §15 п. 14 И2): атрибуты envconfig и clap, env::var, макросы, тесты.
 STARTS["rs/main.rs"] = (
     "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",

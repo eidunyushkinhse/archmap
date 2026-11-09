@@ -36,6 +36,9 @@ _GRADLE_SPRING = re.compile(r"org\.springframework\.boot")
 # п. 12 С5: fraud-detection OpenTelemetry Demo на Kotlin получал Java).
 _GRADLE_KOTLIN = re.compile(r"\bkotlin\(\s*[\"']jvm[\"']\s*\)|org\.jetbrains\.kotlin")
 _PACKAGE_REF = re.compile(r"<PackageReference[ \t\r\n]+Include=\"([^\"\n]{1,200})\"")
+# Общая платформа (ТЗ §15 п. 16 П5): FrameworkReference Microsoft.AspNetCore.App подключает
+# ASP.NET Core проекту с Sdk="Microsoft.NET.Sdk" (eShop.ServiceDefaults).
+_FRAMEWORK_REF = re.compile(r"<FrameworkReference[ \t\r\n]+Include=\"([^\"\n]{1,200})\"")
 _WEB_SDK = re.compile(r"Sdk=\"Microsoft\.NET\.Sdk\.Web\"")
 
 
@@ -288,8 +291,10 @@ def _mix(rel: str, text: str) -> Package:
 
 
 def _csproj(rel: str, text: str) -> Package:
-    """Проект .NET: имена PackageReference и признак веб-проекта (Sdk Microsoft.NET.Sdk.Web)."""
+    """Проект .NET: имена PackageReference и FrameworkReference (П5) в нижнем регистре и
+    признак веб-проекта (Sdk Microsoft.NET.Sdk.Web)."""
     deps = [m.group(1).lower() for m in _PACKAGE_REF.finditer(text)]
+    deps += [m.group(1).lower() for m in _FRAMEWORK_REF.finditer(text)]
     if _WEB_SDK.search(text) is not None:
         deps.insert(0, "microsoft.net.sdk.web")
     return Package(path=rel, dir=paths.parent(rel), kind="csproj", language=".NET",

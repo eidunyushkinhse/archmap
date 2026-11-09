@@ -522,3 +522,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     аргументом без цепочки за скобкой (`api.Get(url)`); `r.Get("/a", h)`,
     `http.HandleFunc("/b", h)` и построитель go-restful `ws.GET("/p").To(h)` остаются
     маршрутами (П4).
+  - ASP.NET Core (`parsers/manifests.py`, `parsers/aspnet.py`): `FrameworkReference` — зависимость
+    проекта (`microsoft.aspnetcore.app` опознаёт стек); маршрут по соглашению берёт шаблон
+    того же проекта (`MapDefaultControllerRoute()`, `MapControllerRoute` с `pattern:` или
+    вторым литералом, первый без `{area`): `{controller}` и `{action}` подставлены, `{x?}`
+    отброшен, путь без `prefix_unresolved`; шаблона нет или он не литерал — как раньше (П5).
