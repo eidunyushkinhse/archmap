@@ -97,10 +97,33 @@ def _by_language(found: list[Obj], lang: str | None) -> list[Obj]:
     return [o for o in found if o.language is None]
 
 
+# Хвосты программы команды, при которых она совпадает с cmd/<имя> без хвоста, если имя
+# контейнера кончается тем же хвостом (ТЗ §15 п. 15 Н3).
+_PROGRAM_TAILS = ("-controller", "-server")
+
+
+def _same_program(obj: Obj, name: str, command: str | None) -> bool:
+    """Программа команды command — это cmd/<name>: равны, отличаются только конечной «s» у
+    одного из них (argocd-notification и argocd-notifications) или command = name-controller
+    либо name-server при имени контейнера с тем же хвостом (ТЗ §15 п. 15 Н3). Нечёткое
+    совпадение не действует, если у каталога кода есть своя программа cmd/<command>."""
+    if command is None:
+        return False
+    if command == name:
+        return True
+    if command in obj.go_programs:
+        return False
+    if command == name + "s" or name == command + "s":
+        return True
+    return any(command == name + tail and obj.name.endswith(tail) for tail in _PROGRAM_TAILS)
+
+
 def _runs_program(obj: Obj, name: str) -> bool:
     """Контейнер программы name: имя контейнера или программа команды одного из его
-    манифестов (/usr/local/bin/argocd-server → argocd-server)."""
-    return obj.name == name or any(vocab.command_program(u.command) == name for u in obj.units)
+    манифестов (/usr/local/bin/argocd-server → argocd-server, с правилом близких имён Н3)."""
+    return obj.name == name or any(
+        _same_program(obj, name, vocab.command_program(u.command)) for u in obj.units
+    )
 
 
 def _program(rel: str, owners: Sequence[Obj]) -> str | None:

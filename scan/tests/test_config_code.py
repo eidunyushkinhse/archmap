@@ -401,6 +401,30 @@ def test_go_cmd_programs(tmp_path: Path) -> None:
     }
 
 
+def test_go_cmd_near_names(tmp_path: Path) -> None:
+    """Программа cmd/<имя> и программа команды почти совпадают (ТЗ §15 п. 15 Н3). Найдено в
+    Argo CD: cmd/argocd-notification при команде /usr/local/bin/argocd-notifications, восемь
+    параметров уходили в подсказки. Совпадают конечная «s» у одного из имён (cmd/app и apps)
+    и хвост -controller или -server у команды при том же хвосте имени контейнера (cmd/events
+    и events-controller). Ловушки: cmd/app и application не совпадают; хвост -server у
+    команды контейнера web без такого хвоста не действует; при своей программе cmd/apps
+    команда apps не достаётся cmd/app."""
+    near = (
+        "services:\n  a:\n    build: .\n    command: /usr/local/bin/apps\n"
+        "  b:\n    build: .\n    command: /usr/local/bin/application\n"
+        "  events-controller:\n    build: .\n    command: /usr/local/bin/events-controller\n"
+        "  web:\n    build: .\n    command: /usr/local/bin/feed-server\n"
+    )
+    programs = {"app": "APP_PORT", "events": "EVENTS_PORT", "feed": "FEED_PORT"}
+    assert _go_cmd_model(tmp_path / "a", near, programs) == {
+        "a": {"APP_PORT"}, "events-controller": {"EVENTS_PORT"},
+    }
+    own = "services:\n  a:\n    build: .\n    command: /usr/local/bin/apps\n"
+    assert _go_cmd_model(tmp_path / "b", own, {"app": "APP_PORT", "apps": "APPS_PORT"}) == {
+        "a": {"APPS_PORT"},
+    }
+
+
 def test_go_named_reads_limit(tmp_path: Path) -> None:
     """Предел чтений с именем не литералом на файл (ТЗ §15 п. 14 Ф2). Найдено в полном гейте
     судьи: враждебный файл tests/test_code_hostile.py GO_PACKAGE["named-reads"] из 133 тыс.
