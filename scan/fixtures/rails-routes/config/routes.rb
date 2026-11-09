@@ -23,13 +23,13 @@ Rails.application.routes.draw do
   end
 
   resources :users, only: [:show]
-  resources :posts, except: [:destroy], concerns: :likeable do
+  resources :posts, except: [:destroy], concerns: :likeable, shallow: true do
     member do
       get :preview
     end
     collection { post :batch }
     get :stats, on: :member
-    resources :comments, only: [:index, :create]
+    resources :comments
   end
   resource :profile, only: [:show, :update]
 
@@ -48,6 +48,18 @@ Rails.application.routes.draw do
   BODY = <<~TEXT
     get '/in-heredoc'
   TEXT
+
+  # Необязательная группа: основная форма без группы; маршрут, совпавший с записанным, один.
+  scope "(/locale/:locale)", defaults: { locale: nil } do
+    get 'archive(/:page)', to: 'archive#index'
+    get 'health', to: 'health#show'
+  end
+
+  devise_for :users, path: 'auth', path_names: { sign_in: 'login' }
+  devise_for :admins
+  devise_scope :user do
+    get 'join', to: 'registrations#new'
+  end
 
   draw(:api)
   draw(:legacy)

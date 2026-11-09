@@ -527,3 +527,11 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     того же проекта (`MapDefaultControllerRoute()`, `MapControllerRoute` с `pattern:` или
     вторым литералом, первый без `{area`): `{controller}` и `{action}` подставлены, `{x?}`
     отброшен, путь без `prefix_unresolved`; шаблона нет или он не литерал — как раньше (П5).
+  - маршруты Rails (`parsers/rails_routes.py`): необязательная группа в пути (`scope
+    "(/locale/:locale)"`, `get 'posts(/:page)'`) не пишется, путь основной формы; маршрут из
+    группы, совпавший с уже записанным, второй раз не пишется. `devise_for :имя` даёт наборы
+    маршрутов модулей из вызовов `devise` модели `app/models/<единственное число>.rb` под
+    `/имя` или `path:` с префиксом scope и namespace (`path_names`, `skip`, `only`,
+    `sign_out_via`); модуль без известного набора и модель без `devise` дают подсказку на
+    строке `devise_for`. `shallow: true` и блок `shallow do`: index, new и create
+    вложенного ресурса под родителем, остальные действия от префикса scope (П6).

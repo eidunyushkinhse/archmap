@@ -124,6 +124,10 @@ STARTS["rb/config/routes.rb"] = (
     "  get '/a', to: redirect { |p| ", "%w(", "x = <<~A\n", "concern :a do\n", "draw(:",
     "match 'a', via: [", "=begin\n", "c = { id: /", 'get "#{', "member { get :",
     "resources :a, only: %i[", "mount A => '",
+    # Необязательные группы, devise_for и shallow (ТЗ §15 п. 16 П6).
+    "scope '(", "get 'a(", "get 'a(/", "devise_for :", "devise_for :users, path: '",
+    "devise_for :users, path_names: { sign_in: '", "devise_for :users, :path_names => { :a => '",
+    "devise_for :users, skip: [", "shallow do\n", "resources :a, shallow: true do\n  resources :",
 )
 # Путь склейкой у Go (ТЗ §15 п. 15 К5): имя и литерал, литералы подряд, методы константами.
 STARTS["go/main.go"] += (
@@ -376,6 +380,11 @@ RAILS = {
     "frames": ("if a\n" * 40 + "end\n" * 40) * 600,
     "braces": "member { get :a }\n" * 4000,
     "brackets": "(/" * (PAYLOAD // 2),
+    # Группы в пути, devise_for без модели и вложенные неглубокие ресурсы (П6).
+    "groups": "get 'a" + "(/b" * 30_000 + ")" * 30_000 + "', to: 'a#b'\n",
+    "group-verbs": "get 'a(/:b)', to: 'a#b'\n" * 4900,
+    "devise": "devise_for :users, path: 'a', path_names: { sign_in: 'b' }, skip: [:c]\n" * 4900,
+    "shallow": "shallow do\n" + "resources :a do\n" * 49 + "end\n" * 50,
 }
 
 
