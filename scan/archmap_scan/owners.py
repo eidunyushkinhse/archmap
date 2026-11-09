@@ -177,7 +177,8 @@ def database_for(
     relational = [d for d in databases if d.technology in vocab.RELATIONAL]
     by_host = {d.host: d for d in relational if d.host}
     pointed: list[Obj] = []
-    for owner in file_owners(folder, containers, language):
+    found = file_owners(folder, containers, language)
+    for owner in found:
         for var in env_of.get(owner.name, []):
             if var.dynamic or var.value is None:
                 continue
@@ -187,8 +188,38 @@ def database_for(
                     pointed.append(db)
     if len(pointed) == 1:
         return pointed[0], None
+    if not pointed:
+        near = _manifest_database(found, relational)
+        if near is not None:
+            return near, None
     if len(relational) == 1:
         return relational[0], None
     if not relational:
         return None, "no_database"
     return None, "many_databases"
+
+
+# Манифесты, у которых «свой файл» — каталог: объекты k8s и Helm одного развёртывания
+# лежат в нескольких файлах одного каталога (ТЗ §15 п. 15 Н2).
+_DIR_MANIFESTS = frozenset({"k8s", "helm"})
+
+
+def _manifest_keys(obj: Obj) -> set[str]:
+    """Файлы манифестов объекта: файл compose, у k8s и Helm — каталог манифестов."""
+    out: set[str] = set()
+    for unit in obj.units:
+        for loc in (unit.loc, *unit.extra_locs):
+            out.add(paths.parent(loc.path) if unit.parser in _DIR_MANIFESTS else loc.path)
+    return out
+
+
+def _manifest_database(found: Sequence[Obj], relational: Sequence[Obj]) -> Obj | None:
+    """Шаг между (1) и (2) цепочки «База для миграций» (ТЗ §7, §15 п. 15 Н2): владелец
+    каталога миграций есть, адреса базы в его окружении нет, а в файлах его манифестов (тот
+    же файл compose, тот же каталог манифестов k8s) ровно одна реляционная база. Владельцы
+    в двух файлах с разными базами — None (дальше прежняя цепочка)."""
+    keys = {key for owner in found for key in _manifest_keys(owner)}
+    if not keys:
+        return None
+    near = [d for d in relational if _manifest_keys(d) & keys]
+    return near[0] if len(near) == 1 else None

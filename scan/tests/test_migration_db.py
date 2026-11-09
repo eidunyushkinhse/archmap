@@ -155,3 +155,30 @@ def test_sqlite_as_settings_default(tmp_path: Path) -> None:
     assert [h["source"] for h in model.hints["unassigned"] if h["kind"] == "database"] == [
         "app/settings.py:1",
     ]
+
+
+def test_database_from_owner_manifest(tmp_path: Path) -> None:
+    """Владелец таблиц при нескольких базах (ТЗ §15 п. 15 Н2). Найдено в Forem: 133 таблицы
+    db/schema.rb в подсказках «несколько баз», базы db и postgres из двух файлов compose.
+    Владелец каталога миграций (web с кодом из каталога) без адреса базы в окружении, а в его
+    файле compose ровно одна реляционная база: таблицы у неё (postgres), а не у db из файла
+    готового образа. Ловушка: тот же web ещё в третьем файле рядом с mysql — подсказка, как
+    раньше."""
+    model = model_of(FIXTURES / "two-compose-dbs")
+    assert {k: [t.name for t in v] for k, v in model.tables.items()} == {
+        "postgres": ["articles", "users"],
+    }
+    assert not [h for h in model.hints.get("unassigned", []) if h["kind"] == "table"]
+    src = FIXTURES / "two-compose-dbs"
+    files: dict[str, str | bytes] = {
+        str(p.relative_to(src)): p.read_text(encoding="utf-8") for p in src.rglob("*") if p.is_file()
+    }
+    files["docker-compose.mysql.yml"] = (
+        "services:\n  web:\n    build: .\n    command: bundle exec rails server\n"
+        "  mysql:\n    image: mysql:8\n"
+    )
+    model = model_of(tree(tmp_path, files))
+    assert model.tables == {}
+    assert [
+        (h["name"], h["reason"]) for h in model.hints["unassigned"] if h["kind"] == "table"
+    ] == [("articles", texts.REASON_MANY_DATABASES), ("users", texts.REASON_MANY_DATABASES)]
