@@ -287,6 +287,8 @@ archmap-scan/
 Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
 построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
 Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Laravel/Phoenix и Rust без actix-web (Rails, ASP.NET Core и actix-web читаются с части 4, К1–К3),
+планировщики в коде без разборщика (node-cron, node-schedule, Agenda, schedule, APScheduler, gocron,
+tokio-cron-scheduler и другие; robfig/cron, clokwerk, пакеты cron и @nestjs/schedule читаются с части 4, Л2–Л4),
 ключи viper и Spring `@Value`, параметры Kotlin, исходящие HTTP-вызовы в коде, компоненты,
 внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
 (кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
@@ -1822,3 +1824,20 @@ unread: {too_large: 3, binary: 0}
      0 → 1). Число имён параметров остаётся 109, а не 117 из ожидания пункта: все восемь имён
      уже были у контейнера из окружения манифеста k8s, записи из кода к ним добавили тип и
      значение по умолчанию (`ARGOCD_NOTIFICATIONS_CONTROLLER_LOGFORMAT`: `string`, `json`).
+   - Перемер части 4 (исполнитель, после блоков К, Л и Н; сборки 0.5.0 2741118a, fd375988,
+     a60cc478 против базы судьи judge6): шесть вердиктов без регрессий после каждого блока;
+     Sentry: `layers-check` с кодом 0, core 24/30/52 без изменений; дым 15 репозиториев с
+     кодом 0, клоны чистые, изменения только по пунктам (OpenTelemetry Demo К2, К3, Л3; eShop
+     К2; Loki К5; Forem К1, Н2; n8n Л4 и Kubernetes Л2 только списком разборщиков в покрытии).
+     Кандидаты судьи «есть»: `/cart/checkout`, `/icon`, `health`, `/api/v1/applications`;
+     «нет» по устройству проверки, которая ищет имя только в `entrypoints.yaml`:
+     `cartservice GET /` (маршрут есть, `Startup.cs:77`), `RouteKey.Asset` (раскрыт в путь),
+     `scheduler.every` (у Lemmy расписания под именами функций), `AddFunc @every`,
+     `expire unused datasets` (в подсказках без владельца), `backupDatabase` (подсказка о
+     расписании из конфигурации). Время после блока Н, минимум из трёх по процессорному
+     времени против 0.4.0: Mastodon −3 %, Lemmy +8 %, immich +13 %, eShop +22 %
+     (0,54 → 0,66 с), Argo CD +5 %, PostHog +2 %; память не больше +1 МБ. У eShop прирост
+     не в разборе (все разборщики вместе 0,06 с), а в запуске: файл везёт исходники без
+     байткода, и каждый запуск компилирует модули, а в части 4 их на 14 больше (под
+     профилировщиком `compile` 0,41 → 0,48 с); на коротком прогоне это больше 20 %. Не
+     решено: этот прирост; владелец расписаний PostHog (`worker` с `--with-scheduler`).
