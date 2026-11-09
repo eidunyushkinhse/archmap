@@ -290,8 +290,15 @@ def _unit(
         else None,
     )
     _env(svc, rel, unit.env, dotenv)
-    if image is not None and proxyconf.is_proxy(image):
-        unit.links = proxyconf.links(name, svc, rel, unit.env, files, found.hints)
+    kind = proxyconf.proxy_kind(image) if image is not None else None
+    if kind is None and docker is not None and (image is None or vocab.image_kind(image) is None):
+        # Образ переменной или свой тег: прокси по базовому образу Dockerfile (ТЗ §15 п. 16 С1).
+        kind = proxyconf.dockerfile_kind(files, docker)
+    if kind is not None:
+        unit.links = proxyconf.links(
+            name, svc, rel, unit.env, files, found.hints, kind=kind, docker=docker,
+            context=folder, dotenv=dotenv,
+        )
     unit.depends_on = _depends(svc, rel, dotenv)
     for key, reason in (("extends", texts.REASON_EXTENDS), ("env_file", texts.REASON_ENV_FILE)):
         if key in svc:

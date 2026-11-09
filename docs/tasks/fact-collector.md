@@ -246,7 +246,7 @@ archmap-scan/
 
 | Источник | Что берёт | Куда кладёт |
 |---|---|---|
-| `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов; у сервиса с образом прокси (nginx, HAProxy, Caddy, Traefik, Envoy) файлы томов из репозитория и многострочные значения `environment`: `upstream { server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen` HAProxy дают связи прокси → объект с этим `host`, технология HTTP (ч. 3, Ж3) |
+| `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов; у сервиса с образом прокси (nginx, HAProxy, Caddy, Traefik, Envoy) файлы томов из репозитория и многострочные значения `environment`: `upstream { server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen` HAProxy дают связи прокси → объект с этим `host`, технология HTTP (ч. 3, Ж3); сервис с образом из переменной или своим тегом — прокси и по базовому образу последней стадии своего Dockerfile, конфигурация берётся и из `COPY`/`ADD` последней стадии внутри контекста сборки (Envoy `*.yaml`, nginx `*.conf`, `Caddyfile`, `haproxy.cfg`), Envoy — адреса кластеров `static_resources.clusters[]` (`load_assignment` и `hosts`) с подстановками `${VAR}` из окружения единицы и закоммиченного `.env` (ч. 5, С1) |
 | `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology`, `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
@@ -2113,3 +2113,30 @@ unread: {too_large: 3, binary: 0}
      `cymbal` +1 (`POSTHOG_API_KEY` трёх режимов); у `personhog-changelog-relay` и
      `personhog-writer` существующий параметр получил тип `string` и `required`. Подсказки и
      остальные репозитории без изменений.
+   - С1 (решение исполнителя): вид прокси (`proxyconf.proxy_kind`) по технологии словаря
+     образов или по имени образа: envoy, nginx (с openresty), haproxy, caddy, traefik. По
+     Dockerfile прокси ищется, только когда образа в compose нет, он задан переменной или
+     словарь образов его не знает (свой тег): сервис на образе словаря (postgres со своим
+     Dockerfile) прокси не становится. Берётся базовый образ последней стадии, источники COPY
+     и ADD тоже только последней стадии (ранние стадии в образ не попадают), без `--from`,
+     адресов URL и шаблонов; каталог-источник даёт свои файлы без подкаталогов по имени вида.
+     Файл конфигурации из COPY, которого нет в обходе, даёт подсказку `unparsed` с новой
+     причиной «файл из COPY Dockerfile не найден среди файлов обхода, конфигурация прокси не
+     прочитана». Подстановки в адресе Envoy раскрывает `compose.expand` (те же правила, что у
+     полей compose), окружение единицы — её `environment`, где `- VAR` без значения берёт
+     значение из закоммиченного `.env` рядом с файлом compose; без git `.env` не читается.
+     Нераскрытая подстановка, IP и localhost связи не дают и подсказки не пишут, как у nginx
+     сейчас (бриф называл подсказку, но прежнее поведение для этих адресов без подсказки;
+     правило оставлено общим). Файлы Envoy из томов читаются тем же форматом, остальные
+     файлы томов как раньше. Предел враждебного входа: смотрится не больше 200 источников
+     COPY одного Dockerfile (прокси OpenTelemetry Demo копирует один файл), файл
+     Envoy больше предела YAML (256 КБ) непрочитан, ошибка YAML — подсказка. Время разбора
+     документа YAML предельного размера (около 1 с на плотном файле 256 КБ) — свойство
+     общего загрузчика `yamlload`, а не обхода кластеров (обход такого документа 0,02–0,06 с).
+     OpenTelemetry Demo: в `src/frontend-proxy/envoy.tmpl.yaml` 13 кластеров (бриф называл
+     20), все с `${X_HOST}`, все раскрылись из `.env`: связи `frontend-proxy` → `frontend`,
+     `image-provider`, `flagd`, `flagd-ui`, `load-generator`, `grafana`, `jaeger`,
+     `opamp-server`, `telemetry-docs`, `otel-collector` (два кластера, два основания),
+     `chatbot` (`compose.agent.yaml`) и `firepit` (`compose.profiling.yaml`): связей 20 → 32;
+     8 подсказок depends_on `frontend-proxy` → X ушли, связь теперь нарисована. Loki без
+     изменений.

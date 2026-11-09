@@ -1,0 +1,7 @@
+static_resources:
+  clusters:
+    - name: frontend
+      hosts:
+        - socket_address:
+            address: frontend
+            port_value: 3000

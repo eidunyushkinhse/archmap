@@ -559,3 +559,16 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     обязателен, если тип не `Option<T>`; поля с атрибутом читаются как раньше
     (`nested = true` не параметр), поля структур без этого derive не читаются. Тело структуры
     ищется до следующего `#[derive(`, структура больше чем с 2000 полей — файл непрочитан (Р3).
+  - прокси по Dockerfile и Envoy (`parsers/proxyconf.py`, `parsers/dockerfile.py`): сервис
+    compose с образом из переменной или своим тегом считается прокси по базовому образу последней
+    стадии своего Dockerfile (envoyproxy/envoy, nginx, openresty, haproxy, caddy, traefik);
+    сервис с образом словаря не прокси (postgres) прокси не становится. Конфигурация берётся и
+    из `COPY`/`ADD` последней стадии внутри контекста сборки (без `--from`, адресов URL и
+    шаблонов): у Envoy `*.yaml` и `*.yml`, у nginx `*.conf`, у Caddy `Caddyfile`, у HAProxy
+    `haproxy.cfg`, у Traefik ничего; файла из COPY нет в обходе — подсказка в `unparsed`.
+    Envoy читается по формату: адреса кластеров `static_resources.clusters[]` в
+    `load_assignment` и старом `hosts`, слушатели и `admin` адресами не считаются; `${VAR}`,
+    `${VAR:-x}`, `${VAR-x}` раскрываются окружением единицы, где `- VAR` без значения берёт
+    значение из закоммиченного `.env` рядом с compose. Связь прокси → объект с этим host,
+    технология HTTP; IP, localhost и нераскрытая подстановка связей не дают, как у nginx.
+    Смотрится не больше 200 источников COPY одного Dockerfile (С1).

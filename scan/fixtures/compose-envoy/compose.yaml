@@ -1,0 +1,14 @@
+services:
+  proxy:
+    image: ${PROXY_IMAGE}
+    build: ./proxy
+    environment:
+      - FRONTEND_HOST
+      - API_HOST=api
+      - ADMIN_HOST
+    ports:
+      - "8080:8080"
+  frontend:
+    build: ./frontend
+  api:
+    build: ./api
