@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from archmap_scan import clike, codebase, codetext, paths, texts, vocab
 from archmap_scan.codetext import SP
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
 
 NAME = "aspnet"
@@ -116,11 +116,19 @@ def _literal(f: _File, start: int, end: int) -> str | None:
     return clike.literal_value(f.code, start, end)
 
 
-def _dynamic(f: _File, at: int, expr_at: int) -> None:
-    f.found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": f.code.expression(expr_at), "reason": texts.REASON_DYNAMIC_ROUTE,
-        "source": str(Loc(f.rel, f.code.line(at))),
-    }))
+def _dynamic(f: _File, at: int, expr_at: int, method: str | None = None) -> None:
+    f.found.hints.append(route_hint(
+        f.code.expression(expr_at), texts.REASON_DYNAMIC_ROUTE, Loc(f.rel, f.code.line(at)),
+        method,
+    ))
+
+
+def _map_method(kind: str) -> str | None:
+    """Метод вызова Map<kind>: MapHealthChecks — GET, у MapMethods и MapGroup метод в
+    имени не назван."""
+    if kind == "HealthChecks":
+        return "GET"
+    return None if kind in ("Methods", "Group") else kind.upper()
 
 
 def _add(f: _File, method: str, path: str, at: int, unresolved: bool = False) -> None:
@@ -228,11 +236,11 @@ def _minimal(f: _File) -> None:
             f.groups.setdefault(name, []).append((m.start(), recv, path))
             continue
         if arg is None:
-            _dynamic(f, m.start(), m.end())
+            _dynamic(f, m.start(), m.end(), _map_method(kind))
             continue
         path = _literal(f, m.start("arg"), m.end("arg"))
         if path is None or code.joined(m.start("arg"), m.end("arg")):
-            _dynamic(f, m.start(), m.start("arg"))
+            _dynamic(f, m.start(), m.start("arg"), _map_method(kind))
             continue
         base, ok = _prefix(f, recv, m.start())
         full = _join(base, path)
@@ -242,8 +250,7 @@ def _minimal(f: _File) -> None:
             for method in dict.fromkeys(methods or ["ANY"]):
                 _add(f, method, full, m.start(), not ok)
             continue
-        method = "GET" if kind == "HealthChecks" else kind.upper()
-        _add(f, method, full, m.start(), not ok)
+        _add(f, _map_method(kind) or "ANY", full, m.start(), not ok)
 
 
 # Контроллеры
@@ -366,7 +373,7 @@ def _action(f: _File, cls: _Class, name: str, at: int) -> None:
         if m.group("arg") is not None:
             template = _literal(f, m.start("arg"), m.end("arg"))
             if template is None:
-                _dynamic(f, m.start(), m.start("arg"))
+                _dynamic(f, m.start(), m.start("arg"), m.group(1).upper())
                 return
         verbs.append((m.group(1).upper(), template, m.start()))
     for m in _ROUTE_ATTR.finditer(mask, start, end):

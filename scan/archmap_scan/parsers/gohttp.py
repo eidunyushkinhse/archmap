@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from archmap_scan import codebase, codetext, gocode, paths, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
 
 NAME = "go-http"
@@ -318,7 +318,7 @@ def _concat(f: _File, arg: int) -> tuple[str, int, bool] | None:
     return "".join(parts), end, lead
 
 
-def _not_string(f: _File, found: Findings, recv: str, at: int, arg: int) -> None:
+def _not_string(f: _File, found: Findings, recv: str, at: int, arg: int, method: str) -> None:
     """Путь не строкой. Подсказка — только если это точно маршрут: получатель — известный
     объект маршрутизации или в выражении есть путь («toPath("/api…")»); иначе это
     Get(ctx, key) хранилища или кэша."""
@@ -326,16 +326,16 @@ def _not_string(f: _File, found: Findings, recv: str, at: int, arg: int) -> None
     ch = mask[arg:arg + 1]
     if ch and (ch.isalpha() or ch == "_") and not mask.startswith("func", arg):
         if _known(f, recv, at) or '"/' in f.code.expression(arg):
-            _dynamic(f, found, arg)
+            _dynamic(f, found, arg, method=method)
 
 
 def _dynamic(
     f: _File, found: Findings, start: int, reason: str = texts.REASON_DYNAMIC_ROUTE,
+    method: str | None = None,
 ) -> None:
-    found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": f.code.expression(start), "reason": reason,
-        "source": str(Loc(f.rel, f.code.line(start))),
-    }))
+    found.hints.append(route_hint(
+        f.code.expression(start), reason, Loc(f.rel, f.code.line(start)), method,
+    ))
 
 
 def _wrapped(f: _File, recv: str, at: int, arg: int) -> tuple[int, int, int] | None:
@@ -366,7 +366,7 @@ def _scan(f: _File, found: Findings) -> None:
             if concat is None:
                 wrapped = _wrapped(f, recv, m.start(), arg)
                 if wrapped is None:
-                    _not_string(f, found, recv, m.start(), arg)
+                    _not_string(f, found, recv, m.start(), arg, _METHODS[verb])
                     continue
                 start, end, after = wrapped
         else:
@@ -380,7 +380,7 @@ def _scan(f: _File, found: Findings) -> None:
                 if concat is None:
                     # «"/"+root+"/"»: литерал лишь часть пути (ТЗ §15 п. 10 А).
                     if value.startswith("/"):
-                        _dynamic(f, found, start, texts.REASON_JOINED_NAME)
+                        _dynamic(f, found, start, texts.REASON_JOINED_NAME, _METHODS[verb])
                     continue
         lead = False
         if concat is not None:
@@ -395,7 +395,7 @@ def _scan(f: _File, found: Findings) -> None:
             method = value
             path, _dyn = code.literal(nxt.start(), nxt.end())
             if code.joined(nxt.start(), nxt.end()):
-                _dynamic(f, found, nxt.start(), texts.REASON_JOINED_NAME)
+                _dynamic(f, found, nxt.start(), texts.REASON_JOINED_NAME, method)
                 continue
         elif verb in ("HandleFunc", "Handle"):
             head, sep, tail = value.partition(" ")
@@ -403,7 +403,8 @@ def _scan(f: _File, found: Findings) -> None:
                 method, path = head, tail.strip()  # шаблон Go 1.22: «GET /items/{id}»
         if not path.startswith("/"):
             if wrapped is not None:
-                _dynamic(f, found, arg)  # обёртка не над путём: как прежде, подсказка
+                # Обёртка не над путём: как прежде, подсказка.
+                _dynamic(f, found, arg, method=method)
             continue
         methods = [method]
         if verb in ("HandleFunc", "Handle") and method == "ANY":

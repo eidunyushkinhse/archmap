@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from archmap_scan import codebase, codetext, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
 
 NAME = "express"
@@ -111,13 +111,16 @@ def _prefixes(f: _File, name: str, depth: int = 0) -> list[tuple[str, bool]]:
     return out[:8]
 
 
-def _path(f: _File, found: Findings, start: int, end: int, at: int) -> str | None:
+def _path(
+    f: _File, found: Findings, start: int, end: int, at: int, method: str | None = None,
+) -> str | None:
     value, dynamic = f.code.literal(start, end)
     if dynamic:
         joined = f.code.joined(start, end)
         # Склейка не с путём (app.get('env' + x) — чтение настройки Express) не маршрут.
         if not joined or value.startswith("/"):
-            _dynamic(f, found, start, at, f.code.reason(start, end, texts.REASON_DYNAMIC_ROUTE))
+            reason = f.code.reason(start, end, texts.REASON_DYNAMIC_ROUTE)
+            _dynamic(f, found, start, at, reason, method)
         return None
     if not (value.startswith("/") or value == "*"):
         return None
@@ -126,11 +129,11 @@ def _path(f: _File, found: Findings, start: int, end: int, at: int) -> str | Non
 
 def _dynamic(
     f: _File, found: Findings, start: int, at: int, reason: str = texts.REASON_DYNAMIC_ROUTE,
+    method: str | None = None,
 ) -> None:
-    found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": f.code.expression(start), "reason": reason,
-        "source": str(Loc(f.rel, f.code.line(at))),
-    }))
+    found.hints.append(route_hint(
+        f.code.expression(start), reason, Loc(f.rel, f.code.line(at)), method,
+    ))
 
 
 def _emit(f: _File, found: Findings, recv: str, method: str, path: str, at: int) -> None:
@@ -183,9 +186,9 @@ def _scan(f: _File, found: Findings) -> None:
             arg = m.end()
             ch = mask[arg:arg + 1]
             if ch and (ch.isalpha() or ch in "_$") and not mask.startswith(("function", "async"), arg):
-                _dynamic(f, found, arg, m.start())
+                _dynamic(f, found, arg, m.start(), method=_METHODS[m.group(1)])
             continue
-        path = _path(f, found, m.start(2), m.end(2), m.start())
+        path = _path(f, found, m.start(2), m.end(2), m.start(), _METHODS[m.group(1)])
         if path is not None:
             _emit(f, found, recv, _METHODS[m.group(1)], path, m.start())
     for m in _CHAIN.finditer(mask):

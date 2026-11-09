@@ -291,6 +291,31 @@ class Hint:
     data: dict[str, object]
 
 
+def hint_fields(**fields: str | None) -> dict[str, object]:
+    """Поля подсказки сверх общих (ТЗ §15 п. 16 П3): method маршрута, schedule и task
+    расписания. Пустые не пишутся, ANY у метода тоже: регистрация метод не назвала."""
+    return {k: v for k, v in fields.items() if v and not (k == "method" and v == "ANY")}
+
+
+def route_hint(name: str, reason: str, loc: Loc, method: str | None = None) -> Hint:
+    """Маршрут с путём выражением: раздел dynamic_names, метод, если регистрация его называет."""
+    return Hint("dynamic_names", {
+        "kind": "route", "name": name, "reason": reason, "source": str(loc),
+        **hint_fields(method=method),
+    })
+
+
+def schedule_hint(
+    name: str, reason: str, loc: Loc, schedule: str | None = None, task: str | None = None,
+) -> Hint:
+    """Расписание с именем или выражением, известным только при запуске: раздел
+    dynamic_names, выражение расписания как написано и задача, когда они известны."""
+    return Hint("dynamic_names", {
+        "kind": "schedule", "name": name, "reason": reason, "source": str(loc),
+        **hint_fields(schedule=schedule, task=task),
+    })
+
+
 def unparsed_hint(rel: str, reason: str) -> Hint:
     """Файл, который разборщик не смог прочитать: раздел unparsed."""
     return Hint("unparsed", {"kind": "file", "name": rel, "reason": reason, "source": rel})

@@ -113,7 +113,10 @@ def test_go_cron_fixture() -> None:
     ]
     assert hints == [("spec", "main.go:18")]
     ctx, files = files_of(FIXTURES / "go-cron")
-    assert gocron.parse(files, ctx).hints[0].data["reason"] == texts.REASON_SCHEDULE_VARIABLE
+    data = gocron.parse(files, ctx).hints[0].data
+    assert data["reason"] == texts.REASON_SCHEDULE_VARIABLE
+    # Выражение и задача в подсказке (ТЗ §15 п. 16 П3).
+    assert (data["schedule"], data["task"]) == ("spec", "refresh")
 
 
 def test_go_cron_needs_import(tmp_path: Path) -> None:
@@ -190,9 +193,17 @@ def test_node_cron_fixture() -> None:
         ("expression", f"{at}:34"),
     ]
     ctx, files = files_of(FIXTURES / "node-cron")
-    reasons = [h.data["reason"] for h in nodecron.parse(files, ctx).hints]
+    found = nodecron.parse(files, ctx)
+    reasons = [h.data["reason"] for h in found.hints]
     assert reasons == [
         texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_CONFIG, texts.REASON_SCHEDULE_VARIABLE,
+    ]
+    # Выражение как написано и задача, которая была бы у записи (ТЗ §15 п. 16 П3): у
+    # стрелки в new CronJob — место вызова.
+    assert [(h.data["schedule"], h.data["task"]) for h in found.hints] == [
+        ("this.config.cleanup.cron", f"{at}:22"),
+        ("this.config.backup.cronExpression", "backupDatabase"),
+        ("expression", "version-check"),
     ]
     # Строка сводки говорит и о расписании, а не только об имени.
     assert texts.dynamic_line("schedules", 3) == (

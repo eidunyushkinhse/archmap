@@ -41,10 +41,11 @@ def test_fastapi_traps() -> None:
     # tests/ исключён по соглашению, строка в комментарии маршрутом не стала.
     assert not any("test-only" in p or "commented" in p for p in paths)
     dynamic = [h.data for h in found.hints if h.section == "dynamic_names"]
-    # Склейка «PREFIX + '/dyn'»: путь собран из частей (ТЗ §15 п. 10 А).
+    # Склейка «PREFIX + '/dyn'»: путь собран из частей (ТЗ §15 п. 10 А); метод регистрации
+    # подсказка несёт (ТЗ §15 п. 16 П3).
     assert dynamic == [{
         "kind": "route", "name": "PREFIX + '/dyn'", "reason": texts.REASON_JOINED_NAME,
-        "source": "shop/api/users.py:18",
+        "source": "shop/api/users.py:18", "method": "GET",
     }]
 
 
@@ -102,7 +103,7 @@ def test_route_goes_to_web_server_among_owners(tmp_path: Path) -> None:
     assert "worker" not in model.http
     assert model.hints["unassigned"] == [{
         "kind": "route", "name": "GET /x", "reason": texts.REASON_SHARED_LIB,
-        "source": "lib/shared.py:4",
+        "source": "lib/shared.py:4", "method": "GET",
     }]
 
 

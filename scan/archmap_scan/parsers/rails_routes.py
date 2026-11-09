@@ -32,7 +32,7 @@ from dataclasses import dataclass, field, replace
 
 from archmap_scan import codebase, codetext, paths, texts
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Hint, Loc, Route, route_hint
 from archmap_scan.parsers.railsschema import singular
 from archmap_scan.walk import Files
 
@@ -325,11 +325,11 @@ class _Set:
             parser=NAME, prefix_unresolved=ctx.unresolved,
         ))
 
-    def dynamic(self, st: _Stmt, arg: _Arg) -> None:
-        self.hints.append(Hint("dynamic_names", {
-            "kind": "route", "name": st.text[arg.start:arg.end].strip()[:200],
-            "reason": texts.REASON_DYNAMIC_ROUTE, "source": str(Loc(self.rel, st.line)),
-        }))
+    def dynamic(self, st: _Stmt, arg: _Arg, method: str | None = None) -> None:
+        self.hints.append(route_hint(
+            st.text[arg.start:arg.end].strip()[:200], texts.REASON_DYNAMIC_ROUTE,
+            Loc(self.rel, st.line), method,
+        ))
 
     def verb(self, word: str, st: _Stmt, args: list[_Arg], ctx: _Ctx) -> None:
         positional = [a for a in args if a.label is None]
@@ -339,7 +339,7 @@ class _Set:
         first = positional[0]
         segment = _path_arg(st, first)
         if segment is None:
-            self.dynamic(st, first)
+            self.dynamic(st, first, None if word == "match" else _VERBS.get(word))
             return
         if word == "match":
             via = options.get("via")

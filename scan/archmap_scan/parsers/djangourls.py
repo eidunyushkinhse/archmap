@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from archmap_scan import codebase, pyast, pycode, texts
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
 
 NAME = "django-urls"
@@ -377,11 +377,11 @@ class _Urls:
         self.lists[key] += [_Leaf(f"{base}/", loc), _Leaf(f"{base}/{{id}}/", loc)]
 
     def _dynamic(self, node: ast.AST, loc: Loc) -> None:
-        self.found.hints.append(Hint("dynamic_names", {
-            "kind": "route", "name": pycode.short(node),
-            "reason": pycode.dynamic_reason(node, texts.REASON_DYNAMIC_ROUTE),
-            "source": str(Loc(loc.path, getattr(node, "lineno", loc.line))),
-        }))
+        # Метод не пишется: path() и re_path() принимают любой (П3).
+        self.found.hints.append(route_hint(
+            pycode.short(node), pycode.dynamic_reason(node, texts.REASON_DYNAMIC_ROUTE),
+            Loc(loc.path, getattr(node, "lineno", loc.line)),
+        ))
 
     # Обход от корней
 

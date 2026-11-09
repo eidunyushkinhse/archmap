@@ -24,6 +24,7 @@ dynamic_names:
   name: STATUS_PATH
   reason: путь маршрута задан выражением, а не строкой, и известен только при запуске
   source: services/orders/orders/api/routes.py:23
+  method: GET
 unassigned:
 - kind: container
   name: release

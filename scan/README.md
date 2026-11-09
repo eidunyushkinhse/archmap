@@ -511,3 +511,9 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     в покрытии расписаний языком не называется (стек читается по sidekiq-scheduler и
     sidekiq-cron), планировщики Ruby без разборщика (whenever, rufus-scheduler, Clockwork,
     GoodJob, Solid Queue) названы стеком (П2).
+  - подсказки несут поля записи (`model.route_hint`, `model.schedule_hint`,
+    `codefacts._unassigned`): маршрут `method`, если регистрация его называет (ANY не
+    пишется), расписание `schedule` и `task`, такие же, какие были бы у записи; в
+    `hints.yaml` они идут после общих ключей в порядке method, schedule, task, пустые не
+    пишутся. Семья, где нашлись только записи с выражением, в «Искали и не нашли» сводки не
+    попадает, о ней говорит строка «заданным выражением в коде» (П3).

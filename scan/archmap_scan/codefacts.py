@@ -51,7 +51,7 @@ from collections.abc import Sequence
 
 from archmap_scan import codebase, owners, registry, secrets, texts, vocab
 from archmap_scan.links import hosts_in
-from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc
+from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc, hint_fields
 from archmap_scan.objects import (
     BROKER,
     SHAPE_ORDER,
@@ -173,8 +173,14 @@ def route_owner(path: str, containers: Sequence[Obj]) -> tuple[Obj | None, str |
     return None, texts.REASON_MANY_OWNERS
 
 
-def _unassigned(model: Model, kind: str, name: str, reason: str, loc: Loc) -> None:
-    model.hint("unassigned", {"kind": kind, "name": name, "reason": reason, "source": str(loc)})
+def _unassigned(
+    model: Model, kind: str, name: str, reason: str, loc: Loc, **fields: str | None,
+) -> None:
+    """Запись без владельца; fields — метод маршрута, выражение и задача расписания (ТЗ §15
+    п. 16 П3), пустые не пишутся."""
+    model.hint("unassigned", {
+        "kind": kind, "name": name, "reason": reason, "source": str(loc), **hint_fields(**fields),
+    })
 
 
 def _tooling(model: Model, family: str, parser: str, loc: Loc) -> str | None:
@@ -201,11 +207,17 @@ def _routes(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
         seen.add(key)
         aside = _tooling(model, "http_routes", route.parser, route.loc)
         if aside is not None:
-            _unassigned(model, "route", f"{route.method} {route.path}", aside, route.loc)
+            _unassigned(
+                model, "route", f"{route.method} {route.path}", aside, route.loc,
+                method=route.method,
+            )
             continue
         owner, why = route_owner(route.loc.path, containers)
         if owner is None:
-            _unassigned(model, "route", f"{route.method} {route.path}", why or "", route.loc)
+            _unassigned(
+                model, "route", f"{route.method} {route.path}", why or "", route.loc,
+                method=route.method,
+            )
             continue
         model.http.setdefault(owner.name, []).append(HttpEntry(
             method=route.method, path=route.path, framework=route.framework, loc=route.loc,
@@ -454,7 +466,9 @@ def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> N
         model.code_parsers.setdefault("schedules", set()).add(sch.parser)
         aside = _tooling(model, "schedules", sch.parser, sch.loc)
         if aside is not None:
-            _unassigned(model, "schedule", sch.name, aside, sch.loc)
+            _unassigned(
+                model, "schedule", sch.name, aside, sch.loc, schedule=sch.schedule, task=sch.task,
+            )
             continue
         found = owners.file_owners(sch.loc.path, containers)
         beats = [o for o in found if _runs_beat(o)] if sch.parser == celerybeat.NAME else []
@@ -471,7 +485,9 @@ def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> N
                 sch.loc.path, containers,
             )
         if owner is None:
-            _unassigned(model, "schedule", sch.name, why, sch.loc)
+            _unassigned(
+                model, "schedule", sch.name, why, sch.loc, schedule=sch.schedule, task=sch.task,
+            )
             continue
         model.schedules.setdefault(owner.name, []).append(Schedule(
             name=sch.name, schedule=sch.schedule, task=sch.task, loc=sch.loc, parser=sch.parser,

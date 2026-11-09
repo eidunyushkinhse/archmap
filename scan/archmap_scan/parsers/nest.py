@@ -18,7 +18,7 @@ from typing import cast
 from archmap_scan import codebase, codetext, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
 
 NAME = "nest"
@@ -48,12 +48,11 @@ def _join(*parts: str) -> str:
 
 def _dynamic(
     code: codetext.Code, rel: str, found: Findings, start: int,
-    reason: str = texts.REASON_DYNAMIC_ROUTE,
+    reason: str = texts.REASON_DYNAMIC_ROUTE, method: str | None = None,
 ) -> None:
-    found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": code.expression(start), "reason": reason,
-        "source": str(Loc(rel, code.line(start))),
-    }))
+    found.hints.append(route_hint(
+        code.expression(start), reason, Loc(rel, code.line(start)), method,
+    ))
 
 
 def _enum_members(code: codetext.Code, start: int) -> dict[str, str | None]:
@@ -206,20 +205,22 @@ def parse(files: Files, ctx: Context) -> Findings:
             if not owner:
                 continue
             prefix = owner[-1][1]
+            method = m.group(1).upper()
+            method = "ANY" if method == "ALL" else method
             if m.group(2) is not None:
                 path, dynamic = code.literal(m.start(2), m.end(2))
                 if dynamic:
                     _dynamic(code, rel, found, m.start(2),
-                             code.reason(m.start(2), m.end(2), texts.REASON_DYNAMIC_ROUTE))
+                             code.reason(m.start(2), m.end(2), texts.REASON_DYNAMIC_ROUTE),
+                             method)
                     continue
             elif code.mask[m.end():m.end() + 1] == ")":
                 path = ""
             else:
-                _dynamic(code, rel, found, m.end())
+                _dynamic(code, rel, found, m.end(), method=method)
                 continue
-            method = m.group(1).upper()
             found.routes.append(Route(
-                method="ANY" if method == "ALL" else method,
+                method=method,
                 path=_join(global_prefix or "", prefix or "", path),
                 loc=Loc(rel, code.line(m.start())), framework=FRAMEWORK, parser=NAME,
                 prefix_unresolved=prefix is None or global_prefix is None,

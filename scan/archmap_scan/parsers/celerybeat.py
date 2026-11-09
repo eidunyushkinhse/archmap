@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from archmap_scan import codebase, paths, pyast, pycode, texts
 from archmap_scan.context import Context
-from archmap_scan.model import CodeSchedule, Findings, Hint, Loc
+from archmap_scan.model import CodeSchedule, Findings, Loc, schedule_hint
 from archmap_scan.walk import Files
 
 NAME = "celery-beat"
@@ -72,20 +72,20 @@ def _dict(rel: str, value: ast.AST, found: Findings) -> None:
         if key is None or not isinstance(item, ast.Dict):
             continue  # **другой_словарь и записи не словарём
         name = pycode.string(key)
-        if name is None:
-            found.hints.append(Hint("dynamic_names", {
-                "kind": "schedule", "name": pycode.short(key),
-                "reason": texts.REASON_DYNAMIC_SCHEDULE, "source": str(Loc(rel, key.lineno)),
-            }))
-            continue
         fields = {pycode.string(k): v for k, v in zip(item.keys, item.values, strict=False)}
         schedule = fields.get("schedule")
+        task = fields.get("task")
+        task_text = pycode.string(task) or (pycode.short(task) if task is not None else None)
+        if name is None:
+            found.hints.append(schedule_hint(
+                pycode.short(key), texts.REASON_DYNAMIC_SCHEDULE, Loc(rel, key.lineno),
+                schedule=pycode.short(schedule) if schedule is not None else None, task=task_text,
+            ))
+            continue
         if schedule is None:
             continue
-        task = fields.get("task")
         found.schedules.append(CodeSchedule(
-            name=name, schedule=pycode.short(schedule),
-            task=pycode.string(task) or (pycode.short(task) if task is not None else None),
+            name=name, schedule=pycode.short(schedule), task=task_text,
             loc=Loc(rel, key.lineno), parser=NAME,
         ))
 
@@ -135,10 +135,10 @@ def _wrapper_call(rel: str, wrapper: _Wrapper, call: ast.Call, found: Findings) 
     task = _task(sig) if sig is not None else None
     label = pycode.string(bound.get(wrapper.label)) if wrapper.label else None
     if isinstance(schedule, (ast.Name, ast.Attribute)):
-        found.hints.append(Hint("dynamic_names", {
-            "kind": "schedule", "name": pycode.short(schedule),
-            "reason": texts.REASON_SCHEDULE_VARIABLE, "source": str(Loc(rel, call.lineno)),
-        }))
+        found.hints.append(schedule_hint(
+            pycode.short(schedule), texts.REASON_SCHEDULE_VARIABLE, Loc(rel, call.lineno),
+            schedule=pycode.short(schedule), task=task,
+        ))
         return
     name = label or task
     if name is None:
