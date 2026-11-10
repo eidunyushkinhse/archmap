@@ -283,6 +283,7 @@ archmap-scan/
 | | Go: robfig/cron (`go.mod` с `github.com/robfig/cron`, файл с её импортом): `c.AddFunc("spec", f)`, `c.AddJob("spec", j)`, `c.Schedule(cron.Every(d), j)` (ч. 4, Л2) | расписание как написано, строковая константа файла раскрывается, выражение текстом, имя без значения в hints; имя и задача — функция или задание вторым аргументом, у литеральной функции `файл:строка` |
 | | Rust: clokwerk (`Cargo.toml` с clokwerk): `scheduler.every(TimeUnits::minutes(5))`, `.every(1.hour())`, `.every(Interval::Daily).at("03:00")`, `.run(move || f(…))` (ч. 4, Л3) | расписание текстом аргумента every и at через пробел; имя и задача — первая свободная функция в теле run, без неё `файл:строка`; модуль тестов не читается |
 | | Node: пакеты `cron` и `@nestjs/schedule` (`package.json`): `@Cron("expr")` и `@Cron(CronExpression.X)` над методом, `new CronJob("expr", f)`, объект `{ name, expression | cronTime, onTick }` (`create({ … })`, `CronJob.from({ … })`) (ч. 4, Л4) | выражение как написано, член `CronExpression.X` по словарю (`EVERY_HOUR` → `0 * * * *`), имя из `name:`, члена перечисления, имени метода или функции; выражение полем конфигурации или именем в hints |
+| | Java и Kotlin: Spring `@Scheduled` (пакет со Spring Boot; ч. 5б, Л1): `@Scheduled(cron = "expr")`, `fixedRate = 5000`, `fixedDelay = 5000`, `timeUnit = TimeUnit.X`, `fixedRateString` и `fixedDelayString`, `@Schedules` с несколькими `@Scheduled` над методом | расписание с именем метода и задачей метод: cron как написан, интервал «every 5000 ms» и «every 5000 ms after completion» (единица по `timeUnit`: ns, us, ms, s, min, h, d), длительность строкой как написана («every PT10S»); константа класса Java раскрывается, подстановка — дефолтом, без дефолта — подсказка «из конфигурации» с выражением, выражение и `const val` Kotlin — «задано переменной»; `cron = "-"` (выключено) и одноразовый `initialDelay` не расписание; Java и Kotlin уходят из `unsupported` расписаний только у пакетов со Spring Boot |
 
 ### 6.3 Миграции → `facts/*.tables.yaml`
 
@@ -2428,3 +2429,21 @@ unread: {too_large: 3, binary: 0}
      без Kafka). `accounting` (.NET) и `checkout` (Go) без изменений. Других вызовов Kafka в
      коде Java и Kotlin корпуса нет; у Supabase `kafka-jvm` добавился в `parsers` каналов по
      правилу «стек не опознан, но языки читаются» (ч. 1), статус `empty` тот же.
+   - Л1 (решение исполнителя): форма интервала — «every 5000 ms» у `fixedRate` (как в брифе) и
+     «every 5000 ms after completion» у `fixedDelay` (отсчёт от конца прошлого запуска, а не от
+     начала); единица по `timeUnit` (ns, us, ms, s, min, h, d), без него миллисекунды, как у
+     Spring. `fixedRateString` и `fixedDelayString` с числом той же формой, с длительностью
+     («PT10S», «10s») длительность как написана без единицы: «every PT10S». Подстановка в cron и
+     в строке интервала раскрывается дефолтом (`${key:0 0 * * * *}` даёт `0 0 * * * *`, как
+     параметры Е1 и адреса С1); без дефолта или с дефолтом «-» — подсказка «расписание берётся
+     из конфигурации» с выражением. `cron = "-"` (`Scheduled.CRON_DISABLED`) записи не даёт,
+     `@Scheduled` только с `initialDelay` (одноразовый запуск) тоже. Строковая константа класса
+     Java раскрывается (`clike`), вызов и `const val` Kotlin дают подсказку «задано
+     переменной». Записи `@Schedules` — по одной на каждый `@Scheduled` со своей строкой. Язык
+     JVM уходит из `unsupported` расписаний только у пакета со Spring Boot (как каналы В1):
+     пакет без него может запускать задачи Quartz. Планировщики JVM без разборщика
+     (`quartz`, `spring-boot-starter-quartz`, `db-scheduler`, `jobrunr`) добавлены в
+     `vocab.UNSUPPORTED_SCHEDULE_DEPS` и названы сами («Java: Quartz»). Больше 2000 записей и
+     подсказок в файле — файл непрочитан. В корпусе `@Scheduled` нет: Petclinic расписаний
+     `unsupported: [Java]` → `empty` (все пакеты со Spring Boot), Keycloak (Quarkus, без
+     Spring Boot) `unsupported: [Java]` тот же, остальные без изменений.

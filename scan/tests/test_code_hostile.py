@@ -190,6 +190,14 @@ STARTS["kt/App.kt"] += (
     'subscribe(listOf("', "subscribe(setOf(", 'ProducerRecord("', '@KafkaListener(topics = ["',
     'val t = System.getenv("A") ?: "', "val t: String = System.getenv(",
 )
+# Расписания Spring (ТЗ §15 п. 17 Л1): @Scheduled и @Schedules без закрытия, подстановки и
+# единицы времени без конца.
+SC = "@Scheduled("
+STARTS["java/App.java"] += (
+    SC, SC + 'cron = "', SC + "fixedRate = ", SC + 'fixedRateString = "${', SC + 'cron = "${a:',
+    '@Schedules({' + SC + 'cron = "', SC + "fixedRate = 1, timeUnit = TimeUnit.",
+)
+STARTS["kt/App.kt"] += (SC + 'cron = "', SC + 'fixedDelayString = "\\${', SC + "fixedRate = ")
 # Адреса объектов литералами (ТЗ §15 п. 17 С2): литерал адреса без закрытия, хост и путь без
 # конца, сырые строки и шаблоны Kotlin. Разборщик смотрит только src/main.
 STARTS["java/src/main/java/A.java"] = (
@@ -541,6 +549,18 @@ SPRING_VALUE.update({
     "kt/App.kt:env-vars": 'val t = System.getenv("A") ?: "x"\n' * (PAYLOAD // 34),
     "kt/App.kt:var-spaces": 'val t = System.getenv("A")' + " " * (PAYLOAD - 40) + '?: "x"\n',
     "kt/App.kt:subscribes": "subscribe(listOf(t))\n" * (PAYLOAD // 21),
+})
+
+
+# Расписания Spring на файле в 2 МБ: сотни тысяч @Scheduled и групп, одна группа в сотни
+# тысяч аннотаций, подстановки без конца, единицы времени без конца.
+SPRING_VALUE.update({
+    "java/App.java:scheduled": (SC + 'cron = "0 0 * * * *")\nvoid f() {}\n') * (PAYLOAD // 45),
+    "java/App.java:schedules-groups": ("@Schedules({" + SC + 'cron = "x")})\nvoid f() {}\n') * (PAYLOAD // 47),
+    "java/App.java:schedules-one": "@Schedules({" + (SC + 'cron = "x"), ') * (PAYLOAD // 22) + "})\nvoid f() {}\n",
+    "java/App.java:schedule-holes": SC + 'cron = "' + "${" * (PAYLOAD // 2 - 20) + '")\nvoid f() {}\n',
+    "java/App.java:time-units": SC + "fixedRate = 1" + ", timeUnit = TimeUnit.SECONDS" * (PAYLOAD // 30) + ")\nvoid f() {}\n",
+    "kt/App.kt:scheduled": (SC + 'fixedDelayString = "\\${a:PT1S}")\nfun f() {}\n') * (PAYLOAD // 46),
 })
 
 

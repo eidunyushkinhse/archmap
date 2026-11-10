@@ -1,0 +1,5 @@
+services:
+  jobs:
+    build: ./jobs
+  ktjobs:
+    build: ./ktjobs

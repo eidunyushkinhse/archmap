@@ -61,6 +61,7 @@ from archmap_scan.parsers import (
     sidekiq,
     spring,
     springconf,
+    springsched,
     springvalue,
     sql,
     supervisor,
@@ -141,6 +142,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(gocron.NAME, ("schedules",), gocron.parse, code=True),
     ParserSpec(clokwerk.NAME, ("schedules",), clokwerk.parse, code=True),
     ParserSpec(nodecron.NAME, ("schedules",), nodecron.parse, code=True),
+    ParserSpec(springsched.NAME, ("schedules",), springsched.parse, code=True),
     ParserSpec(crontab.NAME, ("schedules",), crontab.parse),
 )
 

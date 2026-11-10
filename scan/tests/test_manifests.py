@@ -89,8 +89,9 @@ def test_code_unsupported_stacks() -> None:
     assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
     # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler и sidekiq-cron —
     # sidekiq (ТЗ §15 п. 16 П2), clokwerk — clokwerk (п. 15 Л3): Rust и Ruby в расписаниях не
-    # названы.
-    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP"]
+    # названы. @Scheduled Spring читает spring-scheduled (п. 17 Л1): Java со Spring Boot в
+    # расписаниях не назван.
+    assert stacks["schedules"] == [".NET", "Elixir", "PHP"]
     assert stacks["tables"] == ["Ecto", "Kysely"]
 
 

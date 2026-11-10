@@ -279,8 +279,9 @@ def code_unsupported(
     # Языки без чтения кода по семьям: язык, код на котором семья читает по стеку пакета
     # (vocab.family_language: маршруты Rails, ASP.NET Core, actix-web, Spring и JAX-RS,
     # расписания clokwerk и Sidekiq), языком не называется; его стеки без разборщика названы по
-    # vocab.UNSUPPORTED_ROUTE_DEPS и UNSUPPORTED_SCHEDULE_DEPS. Каналы Java и Kotlin язык не
-    # называют только у пакета с Kafka (vocab.package_named, ТЗ §15 п. 17 В1).
+    # vocab.UNSUPPORTED_ROUTE_DEPS и UNSUPPORTED_SCHEDULE_DEPS. Каналы и расписания Java и
+    # Kotlin язык не называют только у пакета с Kafka и со Spring Boot (vocab.package_named,
+    # ТЗ §15 п. 17 В1, Л1).
     unread: dict[str, list[str]] = {fam: [] for fam in _LANGUAGE_FAMILIES}
 
     def add(fam: str, name: str) -> None:

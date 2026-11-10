@@ -136,7 +136,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   (общее у Java и Kotlin — `jvm.py`), параметры `pyenv`, `nodeenv`, `goenv`, `dotnetenv`,
   `javaenv` (общее у C# и Java — `clike.py`), `spring-value`, `rustenv`, связи `jvm-address`,
   каналы `celery`, `kafka`, `kafka-jvm`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
-  `celerybeat`, `gocron`, `clokwerk`, `nodecron`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
+  `celerybeat`, `gocron`, `clokwerk`, `nodecron`, `spring-scheduled`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
   стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -693,3 +693,13 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     уходят из непрочитанных каналов только у пакетов с Kafka, клиенты RabbitMQ, NATS, Pulsar,
     JMS и SQS для JVM названы сами («Java: RabbitMQ»); больше 2000 записей и подсказок в файле —
     файл непрочитан (В1).
+  - расписания Spring `@Scheduled` (`parsers/springsched.py`, пакет со Spring Boot): `cron`
+    как написан, `fixedRate = 5000` — «every 5000 ms», `fixedDelay = 5000` — «every 5000 ms
+    after completion» (единица по `timeUnit`: ns, us, ms, s, min, h, d), `fixedRateString` и
+    `fixedDelayString` с числом той же формой, с длительностью как написана («every PT10S»);
+    имя и задача — метод, `@Schedules` — запись на каждый `@Scheduled`. Константа класса Java
+    раскрывается, подстановка дефолтом, без дефолта — подсказка «из конфигурации» с
+    выражением, выражение и `const val` Kotlin — «задано переменной»; `cron = "-"` и одноразовый
+    `initialDelay` не расписание. Java и Kotlin уходят из непрочитанных расписаний только у
+    пакетов со Spring Boot, Quartz, db-scheduler и JobRunr названы сами; больше 2000 записей и
+    подсказок в файле — файл непрочитан (Л1).

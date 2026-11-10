@@ -437,6 +437,10 @@ UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("job_scheduler", "job_scheduler"),
     ("whenever", "whenever"), ("rufus-scheduler", "rufus-scheduler"), ("clockwork", "Clockwork"),
     ("good_job", "GoodJob"), ("solid_queue", "Solid Queue"),
+    # Планировщики JVM без разборщика (ТЗ §15 п. 17 Л1): у пакета со Spring Boot язык в
+    # непрочитанных расписаниях больше не назван, они названы сами.
+    ("quartz", "Quartz"), ("spring-boot-starter-quartz", "Quartz"),
+    ("db-scheduler", "db-scheduler"), ("jobrunr", "JobRunr"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -505,14 +509,19 @@ FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
     },
     # Каналы Kafka Java и Kotlin читает kafka-jvm (ТЗ §15 п. 17 В1).
     "channels": {"Java": JVM_KAFKA_KEYS, "Kotlin": JVM_KAFKA_KEYS},
-    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2).
-    "schedules": {"Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron")},
+    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2),
+    # @Scheduled Spring в Java и Kotlin — spring-scheduled (п. 17 Л1).
+    "schedules": {
+        "Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron"),
+        "Java": ("spring-boot",), "Kotlin": ("spring-boot",),
+    },
 }
 # Семьи, где язык JVM уходит из unsupported только у пакета со стеком разборщика (ТЗ §15
 # п. 17 В1, Л1): пакет Java без Kafka может слать сообщения через RabbitMQ, JMS или Pulsar,
-# этот код не читается, и пакет по-прежнему назван языком. Маршруты JVM язык не называют
-# у любого пакета (К1): серверы без разборщика названы стеком (UNSUPPORTED_ROUTE_DEPS).
-_JVM_BY_PACKAGE = frozenset({"channels"})
+# пакет без Spring Boot запускать задачи Quartz, этот код не читается, и пакет по-прежнему
+# назван языком. Маршруты JVM язык не называют у любого пакета (К1): серверы без
+# разборщика названы стеком (UNSUPPORTED_ROUTE_DEPS).
+_JVM_BY_PACKAGE = frozenset({"channels", "schedules"})
 # Серверные фреймворки маршрутов без разборщика у языков из FAMILY_LANGUAGES (ТЗ §15 п. 15 К3,
 # решение исполнителя): пакет с ними назван в unsupported «Язык: фреймворк», пакет без
 # известного стека не назван вовсе, как у языков CODE_LANGUAGES (у Lemmy библиотечные крейты
@@ -537,8 +546,8 @@ def family_language(family: str, language: str) -> bool:
 
 def package_named(family: str, language: str, deps: Iterable[str]) -> bool:
     """Пакет языка language вне CODE_LANGUAGES с зависимостями deps назван своим языком в
-    unsupported семьи family: семья язык не читает вовсе или (у языков JVM в каналах) у пакета
-    нет стека разборщика (_JVM_BY_PACKAGE)."""
+    unsupported семьи family: семья язык не читает вовсе или (у языков JVM в каналах и
+    расписаниях) у пакета нет стека разборщика (_JVM_BY_PACKAGE)."""
     if not family_language(family, language):
         return True
     if language in JVM_LANGUAGES and family in _JVM_BY_PACKAGE:

@@ -1,0 +1,8 @@
+<project>
+  <artifactId>jobs</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>spring-boot-starter</artifactId>
+    </dependency>
+  </dependencies>
+</project>
