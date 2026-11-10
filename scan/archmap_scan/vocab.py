@@ -409,6 +409,11 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
+    # Брокеры JVM без разборщика (ТЗ §15 п. 17 В1): у пакета с Kafka язык в непрочитанных
+    # каналах больше не назван, и эти клиенты названы сами, артефакты Maven по точному имени.
+    ("amqp-client", "RabbitMQ"), ("spring-rabbit", "RabbitMQ"),
+    ("spring-boot-starter-amqp", "RabbitMQ"), ("jnats", "NATS"), ("pulsar-client", "Pulsar"),
+    ("spring-jms", "JMS"), ("jakarta.jms-api", "JMS"), ("aws-java-sdk-sqs", "SQS"),
 )
 
 # Библиотеки фоновых обработчиков в коде, которые ярус кода не читает (ТЗ §15 п. 10 А12:

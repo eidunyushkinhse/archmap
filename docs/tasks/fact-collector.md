@@ -2401,7 +2401,11 @@ unread: {too_large: 3, binary: 0}
      с `kafka-clients` или `spring-kafka` (`vocab.package_named`, ключи в
      `FAMILY_LANGUAGES["channels"]`), а не у любого пакета, как у маршрутов К1: пакет Java без
      Kafka может слать сообщения через RabbitMQ, JMS или Pulsar, этот код не читается. Так
-     ожидал и бриф (Petclinic и Keycloak каналами не меняются). Сверх брифа: `Set.of`,
+     ожидал и бриф (Petclinic и Keycloak каналами не меняются). Чтобы у пакета с Kafka такие
+     клиенты не пропали молча, артефакты `amqp-client`, `spring-rabbit`,
+     `spring-boot-starter-amqp`, `jnats`, `pulsar-client`, `spring-jms`, `jakarta.jms-api` и
+     `aws-java-sdk-sqs` добавлены в `vocab.UNSUPPORTED_CHANNEL_DEPS` («Java: RabbitMQ»; в корпусе
+     их нет, выводы не меняются; отдельный коммит). Сверх брифа: `Set.of`,
      `mutableListOf`, `mutableSetOf`, `arrayListOf`, `arrayOf` в `@KafkaListener` и `sendDefault`
      шаблона. Подписка аргументом-выражением даёт подсказку о динамическом имени
      (`subscribe(Pattern.compile("x"))`, `subscribe(topics)`), кроме обработчиков реактивных

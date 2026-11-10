@@ -107,6 +107,22 @@ def test_only_kafka_package(tmp_path: Path) -> None:
     assert [(c.name, c.direction) for c in found.channels] == [("t", "consume")]
 
 
+def test_other_brokers_named(tmp_path: Path) -> None:
+    """Пакет с Kafka и клиентом RabbitMQ: Java не назван (Kafka читается), а RabbitMQ назван
+    «Java: RabbitMQ», его каналы не читаются."""
+    tree(tmp_path, {
+        "a/pom.xml": KAFKA_POM.replace(
+            "</dependencies>", "<dependency><artifactId>spring-rabbit</artifactId></dependency>"
+            "</dependencies>",
+        ),
+        "a/src/main/java/A.java": 'class A { void f() { c.subscribe(List.of("t")); } }\n',
+    })
+    ctx, files = files_of(tmp_path)
+    found, errors = registry.collect(files, ctx)
+    assert errors == {}
+    assert stats.code_unsupported(found).get("channels", []) == ["Java: RabbitMQ"]
+
+
 def test_without_kafka_not_read(tmp_path: Path) -> None:
     """Пакет Java без kafka-clients и spring-kafka не читается: subscribe там чужой."""
     tree(tmp_path, {
