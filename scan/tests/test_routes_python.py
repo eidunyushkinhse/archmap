@@ -184,5 +184,6 @@ def test_sole_container_owns_shared_code(tmp_path: Path) -> None:
     model = model_of(tree(tmp_path / "two", two), system="shop")
     assert model.http.get("shop", []) == [] and "shop" not in model.params
     assert {(h["kind"], h["name"]) for h in model.hints["unassigned"]} >= {
-        ("route", "GET /shared"), ("config", "LEVEL"),
+        ("route", "GET /shared"), ("shared_file", "facts/shared/lib.config.yaml"),
     }
+    assert list(model.shared["lib"].params) == ["LEVEL"]

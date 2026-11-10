@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from archmap_scan import __version__, secrets
+from archmap_scan import __version__, secrets, texts
 from archmap_scan.parsers import envexample
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, tree
@@ -99,9 +99,19 @@ def test_params_owners_and_redis_broker() -> None:
     assert params["DATABASE_URL"].default is None
     assert params["JWT_SECRET"].default is None and params["JWT_SECRET"].type == "string"
     assert params["EMPTY"].type is None and params["TEMPLATE"].default is None
-    # Пример вне каталога кода контейнеров — общий код.
-    unassigned = [h for h in model.hints["unassigned"] if h["kind"] == "config"]
-    assert [(h["name"], h["source"]) for h in unassigned] == [("SHARED_FLAG", "lib/.env.sample:1")]
+    # Пример вне каталога кода контейнеров — общий код: запись в файле facts/shared/ каталога
+    # первого уровня (пакета в lib/ нет) и подсказка на файл (ТЗ §15 п. 18 О1).
+    assert [h for h in model.hints["unassigned"] if h["kind"] == "config"] == []
+    shared = model.shared["lib"]
+    assert shared.path == "facts/shared/lib.config.yaml"
+    assert shared.reasons == {texts.REASON_SHARED_LIB}
+    flag = shared.params["SHARED_FLAG"]
+    assert {str(loc) for loc in flag.locs} == {"lib/.env.sample:1"} and flag.parsers == {"env-example"}
+    assert [h for h in model.hints["unassigned"] if h["kind"] == "shared_file"] == [{
+        "kind": "shared_file", "name": "facts/shared/lib.config.yaml",
+        "reason": texts.REASON_SHARED_LIB, "source": "lib/.env.sample:1", "folder": "lib/",
+        "records": 1,
+    }]
     queue = model.obj("queue")
     assert queue is not None and queue.shape == "broker"
     links = {(lk.src.name, lk.dst.name): lk.parsers for lk in model.links}

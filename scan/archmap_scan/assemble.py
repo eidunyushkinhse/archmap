@@ -1631,10 +1631,9 @@ def _params(
             if vocab.is_os_variable(var.name):
                 model.os_vars.setdefault(var.name, set()).add(var.loc)
                 continue
-            model.hint("unassigned", {
-                "kind": "config", "name": var.name, "reason": texts.REASON_SHARED_LIB,
-                "source": str(var.loc),
-            })
+            # Пример окружения вне каталогов кода контейнеров — общий код: его переменные
+            # ложатся в файл facts/shared/ своей единицы кода (codefacts._params, ТЗ §15 п. 18 О1).
+            model.shared_env.append(var)
 
 
 def _clients(model: Model, findings: Findings) -> None:

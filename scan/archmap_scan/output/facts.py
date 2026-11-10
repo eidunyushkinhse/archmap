@@ -8,9 +8,10 @@ orders.config.yaml. Так файлы называются одинаково н
 
 from __future__ import annotations
 
+from archmap_scan import paths, texts
 from archmap_scan.context import Context
 from archmap_scan.model import Column
-from archmap_scan.objects import Model
+from archmap_scan.objects import Model, Param
 from archmap_scan.output import yamlio
 
 _TRANSLIT = {
@@ -56,26 +57,53 @@ def _head(model: Model, owner: str, ctx: Context) -> str:
     return f"# archmap-node: {model.system} / {owner}\n" + yamlio.header(ctx.repo, ctx.commit)
 
 
+def _config_items(params: dict[str, Param]) -> list[dict[str, object]]:
+    """Записи семьи config по именам. Ключи без известного значения не пишутся."""
+    items: list[dict[str, object]] = []
+    for name in sorted(params):
+        param = params[name]
+        item: dict[str, object] = {"name": param.name}
+        if param.type:
+            item["type"] = param.type
+        if param.required:
+            item["required"] = True
+        if param.default is not None:
+            item["default"] = param.default
+        if param.description:
+            item["description"] = param.description
+        items.append(item)
+    return items
+
+
 def config_files(model: Model, ctx: Context) -> dict[str, str]:
-    """facts/<контейнер>.config.yaml: путь → текст. Ключи без известного значения не пишутся."""
+    """facts/<контейнер>.config.yaml: путь → текст."""
     owners = [o.name for o in model.objects if model.params.get(o.name)]
     names = file_names(model, owners, "config")
     out: dict[str, str] = {}
     for owner in owners:
-        items: list[dict[str, object]] = []
-        for name in sorted(model.params[owner]):
-            param = model.params[owner][name]
-            item: dict[str, object] = {"name": param.name}
-            if param.type:
-                item["type"] = param.type
-            if param.required:
-                item["required"] = True
-            if param.default is not None:
-                item["default"] = param.default
-            if param.description:
-                item["description"] = param.description
-            items.append(item)
-        out[names[owner]] = _head(model, owner, ctx) + yamlio.dump({"config": items})
+        body = yamlio.dump({"config": _config_items(model.params[owner])})
+        out[names[owner]] = _head(model, owner, ctx) + body
+    return out
+
+
+def shared_files(model: Model, ctx: Context) -> dict[str, str]:
+    """facts/shared/<единица>.config.yaml (ТЗ §15 п. 18 О1): параметры общего кода в формате
+    файлов контейнеров, но с пустым адресом в первой строке. Вторая строка просит вписать
+    адрес: ArchMap читает адрес и через перевод строки, поэтому файл, поданный без адреса,
+    он отвергает текстом «объект «# Впишите…» не найден», а не ввозит к объекту окна. Шапка
+    сборщика (версия, repo, commit) идёт в строках 3–5, где её ищет пометка входа ArchMap;
+    за ней причина, каталог кода и число записей."""
+    out: dict[str, str] = {}
+    for item in sorted(model.shared.values(), key=lambda f: f.path):
+        head = "\n".join([
+            "# archmap-node:",
+            f"# {texts.SHARED_FILE_ASK}",
+            yamlio.header(ctx.repo, ctx.commit).rstrip("\n"),
+            *(f"# {texts.SHARED_FILE_REASON}: {reason}" for reason in sorted(item.reasons)),
+            f"# {texts.SHARED_FILE_FOLDER}: {paths.show_dir(item.folder)}",
+            f"# {texts.shared_file_records(len(item.params))}",
+        ]) + "\n"
+        out[item.path] = head + yamlio.dump({"config": _config_items(item.params)})
     return out
 
 

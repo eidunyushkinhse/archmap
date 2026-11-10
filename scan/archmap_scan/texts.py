@@ -192,6 +192,28 @@ def shared_params_line(containers: int, records: int) -> str:
     return f"Параметры общего кода записаны каждому из {holders}: записей {records}."
 
 
+def shared_files_line(records: int, files: int) -> str:
+    """Строка пояснений сводки о файлах facts/shared/ (ТЗ §15 п. 18 О1): «Параметров общего
+    кода: 54 записи в 2 файлах facts/shared/, владельца впишите в шапку.»"""
+    shown = plural(records, "запись", "записи", "записей")
+    where = plural(files, "файле", "файлах", "файлах")
+    return f"Параметров общего кода: {shown} в {where} facts/shared/, владельца впишите в шапку."
+
+
+# Шапка файла facts/shared/ (ТЗ §15 п. 18 О1): адрес пуст, вторая строка просит его вписать.
+# ArchMap, получив файл без адреса, цитирует эту строку в отказе «объект «…» не найден».
+SHARED_FILE_ASK = (
+    "Впишите в первую строку адрес контейнера, который выполняет этот код, и подайте файл как"
+    " остальные."
+)
+SHARED_FILE_REASON = "Причина"
+SHARED_FILE_FOLDER = "Каталог кода"
+
+
+def shared_file_records(n: int) -> str:
+    return f"Записей: {n}"
+
+
 def unassigned_line(family: str, n: int) -> str:
     word = UNASSIGNED_WORDS.get(family, FAMILY_LABEL.get(family, family))
     return f"{word} без владельца: {n}, перечень в agent/hints.yaml."

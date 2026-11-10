@@ -49,7 +49,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from archmap_scan import codebase, owners, registry, secrets, texts, vocab
+from archmap_scan import codebase, owners, registry, secrets, shared, texts, vocab
 from archmap_scan.links import hosts_in
 from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc, hint_fields
 from archmap_scan.objects import (
@@ -255,9 +255,14 @@ def _merge(param: Param, reads: list[CodeParam]) -> None:
 
 
 def _params(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
+    """Параметры кода владельцам. Без владельца по причине общего кода (shared.REASONS) —
+    в файлы facts/shared/ по единицам кода вместе с переменными примеров окружения вне
+    каталогов контейнеров (ТЗ §15 п. 18 О1); с другой причиной — подсказка на имя."""
     by_owner: dict[str, dict[str, list[CodeParam]]] = {}
-    shared: dict[tuple[str, str], list[CodeParam]] = {}
+    no_owner: dict[tuple[str, str], list[CodeParam]] = {}
+    by_unit: dict[tuple[str, str], list[CodeParam]] = {}
     aside: dict[tuple[str, str], list[Loc]] = {}
+    units = shared.Units(findings.packages)
     for read in findings.code_params:
         model.code_parsers.setdefault("config", set()).add(read.parser)
         if vocab.is_os_variable(read.name):
@@ -270,17 +275,43 @@ def _params(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
         found = owners.file_owners(read.loc.path, containers)
         if not found:
             why = owners.missing_reason(read.loc.path, containers)
-            shared.setdefault((read.name, why), []).append(read)
+            if why in shared.REASONS:
+                folder = units.unit(read.loc.path, read.parser)
+                shared.add(model, folder, read.name, why)
+                by_unit.setdefault((folder, read.name), []).append(read)
+            else:
+                no_owner.setdefault((read.name, why), []).append(read)
         for obj in found:
             by_owner.setdefault(obj.name, {}).setdefault(read.name, []).append(read)
     for owner, reads_of in by_owner.items():
         table = model.params.setdefault(owner, {})
         for name, reads in reads_of.items():
             _merge(table.setdefault(name, Param(name=name)), reads)
-    for (name, why), reads in sorted(shared.items()):
+    _shared_env(model, units)
+    for (folder, name), reads in by_unit.items():
+        _merge(model.shared[folder].params[name], reads)
+    if model.shared:
+        shared.finish(model)
+    for (name, why), reads in sorted(no_owner.items()):
         _unassigned(model, "config", name, why, min(r.loc for r in reads))
     for (name, why), locs in sorted(aside.items()):
         _unassigned(model, "config", name, why, min(locs))
+
+
+def _shared_env(model: Model, units: shared.Units) -> None:
+    """Переменные примеров окружения вне каталогов кода контейнеров — в файл единицы кода
+    своего каталога, как пример окружения у контейнера (assemble._params): тип и дефолт по
+    значению, дефолт только по инварианту 6. Чтения кода той же единицы дополняют запись."""
+    for var in model.shared_env:
+        param = shared.add(
+            model, units.unit(var.loc.path, "env-example"), var.name, texts.REASON_SHARED_LIB,
+        )
+        param.locs.add(var.loc)
+        param.parsers.add("env-example")
+        if param.type is None:
+            param.type = secrets.value_type(var.value)
+        if param.default is None and not var.dynamic:
+            param.default = secrets.safe_default(var.name, var.value)
 
 
 def _os_variables(model: Model) -> None:

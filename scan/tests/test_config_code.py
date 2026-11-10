@@ -646,9 +646,18 @@ def test_merge_with_manifest_params(tmp_path: Path) -> None:
     # Где-то читается с дефолтом: параметр не обязательный.
     assert params["MAYBE"].required is None
     assert sorted(params["LOG_LEVEL"].parsers) == ["compose", "python-env"]
-    assert [h for h in model.hints["unassigned"] if h["kind"] == "config"] == [{
-        "kind": "config", "name": "SHARED_ONLY", "reason": texts.REASON_SHARED_LIB,
-        "source": "lib/shared.py:2",
+    # Общий код: два чтения одного имени — одна запись в файле единицы lib/ (пакет
+    # lib/requirements.txt), все места в основаниях (ТЗ §15 п. 18 О1).
+    assert [h for h in model.hints["unassigned"] if h["kind"] == "config"] == []
+    shared = model.shared["lib"]
+    assert shared.path == "facts/shared/lib.config.yaml"
+    assert sorted(str(loc) for loc in shared.params["SHARED_ONLY"].locs) == [
+        "lib/shared.py:2", "lib/shared.py:3",
+    ]
+    assert [h for h in model.hints["unassigned"] if h["kind"] == "shared_file"] == [{
+        "kind": "shared_file", "name": "facts/shared/lib.config.yaml",
+        "reason": texts.REASON_SHARED_LIB, "source": "lib/shared.py:2", "folder": "lib/",
+        "records": 1,
     }]
 
 
@@ -661,9 +670,13 @@ def test_owner_of_other_language_does_not_take_file() -> None:
     assert languages == {"web": "Ruby", "sidekiq": "Ruby", "streaming": "Node.js"}
     assert {k: sorted(v) for k, v in model.params.items()} == {"streaming": ["STREAMING_PORT"]}
     hints = [(h["name"], h["reason"], h["source"]) for h in model.hints["unassigned"]]
+    # Запись другого языка — в файле общего кода единицы корневого package.json (как у
+    # Mastodon), файл называется root (ТЗ §15 п. 18 О1).
     assert hints == [
-        ("NODE_ENV", texts.REASON_OTHER_LANGUAGE, "app/javascript/environment.ts:2"),
+        ("facts/shared/root.config.yaml", texts.REASON_OTHER_LANGUAGE,
+         "app/javascript/environment.ts:2"),
     ]
+    assert list(model.shared[""].params) == ["NODE_ENV"]
 
 
 _GO_MAIN = 'package main\n\nimport "os"\n\nfunc main() {\n\t_ = os.Getenv("%s")\n}\n'

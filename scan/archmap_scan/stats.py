@@ -90,7 +90,11 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     config = out["config"]
     config.found = len(params)
     config.distinct, config.holders, config.shared_records = _shared_params(model)
-    config.unassigned = _hints_of(model, "unassigned", "config")
+    # Записи общего кода в файлах facts/shared/ остаются записями без владельца (ТЗ §15 п. 18
+    # О1): счёт тот же, что был у подсказок, рядом число файлов.
+    config.shared_file_records = sum(len(item.params) for item in model.shared.values())
+    config.shared_files = len(model.shared)
+    config.unassigned = _hints_of(model, "unassigned", "config") + config.shared_file_records
     config.dynamic_names = _hints_of(model, "dynamic_names", "config")
     code_parsers = model.code_parsers.get("config", set())
     config.contributed = _ordered({x for p in params for x in p.parsers} | code_parsers)

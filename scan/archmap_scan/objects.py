@@ -93,6 +93,17 @@ class Param:
 
 
 @dataclass
+class SharedFile:
+    """Параметры общего кода одной единицы кода (ТЗ §15 п. 18 О1): файл facts/shared/ без
+    адреса владельца. path — путь файла вывода, его даёт shared.finish."""
+
+    folder: str
+    params: dict[str, Param] = field(default_factory=dict)
+    reasons: set[str] = field(default_factory=set)
+    path: str = ""
+
+
+@dataclass
 class HttpEntry:
     """Маршрут HTTP контейнера для agent/entrypoints.yaml."""
 
@@ -163,6 +174,10 @@ class Model:
     schedules: dict[str, list[Schedule]] = field(default_factory=dict)
     # Параметры по контейнерам: имя контейнера → имя параметра → параметр.
     params: dict[str, dict[str, Param]] = field(default_factory=dict)
+    # Параметры общего кода по единицам кода (ТЗ §15 п. 18 О1): каталог → файл facts/shared/;
+    # переменные примеров окружения вне каталогов кода контейнеров ждут его в shared_env.
+    shared: dict[str, SharedFile] = field(default_factory=dict)
+    shared_env: list[EnvVar] = field(default_factory=list)
     # Таблицы по базам: имя базы → таблицы; счёт для покрытия — в table_stats.
     tables: dict[str, list[Table]] = field(default_factory=dict)
     table_stats: TableStats = field(default_factory=lambda: TableStats())

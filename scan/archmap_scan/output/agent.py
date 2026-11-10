@@ -46,6 +46,11 @@ def evidence(model: Model, ctx: Context) -> dict[str, list[str]]:
     for obj in model.objects:
         for name in sorted(model.params.get(obj.name, {})):
             out[f"config/{obj.name}/{name}"] = _locs(model.params[obj.name][name].locs)
+    # Параметры общего кода (ТЗ §15 п. 18 О1): ключ — имя файла facts/shared/ и параметр.
+    for item in sorted(model.shared.values(), key=lambda f: f.path):
+        stem = item.path.rsplit("/", 1)[-1]
+        for name in sorted(item.params):
+            out[f"shared/{stem}/{name}"] = _locs(item.params[name].locs)
     return out
 
 
