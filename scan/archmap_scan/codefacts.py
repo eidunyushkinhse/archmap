@@ -15,7 +15,10 @@
 hints.unassigned. Брокера этого вида в манифестах нет вовсе, а клиент в зависимостях и
 каналы в коде есть (Sentry: Kafka, Zulip: RabbitMQ) — объект-брокер по клиенту с именем
 технологии, без host, по образцу базы по миграциям (ТЗ §13.2); у Celery технологию называет
-схема адреса брокера (redis://, amqp://), без неё брокер не создаётся. Направление даёт
+схема адреса брокера (redis://, amqp://), без неё брокер не создаётся. Каналы Redis pub/sub
+брокера по клиенту не заводят, а кэш Redis делают брокером, только если у записи есть
+контейнер-владелец (ТЗ §15 п. 18 В1); без владельца запись к кэшу остаётся подсказкой с
+объектом. Направление даёт
 связь: публикация — контейнер → брокер «публикует», потребление — брокер → контейнер
 «доставляет» (подпись называет действие источника связи), с channel и sync: false; одна
 связь на пару, направление и канал. Связь «использует» той же пары из манифестов (адрес в
@@ -73,7 +76,11 @@ _CLIENT_TECH = {
     "Kafka": frozenset({"Kafka", "Redpanda"}), "RabbitMQ": frozenset({"RabbitMQ"}),
     "NATS": frozenset({"NATS"}), "Celery": frozenset({"Redis", "RabbitMQ"}),
     "BullMQ": frozenset({"Redis"}), "Sidekiq": frozenset({"Redis"}),
+    "Redis": frozenset({"Redis"}),
 }
+# Клиенты, чей объект Redis становится брокером только по записи с владельцем-контейнером
+# (ТЗ §15 п. 18 В1): pub/sub бывает и у кэша, и у общего кода без владельца.
+_OWNED_SWITCH = frozenset({"Redis"})
 # Клиент → технология брокера по клиенту в порядке создания: Celery последним, его брокер
 # бывает тот же RabbitMQ.
 _CLIENT_BROKER = {"Kafka": "Kafka", "RabbitMQ": "RabbitMQ", "NATS": "NATS"}
@@ -324,7 +331,9 @@ def _os_variables(model: Model) -> None:
 def _broker(
     model: Model, use: ChannelUse, file_owners: Sequence[Obj], env_of: EnvOf,
 ) -> tuple[Obj | None, str | None]:
-    """Брокер-владелец канала или причина, почему его нет."""
+    """Брокер-владелец канала или причина, почему его нет. У клиентов _OWNED_SWITCH объект
+    Redis другой формы (кэш) тоже кандидат: брокером его делает _owned_switch, здесь форма не
+    меняется."""
     techs = _CLIENT_TECH.get(use.client, frozenset())
     by_host = {o.host.lower(): o for o in model.objects if o.host and o.technology in techs}
     pointed: list[Obj] = []
@@ -339,16 +348,71 @@ def _broker(
                     obj = by_host.get(host)
                     if obj is not None and obj not in pointed:
                         pointed.append(obj)
+    switch = use.client not in _OWNED_SWITCH
     if len(pointed) == 1:
         broker = pointed[0]
-        if broker.shape != BROKER:
+        if broker.shape != BROKER and switch:
             # Redis по адресу брокера Celery считается брокером, а не кэшем.
             broker.shape, broker.role = BROKER, vocab.ROLE_BROKER
         return broker, None
     brokers = [o for o in model.objects if o.shape == BROKER and o.technology in techs]
     if len(brokers) == 1:
         return brokers[0], None
+    if not switch and not brokers:
+        # Pub/sub без брокера Redis: единственный объект Redis любой формы.
+        same = [o for o in model.objects if o.technology in techs]
+        if len(same) == 1:
+            return same[0], None
+        if same:
+            return None, texts.REASON_MANY_REDIS
     return None, texts.REASON_MANY_BROKERS if brokers else texts.REASON_NO_BROKER
+
+
+def _container(
+    use: ChannelUse, file_owners: Sequence[Obj], containers: Sequence[Obj],
+) -> tuple[Obj | None, str]:
+    """Контейнер-издатель или подписчик канала (ТЗ §7) или причина, почему его нет."""
+    if use.process:
+        return (
+            _process_owner(containers, use.process),
+            texts.REASON_NO_PROCESS.format(name=use.process),
+        )
+    if use.runner:
+        return _runner(use.loc.path, use.runner, file_owners, containers)
+    prefer = vocab.ROLE_WORKER if use.direction == "consume" else vocab.ROLE_SERVICE
+    container = owners.primary(file_owners, prefer)
+    reason = texts.REASON_MANY_OWNERS if file_owners else owners.missing_reason(
+        use.loc.path, containers,
+    )
+    return container, reason
+
+
+def _owned_switch(
+    model: Model, uses: Sequence[ChannelUse], containers: Sequence[Obj], env_of: EnvOf,
+) -> None:
+    """Объект Redis другой формы становится брокером (форма broker, роль «брокер»), если в
+    него публикует или из него читает по коду контейнер-владелец записи (ТЗ §15 п. 18 В1).
+    Запись без владельца (общий код, файл нескольких контейнеров) объект не переключает."""
+    switched = False
+    for use in uses:
+        if use.client not in _OWNED_SWITCH or use.direction is None:
+            continue
+        if _tooling_reason(use) is not None:
+            continue
+        file_owners = owners.file_owners(use.loc.path, containers)
+        broker, _why = _broker(model, use, file_owners, env_of)
+        if broker is None or broker.shape == BROKER:
+            continue
+        if _container(use, file_owners, containers)[0] is None:
+            continue
+        broker.shape, broker.role = BROKER, vocab.ROLE_BROKER
+        switched = True
+    if switched:
+        model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
+
+
+def _tooling_reason(use: ChannelUse) -> str | None:
+    return codebase.tooling_reason(use.loc.path) if use.parser in _CODE_PARSERS else None
 
 
 def _client_tech(
@@ -483,6 +547,7 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
     _client_brokers(model, [
         u for u, _w in uses if codebase.tooling_reason(u.loc.path) is None
     ], containers, env_of)
+    _owned_switch(model, [u for u, w in uses if w is None], containers, env_of)
     for use, worker in sorted(uses, key=lambda item: (item[0].loc, item[0].name)):
         model.code_parsers.setdefault("channels", set()).add(use.parser)
         aside = _tooling(model, "channels", use.parser, use.loc)
@@ -494,23 +559,22 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
         if broker is None:
             _unassigned(model, "channel", use.name, why or "", use.loc)
             continue
+        if broker.shape != BROKER:
+            # Redis-кэш, в который публикует только код без владельца: брокером не стал,
+            # канала у базы нет, запись остаётся подсказкой с объектом (ТЗ §15 п. 18 В1).
+            reason = _container(use, file_owners, containers)[1]
+            model.hint("unassigned", {
+                "kind": "channel", "name": use.name, "object": broker.name, "reason": reason,
+                "source": str(use.loc),
+            })
+            continue
         table = model.channels.setdefault(broker.name, {})
         channel = table.setdefault(use.name, Channel(name=use.name, kind=use.kind))
         channel.locs.add(use.loc)
         channel.parsers.add(use.parser)
         if use.direction is None:
             continue
-        prefer = vocab.ROLE_WORKER if use.direction == "consume" else vocab.ROLE_SERVICE
-        if use.process:
-            container = _process_owner(containers, use.process)
-            reason = texts.REASON_NO_PROCESS.format(name=use.process)
-        elif use.runner:
-            container, reason = _runner(use.loc.path, use.runner, file_owners, containers)
-        else:
-            container = owners.primary(file_owners, prefer)
-            reason = texts.REASON_MANY_OWNERS if file_owners else owners.missing_reason(
-                use.loc.path, containers,
-            )
+        container, reason = _container(use, file_owners, containers)
         if container is None:
             # Канал записан брокеру, а чья это публикация или подписка, не известно.
             model.code_parsers.setdefault("edges", set()).add(use.parser)

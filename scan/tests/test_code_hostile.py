@@ -16,16 +16,16 @@ PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
 
 MANIFESTS: dict[str, str | bytes] = {
-    "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\n",
+    "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\nredis\n",
     "js/package.json": (
         '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
-        ' "nats": "*", "bullmq": "*", "cron": "*", "@nestjs/schedule": "*"}}'
+        ' "nats": "*", "bullmq": "*", "cron": "*", "@nestjs/schedule": "*", "ioredis": "*"}}'
     ),
-    "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\n',
+    "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\ngem "redis"\n',
     "go/go.mod": (
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
         "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n"
-        "\tgithub.com/robfig/cron/v3 v3.0.1\n)\n"
+        "\tgithub.com/robfig/cron/v3 v3.0.1\n\tgithub.com/redis/go-redis/v9 v9.5.1\n)\n"
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": (
@@ -346,6 +346,28 @@ STARTS["js/migrations/1-a.ts"] = (
     "sql`", "sql`CREATE TABLE t (", "sql`CREATE TABLE ${", "sql`CREATE TABLE t AS SELECT ",
     "sql<", "sql.raw(`", "function down(", "export async function down(db) {", "down = (",
     "down(db) {",
+)
+
+# Каналы Redis pub/sub (ТЗ §15 п. 18 В1): литерал, условный оператор, константа, шаблон,
+# подписка без скобок у Ruby и Publish(ctx, у Go, незакрытые аргументы.
+RJS, RDG = "require('ioredis');\n", 'import "github.com/redis/go-redis/v9"\n'
+STARTS["py/app.py"] += (
+    "import redis\nredis.publish('", "import redis\nr = redis.Redis()\np = r.pubsub()\np.subscribe(",
+    "import redis\nredis.publish('a' if c else '", "import redis\nredis.psubscribe('",
+    "import redis\nredis.subscribe(**{'",
+)
+STARTS["js/app.js"] += (
+    RJS + "redis.publish('", RJS + "client.subscribe(", RJS + "redis.publish(c ? 'a' : '",
+    RJS + "redis.publish(A, ", RJS + "redis\n  .publish(", "export const A = `${",
+    RJS + "redis.subscribe('a', (",
+)
+STARTS["rb/app.rb"] += (
+    "redis.publish('", "redis.publish(", "redis.subscribe 'a', '", "redis.publish(c ? 'a' : '",
+    'redis.publish("#{', "Redis.current.subscribe('",
+)
+STARTS["go/main.go"] += (
+    RDG + 'rdb.Publish(ctx, "', RDG + "rdb.Subscribe(ctx, ", RDG + "rdb.PSubscribe(ctx, A, ",
+    RDG + 'const A = "a"\nrdb.Publish(ctx, A, ',
 )
 
 CASES = [(name, start) for name, starts in STARTS.items() for start in starts]

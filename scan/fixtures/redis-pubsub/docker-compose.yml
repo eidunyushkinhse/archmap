@@ -1,0 +1,13 @@
+services:
+  api:
+    build: ./api
+    environment:
+      REDIS_URL: redis://cache:6379/0
+  notifier:
+    build: ./notifier
+  feed:
+    build: ./feed
+  relay:
+    build: ./relay
+  cache:
+    image: redis:7

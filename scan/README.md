@@ -146,9 +146,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, `actix`, `spring`, `jaxrs`
   (общее у Java и Kotlin — `jvm.py`), параметры `pyenv`, `nodeenv`, `goenv`, `dotnetenv`,
   `javaenv` (общее у C# и Java — `clike.py`), `spring-value`, `rustenv`, связи `jvm-address`,
-  каналы `celery`, `kafka`, `kafka-jvm`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
+  каналы `celery`, `kafka`, `kafka-jvm`, `rabbitmq`, `nats`, `bullmq`, `redis-pubsub`, `sidekiq`, расписания
   `celerybeat`, `gocron`, `clokwerk`, `nodecron`, `spring-scheduled`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
-  стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
+  стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`, строковые константы
+  Node.js по файлу, пакету и репозиторию — `nodeconst.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
   (`class Topic(Enum)`, словарь, у имени которого последнее слово `topic`/`queue`/`subject`)
@@ -723,3 +724,17 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `hints.unassigned` подсказка `kind: shared_file` на файл, в `coverage.yaml` у семьи config
     `unassigned` по-прежнему число записей и `shared_files`; правило владельца не менялось,
     маршруты без владельца остаются подсказками (О1).
+  - каналы Redis pub/sub (`parsers/redispubsub.py`, клиент `Redis`, `kind: channel`):
+    `publish(канал, …)` публикует, `subscribe` и `psubscribe` потребляют у Python (redis,
+    redis-py, aioredis; по ast), Node.js (ioredis, redis), Ruby (redis, redis-client) и Go
+    (go-redis, `Publish(ctx, канал, …)`); получатель клиент Redis по имени (`redis` в имени,
+    `rdb`), по подключению Redis в файле (`client`, `pubsub`, `publisher`, `subscriber`) или по
+    фабрике (`redis.Redis()`, `get_client()` модуля Redis, `r.pubsub()`). Имя: литерал,
+    константа файла, импортированного модуля Python, пакета Go (`gocode.string_constants`) и
+    Node.js по пакету и репозиторию (`nodeconst.py`); условный оператор с двумя литералами даёт
+    две записи с одним основанием; подстановка, переменная и вызов дают подсказку о выражении,
+    шаблон `psubscribe` со знаком `*`, `?` или `[` подсказку о шаблоне. Объект Redis другой
+    формы (кэш) становится брокером, только если запись получила контейнер-владельца
+    (`codefacts._owned_switch`); без владельца запись остаётся подсказкой с объектом. Объекта
+    Redis нет: брокер по клиенту не заводится, подсказка «брокер не найден»; несколько
+    объектов Redis без брокера среди них дают подсказку «несколько объектов Redis» (В1).
