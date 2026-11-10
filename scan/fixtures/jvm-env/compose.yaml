@@ -1,0 +1,7 @@
+services:
+  fraud:
+    build: ./fraud
+    environment:
+      KAFKA_ADDR: kafka:9092
+  ad:
+    build: ./ad

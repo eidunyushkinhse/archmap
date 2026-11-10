@@ -164,6 +164,17 @@ STARTS["kt/App.kt"] += (
     '@Value("\\${', '@field:Value("\\${a:', '@ConfigurationProperties("p")\nclass A(val a: ',
     '@ConfigurationProperties("p")\nclass A {\n  var a: ', 'class A(@Value("\\${a}") val a: ',
 )
+# Окружение в Kotlin и Optional в Java (ТЗ §15 п. 17 Е3): незакрытые элвис, преобразование,
+# хвост Optional и лямбда orElseGet.
+GE = 'System.getenv("A")'
+STARTS["kt/App.kt"] += (
+    'System.getenv("', GE + ' ?: "', GE + " ?: ", GE + "?.", GE + "?.toInt() ?: ", "(" + GE + ' ?: "',
+    GE + " ?: throw ", GE + ' ?: "${',
+)
+STARTS["java/App.java"] += (
+    "Optional.ofNullable(" + GE + ').orElse("', "Optional.ofNullable(" + GE + ').orElseGet(() -> "',
+    "Integer.parseInt(Optional.ofNullable(" + GE + ").orElse(", "Optional.ofNullable(",
+)
 # Файл настроек модуля, из которого маршрутам берётся префикс приложения.
 STARTS["java/src/main/resources/application.properties"] = (
     "server.servlet.context-path=${", "server.servlet.context-path=", "a=\\\n", "#---\n", "!",
@@ -481,6 +492,15 @@ SPRING_VALUE = {
     "kt/App.kt:ctor": '@ConfigurationProperties("p")\nclass A(' + "val a: Int = 1, " * (PAYLOAD // 16) + ")\n",
     "kt/App.kt:values": "class A {\n" + '  @Value("\\${a}") var a: Int = 1\n' * 1999 + "}\n",
 }
+
+
+SPRING_VALUE.update({
+    # Окружение Kotlin и Optional Java (Е3): чтения подряд до предела записей файла.
+    "kt/App.kt:elvis": (GE + ' ?: "b"\n') * (PAYLOAD // 26),
+    "kt/App.kt:elvis-spaces": GE + " ?:" + " " * (PAYLOAD - 30) + '"b"\n',
+    "java/App.java:optional": ("Optional.ofNullable(" + GE + ').orElse("b");\n') * 1999,
+    "java/App.java:optional-spaces": "Optional.ofNullable(" + GE + ")" + " " * (PAYLOAD - 60) + '.orElse("b");\n',
+})
 
 
 @pytest.mark.parametrize("kind", sorted(SPRING_VALUE))

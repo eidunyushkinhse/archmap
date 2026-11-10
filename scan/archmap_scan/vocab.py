@@ -468,7 +468,8 @@ def is_os_variable(name: str) -> bool:
 # которых читается во всех семьях яруса кода; у .NET, Java и Rust читаются только параметры
 # конфигурации (ТЗ §15 п. 14 Е4, И2), прочие семьи у них по-прежнему названы языком.
 CODE_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
-CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java", "Rust"}
+# Окружение в коде Kotlin читает java-env (ТЗ §15 п. 17 Е3).
+CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java", "Kotlin", "Rust"}
 # Параметры Spring Boot из application.yml и application.properties читает spring-config
 # (ТЗ §15 п. 17 Е1): Spring Boot больше не назван.
 UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (("github.com/spf13/viper", "viper"),)
