@@ -14,6 +14,12 @@ hints.dynamic_names. YAML, который и так не разбирается,
 файла тот, чья команда запускает sidekiq (runner, codefacts). Брокер Redis по клиенту.
 Класс из записи расписания с queue: X без своей очереди в sidekiq_options потребляет X
 (часть 2б): у Mastodon классы Scheduler::* — очередь scheduler.
+
+Файл sidekiq-cron config/schedule.yml (config/schedule.yaml, config/sidekiq_cron.yml; ТЗ §15
+п. 16 П2): каждая запись верхнего уровня «имя: {cron, class, args, description}» даёт
+расписание с именем ключа, cron или every как написано и class задачей. Запись без class или
+без cron и every не читается; в пакете без sidekiq-cron в Gemfile читаются только записи с
+ключами cron и class (у Forem 48 заданий).
 """
 
 from __future__ import annotations
@@ -34,6 +40,10 @@ RUNNER = "sidekiq"
 WANTED = frozenset({"sidekiq"})
 DEFAULT_QUEUE = "default"
 _CONFIG = re.compile(r"sidekiq[\w.-]{0,100}\.ya?ml")
+# Файлы расписаний sidekiq-cron в каталоге config (ТЗ §15 п. 16 П2) и ключи их записей.
+_CRON_FILES = frozenset({"schedule.yml", "schedule.yaml", "sidekiq_cron.yml"})
+CRON_GEM = "sidekiq-cron"
+_CRON_KEYS = ("cron", "every")
 _PLACEHOLDER = "__erb{}__"
 _PLACEHOLDER_RE = re.compile(r"__erb(\d{1,7})__")
 _SCHEDULE_KEYS = ("cron", "every", "interval", "at", "in")
@@ -130,8 +140,10 @@ def _queues_by_lines(text: str) -> Iterator[tuple[str, int]]:
         yield hit.group(2), number
 
 
-def _schedule_text(entry: dict[Any, Any], erbs: list[str]) -> str | None:
-    for key in _SCHEDULE_KEYS:
+def _schedule_text(
+    entry: dict[Any, Any], erbs: list[str], keys: tuple[str, ...] = _SCHEDULE_KEYS,
+) -> str | None:
+    for key in keys:
         value = entry.get(key)
         if isinstance(value, list):
             value = value[0] if value else None
@@ -149,15 +161,26 @@ def _schedules(
     table, _line = _key(scheduler, "schedule")
     if not isinstance(table, dict):
         table, _line = _key(doc, "schedule")
-    if not isinstance(table, dict):
-        return
+    if isinstance(table, dict):
+        _entries(rel, table, erbs, found, scheduled)
+
+
+def _entries(
+    rel: str, table: dict[Any, Any], erbs: list[str], found: Findings,
+    scheduled: dict[str, list[str]], keys: tuple[str, ...] = _SCHEDULE_KEYS,
+    need_class: bool = False,
+) -> None:
+    """Записи таблицы расписаний: имя ключом, выражение по первому из keys, class задачей.
+    need_class: запись без class не читается (sidekiq-cron, П2)."""
     for name, entry in table.items():
         if not isinstance(entry, dict):
             continue
-        schedule = _schedule_text(entry, erbs)
+        schedule = _schedule_text(entry, erbs, keys)
         if schedule is None:
             continue
         task = entry.get("class")
+        if need_class and not (isinstance(task, str) and task.strip()):
+            continue
         line = table.line_of(name) if isinstance(table, yamlload.LineDict) else 1
         found.schedules.append(CodeSchedule(
             name=_erb_in(str(name), erbs), schedule=schedule,
@@ -190,6 +213,22 @@ def _config(rel: str, text: str, found: Findings, scheduled: dict[str, list[str]
             found.channels.append(_use(name, None, Loc(rel, line), None))
     if isinstance(doc, dict):
         _schedules(rel, doc, erbs, found, scheduled)
+
+
+def _cron(
+    rel: str, text: str, found: Findings, scheduled: dict[str, list[str]], with_gem: bool,
+) -> None:
+    """Файл sidekiq-cron (ТЗ §15 п. 16 П2): записи верхнего уровня с class и cron или every;
+    без sidekiq-cron в Gemfile пакета только с cron и class. Вставки ERB как в sidekiq.yml;
+    YAML, который не разбирается, не читается."""
+    clean, erbs = _erb_out(text)
+    try:
+        doc = yamlload.load(clean)
+    except (yamlload.BadYaml, yamlload.YamlTooLarge):
+        return
+    if isinstance(doc, dict):
+        keys = _CRON_KEYS if with_gem else ("cron",)
+        _entries(rel, doc, erbs, found, scheduled, keys, need_class=True)
 
 
 # Классы воркеров
@@ -351,7 +390,14 @@ def parse(files: Files, ctx: Context) -> Findings:
     for rel in files.paths:
         if paths.parent(rel).rsplit("/", 1)[-1] != "config":
             continue
-        if not _CONFIG.fullmatch(paths.name(rel).lower()):
+        low = paths.name(rel).lower()
+        if low in _CRON_FILES:
+            text = files.read(rel)
+            if text is not None:
+                gem = codebase.has_dep(files, ctx, rel, codebase.RUBY, CRON_GEM)
+                _cron(rel, text, found, scheduled, gem)
+            continue
+        if not _CONFIG.fullmatch(low):
             continue
         text = files.read(rel)
         if text is not None:

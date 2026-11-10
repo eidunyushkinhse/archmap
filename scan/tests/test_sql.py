@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 import yaml
@@ -11,7 +11,7 @@ from archmap_scan import sqlddl, texts
 from archmap_scan.model import Loc, Table
 from archmap_scan.parsers import kysely, railsschema, sql
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, timed, tree
 
 
 def _cols(table: Table) -> list[tuple[str, str | None, bool, bool | None, str | None]]:
@@ -114,13 +114,16 @@ def test_statement_splitting() -> None:
 
 
 def test_unterminated_and_hostile_input_is_fast() -> None:
-    started = time.perf_counter()
-    schema = sqlddl.Schema()
-    sqlddl.apply_text("CREATE TABLE t (" + "a int, " * 280_000 + ")", "x.sql", schema)
-    sqlddl.apply_text("'" + "x" * 2_000_000, "y.sql", schema)
-    sqlddl.apply_text("/*" + "*" * 2_000_000, "z.sql", schema)
-    sqlddl.apply_text("$a$" + "$" * 1_000_000, "w.sql", schema)
-    assert time.perf_counter() - started < 1.0
+    def run() -> sqlddl.Schema:
+        schema = sqlddl.Schema()
+        sqlddl.apply_text("CREATE TABLE t (" + "a int, " * 280_000 + ")", "x.sql", schema)
+        sqlddl.apply_text("'" + "x" * 2_000_000, "y.sql", schema)
+        sqlddl.apply_text("/*" + "*" * 2_000_000, "z.sql", schema)
+        sqlddl.apply_text("$a$" + "$" * 1_000_000, "w.sql", schema)
+        return schema
+
+    schema, took = timed(run, 1.0)
+    assert took < 1.0
     assert schema.skipped == 3
 
 
@@ -318,10 +321,85 @@ def test_rails_schema_hostile_is_fast(tmp_path: Path) -> None:
     for kind, text in payloads.items():
         root = tree(tmp_path / kind, {"db/schema.rb": text})
         ctx, files = files_of(root)
-        started = time.perf_counter()
-        railsschema.parse(files, ctx)
-        took = time.perf_counter() - started
+        _found, took = timed(partial(railsschema.parse, files, ctx), 1.0)
         assert took < 1.0, f"{kind}: {took:.2f} с"
+
+
+def test_kysely_renames_from_list() -> None:
+    """Переименования в миграциях Kysely (ТЗ §15 п. 16 М1). Найдено в immich:
+    server/src/schema/migrations/1752267649968-StandardizeNames.ts:39 ``for (const { oldName,
+    newName } of tables) { await sql.raw(`ALTER TABLE "${oldName}" RENAME TO
+    "${newName}"`) }`` над списком из 30 пар в строке 5, а 72 таблицы оставались под старыми
+    именами. Список объектов и список пар применяются по порядку, ссылки других таблиц
+    следуют за переименованием таблицы и колонки (RENAME COLUMN литералом). Ловушки: тело
+    down с обратным циклом не читается; список внутри функции (LocalList), значение не
+    литерал (computed) и вставка с выражением (Expression) читаются как раньше: таблица под
+    прежним именем и подсказка; основание таблицы — строка создания."""
+    ctx, files = files_of(FIXTURES / "kysely-rename")
+    found = kysely.parse(files, ctx)
+    (ts,) = found.table_sets
+    tables = {t.name: t for t in ts.tables}
+    assert sorted(tables) == [
+        "activity", "album", "album_asset", "notifications", "partners", "session", "tags",
+        "user",
+    ]
+    assert _cols(tables["album"]) == [
+        ("id", "uuid", True, True, None), ("ownerId", "uuid", False, True, "user.id"),
+    ]
+    assert _cols(tables["album_asset"]) == [
+        ("albumId", "uuid", False, True, "album.id"), ("assetsId", "uuid", False, True, None),
+    ]
+    assert _cols(tables["activity"])[1] == ("albumId", "uuid", False, False, "album_asset.albumId")
+    assert _cols(tables["session"])[1] == ("userId", "uuid", False, False, "user.id")
+    migrations = "server/src/schema/migrations"
+    assert [str(loc) for loc in tables["user"].locs] == [
+        f"{migrations}/1700000000000-Initial.ts:4",
+        f"{migrations}/1700000000001-StandardizeNames.ts:19",
+    ]
+    assert [str(loc) for loc in tables["session"].locs] == [
+        f"{migrations}/1700000000000-Initial.ts:8",
+        f"{migrations}/1700000000001-StandardizeNames.ts:21",
+    ]
+    assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
+        ("${oldName}", f"{migrations}/1700000000001-StandardizeNames.ts:23"),
+        ("${oldName}", f"{migrations}/1700000000002-LocalList.ts:6"),
+        ("${oldName}", f"{migrations}/1700000000003-Expression.ts:7"),
+    ]
+
+
+def test_rename_refs_bounded() -> None:
+    """Переименования таблицы, на которую ссылаются тысячи колонок (М1): ссылки следуют за
+    переименованием, пока не исчерпан предел MAX_REF_UPDATES, дальше остаются как написаны;
+    разбор в пределе времени."""
+    def run() -> sqlddl.Schema:
+        schema = sqlddl.Schema()
+        loc = Loc("m.sql", 1)
+        sqlddl.apply("CREATE TABLE t (id int PRIMARY KEY)", loc, schema)
+        for i in range(3000):
+            sqlddl.apply(f"CREATE TABLE r{i} (t_id int REFERENCES t (id))", loc, schema)
+        for i in range(2000):
+            old, new = ("t", "u") if i % 2 == 0 else ("u", "t")
+            sqlddl.apply(f"ALTER TABLE {old} RENAME TO {new}", loc, schema)
+            sqlddl.apply(f"ALTER TABLE {new} RENAME COLUMN id TO id", loc, schema)
+        return schema
+
+    schema, took = timed(run, 1.0)
+    assert took < 0.7, f"{took:.2f} с"
+    assert schema.ref_updates == sqlddl.MAX_REF_UPDATES
+    small = sqlddl.Schema()
+    loc = Loc("m.sql", 1)
+    for stmt in (
+        "CREATE TABLE users (id int PRIMARY KEY)",
+        "CREATE TABLE tags (name text)",
+        "CREATE TABLE posts (author int REFERENCES users (id), tag text REFERENCES tags)",
+        "ALTER TABLE users RENAME TO person",
+        "ALTER TABLE person RENAME COLUMN id TO person_id",
+        "ALTER TABLE tags RENAME TO labels",
+    ):
+        sqlddl.apply(stmt, loc, small)
+    posts = small.find(None, "posts")
+    assert posts is not None
+    assert [c.references for c in posts.columns] == ["person.person_id", "labels"]
 
 
 def test_kysely_templates() -> None:
@@ -331,8 +409,10 @@ def test_kysely_templates() -> None:
     шаблон с SELECT и фрагменты не DDL; шаблон в комментарии и файл вне migrations/ не
     читаются; тело down (DROP TABLE) не читается; порядок 1, 2, 10 по числу (ALTER из 10
     после CREATE из 2); вставка на месте значения и типа подсказки не даёт, на месте имени
-    таблицы (sql.table, sql.raw с RENAME у StandardizeNames immich) — подсказка;
-    экранированная «`» шаблон не рвёт; CREATE TABLE … AS в обычном .sql (Lemmy)."""
+    таблицы (sql.table) — подсказка; sql.raw с RENAME в цикле по списку верхнего уровня
+    (StandardizeNames immich) с части 5 читается по элементам списка (М1): users стала user,
+    ссылки на неё следуют за ней; экранированная «`» шаблон не рвёт; CREATE TABLE … AS в
+    обычном .sql (Lemmy)."""
     root = FIXTURES / "kysely-migrations"
     ctx, files = files_of(root)
     found = kysely.parse(files, ctx)
@@ -343,23 +423,22 @@ def test_kysely_templates() -> None:
     assert (ts.skipped, ts.dropped, ts.queried) == (0, 0, [])
     tables = {t.name: _cols(t) for t in ts.tables}
     assert tables == {
-        "users": [
+        "user": [
             ("id", "uuid", True, True, None), ("email", "character varying", False, True, None),
             ("status", "character varying", False, True, None),
         ],
         "smart_search": [
-            ("assetId", "uuid", False, True, "users.id"),
+            ("assetId", "uuid", False, True, "user.id"),
             ("embedding", "${sql.raw(vectorType)}(512)", False, True, None),
         ],
         "albums": [
-            ("id", "uuid", False, True, None), ("ownerId", "uuid", False, True, "users.id"),
+            ("id", "uuid", False, True, None), ("ownerId", "uuid", False, True, "user.id"),
             ("name", "character varying", False, True, None),
             ("description", "text", False, True, None),
         ],
     }
     assert [(h.section, h.data["name"], h.data["source"]) for h in found.hints] == [
         ("dynamic_names", "${sql.table(tableName)}", "server/src/schema/migrations/2-AddAlbums.ts:5"),
-        ("dynamic_names", "${oldName}", "server/src/schema/migrations/10-Standardize.ts:8"),
     ]
     assert {h.data["reason"] for h in found.hints} == {texts.REASON_DYNAMIC_TABLE}
     (actions,) = sql.parse(files, ctx).table_sets
@@ -373,5 +452,5 @@ def test_kysely_templates() -> None:
     ]
     model = model_of(root)
     assert sorted(t.name for t in model.tables["database"]) == [
-        "albums", "comment_actions", "comment_counts", "smart_search", "users",
+        "albums", "comment_actions", "comment_counts", "smart_search", "user",
     ]

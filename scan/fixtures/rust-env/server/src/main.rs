@@ -27,4 +27,9 @@ mod tests {
     fn t() {
         std::env::var("TEST_ONLY").ok();
     }
+
+    #[derive(Envconfig)]
+    struct TestConfig {
+        test_field: String,
+    }
 }

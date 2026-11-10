@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import time
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 from archmap_scan import codetext, texts
 from archmap_scan.parsers import express, nest
-from tests.helpers import FIXTURES, files_of, time_limit
+from tests.helpers import FIXTURES, files_of, time_limit, timed
 
 
 def _routes(parser: object, root: Path) -> list[tuple[str, str, bool, str, str]]:
@@ -116,9 +117,9 @@ def test_mask_is_linear_on_hostile_input(name: str) -> None:
         # Лучшее из двух прогонов: проверяется линейность, а не случайная нагрузка машины.
         took = []
         for _ in range(2):
-            started = time.perf_counter()
+            started = time.process_time()
             assert len(codetext.mask(payload, lang)) == len(payload)
-            took.append(time.perf_counter() - started)
+            took.append(time.process_time() - started)
         assert min(took) < time_limit()
 
 
@@ -128,9 +129,9 @@ def test_too_dense_file_is_refused(tmp_path: Path) -> None:
     (root / "package.json").write_text('{"dependencies": {"express": "*"}}', encoding="utf-8")
     (root / "src" / "app.js").write_text("app.get('/x', h);\n" + "'" * 1_000_000, encoding="utf-8")
     ctx, files = files_of(root)
-    started = time.perf_counter()
-    assert express.parse(files, ctx).routes == []
-    assert time.perf_counter() - started < time_limit()
+    found, took = timed(partial(express.parse, files, ctx), time_limit())
+    assert found.routes == []
+    assert took < time_limit()
     assert files.too_large == {"src/app.js"}
 
 

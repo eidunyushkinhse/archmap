@@ -11,6 +11,7 @@ CMD и ENTRYPOINT (команда для точек входа). skaffold.yaml: 
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 from archmap_scan import paths, texts
 from archmap_scan.context import Context
@@ -86,6 +87,38 @@ def _copies_context(rest: str) -> bool:
         return False
     args = [a for a in args if not a.startswith("--")]
     return len(args) >= 2 and any(a in _CONTEXT for a in args[:-1])
+
+
+def copy_sources(text: str) -> Iterator[tuple[int, str]]:
+    """(строка, путь) источников COPY и ADD последней стадии из контекста сборки (ТЗ §15
+    п. 16 С1): без --from (другая стадия или образ), без адресов URL и шаблонов с «*», «?»,
+    «[»; последний аргумент — назначение. Стадии сборки до последнего FROM в образ не
+    попадают. Источники идут лениво: вызывающий останавливается на своём пределе."""
+    lines = _logical_lines(text)
+    last = -1
+    for i, (_no, line) in enumerate(lines):
+        if line.partition(" ")[0].upper() == "FROM":
+            last = i
+    for no, line in lines[last + 1:]:
+        word, _, rest = line.partition(" ")
+        if word.upper() not in ("COPY", "ADD"):
+            continue
+        value = rest.strip()
+        args: list[str]
+        if value.startswith("["):
+            try:
+                items = json.loads(value)
+            except ValueError:
+                continue
+            args = [str(i) for i in items] if isinstance(items, list) else []
+        else:
+            args = value.split()
+        if any(a.startswith("--from") for a in args):
+            continue
+        args = [a for a in args if not a.startswith("--")]
+        for source in args[:-1]:
+            if "://" not in source and not any(c in source for c in "*?["):
+                yield no, source
 
 
 def parse_text(rel: str, text: str) -> Dockerfile | None:

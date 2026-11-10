@@ -20,6 +20,15 @@ Ruby, в Gemfile которого есть rails или railties.
 читаются. Путь с подстановкой `#{…}` или из переменной уходит в подсказку о динамическом
 пути. Внутри `def`, `class` и `module` записей нет.
 
+Часть 5 (ТЗ §15 п. 16 П6). Необязательная группа в пути (`scope "(/locale/:locale)"`,
+`get 'posts(/:page)'`) из записи убирается: основная форма без группы; маршрут из группы,
+совпавший с уже записанным, второй раз не пишется. `devise_for :имя` читает вызовы `devise`
+модели `app/models/<единственное число>.rb` и даёт наборы маршрутов модулей под `/имя` (или
+`path:`) с префиксом объемлющих scope и namespace; `path_names`, `skip`, `only` и
+`sign_out_via` учтены; модуль без известного набора и модель без devise дают подсказку.
+`devise_scope` прозрачен. `shallow: true` у ресурса и блок `shallow do … end`: у вложенного
+ресурса index, new и create под родителем, show, edit, update и destroy от префикса scope.
+
 Пределы: 50 000 строк, 5000 записей на файл, 50 вложенных блоков; сверх этого набор
 маршрутов не пишется, а файл считается непрочитанным.
 """
@@ -27,12 +36,13 @@ Ruby, в Gemfile которого есть rails или railties.
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 from archmap_scan import codebase, codetext, paths, texts
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Hint, Loc, Route, route_hint
 from archmap_scan.parsers.railsschema import singular
 from archmap_scan.walk import Files
 
@@ -49,8 +59,26 @@ _VERBS = {"get": "GET", "post": "POST", "put": "PUT", "patch": "PATCH", "delete"
 # списков) префикса не дают.
 _ROUTING = frozenset({
     *_VERBS, "match", "root", "resources", "resource", "namespace", "scope", "member",
-    "collection", "concerns", "mount", "draw",
+    "collection", "concerns", "mount", "draw", "shallow", "devise_for",
 })
+# devise (П6): модуль модели → контроллер devise с набором маршрутов; модули без маршрутов.
+_DEVISE_MODULES = {
+    "database_authenticatable": "sessions", "two_factor_authenticatable": "sessions",
+    "registerable": "registrations", "recoverable": "passwords", "confirmable": "confirmations",
+    "lockable": "unlocks", "omniauthable": "omniauth_callbacks",
+}
+_DEVISE_SILENT = frozenset({
+    "validatable", "rememberable", "trackable", "timeoutable", "two_factor_backupable",
+})
+_DEVISE_CALL = re.compile(r"^[ \t]*devise\b(?![?!:])", re.M)
+_DEVISE_SYMBOL = re.compile(r"(?<![\w:]):([A-Za-z_][A-Za-z0-9_]{0,99})")
+_PATH_NAME = re.compile(
+    r"(?:([A-Za-z_][A-Za-z0-9_]{0,99}):(?!:)|:([A-Za-z_][A-Za-z0-9_]{0,99})[ \t]*=>)[ \t\n]*(['\"])"
+)
+# Сколько строк читать в одном вызове devise модели и сколько вызовов devise в модели.
+_DEVISE_LINES = 50
+_DEVISE_CALLS = 100
+_DEVISE_MODULES_MAX = 200  # символов во всех вызовах devise модели
 # Сколько инструкций разбирать в одном наборе маршрутов (concern и draw повторяют тела).
 _MAX_STEPS = 50_000
 _ACTIONS_MANY = (
@@ -94,6 +122,9 @@ class _Ctx:
     mode: str = ""  # "" | "member" | "collection"
     ignore: bool = False  # тело def, class, module и определения concern
     unresolved: bool = False  # префикс не виден в коде (движок, scope из переменной)
+    root: str = ""  # префикс scope и namespace без вложенности ресурсов (для shallow)
+    shallow: bool = False  # вложенные ресурсы неглубокие (shallow: true, блок shallow)
+    optional: bool = False  # в префиксе была необязательная группа «(…)»
 
     def inner(self) -> str:
         """Префикс для вложенного ресурса, namespace и scope."""
@@ -104,7 +135,8 @@ class _Ctx:
         return self.base if self.kind else self.prefix
 
     def plain(self, prefix: str) -> _Ctx:
-        return _Ctx(prefix=prefix, ignore=self.ignore, unresolved=self.unresolved)
+        return _Ctx(prefix=prefix, ignore=self.ignore, unresolved=self.unresolved, root=prefix,
+                    shallow=self.shallow, optional=self.optional)
 
 
 @dataclass
@@ -144,6 +176,27 @@ def _join(*parts: str) -> str:
     return "/" + "/".join(pieces)
 
 
+def _strip_groups(value: str) -> tuple[str, bool]:
+    """Путь без необязательных групп «(…)» (П6): основная форма, «//» схлопнуты; второе —
+    была ли группа. Незакрытая скобка оставляет путь как есть."""
+    if "(" not in value:
+        return value, False
+    out: list[str] = []
+    depth = 0
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                return value, False
+            depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    if depth:
+        return value, False
+    return re.sub(r"/{2,}", "/", "".join(out)), True
+
+
 @dataclass
 class _Set:
     """Карта маршрутов одного каталога config/: главный файл и файлы config/routes/."""
@@ -161,6 +214,7 @@ class _Set:
     active: set[str] = field(default_factory=set)  # concern, тело которых читается сейчас
     depth: int = 0
     steps: int = 0
+    optional: set[int] = field(default_factory=set)  # номера маршрутов из необязательной группы
 
     # Прогон файла и строк
 
@@ -302,6 +356,10 @@ class _Set:
             return self.scope(word, st, args, ctx)
         elif word in ("member", "collection") and ctx.kind:
             return replace(ctx, mode=word)
+        elif word == "shallow":
+            return replace(ctx, shallow=True)
+        elif word == "devise_for":
+            self.devise(st, args, ctx)
         elif word == "concerns":
             for name in _names(st, [a for a in args if a.label is None]):
                 self.concern(name, ctx)
@@ -315,21 +373,23 @@ class _Set:
                     self.file(rel, ctx)
         return ctx
 
-    def add(self, method: str, path: str, st: _Stmt, ctx: _Ctx) -> None:
+    def add(self, method: str, path: str, st: _Stmt, ctx: _Ctx, optional: bool = False) -> None:
         count = self.counts.get(self.rel, 0) + 1
         self.counts[self.rel] = count
         if count > _MAX_ROUTES:
             raise _Overflow(self.rel)
+        if optional or ctx.optional:
+            self.optional.add(len(self.routes))
         self.routes.append(Route(
             method=method, path=path, loc=Loc(self.rel, st.line), framework=FRAMEWORK,
             parser=NAME, prefix_unresolved=ctx.unresolved,
         ))
 
-    def dynamic(self, st: _Stmt, arg: _Arg) -> None:
-        self.hints.append(Hint("dynamic_names", {
-            "kind": "route", "name": st.text[arg.start:arg.end].strip()[:200],
-            "reason": texts.REASON_DYNAMIC_ROUTE, "source": str(Loc(self.rel, st.line)),
-        }))
+    def dynamic(self, st: _Stmt, arg: _Arg, method: str | None = None) -> None:
+        self.hints.append(route_hint(
+            st.text[arg.start:arg.end].strip()[:200], texts.REASON_DYNAMIC_ROUTE,
+            Loc(self.rel, st.line), method,
+        ))
 
     def verb(self, word: str, st: _Stmt, args: list[_Arg], ctx: _Ctx) -> None:
         positional = [a for a in args if a.label is None]
@@ -339,7 +399,7 @@ class _Set:
         first = positional[0]
         segment = _path_arg(st, first)
         if segment is None:
-            self.dynamic(st, first)
+            self.dynamic(st, first, None if word == "match" else _VERBS.get(word))
             return
         if word == "match":
             via = options.get("via")
@@ -350,9 +410,10 @@ class _Set:
         on = options.get("on")
         mode = (_names(st, [on]) or [""])[0] if on is not None else ctx.mode
         base = replace(ctx, mode=mode).inner() if ctx.kind else ctx.prefix
+        segment, optional = _strip_groups(segment)
         path = _join(base, segment)
         for method in dict.fromkeys(methods):
-            self.add(method, path, st, ctx)
+            self.add(method, path, st, ctx, optional)
 
     def resources(self, word: str, st: _Stmt, args: list[_Arg], ctx: _Ctx) -> _Ctx:
         names = [a for a in args if a.label is None]
@@ -373,26 +434,40 @@ class _Set:
                 return replace(ctx, ignore=True)
             actions = actions & listed if key == "only" else actions - listed
         path_opt = _path_arg(st, options["path"]) if "path" in options else None
+        optional = False
+        if path_opt is not None:
+            path_opt, optional = _strip_groups(path_opt)
         param = (_names(st, [options["param"]]) or ["id"])[0] if "param" in options else "id"
+        # shallow: true у ресурса — неглубокие его вложенные (П6); сам он как обычно.
+        shallow = ctx.shallow or (
+            "shallow" in options and st.mask[options["shallow"].start:options["shallow"].end].strip()
+            == "true"
+        )
         parent = ctx.inner()
         child = ctx
         for name in found:
             segment = path_opt if path_opt is not None else name
             base = _join(parent, segment)
             if word == "resources":
-                member = _join(base, ":" + param)
+                # Вложенный в неглубокий: члены от префикса scope, без родителя (П6).
+                own = _join(ctx.root, segment) if ctx.shallow and ctx.kind else base
+                member = _join(own, ":" + param)
                 for action, method, on_member, tail in _ACTIONS_MANY:
                     if action in actions:
-                        self.add(method, _join(member if on_member else base, tail), st, ctx)
-                nested = _join(base, f":{singular(name)}_{param}")
+                        self.add(
+                            method, _join(member if on_member else base, tail), st, ctx, optional,
+                        )
+                nested = _join(own, f":{singular(name)}_{param}")
                 child = _Ctx(prefix=parent, kind="resources", base=base, member=member,
-                             nested=nested, unresolved=ctx.unresolved)
+                             nested=nested, unresolved=ctx.unresolved, root=ctx.root,
+                             shallow=shallow, optional=ctx.optional or optional)
             else:
                 for action, method, tail in _ACTIONS_ONE:
                     if action in actions:
-                        self.add(method, _join(base, tail), st, ctx)
+                        self.add(method, _join(base, tail), st, ctx, optional)
                 child = _Ctx(prefix=parent, kind="resource", base=base, nested=base,
-                             unresolved=ctx.unresolved)
+                             unresolved=ctx.unresolved, root=ctx.root, shallow=shallow,
+                             optional=ctx.optional or optional)
         if "concerns" in options:
             for name in _names(st, [options["concerns"]]):
                 self.concern(name, child)
@@ -408,7 +483,9 @@ class _Set:
         child = ctx.plain(ctx.inner())
         if segment is None:
             return replace(child, unresolved=True)
-        return replace(child, prefix=_join(ctx.inner(), segment) if segment else ctx.inner())
+        segment, optional = _strip_groups(segment)
+        prefix = _join(ctx.inner(), segment) if segment else ctx.inner()
+        return replace(child, prefix=prefix, root=prefix, optional=child.optional or optional)
 
     def concern(self, name: str, ctx: _Ctx) -> None:
         body = self.concerns.get(name)
@@ -441,6 +518,151 @@ class _Set:
             "kind": "route", "name": name, "reason": texts.REASON_RAILS_MOUNT,
             "source": str(Loc(self.rel, st.line)),
         }))
+
+    # devise (П6)
+
+    def devise(self, st: _Stmt, args: list[_Arg], ctx: _Ctx) -> None:
+        """devise_for :имя: наборы маршрутов модулей модели под /имя (или path:) с префиксом
+        объемлющих scope и namespace. Основание записей — строка devise_for."""
+        options: dict[str, _Arg] = {}
+        resources: list[_Arg] = []
+        for arg in args:
+            if arg.label is not None:
+                options[arg.label] = arg
+            elif arg.rocket >= 0:  # :path => 'auth'
+                key = _names(st, [_Arg(arg.start, arg.rocket)])
+                if key:
+                    options[key[0]] = _Arg(arg.rocket + 2, arg.end)
+            else:
+                resources.append(arg)
+        segment_opt = _path_arg(st, options["path"]) if "path" in options else None
+        names = _path_names(st, options.get("path_names"))
+        skip = set(_names(st, [options.get("skip")]))
+        only = set(_names(st, [options.get("only")])) if "only" in options else None
+        sign_out = [m.upper() for m in _names(st, [options.get("sign_out_via")])] or ["DELETE"]
+        for name in _names(st, resources):
+            modules = self.devise_modules(name)
+            if modules is None:
+                self.devise_hint(name, texts.REASON_DEVISE_MODEL, st)
+                continue
+            segment = _strip_groups(segment_opt)[0] if segment_opt is not None else name
+            base = _join(ctx.inner(), segment)
+            done: set[str] = set()
+            for module in modules:
+                controller = _DEVISE_MODULES.get(module)
+                if controller is None:
+                    if module not in _DEVISE_SILENT:
+                        self.devise_hint(module, texts.REASON_DEVISE_MODULE, st)
+                    continue
+                if controller in done or "all" in skip or controller in skip:
+                    continue
+                if only is not None and controller not in only:
+                    continue
+                done.add(controller)
+                for method, path in _devise_routes(controller, base, names, sign_out):
+                    self.add(method, path, st, ctx)
+
+    def devise_modules(self, name: str) -> list[str] | None:
+        """Модули из всех вызовов devise модели app/models/<единственное число>.rb по порядку;
+        None — модели нет или devise в ней не вызывается."""
+        config = paths.parent(self.folder)
+        rel = paths.join(paths.parent(config), f"app/models/{singular(name)}.rb")
+        text = self.files.read(rel) if rel is not None else None
+        if rel is None or text is None:
+            return None
+        code = codetext.load(self.files, rel, text, codetext.RUBY)
+        if code is None:
+            return None
+        lines = code.mask.split("\n")
+        starts = [0]
+        for line in lines[:-1]:
+            starts.append(starts[-1] + len(line) + 1)
+        out: dict[str, None] = {}
+        for calls, m in enumerate(_DEVISE_CALL.finditer(code.mask)):
+            if calls >= _DEVISE_CALLS:
+                break
+            first = bisect_right(starts, m.start()) - 1
+            last = first
+            while (
+                last + 1 < len(lines) and last - first < _DEVISE_LINES
+                and lines[last].rstrip().endswith(",")
+            ):
+                last += 1
+            body = "\n".join(lines[first:last + 1])[m.end() - m.start():]
+            for sym in _DEVISE_SYMBOL.finditer(body):
+                out.setdefault(sym.group(1))
+                if len(out) >= _DEVISE_MODULES_MAX:
+                    return list(out)
+        return list(out) or None
+
+    def devise_hint(self, name: str, reason: str, st: _Stmt) -> None:
+        self.hints.append(Hint("unassigned", {
+            "kind": "route", "name": name, "reason": reason, "source": str(Loc(self.rel, st.line)),
+        }))
+
+    def dedup(self) -> None:
+        """Маршрут из необязательной группы, совпавший с другим (метод, путь, префикс), второй
+        раз не пишется; два маршрута без группы остаются оба, как раньше (П6)."""
+        kept: list[Route] = []
+        flags: list[bool] = []
+        seen: dict[tuple[str, str, bool], int] = {}
+        for i, route in enumerate(self.routes):
+            key = (route.method, route.path, route.prefix_unresolved)
+            optional = i in self.optional
+            j = seen.get(key)
+            if j is None:
+                seen[key] = len(kept)
+                kept.append(route)
+                flags.append(optional)
+            elif optional:
+                continue
+            elif flags[j]:
+                kept[j], flags[j] = route, False
+            else:
+                kept.append(route)
+                flags.append(False)
+        self.routes = kept
+
+
+def _path_names(st: _Stmt, arg: _Arg | None) -> dict[str, str]:
+    """path_names: { sign_in: 'login' } (или :sign_in => 'login'): имя сегмента → путь."""
+    out: dict[str, str] = {}
+    if arg is None:
+        return out
+    for m in _PATH_NAME.finditer(st.mask, arg.start, arg.end):
+        quote = m.group(3)
+        close = st.mask.find(quote, m.end(), arg.end)
+        if close < 0:
+            break
+        out[m.group(1) or m.group(2)] = st.text[m.end():close]
+    return out
+
+
+def _devise_routes(
+    controller: str, base: str, names: dict[str, str], sign_out: list[str],
+) -> list[tuple[str, str]]:
+    """Маршруты контроллера devise под base: сегменты по path_names (по умолчанию имя)."""
+    def seg(key: str, default: str | None = None) -> str:
+        return names.get(key, key if default is None else default)
+
+    if controller == "sessions":
+        sign_in = _join(base, seg("sign_in"))
+        return [("GET", sign_in), ("POST", sign_in),
+                *((m, _join(base, seg("sign_out"))) for m in dict.fromkeys(sign_out))]
+    if controller == "registrations":
+        reg = _join(base, seg("registration", ""))
+        return [("GET", _join(reg, seg("cancel"))), ("GET", _join(reg, seg("sign_up"))),
+                ("POST", reg), ("GET", _join(reg, seg("edit"))), ("PATCH", reg), ("DELETE", reg)]
+    if controller == "omniauth_callbacks":
+        auth = _join(base, "auth/:provider")
+        callback = _join(auth, "callback")
+        return [("GET", auth), ("POST", auth), ("GET", callback), ("POST", callback)]
+    key = {"passwords": "password", "confirmations": "confirmation", "unlocks": "unlock"}[controller]
+    one = _join(base, seg(key))
+    out = [("GET", _join(one, seg("new"))), ("POST", one)]
+    if controller == "passwords":
+        return [*out, ("GET", _join(one, seg("edit"))), ("PATCH", one)]
+    return [*out, ("GET", one)]
 
 
 def _closing(mask: str, at: int) -> int:
@@ -628,6 +850,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         except _Overflow as over:
             files.refuse(over.rel)
             continue
+        routes.dedup()
         found.routes.extend(routes.routes)
         found.hints.extend(routes.hints)
     return found

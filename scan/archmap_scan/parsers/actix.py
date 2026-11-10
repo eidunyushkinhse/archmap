@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from archmap_scan import clike, codebase, codetext, texts, vocab
 from archmap_scan.codetext import SP
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.parsers.rustenv import test_modules
 from archmap_scan.walk import Files
 
@@ -118,11 +118,11 @@ class _File:
             framework=FRAMEWORK, parser=NAME, prefix_unresolved=unresolved,
         ))
 
-    def dynamic(self, pos: int, expr_at: int) -> None:
-        self.found.hints.append(Hint("dynamic_names", {
-            "kind": "route", "name": self.code.expression(expr_at),
-            "reason": texts.REASON_DYNAMIC_ROUTE, "source": str(Loc(self.rel, self.code.line(pos))),
-        }))
+    def dynamic(self, pos: int, expr_at: int, method: str | None = None) -> None:
+        self.found.hints.append(route_hint(
+            self.code.expression(expr_at), texts.REASON_DYNAMIC_ROUTE,
+            Loc(self.rel, self.code.line(pos)), method,
+        ))
 
     def const(self, name: str) -> str | None:
         """Значение строковой константы файла `const ИМЯ: &str = "…";`."""
@@ -165,7 +165,10 @@ def _route(f: _File, frame: _Frame, pos: int, args: int) -> None:
         f.add(_verb(method), frame.base + head.path, pos, frame.unresolved)
         return
     if path is None:
-        f.dynamic(pos, args)
+        # Путь константой без значения: метод из web::get() за ним, если он есть (П3).
+        comma = _COMMA.match(mask, after) if after > args else None
+        m = _METHOD.match(mask, comma.end()) if comma is not None else None
+        f.dynamic(pos, args, _verb(m.group("m")) if m is not None else None)
         return
     comma = _COMMA.match(mask, after)
     m = _METHOD.match(mask, comma.end()) if comma is not None else None
@@ -245,11 +248,11 @@ def _attributes(f: _File, tests: list[tuple[int, int]]) -> None:
         end = _attr_end(mask, m.end())
         if end < 0 or _FN_AFTER.match(mask, end) is None:
             continue
+        verb = m.group("verb")
         if m.group("lit") is None:
-            f.dynamic(m.start(), m.end())
+            f.dynamic(m.start(), m.end(), None if verb == "route" else verb.upper())
             continue
         path = clike.literal_value(f.code, m.start("lit"), m.end("lit"))
-        verb = m.group("verb")
         methods = [verb.upper()]
         if verb == "route":
             methods = [

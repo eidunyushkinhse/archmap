@@ -3,11 +3,23 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
+import pytest
+
 from archmap_scan import clike, texts
-from archmap_scan.parsers import dotnetenv, goenv, javaenv, nodeenv, pyenv, rustenv
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from archmap_scan.parsers import (
+    appsettings,
+    dotnetenv,
+    goenv,
+    hjson,
+    javaenv,
+    nodeenv,
+    pyenv,
+    rustenv,
+)
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Row = tuple[str, str | None, bool, bool | None, str | None, str]
 
@@ -235,6 +247,254 @@ def test_dotnet_configuration() -> None:
     assert sorted(model.params) == ["Cart"]
 
 
+def test_dotnet_appsettings() -> None:
+    """appsettings.json проекта (ТЗ §15 п. 16 Р1): вложенные ключи «A:B», комментарии «//» и
+    «/* */», висячие запятые, метка порядка байтов в начале (как у eShop
+    src/Ordering.API/appsettings.json), массив одной строкой, null без дефолта, пустой объект
+    без параметров. Ловушки: appsettings.Development.json (значения сред) и appsettings.json
+    проекта тестов Shop.Tests/ не читаются."""
+    at = "src/Shop.Api/appsettings.json"
+    assert _params(appsettings, FIXTURES / "dotnet-config") == [
+        ("AllowedHosts", "*", True, None, "string", f"{at}:9"),
+        ("Cache:Enabled", "true", True, None, "bool", f"{at}:18"),
+        ("Cache:Prefix", None, False, None, None, f"{at}:18"),
+        ("Cache:Ratio", "0.5", True, None, "float", f"{at}:18"),
+        ("Cache:Ttl", "30", True, None, "int", f"{at}:18"),
+        ("ConnectionStrings:db", "Host=localhost;Database=shop", True, None, "string", f"{at}:11"),
+        ("EventBus:RetryCount", "5", True, None, "int", f"{at}:16"),
+        ("EventBus:SubscriptionClientName", "Shop", True, None, "string", f"{at}:15"),
+        ("Hosts", '["a", "b"]', True, None, "array", f"{at}:19"),
+        ("Logging:LogLevel:Default", "Information", True, None, "string", f"{at}:5"),
+        ("Logging:LogLevel:Microsoft.AspNetCore", "Warning", True, None, "string", f"{at}:6"),
+    ]
+
+
+def test_appsettings_reader() -> None:
+    """Повтор ключа даёт запись по последнему (как у .NET), ошибка синтаксиса — BadJson,
+    вложенность больше 50 — TooDeep; комментарий после корня допустим."""
+    assert appsettings.read('{"a": 1, "a": "x"}\n// конец') == [("a", 1, "x", "string")]
+    assert appsettings.read('{"a": {"b": [1, {"c": "d"}, [] ], }}') == [
+        ("a:b", 1, '[1, {"c": "d"}, []]', "array"),
+    ]
+    for bad in ('{"a": 1', '{"a" 1}', '{"a": tru}', '["a"]', '{"a": "b\n"}', '{"a": 1} 2',
+                '{"a": 1 /* без конца'):
+        try:
+            appsettings.read(bad)
+        except appsettings.BadJson:
+            continue
+        raise AssertionError(bad)
+    deep = '{"a": ' * 51 + "1" + "}" * 51
+    try:
+        appsettings.read(deep)
+    except appsettings.TooDeep:
+        pass
+    else:
+        raise AssertionError("глубина")
+    assert appsettings.read('{"a": ' * 50 + "1" + "}" * 50)[0][0] == ":".join(["a"] * 50)
+    assert appsettings.read('{"a": ' + "[" * 49 + "]" * 49 + "}")[0][2] == "[" * 49 + "]" * 49
+
+
+# Враждебный appsettings.json вплотную к пределу 1 МБ (ТЗ §15 п. 16 Р1): тысячи ключей,
+# вложенность, длинные и незакрытые строки, комментарии без конца, длинные массивы.
+_NEAR = 990_000
+APPSETTINGS_HOSTILE = {
+    "keys": "{" + "".join(f'"k{i}": {i},' for i in range(_NEAR // 14)) + "}",
+    "same-key": "{" + '"a": 1,' * (_NEAR // 7) + "}",
+    "nested": '{"a": ' * (_NEAR // 6),
+    "arrays": '{"a": ' + "[" * (_NEAR - 10),
+    "array-items": '{"a": [' + '"x",' * (_NEAR // 4) + "]}",
+    "string": '{"a": "' + "x" * _NEAR + '"}',
+    "open-string": '{"a": "' + "x" * _NEAR,
+    "escapes": '{"a": "' + "\\\"" * (_NEAR // 2) + '"}',
+    "comments": "{" + "/* */" * (_NEAR // 5) + "}",
+    "open-comments": "{" + "/*" * (_NEAR // 2),
+    "line-comments": "{\n" + "//\n" * (_NEAR // 3) + "}",
+    "objects-in-array": '{"a": [' + '{"b": 1},' * (_NEAR // 9) + "]}",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(APPSETTINGS_HOSTILE))
+def test_appsettings_hostile(tmp_path: Path, kind: str) -> None:
+    tree(tmp_path, {
+        "App/App.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
+        "App/appsettings.json": APPSETTINGS_HOSTILE[kind],
+    })
+    ctx, files = files_of(tmp_path)
+    _found, took = timed(partial(appsettings.parse, files, ctx), time_limit())
+    assert took < time_limit() * 0.7, f"{took:.2f} с"
+
+
+def test_appsettings_limits(tmp_path: Path) -> None:
+    """Файл больше 1 МБ и вложенность глубже 50 — файл непрочитан; ошибка синтаксиса —
+    файл пропущен без записей."""
+    tree(tmp_path, {
+        "A/A.csproj": "<Project></Project>\n", "A/appsettings.json": '{"a": "' + "x" * 1_000_001 + '"}',
+        "B/B.csproj": "<Project></Project>\n", "B/appsettings.json": '{"a": ' * 60 + "1" + "}" * 60,
+        "C/C.csproj": "<Project></Project>\n", "C/appsettings.json": '{"a": 1,, }',
+        "D/D.csproj": "<Project></Project>\n", "D/appsettings.json": '{"d": 1}',
+        # Файл не в каталоге проекта: не читается.
+        "E/appsettings.json": '{"e": 1}',
+    })
+    ctx, files = files_of(tmp_path)
+    found = appsettings.parse(files, ctx)
+    assert [p.name for p in found.code_params] == ["d"]
+    assert sorted(files.too_large) == ["A/appsettings.json", "B/appsettings.json"]
+
+
+def test_dotnet_binder() -> None:
+    """Чтения через биндер конфигурации (ТЗ §15 п. 16 Р1): GetValue<T> с дефолтом и без,
+    GetConnectionString, раздел с .Get<T>(), Configure<T>(раздел константой), AddOptions<T>()
+    .BindConfiguration(nameof(T)), переменная раздела перед GetValue и GetSection, .Bind(obj)
+    по объявлению obj. Свойства класса проекта: set и init, required, инициализатор-литерал;
+    static, свойство без set и свойство вложенного класса не параметры, класс того же имени
+    в другом проекте (Shared/) не берётся. Класса нет — один параметр раздела с типом как
+    написан; имя раздела переменной — подсказка. Ловушки: GetSection("Logging") без привязки,
+    чтение в комментарии и в проекте тестов."""
+    at = "src/Shop.Api/Program.cs"
+    opts = "src/Shop.Api/Options"
+    assert _params(dotnetenv, FIXTURES / "dotnet-config") == [
+        ("Cache:Ttl", "60", True, None, "int", f"{at}:2"),
+        ("Catalog:PicBaseUrl", None, False, None, "string", f"{at}:6"),
+        ("Catalog:Timeout", None, True, None, "duration", f"{at}:6"),
+        ("Catalog:UseCustomizationData", None, False, None, "bool", f"{at}:6"),
+        ("ConnectionStrings:db", None, False, None, "string", f"{at}:4"),
+        ("EventBus:Exchange", None, False, True, "string", f"{at}:5"),
+        ("EventBus:RetryCount", "10", True, None, "int", f"{at}:5"),
+        ("EventBus:SubscriptionClientName", None, False, None, "string", f"{at}:5"),
+        ("Identity:Audience", None, False, None, "string", f"{at}:10"),
+        ("Identity:Auth:Authority", "https://identity", True, None, "string", f"{at}:12"),
+        ("Identity:Auth:Scopes", None, True, None, "array", f"{at}:12"),
+        ("Missing", None, False, None, "MissingOptions", f"{at}:14"),
+        ("PaymentOptions:PaymentSucceeded", "true", True, None, "bool", f"{at}:7"),
+        ("Region", None, False, None, "string", f"{at}:3"),
+    ]
+    assert _hints(dotnetenv, FIXTURES / "dotnet-config") == [
+        ("sectionName", texts.REASON_DYNAMIC_PARAM, f"{at}:15"),
+    ]
+    ctx, files = files_of(FIXTURES / "dotnet-config")
+    found = dotnetenv.parse(files, ctx)
+    extra = {p.name: sorted(str(loc) for loc in p.extra_locs) for p in found.code_params}
+    assert extra["EventBus:RetryCount"] == [
+        f"{opts}/EventBusOptions.cs:6", f"{opts}/SectionNames.cs:5",
+    ]
+    assert extra["Catalog:Timeout"] == [f"{opts}/Settings.cs:7"]
+
+
+def test_dotnet_appsettings_merge() -> None:
+    """Запись файла и чтение в коде одного ключа — один параметр (ТЗ §15 п. 16 Р1): дефолт
+    из файла (Cache:Ttl 30, а не 60 из GetValue), тип из кода; места из обоих. Адрес из
+    свойства (https://identity) дефолтом не пишется, как у примеров окружения."""
+    model = model_of(FIXTURES / "dotnet-config")
+    assert sorted(model.params) == ["Shop.Api"]
+    params = model.params["Shop.Api"]
+    ttl = params["Cache:Ttl"]
+    assert (ttl.default, ttl.type) == ("30", "int")
+    assert sorted(str(loc) for loc in ttl.locs) == [
+        "src/Shop.Api/Program.cs:2", "src/Shop.Api/appsettings.json:18",
+    ]
+    retry = params["EventBus:RetryCount"]
+    assert (retry.default, retry.type) == ("5", "int")
+    assert params["EventBus:Exchange"].required is True
+    assert params["Identity:Auth:Authority"].default is None
+    assert len(params) == 21
+
+
+def test_hjson_defaults() -> None:
+    """config/defaults.hjson пакета (ТЗ §15 п. 16 Р2, Lemmy config/defaults.hjson): имя через
+    точку, комментарии «#», «//» и «/* */», ключ в кавычках, строка в одинарных кавычках, без
+    кавычек до конца строки, два ключа на строке через запятую, многострочная строка в тройных
+    апострофах, массив одной строкой, null без дефолта, пустой объект без параметров.
+    Ловушки: config/config.hjson (настройки экземпляра) и docker/config/defaults.hjson (рядом с
+    config/ нет манифеста сборки) не читаются."""
+    at = "config/defaults.hjson"
+    assert _params(hjson, FIXTURES / "hjson-defaults") == [
+        ("database.connection", "postgres://u:p@localhost:5432/db", True, None, "string", f"{at}:5"),
+        ("database.pool_size", "30", True, None, "int", f"{at}:6"),
+        ("hostname", "unset value here", True, None, "string", f"{at}:9"),
+        ("list", '["a", b]', True, None, "array", f"{at}:20"),
+        ("nested.deep.key", "1", True, None, "int", f"{at}:25"),
+        ("nothing", None, False, None, None, f"{at}:12"),
+        ("port", "8536", True, None, "int", f"{at}:10"),
+        ("quoted key", "single quoted", True, None, "string", f"{at}:8"),
+        ("ratio", "0.5", True, None, "float", f"{at}:11"),
+        ("text", "\n    multi\n    line\n    ", True, None, "string", f"{at}:15"),
+        ("tls", "true", True, None, "bool", f"{at}:10"),
+    ]
+    model = model_of(FIXTURES / "hjson-defaults")
+    (owner,) = model.params
+    params = model.params[owner]
+    # Дефолт по инварианту 6: адрес и имя со словом KEY не пишутся.
+    assert params["database.connection"].default is None
+    assert params["database.pool_size"].default == "30"
+    assert "FORUM_PORT" in params and len(params) == 12
+
+
+TRIPLE = "'" * 3
+
+
+def test_hjson_reader() -> None:
+    """Корень без скобок, повтор ключа (последний), ошибки синтаксиса и пределы."""
+    assert hjson.read("a: 1\nb: x # не комментарий\n") == [
+        ("a", 1, "1", "int"), ("b", 2, "x # не комментарий", "string"),
+    ]
+    assert hjson.read("{a: 1, a: 2}") == [("a", 1, "2", "int")]
+    assert hjson.read('{a: [1, {b: "c"}, [], ' + TRIPLE + "x" + TRIPLE + "]\n}") == [
+        ("a", 1, '[1, {b: "c"}, [], ' + TRIPLE + "x" + TRIPLE + "]", "array"),
+    ]
+    for bad in ("{a: 1", "{a 1}", "{: 1}", "{a: }", "{a: " + TRIPLE + "x}", '{a: "x}',
+                "{a: 1 /* без конца", "{a: 1}}", "a: [1, 2"):
+        try:
+            hjson.read(bad)
+        except hjson.BadHjson:
+            continue
+        raise AssertionError(bad)
+    for big in ("{a: " * 51 + "1" + "}" * 51, "{a: " + "[" * 50 + "]" * 50 + "}",
+                "".join(f"k{i}: 1\n" for i in range(5001))):
+        try:
+            hjson.read(big)
+        except hjson.TooBig:
+            continue
+        raise AssertionError(big[:20])
+    assert len(hjson.read("".join(f"k{i}: 1\n" for i in range(5000)))) == 5000
+
+
+# Враждебный defaults.hjson (ТЗ §15 п. 16 Р2): 2 МБ отвергаются по размеру, вплотную к 1 МБ
+# читаются в пределе времени. Исход: refused — непрочитан с подсказкой, bad — подсказка без
+# записей, ok — записи.
+HJSON_HOSTILE = {
+    "braces": ("{" * 1_000_001, "refused"),
+    "open-string": ('{a: "' + "x" * 2_000_000, "refused"),
+    "open-multiline": ("{a: " + TRIPLE + "x" * 2_000_000, "refused"),
+    "near-braces": ("{" * 990_000, "bad"),
+    "near-nested": ("{a: " * 200_000, "refused"),
+    "near-arrays": ("{a: " + "[" * 990_000, "refused"),
+    "near-open-string": ('{a: "' + "x" * 990_000, "bad"),
+    "near-open-multiline": ("{a: " + TRIPLE + "x\n" * 495_000, "bad"),
+    "near-keys": ("".join(f"k{i}: {i}\n" for i in range(5001)) + "x: " + "y" * 900_000, "refused"),
+    "near-comments": ("{a: 1" + "/* */" * 198_000 + "}", "ok"),
+    "near-hash": ("{a: 1\n" + "#\n" * 495_000 + "}", "ok"),
+    "near-array": ("{a: [" + "1," * 495_000 + "]}", "ok"),
+    "near-array-strings": ("{a: [" + '"x",' * 247_000 + "]}", "ok"),
+    # Ключи внутри длинного массива не параметры и в предел 5000 не считаются.
+    "near-array-objects": ("{a: [" + "{b: 1}" * 165_000 + "]}", "ok"),
+    "near-quoteless": ("{" + "a: b\n" * 4999 + "c: " + "d" * 970_000 + "\n}", "ok"),
+    "near-repeated-keys": ("{" + "a: b\n" * 198_000 + "}", "refused"),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(HJSON_HOSTILE))
+def test_hjson_hostile(tmp_path: Path, kind: str) -> None:
+    text, outcome = HJSON_HOSTILE[kind]
+    tree(tmp_path, {"Cargo.toml": '[package]\nname = "x"\n', "config/defaults.hjson": text})
+    ctx, files = files_of(tmp_path)
+    found, took = timed(partial(hjson.parse, files, ctx), time_limit())
+    assert took < time_limit() * 0.7, f"{took:.2f} с"
+    assert bool(files.too_large) == (outcome == "refused")
+    assert bool(found.code_params) == (outcome == "ok")
+    reasons = [h.data["reason"] for h in found.hints]
+    assert reasons == ([] if outcome == "ok" else [texts.REASON_BAD_HJSON])
+
+
 def test_java_getenv() -> None:
     """Параметры в коде Java (ТЗ §15 п. 14 Е4). Найдено в Online Boutique:
     src/adservice/src/main/java/hipstershop/AdService.java:54
@@ -274,17 +534,22 @@ def test_rust_env() -> None:
     default_value_t = false, env = "LEMMY_DISABLE_ACTIVITY_SENDING")]` и
     crates/utils/src/settings/mod.rs:39 `env::var("LEMMY_CONFIG_LOCATION")`. Ловушки:
     структура с derive(Envconfig) без полей; nested = true; атрибут serde между envconfig
-    и полем; env::var(&name) — подсказка; env!("CARGO_PKG_VERSION") не параметр и не
+    и полем; поля структуры без derive(Envconfig) (Outputs) не параметры, тип с «->» поле
+    не рвёт; env::var(&name) — подсказка; env!("CARGO_PKG_VERSION") не параметр и не
     подсказка, option_env! — переменная времени сборки; время жизни 'static маску не
     рвёт; комментарий и модуль #[cfg(test)] не читаются."""
     root = FIXTURES / "rust-env"
     config, main = "server/src/config.rs", "server/src/main.rs"
     assert _params(rustenv, root) == [
+        # Поля без атрибута в структуре с derive(Envconfig) (ТЗ §15 п. 16 Р3).
+        ("BATCH_SIZE", None, False, False, "int", f"{config}:25"),
         ("CONFIG_PATH", "config.hjson", True, False, "string", f"{main}:16"),
         ("DATABASE_URL", None, False, True, "string", f"{config}:19"),
         ("DISABLE_HTTP", "false", True, False, "bool", f"{main}:5"),
+        ("FLUSH_INTERVAL", None, False, True, "duration", f"{config}:29"),
         ("KAFKA_HOSTS", "kafka:9092", True, False, "string", f"{config}:8"),
         ("LOG_LEVEL", "info", True, False, "string", f"{main}:7"),
+        ("OUTPUT_KAFKA_HOSTS", None, False, True, "string", f"{config}:23"),
         ("PORT", "3000", True, False, "int", f"{config}:11"),
         ("REDIS_URL", None, False, False, "string", f"{config}:15"),
         ("SERVICE_URL", None, False, True, None, f"{main}:17"),
@@ -295,8 +560,8 @@ def test_rust_env() -> None:
     ]
     model = model_of(root)
     assert sorted(model.params["server"]) == [
-        "CONFIG_PATH", "DATABASE_URL", "DISABLE_HTTP", "KAFKA_HOSTS", "LOG_LEVEL", "PORT",
-        "REDIS_URL", "SERVICE_URL",
+        "BATCH_SIZE", "CONFIG_PATH", "DATABASE_URL", "DISABLE_HTTP", "FLUSH_INTERVAL",
+        "KAFKA_HOSTS", "LOG_LEVEL", "OUTPUT_KAFKA_HOSTS", "PORT", "REDIS_URL", "SERVICE_URL",
     ]
     # Основания: строка атрибута и строка поля.
     assert sorted(str(loc) for loc in model.params["server"]["REDIS_URL"].locs) == [

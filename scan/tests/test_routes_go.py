@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archmap_scan import texts
+from archmap_scan import codetext, texts
 from archmap_scan.parsers import gohttp
 from tests.helpers import FIXTURES, files_of, tree
 
@@ -24,6 +24,7 @@ def test_fixture() -> None:
     assert _routes(FIXTURES / "go-http") == [
         # Склейка двух литералов — путь целиком (К5); mux — параметр без мест вызова.
         ("ANY", "/api/v2", True, "net/http", "internal/joinapi/router.go:9"),
+        ("ANY", "/b", False, "chi", "internal/clientapi/client.go:13"),
         ("ANY", "/health", False, "net/http", "cmd/std/main.go:6"),
         ("ANY", "/plain", False, "net/http", "internal/joinapi/router.go:11"),
         ("ANY", "/static/", False, "net/http", "cmd/std/main.go:9"),
@@ -33,12 +34,15 @@ def test_fixture() -> None:
         ("DELETE", "/v1/admin/cache", False, "Gin", "internal/ginapi/router.go:11"),
         ("DELETE", "/v1/alerts/{id}", False, "chi", "internal/alertapi/routes.go:21"),
         ("GET", "/", False, "chi", "internal/chiapi/router.go:7"),
+        ("GET", "/a", False, "chi", "internal/clientapi/client.go:12"),
         ("GET", "/admin/stats", False, "gorilla/mux", "internal/muxapi/router.go:9"),
         ("GET", "/api/folders", False, "chi", "internal/folderapi/folders.go:6"),
         # registerArchive никто не вызывает: префикс как прежде, не решён.
         ("GET", "/archive", True, "chi", "internal/folderapi/folders.go:14"),
         ("GET", "/internal/folders", False, "chi", "internal/folderapi/folders.go:6"),
         ("GET", "/items/{id}", False, "net/http", "cmd/std/main.go:8"),
+        # go-restful: построитель ws.GET("/logs").To(h), получатель не известен (П4).
+        ("GET", "/logs", True, "chi", "internal/clientapi/client.go:23"),
         ("GET", "/ping", False, "Gin", "internal/ginapi/router.go:7"),
         ("GET", "/plugin", True, "Gin", "internal/ginapi/router.go:21"),
         ("GET", "/products", False, "gorilla/mux", "internal/muxapi/router.go:7"),
@@ -47,6 +51,38 @@ def test_fixture() -> None:
         ("POST", "/api/users", False, "chi", "internal/chiapi/router.go:9"),
         ("POST", "/products", False, "gorilla/mux", "internal/muxapi/router.go:7"),
         ("POST", "/v1/orders", False, "Gin", "internal/ginapi/router.go:9"),
+    ]
+
+
+def test_client_requests_are_not_routes() -> None:
+    """Запрос клиента не маршрут (ТЗ §15 п. 16 П4, Online Boutique
+    src/frontend/packaging_info.go:54 http.Get(url)): функции запроса net/http при любом
+    числе аргументов и глагол с одним аргументом без обработчика ни маршрута, ни подсказки
+    не дают, а r.Get("/a", h), http.HandleFunc("/b", h) и построитель go-restful
+    ws.GET("/logs").To(h) с цепочкой после скобки (Kubernetes) остаются маршрутами. Без
+    правила были бы подсказки о http.Get(url), http.Post(url, t, b), r.Get(url) и маршрут
+    GET /c из r.GET(urlFor("/c"))."""
+    ctx, files = files_of(FIXTURES / "go-http")
+    found = gohttp.parse(files, ctx)
+    at = "internal/clientapi/client.go"
+    assert sorted((r.method, r.path, str(r.loc)) for r in found.routes if r.loc.path == at) == [
+        ("ANY", "/b", f"{at}:13"), ("GET", "/a", f"{at}:12"), ("GET", "/logs", f"{at}:23"),
+    ]
+    assert not [h for h in found.hints if str(h.data["source"]).startswith(at)]
+
+
+def test_first_arg_closer() -> None:
+    """Конец первого аргумента: последний ли он и нет ли цепочки за скобкой; вложенные
+    вызовы, литералы функций и составные литералы не мешают, длинный аргумент не виден."""
+    code = codetext.Code(
+        "a.Get(u) b.Get(f(x, y)) c.Get(p, func(w, r) {}) d.Get(T{1, 2}) ws.GET(p)\n\t.To(h) "
+        "e.Get(" + "x" * 100,
+        codetext.GO,
+    )
+    opens = [i + 1 for i, ch in enumerate(code.mask) if ch == "(" and code.mask[i - 3:i] in ("Get", "GET")]
+    assert [gohttp._first_arg(code, o) for o in opens] == [
+        ("u", True), ("f(x, y)", True), ("p", False), ("T{1, 2}", True), ("p", False),
+        ("x" * 80, False),
     ]
 
 

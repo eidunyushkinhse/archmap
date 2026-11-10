@@ -20,6 +20,11 @@ CODE_FAMILIES = frozenset({"config", "channels", "http_routes", "schedules"})
 OBJECT_FAMILIES = ("containers", "databases", "brokers")
 
 
+def _dynamic_shown(fam: str, dynamic_names: int) -> bool:
+    """Строка «заданным выражением в коде» семьи есть в «Пояснениях»."""
+    return bool(dynamic_names) and fam in CODE_FAMILIES
+
+
 def _found(cov: Coverage) -> list[str]:
     lines = []
     parts = []
@@ -30,7 +35,10 @@ def _found(cov: Coverage) -> list[str]:
             # Параметры считаются по именам: запись общего кода у каждого контейнера —
             # не новый параметр (ТЗ §7); записи названы строкой в «Пояснениях».
             parts.append(texts.plural(stat.distinct or stat.found, one, few, many))
-        elif stat.status == "empty":
+        elif stat.status == "empty" and not _dynamic_shown(fam, stat.dynamic_names):
+            # Семья, где нашлись только записи с выражением, в «Искали и не нашли» не
+            # входит: о ней говорит строка «заданным выражением» (ТЗ §15 п. 16 П3). Статус
+            # empty в coverage.yaml остаётся.
             empty.append(texts.FAMILY_LABEL[fam].lower())
     lines.append(texts.found_phrase(parts))
     if empty:
@@ -85,7 +93,7 @@ def _notes(cov: Coverage) -> list[str]:
     lines += [
         "  " + texts.dynamic_line(fam, stat.dynamic_names)
         for fam, stat in cov.families.items()
-        if stat.dynamic_names and fam in CODE_FAMILIES
+        if _dynamic_shown(fam, stat.dynamic_names)
     ]
     return [texts.NOTES_TITLE, *lines] if lines else []
 

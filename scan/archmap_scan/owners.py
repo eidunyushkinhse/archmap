@@ -22,8 +22,22 @@ from archmap_scan import paths, texts, vocab
 from archmap_scan.links import hosts_in
 
 if TYPE_CHECKING:
-    from archmap_scan.model import EnvVar
+    from archmap_scan.model import EnvVar, Unit
     from archmap_scan.objects import Obj
+
+
+def unit_commands(unit: Unit, units: Sequence[Unit]) -> list[str]:
+    """Команды единицы объекта с единицами units: своя команда и простые команды скриптов
+    репозитория, которые она запускает (ТЗ §15 п. 16 П1: ./bin/docker-worker-celery у
+    PostHog запускает celery beat через ./bin/docker-worker-beat). CMD Dockerfile — команда
+    по умолчанию: её заменяет command манифеста развёртывания, поэтому скрипты CMD не
+    раскрываются, если у другой единицы объекта своя команда (у PostHog CMD ./bin/docker
+    запускает и воркер, и сервер, а web в compose запускает только сервер). По командам
+    выбирается владелец записей кода и роль."""
+    out = [unit.command] if unit.command else []
+    if unit.parser == "dockerfile" and any(u.command for u in units if u.parser != "dockerfile"):
+        return out
+    return out + unit.script_commands
 
 
 def code_owners(rel: str, containers: Sequence[Obj]) -> list[Obj]:

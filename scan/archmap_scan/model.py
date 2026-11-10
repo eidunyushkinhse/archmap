@@ -74,6 +74,9 @@ class Unit:
     # Каталог Cargo workspace, членом которого кандидат является (ТЗ §15 п. 14 И1): у объекта
     # со сборкой из этого каталога каталог кода — каталог крейта (build_dir).
     workspace: str | None = None
+    # Простые команды скриптов репозитория, которые запускает command (./bin/x, ТЗ §15 п. 16
+    # П1): дополнительные команды единицы для владельца записей кода и роли, не записи.
+    script_commands: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -102,6 +105,8 @@ class Dockerfile:
     # COPY или ADD всего контекста сборки («COPY . ./»): код образа — каталог контекста, а не
     # каталог Dockerfile (ТЗ §15 п. 12 С5б).
     copies_context: bool = False
+    # Простые команды скриптов репозитория, которые запускает CMD (ТЗ §15 п. 16 П1).
+    script_commands: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -239,6 +244,9 @@ class CodeParam:
     extra_locs: list[Loc] = field(default_factory=list)
     # Описание из кода без пересказа смысла: перечень значений схемы z.enum (ТЗ §15 п. 14 Е3).
     description: str | None = None
+    # Запись файла настроек (appsettings.json, defaults.hjson; ТЗ §15 п. 16 Р1, Р2), а не
+    # чтение в коде: при слиянии дефолт берётся сначала из файла, тип сначала из кода.
+    from_file: bool = False
 
 
 @dataclass
@@ -284,6 +292,31 @@ class Hint:
 
     section: str
     data: dict[str, object]
+
+
+def hint_fields(**fields: str | None) -> dict[str, object]:
+    """Поля подсказки сверх общих (ТЗ §15 п. 16 П3): method маршрута, schedule и task
+    расписания. Пустые не пишутся, ANY у метода тоже: регистрация метод не назвала."""
+    return {k: v for k, v in fields.items() if v and not (k == "method" and v == "ANY")}
+
+
+def route_hint(name: str, reason: str, loc: Loc, method: str | None = None) -> Hint:
+    """Маршрут с путём выражением: раздел dynamic_names, метод, если регистрация его называет."""
+    return Hint("dynamic_names", {
+        "kind": "route", "name": name, "reason": reason, "source": str(loc),
+        **hint_fields(method=method),
+    })
+
+
+def schedule_hint(
+    name: str, reason: str, loc: Loc, schedule: str | None = None, task: str | None = None,
+) -> Hint:
+    """Расписание с именем или выражением, известным только при запуске: раздел
+    dynamic_names, выражение расписания как написано и задача, когда они известны."""
+    return Hint("dynamic_names", {
+        "kind": "schedule", "name": name, "reason": reason, "source": str(loc),
+        **hint_fields(schedule=schedule, task=task),
+    })
 
 
 def unparsed_hint(rel: str, reason: str) -> Hint:

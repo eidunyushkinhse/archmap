@@ -10,11 +10,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from archmap_scan import scripts
 from archmap_scan.context import Context
 from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     actix,
     alembic,
+    appsettings,
     aspnet,
     buildfiles,
     bullmq,
@@ -35,6 +37,7 @@ from archmap_scan.parsers import (
     goenv,
     gohttp,
     helm,
+    hjson,
     javaenv,
     k8s,
     kafka,
@@ -92,6 +95,8 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(manifests.NAME, ("containers",), manifests.parse),
     ParserSpec(buildfiles.NAME, ("containers",), buildfiles.parse),
     ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
+    ParserSpec(appsettings.NAME, ("config",), appsettings.parse),
+    ParserSpec(hjson.NAME, ("config",), hjson.parse),
     ParserSpec(sql.NAME, ("tables",), sql.parse),
     ParserSpec(alembic.NAME, ("tables",), alembic.parse),
     ParserSpec(django.NAME, ("tables",), django.parse),
@@ -157,4 +162,7 @@ def collect(files: Files, ctx: Context) -> tuple[Findings, dict[str, str]]:
             # Пропущенный код в каталогах для разработки — этому разборщику (его семьям).
             part.dev_code[spec.name] = files.dev_code
         found.extend(part)
+    # Команды скриптов репозитория, которые запускают единицы (ТЗ §15 п. 16 П1): после всех
+    # разборщиков, потому что единицы и Dockerfile дают разные разборщики.
+    scripts.attach(found, files)
     return found, errors

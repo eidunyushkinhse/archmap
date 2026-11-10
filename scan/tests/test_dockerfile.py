@@ -98,3 +98,23 @@ def test_copies_whole_context() -> None:
     assert not ctx("COPY --from=yarn . ./public\n")
     assert not ctx("COPY composer.json ./\nCOPY src/ ./src\n")
     assert not ctx("COPY .\n")
+
+
+def test_copy_sources_of_last_stage() -> None:
+    """Источники COPY и ADD последней стадии из контекста сборки (ТЗ §15 п. 16 С1): флаги
+    и назначение отбрасываются, форма JSON читается. Ловушки: COPY ранней стадии, --from,
+    адрес URL и шаблон с «*» источниками не считаются."""
+    text = (
+        "FROM node:22 AS build\n"
+        "COPY package.json ./\n"
+        "FROM envoyproxy/envoy:v1.30\n"
+        "COPY --from=build /app/dist /srv\n"
+        "COPY --chown=envoy:envoy envoy.yaml \\\n"
+        "     clusters/ /etc/envoy/\n"
+        'ADD ["conf/extra.yaml", "/etc/envoy/extra.yaml"]\n'
+        "ADD https://example.com/certs.pem /etc/ssl/\n"
+        "COPY *.lua /etc/envoy/lua/\n"
+    )
+    assert list(dockerfile.copy_sources(text)) == [
+        (5, "envoy.yaml"), (5, "clusters/"), (7, "conf/extra.yaml"),
+    ]

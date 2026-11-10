@@ -1,4 +1,4 @@
-# archmap-scan 0.5.0
+# archmap-scan 0.6.0
 # repo:
 # commit:
 depends_on: []
@@ -24,6 +24,7 @@ dynamic_names:
   name: STATUS_PATH
   reason: путь маршрута задан выражением, а не строкой, и известен только при запуске
   source: services/orders/orders/api/routes.py:23
+  method: GET
 unassigned:
 - kind: container
   name: release

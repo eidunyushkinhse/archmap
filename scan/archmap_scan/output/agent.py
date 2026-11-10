@@ -53,15 +53,22 @@ def render_evidence(model: Model, ctx: Context) -> str:
     return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump(evidence(model, ctx))
 
 
-# Общий набор ключей подсказки любого раздела (ТЗ §5.3) в постоянном порядке; ключи
-# раздела (profiles, operations, containers и подобные) идут после них.
+# Общий набор ключей подсказки любого раздела (ТЗ §5.3) в постоянном порядке, за ним поля
+# записи, когда они известны: метод маршрута, выражение и задача расписания (ТЗ §15 п. 16
+# П3); ключи раздела (profiles, operations, containers и подобные) идут после них.
 HINT_KEYS: tuple[str, ...] = ("kind", "name", "object", "reason", "source")
+HINT_RECORD_KEYS: tuple[str, ...] = ("method", "schedule", "task")
 
 
 def ordered_hint(item: dict[str, object]) -> dict[str, object]:
-    """Ключи подсказки: kind, name, object, reason, source, затем остальные как записаны."""
+    """Ключи подсказки: kind, name, object, reason, source, method, schedule, task, затем
+    остальные как записаны. Пустые поля записи не пишутся."""
     out = {key: item[key] for key in HINT_KEYS if key in item}
-    out.update((key, value) for key, value in item.items() if key not in out)
+    out.update((key, item[key]) for key in HINT_RECORD_KEYS if item.get(key))
+    out.update(
+        (key, value) for key, value in item.items()
+        if key not in out and key not in HINT_RECORD_KEYS
+    )
     return out
 
 

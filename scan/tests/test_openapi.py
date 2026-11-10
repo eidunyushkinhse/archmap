@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +11,7 @@ import yaml
 from archmap_scan import texts
 from archmap_scan.parsers import openapi, served
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 
 def test_candidates() -> None:
@@ -55,9 +55,8 @@ def test_too_large_and_hostile(tmp_path: Path) -> None:
         "line/openapi.yaml": "x" * 2_000_000,
     })
     ctx, files = files_of(tmp_path)
-    started = time.perf_counter()
-    found = openapi.parse(files, ctx)
-    assert time.perf_counter() - started < 1.0
+    found, took = timed(partial(openapi.parse, files, ctx), 1.0)
+    assert took < 1.0
     assert [(s.path, s.operations) for s in found.openapi] == [("big/openapi.yaml", None)]
     assert [h.data["name"] for h in found.hints] == ["deep/openapi.json"]
 
@@ -120,9 +119,9 @@ def test_ref_file_limit(tmp_path: Path) -> None:
         files_map[f"api/p/{i}.yaml"] = "get: {}\n"
     tree(tmp_path, files_map)
     ctx, files = files_of(tmp_path)
-    started = time.perf_counter()
-    [spec] = openapi.parse(files, ctx).openapi
-    assert time.perf_counter() - started < 2.0
+    found, took = timed(partial(openapi.parse, files, ctx), 2.0)
+    assert took < 2.0
+    [spec] = found.openapi
     assert spec.operations is None and spec.reason is not None
 
 
@@ -208,9 +207,7 @@ def test_operations_hostile_is_fast(tmp_path: Path) -> None:
             ' {"url": "/' + "{" * 200_000 + '"}], "paths": {' + paths + "}}"
         ),
     })
-    started = time.perf_counter()
-    model = model_of(tmp_path)
-    took = time.perf_counter() - started
+    model, took = timed(partial(model_of, tmp_path), time_limit() * 2)
     assert took < time_limit() * 2, f"{took:.2f} с"
     assert len(model.http["big"]) == openapi.MAX_OPS
 

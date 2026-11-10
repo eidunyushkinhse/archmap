@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import shutil
-import time
+from functools import partial
 from pathlib import Path
 
 from archmap_scan import registry, texts
@@ -11,10 +11,10 @@ from archmap_scan.assemble import assemble
 from archmap_scan.context import make_context
 from archmap_scan.model import Findings, Unit
 from archmap_scan.objects import Model
-from archmap_scan.parsers import compose
+from archmap_scan.parsers import compose, proxyconf
 from archmap_scan.walk import Files, list_files
-from archmap_scan.yamlload import MAX_YAML_BYTES
-from tests.helpers import FIXTURES, files_of, git, model_of, time_limit, tree
+from archmap_scan.yamlload import MAX_YAML_BYTES, load_all
+from tests.helpers import FIXTURES, files_of, git, model_of, time_limit, timed, tree
 
 
 def _parse(root: Path) -> Findings:
@@ -212,12 +212,9 @@ def test_expand_is_bounded() -> None:
 
 
 def test_expand_hostile_in_time() -> None:
-    import time
-
     for value in ("${A}" * 60_000, "${A:-" * 60_000, "a$" * 120_000, "${A:-x" + "}" * 240_000):
-        started = time.perf_counter()
-        compose.expand(value)
-        assert time.perf_counter() - started < 1.0
+        _out, took = timed(partial(compose.expand, value), 1.0)
+        assert took < 1.0
 
 
 _DOTENV = (
@@ -339,8 +336,113 @@ def test_proxy_config_hostile_is_fast(tmp_path: Path) -> None:
             "p.conf": text,
         })
         ctx, files = files_of(root)
-        started = time.perf_counter()
-        found = compose.parse(files, ctx)
-        took = time.perf_counter() - started
+        found, took = timed(partial(compose.parse, files, ctx), time_limit())
         assert took < time_limit(), f"{kind}: {took:.2f} с"
         assert sum(len(u.links) for u in found.units) <= 200
+
+
+def _envoy_model(tmp_path: Path, use_git: bool) -> Model:
+    repo = tmp_path / ("git" if use_git else "plain")
+    shutil.copytree(FIXTURES / "compose-envoy", repo)
+    (repo / ".env").write_text("FRONTEND_HOST=frontend\n", encoding="utf-8")
+    git(repo, "init", "-q")
+    git(repo, "add", "-A")
+    git(repo, "add", "-f", ".env")
+    git(repo, "commit", "-qm", "init")
+    return _dotenv_model(repo, use_git=use_git)
+
+
+def test_envoy_proxy_by_dockerfile(tmp_path: Path) -> None:
+    """Прокси Envoy по базовому образу Dockerfile, конфигурация из COPY (ТЗ §15 п. 16 С1).
+    Найдено в OpenTelemetry Demo: compose.yaml:324 frontend-proxy с образом
+    ${IMAGE_NAME}:${DEMO_VERSION}-frontend-proxy, сборка src/frontend-proxy/Dockerfile
+    (FROM envoyproxy/envoy, COPY ./src/frontend-proxy/envoy.tmpl.yaml), в нём кластеры с
+    socket_address address: ${FRONTEND_HOST}, окружение «- FRONTEND_HOST» со значением в
+    закоммиченном .env. Связи — кластеры load_assignment и старые hosts, подстановки из
+    окружения единицы и .env. Ловушки: адрес слушателя (frontend, строка 6) и admin
+    (0.0.0.0) связей не дают; 127.0.0.1 и нераскрытая ${ADMIN_HOST} связей не дают; файл
+    ранней стадии (extra.yaml), файл не из COPY (envoy.dev.yaml) и конфигурация сервиса не
+    прокси (api/sidecar.yaml за FROM python) не читаются; файл из COPY, которого нет в
+    обходе (overrides.yaml), даёт подсказку; без git .env не читается и ${FRONTEND_HOST} не
+    раскрывается."""
+    model = _envoy_model(tmp_path, use_git=True)
+    assert {o.name for o in model.objects} == {"proxy", "frontend", "api"}
+    links = {
+        (lk.src.name, lk.dst.name): (lk.technology, sorted(str(loc) for loc in lk.locs))
+        for lk in model.links
+    }
+    assert links == {
+        # compose.yaml:7 — адрес в окружении API_HOST=api, как и раньше.
+        ("proxy", "api"): ("HTTP", ["compose.yaml:7", "proxy/envoy.yaml:29", "proxy/envoy.yaml:35"]),
+        ("proxy", "frontend"): ("HTTP", ["proxy/envoy.yaml:18"]),
+    }
+    assert [(h["name"], h["reason"], h["source"]) for h in model.hints["unparsed"]] == [
+        ("proxy/overrides.yaml", texts.REASON_PROXY_COPY_MISSING, "proxy/Dockerfile:9"),
+    ]
+    plain = _envoy_model(tmp_path, use_git=False)
+    assert {(lk.src.name, lk.dst.name) for lk in plain.links} == {("proxy", "api")}
+
+
+def test_proxy_kind_by_image_and_dockerfile(tmp_path: Path) -> None:
+    """Вид прокси по образу и по базовому образу последней стадии Dockerfile (С1): свой тег
+    со сборкой на nginx читает свой том как прокси, а сервис на образе словаря не прокси
+    (postgres) своим Dockerfile в прокси не превращается."""
+    assert [proxyconf.proxy_kind(i) for i in (
+        "envoyproxy/envoy:v1.30", "nginx:1.27", "openresty/openresty", "caddy:2",
+        "haproxy:3", "traefik:v3", "postgres:16", "shop/web:1.0",
+    )] == ["envoy", "nginx", "nginx", "caddy", "haproxy", "traefik", None, None]
+    root = tree(tmp_path, {
+        "compose.yaml": "services:\n"
+        "  web:\n    image: shop/web:1.0\n    build: ./web\n"
+        "    volumes:\n      - ./web/site.conf:/etc/nginx/conf.d/default.conf\n"
+        "  db:\n    image: postgres:16\n    build: ./db\n"
+        "    volumes:\n      - ./db/proxy.conf:/etc/proxy.conf\n"
+        "  api:\n    image: shop/api:1.0\n",
+        "web/Dockerfile": "FROM node:22 AS build\nRUN npm ci\nFROM nginx:1.27-alpine\n",
+        "web/site.conf": "server {\n  location /api {\n    proxy_pass http://api:8000;\n  }\n}\n",
+        "db/Dockerfile": "FROM nginx:1.27\n",
+        "db/proxy.conf": "proxy_pass http://api:8000;\n",
+    })
+    found = _parse(root)
+    assert [(lk.src, lk.dst, str(lk.loc)) for u in found.units for lk in u.links] == [
+        ("web", "api", "web/site.conf:3"),
+    ]
+
+
+def test_envoy_hostile_is_fast(tmp_path: Path) -> None:
+    """Враждебный вход Envoy (С1). Обход кластеров по разобранному документу предельного
+    размера YAML (десятки тысяч кластеров без раскрывшихся адресов) — в пределе с запасом;
+    файл больше предела YAML непрочитан. Dockerfile прокси в 2 МБ (сто тысяч COPY, строка с
+    миллионом источников): смотрится не больше 200 источников, разбор в пределе."""
+    budget = MAX_YAML_BYTES - 200
+    cluster = "    - hosts: [{socket_address: {address: '${B}'}}]\n"
+    endpoint = (
+        "    - load_assignment: {endpoints: [{lb_endpoints: [{endpoint: {address: "
+        "{socket_address: {address: 127.0.0.1}}}}]}]}\n"
+    )
+    for item in (cluster, endpoint):
+        docs = load_all("static_resources:\n  clusters:\n" + item * (budget // len(item)))
+        got, took = timed(partial(lambda d: list(proxyconf.envoy_addresses(d)), docs), time_limit())
+        assert took < 0.7 * time_limit(), f"{took:.2f} с"
+        assert len(got) == budget // len(item)
+    compose_text = "services:\n  proxy:\n    build: ./p\n  a:\n    image: shop/a\n"
+    big = tree(tmp_path / "big", {
+        "compose.yaml": compose_text,
+        "p/Dockerfile": "FROM envoyproxy/envoy:v1.30\nCOPY envoy.yaml /etc/envoy/\n",
+        "p/envoy.yaml": "static_resources:\n  clusters:\n" + cluster * (MAX_YAML_BYTES // len(cluster)),
+    })
+    ctx, files = files_of(big)
+    assert compose.parse(files, ctx).hints == [] and files.too_large == {"p/envoy.yaml"}
+    dockerfiles = {
+        "copies": "".join(f"COPY c{i}.yaml /e/\n" for i in range(100_000)),
+        "sources": "COPY " + "a.yaml " * 290_000 + "/e/\n",
+    }
+    for kind, text in dockerfiles.items():
+        root = tree(tmp_path / kind, {
+            "compose.yaml": compose_text,
+            "p/Dockerfile": "FROM envoyproxy/envoy:v1.30\n" + text,
+        })
+        ctx, files = files_of(root)
+        found, took = timed(partial(compose.parse, files, ctx), time_limit())
+        assert took < 0.7 * time_limit(), f"{kind}: {took:.2f} с"
+        assert len(found.hints) <= 200

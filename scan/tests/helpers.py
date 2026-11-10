@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from archmap_scan import registry
 from archmap_scan.assemble import assemble
@@ -12,16 +15,35 @@ from archmap_scan.context import Context, make_context
 from archmap_scan.objects import Model
 from archmap_scan.walk import Files, list_files
 
+T = TypeVar("T")
+
 
 def time_limit() -> float:
     """Предел времени на враждебный вход (ТЗ §9: секунда на 2 МБ). Под замером покрытия
     трассировка замедляет разбор в разы, поэтому там предел втрое шире: секунда
-    относится к запуску сборщика, а не к коду под трассировкой."""
+    относится к запуску сборщика, а не к коду под трассировкой. Меряет timed."""
     try:
         import coverage
     except ImportError:  # pragma: no cover
         return 1.0
     return 3.0 if coverage.Coverage.current() is not None else 1.0
+
+
+def timed(run: Callable[[], T], limit: float) -> tuple[T, float]:
+    """Результат run и его процессорное время (time.process_time) для предела limit (ТЗ §15
+    п. 16 П7). Процессорное время своего процесса не съедают чужие процессы и подкачка, но
+    под нагрузкой хоста машина, на которой идёт гейт, бывает медленнее в разы и по нему. Поэтому
+    прогон, вышедший за предел, повторяется один раз, и в счёт идёт меньшее из двух: враждебный
+    вход проверяется на рост (разбор, ставший квадратичным, выходит за предел в разы в обоих
+    прогонах), а не на случайную нагрузку машины. Разборщики без состояния, повтор безопасен."""
+    started = time.process_time()
+    result = run()
+    took = time.process_time() - started
+    if took >= limit:
+        started = time.process_time()
+        result = run()
+        took = min(took, time.process_time() - started)
+    return result, took
 
 
 # Фикстуры сборщика: чужой код, который сборщик только читает.

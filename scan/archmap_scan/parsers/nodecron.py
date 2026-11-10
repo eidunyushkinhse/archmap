@@ -30,7 +30,7 @@ import re
 from archmap_scan import clike, codebase, codetext, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
-from archmap_scan.model import CodeSchedule, Findings, Hint, Loc
+from archmap_scan.model import CodeSchedule, Findings, Loc, schedule_hint
 from archmap_scan.parsers import nest
 from archmap_scan.walk import Files
 
@@ -77,10 +77,12 @@ class _File:
     def loc(self, pos: int) -> Loc:
         return Loc(self.rel, self.code.line(pos))
 
-    def hint(self, name: str, reason: str, pos: int) -> None:
-        self.found.hints.append(Hint("dynamic_names", {
-            "kind": "schedule", "name": name, "reason": reason, "source": str(self.loc(pos)),
-        }))
+    def hint(self, expression: str, reason: str, pos: int, task: str) -> None:
+        """Расписание выражением: имя и расписание подсказки — выражение как написано, задача
+        та же, что была бы у записи (ТЗ §15 п. 16 П3)."""
+        self.found.hints.append(schedule_hint(
+            expression, reason, self.loc(pos), schedule=expression, task=task,
+        ))
 
     def add(self, name: str, schedule: str, pos: int) -> None:
         self.found.schedules.append(CodeSchedule(
@@ -148,7 +150,7 @@ def _decorators(f: _File) -> None:
             name = method.group(1) if method is not None else str(f.loc(m.start()))
         if schedule is None:
             if hint is not None:
-                f.hint(hint, reason, m.start())
+                f.hint(hint, reason, m.start(), name)
             continue
         f.add(name, schedule, m.start())
 
@@ -161,10 +163,6 @@ def _constructors(f: _File) -> None:
         if lit is None and (path is None or "." not in path.group()):
             continue  # параметр обёртки или выражение: не расписание этого места
         schedule, hint, reason = f.expression(m.end())
-        if schedule is None:
-            if hint is not None and reason == texts.REASON_SCHEDULE_CONFIG:
-                f.hint(hint, reason, m.start())
-            continue
         name = str(f.loc(m.start()))
         after = lit.end() if lit is not None else path.end() if path is not None else m.end()
         comma = _COMMA.match(mask, after)
@@ -172,6 +170,10 @@ def _constructors(f: _File) -> None:
             job = _PATH.match(mask, comma.end())
             if job is not None and _ARG_END.match(mask, job.end()):
                 name = " ".join(f.code.text[job.start():job.end()].split()).removeprefix("this.")
+        if schedule is None:
+            if hint is not None and reason == texts.REASON_SCHEDULE_CONFIG:
+                f.hint(hint, reason, m.start(), name)
+            continue
         f.add(name, schedule, m.start())
 
 
@@ -264,15 +266,16 @@ def _objects(f: _File) -> None:
         elif label is None:
             name = _tick_name(f, keys["onTick"])
         at = label.start() if label is not None else expr.start()
+        task = name or str(f.loc(at))
         if expr.group(2) != ":":
-            f.hint(expr.group(1), texts.REASON_SCHEDULE_VARIABLE, expr.start())
+            f.hint(expr.group(1), texts.REASON_SCHEDULE_VARIABLE, expr.start(), task)
             continue
         schedule, hint, reason = f.expression(_skip(mask, expr.end()))
         if schedule is None:
             if hint is not None:
-                f.hint(hint, reason, expr.start())
+                f.hint(hint, reason, expr.start(), task)
             continue
-        f.add(name or str(f.loc(at)), schedule, at)
+        f.add(task, schedule, at)
 
 
 def _skip(mask: str, pos: int) -> int:

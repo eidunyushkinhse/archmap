@@ -27,7 +27,9 @@ redis → sidekiq «доставляет»). ArchMap при ввозе отме�
 уходит в hints.unassigned, а канал при этом пишется.
 
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
-нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
+нескольких — у Celery beat единственный, чья команда (со скриптами репозитория, которые она
+запускает) запускает celery beat (ТЗ §15 п. 16 П1), иначе единственный с ролью
+«планировщик»; иначе оно уходит в hints.unassigned.
 Воркеров из кода сборщик не заводит: только из манифестов. Запись с программой-исполнителем
 (runner: классы воркеров и расписание Sidekiq) получает среди контейнеров файла тот, чья
 команда запускает эту программу (bundle exec sidekiq), а не контейнер по роли (ТЗ §15 п. 13
@@ -49,7 +51,7 @@ from collections.abc import Sequence
 
 from archmap_scan import codebase, owners, registry, secrets, texts, vocab
 from archmap_scan.links import hosts_in
-from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc
+from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc, hint_fields
 from archmap_scan.objects import (
     BROKER,
     SHAPE_ORDER,
@@ -62,7 +64,7 @@ from archmap_scan.objects import (
     Param,
     Schedule,
 )
-from archmap_scan.parsers import celery
+from archmap_scan.parsers import celery, celerybeat
 
 EnvOf = dict[str, list[tuple[EnvVar, str]]]
 # Вид клиента → технологии брокера, который его обслуживает.
@@ -94,8 +96,20 @@ _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
 
 
 def _runs(obj: Obj, program: str) -> bool:
-    """Команда одного из манифестов объекта запускает программу (bundle exec sidekiq)."""
-    return any(vocab.command_program(u.command) == program for u in obj.units)
+    """Команда одного из манифестов объекта или скрипта репозитория, который она запускает
+    (owners.unit_commands, ТЗ §15 п. 16 П1), запускает программу (bundle exec sidekiq)."""
+    return any(
+        vocab.command_program(c) == program
+        for u in obj.units for c in owners.unit_commands(u, obj.units)
+    )
+
+
+def _runs_beat(obj: Obj) -> bool:
+    """Команда объекта (и скриптов, которые она запускает) запускает планировщик Celery:
+    celery … beat, -B или --beat (ТЗ §15 п. 16 П1)."""
+    return any(
+        vocab.runs_celery_beat(c) for u in obj.units for c in owners.unit_commands(u, obj.units)
+    )
 
 
 def _runner(
@@ -131,12 +145,11 @@ def _process_owner(containers: Sequence[Obj], process: str) -> Obj | None:
 
 
 def _serves_http(obj: Obj) -> bool:
+    """Команда объекта или скрипта, который она запускает, запускает веб-сервер."""
     return any(
-        u.command and (
-            _WEB_WORDS & set(_WORDS.findall(u.command.lower()))
-            or _RAILS_SERVER.search(u.command.lower()) is not None
-        )
+        _WEB_WORDS & set(_WORDS.findall(c.lower())) or _RAILS_SERVER.search(c.lower()) is not None
         for u in obj.units
+        for c in owners.unit_commands(u, obj.units)
     )
 
 
@@ -160,8 +173,14 @@ def route_owner(path: str, containers: Sequence[Obj]) -> tuple[Obj | None, str |
     return None, texts.REASON_MANY_OWNERS
 
 
-def _unassigned(model: Model, kind: str, name: str, reason: str, loc: Loc) -> None:
-    model.hint("unassigned", {"kind": kind, "name": name, "reason": reason, "source": str(loc)})
+def _unassigned(
+    model: Model, kind: str, name: str, reason: str, loc: Loc, **fields: str | None,
+) -> None:
+    """Запись без владельца; fields — метод маршрута, выражение и задача расписания (ТЗ §15
+    п. 16 П3), пустые не пишутся."""
+    model.hint("unassigned", {
+        "kind": kind, "name": name, "reason": reason, "source": str(loc), **hint_fields(**fields),
+    })
 
 
 def _tooling(model: Model, family: str, parser: str, loc: Loc) -> str | None:
@@ -188,11 +207,17 @@ def _routes(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
         seen.add(key)
         aside = _tooling(model, "http_routes", route.parser, route.loc)
         if aside is not None:
-            _unassigned(model, "route", f"{route.method} {route.path}", aside, route.loc)
+            _unassigned(
+                model, "route", f"{route.method} {route.path}", aside, route.loc,
+                method=route.method,
+            )
             continue
         owner, why = route_owner(route.loc.path, containers)
         if owner is None:
-            _unassigned(model, "route", f"{route.method} {route.path}", why or "", route.loc)
+            _unassigned(
+                model, "route", f"{route.method} {route.path}", why or "", route.loc,
+                method=route.method,
+            )
             continue
         model.http.setdefault(owner.name, []).append(HttpEntry(
             method=route.method, path=route.path, framework=route.framework, loc=route.loc,
@@ -205,20 +230,23 @@ def _routes(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
 def _merge(param: Param, reads: list[CodeParam]) -> None:
     """Чтения параметра в коде дополняют запись из манифестов: места в основания, дефолт
     и тип — если их ещё нет (дефолт по правилу секретов), required — если ни одно
-    чтение не даёт дефолта, а хотя бы одно без значения не обходится."""
+    чтение не даёт дефолта, а хотя бы одно без значения не обходится. Запись файла
+    настроек (from_file, ТЗ §15 п. 16 Р1) сливается с чтением того же имени, как пример
+    окружения с кодом: дефолт сначала из файла, тип сначала из кода."""
     reads = sorted(reads, key=lambda r: r.loc)
     for read in reads:
         param.locs.add(read.loc)
         param.locs.update(read.extra_locs)
         param.parsers.add(read.parser)
     if param.default is None:
-        for read in reads:
+        for read in sorted(reads, key=lambda r: not r.from_file):
             safe = secrets.safe_default(param.name, read.default)
             if safe is not None:
                 param.default = safe
                 break
     if param.type is None:
-        param.type = next((r.type for r in reads if r.type), None)
+        by_code = sorted(reads, key=lambda r: r.from_file)
+        param.type = next((r.type for r in by_code if r.type), None)
     if param.description is None:
         param.description = next((r.description for r in reads if r.description), None)
     if not any(r.has_default for r in reads) and any(r.required for r in reads):
@@ -441,18 +469,28 @@ def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> N
         model.code_parsers.setdefault("schedules", set()).add(sch.parser)
         aside = _tooling(model, "schedules", sch.parser, sch.loc)
         if aside is not None:
-            _unassigned(model, "schedule", sch.name, aside, sch.loc)
+            _unassigned(
+                model, "schedule", sch.name, aside, sch.loc, schedule=sch.schedule, task=sch.task,
+            )
             continue
         found = owners.file_owners(sch.loc.path, containers)
+        beats = [o for o in found if _runs_beat(o)] if sch.parser == celerybeat.NAME else []
         if sch.runner:
             owner, why = _runner(sch.loc.path, sch.runner, found, containers)
+        elif beats:
+            # Расписание Celery beat исполняет контейнер, чья команда запускает celery beat
+            # (ТЗ §15 п. 16 П1); таких несколько — владелец не определим.
+            owner = beats[0] if len(beats) == 1 else None
+            why = texts.REASON_MANY_OWNERS
         else:
             owner = owners.primary(found, vocab.ROLE_SCHEDULER)
             why = texts.REASON_MANY_OWNERS if found else owners.missing_reason(
                 sch.loc.path, containers,
             )
         if owner is None:
-            _unassigned(model, "schedule", sch.name, why, sch.loc)
+            _unassigned(
+                model, "schedule", sch.name, why, sch.loc, schedule=sch.schedule, task=sch.task,
+            )
             continue
         model.schedules.setdefault(owner.name, []).append(Schedule(
             name=sch.name, schedule=sch.schedule, task=sch.task, loc=sch.loc, parser=sch.parser,

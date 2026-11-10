@@ -29,7 +29,7 @@ _ID = r"[A-Za-z_][A-Za-z0-9_]{0,99}"
 ARG = re.compile(
     rf"{SP}(?P<arg>@?\"[ ]*\"|{_ID}(?:[ \t]*\.[ \t]*{_ID}){{0,4}}){SP}(?P<end>[,)\]])"
 )
-_LITERAL = re.compile(r'@?"[ ]*"')
+LITERAL = re.compile(r'@?"[ ]*"')
 _NAME = re.compile(rf"{_ID}(?:[ \t]*\.[ \t]*{_ID}){{0,4}}")
 # Объявление строковой константы: «String ИМЯ = "…";» (модификатор проверяется по строке).
 _DECL = re.compile(rf"\b(?:String|string)[ \t]+({_ID})[ \t]*=[ \t]*(\"[ ]*\")[ \t]*;")
@@ -243,14 +243,28 @@ def hint(found: Findings, name: str, reason: str, rel: str, line: int) -> None:
     }))
 
 
+def arg_value(
+    code: codetext.Code, repo: Repo, rel: str, arg: re.Match[str],
+) -> tuple[str, list[Loc]] | None:
+    """Значение аргумента-имени arg (совпадение ARG) и места объявления константы: литерал
+    как есть, имя — константа репозитория; None — константы-литерала нет."""
+    start, end = arg.span("arg")
+    if LITERAL.fullmatch(code.mask, start, end):
+        return literal_value(code, start, end), []
+    hit = repo.resolve(rel, code.mask[start:end])
+    return None if hit is None else (hit[0], [hit[1]])
+
+
 def read(
     found: Findings, repo: Repo, code: codetext.Code, rel: str, at: int,
     arg: re.Match[str] | None, parser: str, valid: re.Pattern[str], *,
     default: str | None = None, has_default: bool = False, required: bool | None = None,
-    type_: str | None = None,
+    type_: str | None = None, prefix: str = "",
 ) -> None:
     """Чтение параметра с аргументом-именем arg (совпадение ARG) на позиции at: литерал —
-    параметр, имя — константа репозитория или подсказка, прочее выражение — подсказка."""
+    параметр, имя — константа репозитория или подсказка, прочее выражение — подсказка.
+    prefix ставится перед именем: «ConnectionStrings:» у GetConnectionString, раздел у
+    чтения из переменной раздела (ТЗ §15 п. 16 Р1)."""
     line = code.line(at)
     if arg is None:
         expr = code.expression(at)
@@ -258,15 +272,11 @@ def read(
         hint(found, expr, reason, rel, line)
         return
     start, end = arg.span("arg")
-    extra: list[Loc] = []
-    if _LITERAL.fullmatch(code.mask, start, end):
-        value = literal_value(code, start, end)
-    else:
-        hit = repo.resolve(rel, code.mask[start:end])
-        if hit is None:
-            hint(found, code.text[start:end][:80], texts.REASON_DYNAMIC_PARAM, rel, line)
-            return
-        value, extra = hit[0], [hit[1]]
+    got = arg_value(code, repo, rel, arg)
+    if got is None:
+        hint(found, code.text[start:end][:80], texts.REASON_DYNAMIC_PARAM, rel, line)
+        return
+    value, extra = prefix + got[0], got[1]
     if not valid.fullmatch(value):
         hint(found, code.text[start:end][:80], texts.REASON_DYNAMIC_PARAM, rel, line)
         return

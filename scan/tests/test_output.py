@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
 from archmap_scan import __version__, texts
@@ -207,6 +208,146 @@ def test_hints_share_one_key_set(tmp_path: Path) -> None:
     # Проверка не пустая: подсказки нашлись в большинстве разделов.
     assert {"depends_on", "dynamic_names", "unassigned", "profiles", "openapi_files", "clients",
             "unparsed", "shared_code"} <= seen
+
+
+HINT_APP = """from fastapi import APIRouter, FastAPI
+app = FastAPI()
+router = APIRouter()
+STATUS = "/status"
+
+
+@app.get(STATUS)
+def status():
+    return 1
+
+
+@router.api_route(STATUS, methods=METHODS)
+def any_status():
+    return 1
+"""
+HINT_BEAT = (
+    "from celery import Celery\n"
+    'app = Celery("proj")\n'
+    'app.conf.beat_schedule = {"close-day": {"task": "proj.close", "schedule": 300},\n'
+    "    NAME: {'task': 'proj.open', 'schedule': crontab(hour=6)}}\n"
+)
+
+
+def test_hint_record_fields(tmp_path: Path) -> None:
+    """Поля записи в подсказке (ТЗ §15 п. 16 П3): маршрут с путём выражением несёт метод,
+    если регистрация его называет (ANY не пишется), маршрут без владельца — метод,
+    расписание без владельца — настоящее расписание и задачу. Ключи после общих в порядке
+    method, schedule, task."""
+    out = _scan(tree(tmp_path / "repo", {
+        "docker-compose.yml": (
+            "services:\n  web:\n    build: ./app\n    command: uvicorn proj.api:app\n"
+            "  worker:\n    build: ./app\n    command: celery -A proj worker\n"
+        ),
+        "app/requirements.txt": "fastapi\ncelery\n",
+        "app/proj/api.py": HINT_APP,
+        "app/proj/celery_app.py": HINT_BEAT,
+        "lib/requirements.txt": "fastapi\n",
+        "lib/shared.py": 'from fastapi import FastAPI\napp = FastAPI()\n\n@app.post("/x")\ndef x():\n    return 1\n',
+    }), tmp_path / "out")
+    hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
+    routes = [h for h in hints["dynamic_names"] if h["kind"] == "route"]
+    assert routes == [
+        {"kind": "route", "name": "STATUS", "reason": texts.REASON_DYNAMIC_ROUTE,
+         "source": "app/proj/api.py:12"},
+        {"kind": "route", "name": "STATUS", "reason": texts.REASON_DYNAMIC_ROUTE,
+         "source": "app/proj/api.py:7", "method": "GET"},
+    ]
+    unassigned = {h["kind"]: h for h in hints["unassigned"]}
+    assert list(unassigned["route"].items()) == [
+        ("kind", "route"), ("name", "POST /x"), ("reason", texts.REASON_SHARED_LIB),
+        ("source", "lib/shared.py:4"), ("method", "POST"),
+    ]
+    assert list(unassigned["schedule"].items()) == [
+        ("kind", "schedule"), ("name", "close-day"), ("reason", texts.REASON_MANY_OWNERS),
+        ("source", "app/proj/celery_app.py:3"), ("schedule", "300"), ("task", "proj.close"),
+    ]
+    # Имя выражением: расписание и задача известны и записаны.
+    assert [h for h in hints["dynamic_names"] if h["kind"] == "schedule"] == [{
+        "kind": "schedule", "name": "NAME", "reason": texts.REASON_DYNAMIC_SCHEDULE,
+        "source": "app/proj/celery_app.py:4", "schedule": "crontab(hour=6)", "task": "proj.open",
+    }]
+
+
+ROUTE_METHOD_CASES: dict[str, tuple[str, dict[str, str | bytes], list[tuple[str, str | None]]]] = {
+    # Метод назван регистрацией — пишется; app.all, HandleFunc, match, MapMethods, @All и
+    # #[route] метода не называют (ANY), поле не пишется.
+    "express": ("express", {
+        "package.json": '{"dependencies": {"express": "4"}}\n',
+        "app.js": "const express = require('express');\nconst app = express();\n"
+        "app.get(PATH, h);\napp.all(OTHER, h);\n",
+    }, [("PATH", "GET"), ("OTHER", None)]),
+    "nest": ("nest", {
+        "package.json": '{"dependencies": {"@nestjs/core": "10"}}\n',
+        "src/a.controller.ts": "@Controller('a')\nexport class A {\n  @Post(ROUTE)\n  create() {}\n"
+        "  @All(OTHER)\n  any() {}\n}\n",
+    }, [("ROUTE", "POST"), ("OTHER", None)]),
+    "gohttp": ("gohttp", {
+        "go.mod": "module x\n\nrequire github.com/go-chi/chi/v5 v5.0.0\n",
+        "main.go": "package main\nfunc main() {\n\tr := chi.NewRouter()\n\tr.Put(pathVar, h)\n"
+        "\tr.HandleFunc(other, h)\n}\n",
+    }, [("pathVar", "PUT"), ("other", None)]),
+    "rails_routes": ("rails_routes", {
+        "Gemfile": 'gem "rails"\n',
+        "config/routes.rb": "Rails.application.routes.draw do\n  delete path_var, to: 'a#b'\n"
+        "  match other, to: 'a#c', via: :get\nend\n",
+    }, [("path_var", "DELETE"), ("other", None)]),
+    "aspnet": ("aspnet", {
+        "App/App.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
+        "App/Program.cs": "app.MapPatch(Route, () => 1);\n"
+        'app.MapMethods(Other, new[] { "GET" }, () => 1);\n',
+    }, [("Route", "PATCH"), ("Other", None)]),
+    "actix": ("actix", {
+        "Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\n',
+        "src/main.rs": '#[get(PATH)]\nasync fn a() {}\n#[route(OTHER, method = "GET")]\nasync fn b() {}\n',
+    }, [("PATH", "GET"), ("OTHER", None)]),
+}
+
+
+@pytest.mark.parametrize("case", sorted(ROUTE_METHOD_CASES))
+def test_route_hint_method(tmp_path: Path, case: str) -> None:
+    """Метод в подсказке о маршруте с путём выражением у каждого разборщика маршрутов кода
+    (ТЗ §15 п. 16 П3)."""
+    import importlib
+
+    from tests.helpers import files_of
+
+    module, files_, want = ROUTE_METHOD_CASES[case]
+    parser = importlib.import_module(f"archmap_scan.parsers.{module}")
+    ctx, files = files_of(tree(tmp_path, files_))
+    found = parser.parse(files, ctx)
+    assert found.routes == []
+    assert [(h.data["name"], h.data.get("method")) for h in found.hints] == want
+
+
+def test_summary_dynamic_only_family(tmp_path: Path) -> None:
+    """Семья, в которой нашлись только записи с выражением (immich: расписания из
+    конфигурации), в «Искали и не нашли» не входит: о ней говорит строка «заданным
+    выражением в коде»; статус в coverage.yaml остаётся empty (ТЗ §15 п. 16 П3)."""
+    out = _scan(tree(tmp_path / "repo", {
+        "package.json": '{"dependencies": {"cron": "3"}}\n',
+        "Dockerfile": 'FROM node:22\nCOPY . /app\nCMD ["node", "index.js"]\n',
+        "src/jobs.ts": (
+            "import { CronJob } from 'cron';\n"
+            "const job = new CronJob(this.config.backup.cron, this.backup);\n"
+        ),
+    }), tmp_path / "out")
+    summary = _read(out, "summary.txt")
+    empty = [line for line in summary.splitlines() if line.startswith("Искали и не нашли")]
+    assert not any("расписания" in line for line in empty), empty
+    assert texts.dynamic_line("schedules", 1) in summary
+    coverage = yaml.safe_load(_read(out, "coverage.yaml"))
+    assert coverage["families"]["schedules"]["status"] == "empty"
+    hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
+    assert hints["dynamic_names"] == [{
+        "kind": "schedule", "name": "this.config.backup.cron",
+        "reason": texts.REASON_SCHEDULE_CONFIG, "source": "src/jobs.ts:2",
+        "schedule": "this.config.backup.cron", "task": "backup",
+    }]
 
 
 def test_shared_params_line_only_for_shared_code(tmp_path: Path) -> None:

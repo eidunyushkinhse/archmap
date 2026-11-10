@@ -1,0 +1,3 @@
+#!/bin/sh
+rm -f celerybeat.pid || echo "нет pid"
+celery -A app beat

@@ -2,9 +2,11 @@
 
 - `#[envconfig(from = "X", default = "v")]` над полем структуры: параметр X с дефолтом v;
   без `from` — имя поля в верхнем регистре; `nested = true` — вложенная структура, не
-  параметр. Тип — по типу поля (u16, usize, i64, NonZero… — int, bool, f64 — float,
-  Duration — duration, иначе string), `Option<…>` не обязателен, поле без дефолта и не
-  Option обязательно;
+  параметр. Поле без атрибута envconfig в структуре с `#[derive(… Envconfig …)]` — тоже
+  параметр с именем поля в верхнем регистре, без дефолта, обязателен, если не `Option<…>`
+  (ТЗ §15 п. 16 Р3); поля структур без этого derive не читаются. Тип — по типу поля (u16,
+  usize, i64, NonZero… — int, bool, f64 — float, Duration — duration, иначе string),
+  `Option<…>` не обязателен, поле без дефолта и не Option обязательно;
 - clap: `#[arg(…, env = "X", default_value = "v")]` и `#[clap(…)]` с `default_value_t =
   литерал` — так же по полю;
 - `std::env::var("X")`, `env::var("X")`, `std::env::var_os("X")`: дефолт из
@@ -32,8 +34,18 @@ from archmap_scan.model import CodeParam, Findings, Hint, Loc
 from archmap_scan.walk import Files
 
 NAME = "rust-env"
-_NEEDLES = ("envconfig", "env::var", "env!(", "#[arg(", "#[clap(")
+_NEEDLES = ("envconfig", "Envconfig", "env::var", "env!(", "#[arg(", "#[clap(")
 _ATTR = re.compile(r"#[ \t]*\[[ \t]*(envconfig|arg|clap)[ \t]*\(")
+# Структура envconfig (Р3): derive со словом Envconfig, затем struct с телом в фигурных скобках.
+_DERIVE = re.compile(r"#[ \t]*\[[ \t]*derive[ \t]*\((?P<list>[^()\[\]]{0,500})\)[ \t]*\]")
+_ENVCONFIG = re.compile(r"\bEnvconfig\b")
+_STRUCT = re.compile(
+    r"(?:pub(?:[ \t]*\([^()\n]{0,40}\))?[ \t]+)?struct[ \t]+[A-Za-z_][A-Za-z0-9_]{0,99}"
+    r"(?:[ \t]*<[^<>{};]{0,200}>)?[ \t\r\n]*\{"
+)
+_FIELD_ATTR = re.compile(r"#[ \t]*\[[ \t]*envconfig\b")
+_SPACE = re.compile(r"[ \t\r\n]*")
+_TYPE_STOP = re.compile(r"[,<>()\[\]{}-]")
 _CALL = re.compile(r"\benv[ \t]*::[ \t]*(var|var_os)[ \t]*\(")
 _MACRO = re.compile(r"\b(option_env|env)[ \t]*![ \t]*\(")
 _ARG = re.compile(rf"{SP}(?P<arg>{STR})?{SP}(?P<end>[,)])")
@@ -182,6 +194,90 @@ def _attr(code: codetext.Code, rel: str, m: re.Match[str], found: Findings) -> N
     ))
 
 
+def _after_attributes(mask: str, pos: int, limit: int) -> tuple[int, bool] | None:
+    """Позиция после пробелов и атрибутов «#[…]» с pos (не дальше limit) и признак атрибута
+    envconfig среди них; None — атрибут не закрыт."""
+    envconfig = False
+    pos = _SPACE.match(mask, pos, limit).end()  # type: ignore[union-attr]
+    while mask.startswith("#", pos) and pos < limit:
+        bracket = mask.find("[", pos, pos + 5)
+        end = _close(mask, bracket + 1, "[", "]", _MAX_ATTR) if bracket >= 0 else None
+        if end is None:
+            return None
+        envconfig = envconfig or _FIELD_ATTR.match(mask, pos) is not None
+        pos = _SPACE.match(mask, end, limit).end()  # type: ignore[union-attr]
+    return pos, envconfig
+
+
+def _type_end(mask: str, pos: int, end: int) -> int:
+    """Конец типа поля с pos: запятая вне скобок или конец тела end; «->» скобкой не
+    считается. Поиск прыжками по знакам _TYPE_STOP."""
+    depth = 0
+    while True:
+        stop = _TYPE_STOP.search(mask, pos, end)
+        if stop is None:
+            return end
+        ch, at = stop.group(), stop.start()
+        if ch == "-":
+            pos = at + 2 if mask.startswith("->", at) else at + 1
+            continue
+        if ch in "<([{":
+            depth += 1
+        elif ch in ">)]}":
+            depth -= 1
+        elif depth <= 0:
+            return at
+        pos = at + 1
+
+
+def _struct(
+    code: codetext.Code, rel: str, m: re.Match[str], limit: int, found: list[CodeParam],
+) -> bool:
+    """Поля без атрибута envconfig в структуре с derive(Envconfig) (ТЗ §15 п. 16 Р3): имя
+    поля в верхнем регистре, тип по полю, обязательно, если не Option. Поля с атрибутом
+    читает _attr. Тело ищется до limit (следующего derive: структура в структуре не
+    объявляется). False — полей больше clike.MAX_READS: враждебный вход."""
+    if _ENVCONFIG.search(m.group("list")) is None:
+        return True
+    mask = code.mask
+    head = _after_attributes(mask, m.end(), min(limit, m.end() + _MAX_GAP))
+    if head is None:
+        return True
+    struct = _STRUCT.match(mask, head[0], limit)
+    if struct is None:
+        return True
+    close = _close(mask, struct.end(), "{", "}", limit - struct.end())
+    if close is None:
+        return True
+    end = close - 1
+    pos = struct.end()
+    fields = 0
+    while pos < end:
+        field = _after_attributes(mask, pos, end)
+        if field is None:
+            return True
+        pos, envconfig = field
+        if pos >= end:
+            return True
+        name = _FIELD.match(mask, pos)
+        if name is None:
+            return True
+        fields += 1
+        if fields > clike.MAX_READS:
+            return False
+        type_end = _type_end(mask, name.end(), end)
+        if not envconfig:
+            var = name.group(1).upper()
+            type_, optional = _type(" ".join(mask[name.end():type_end].split()))
+            if _VAR.fullmatch(var):
+                found.append(CodeParam(
+                    name=var, loc=Loc(rel, code.line(name.start(1))), parser=NAME,
+                    required=not optional, type=type_,
+                ))
+        pos = type_end + 1
+    return True
+
+
 def _call(code: codetext.Code, rel: str, m: re.Match[str], found: Findings) -> None:
     mask = code.mask
     arg = _ARG.match(mask, m.end())
@@ -248,11 +344,24 @@ def test_modules(mask: str) -> list[tuple[int, int]]:
 def _scan(files: Files, code: codetext.Code, rel: str, found: Findings) -> None:
     tests = test_modules(code.mask) if "cfg" in code.mask else []
     starts = [a for a, _ in tests]
+
+    def outside(pos: int) -> bool:
+        k = bisect_right(starts, pos) - 1
+        return k < 0 or pos >= tests[k][1]
+
     for pattern, handle in ((_ATTR, _attr), (_CALL, _call), (_MACRO, _macro)):
         for m in clike.matches(files, rel, pattern, code.mask) or []:
-            k = bisect_right(starts, m.start()) - 1
-            if k < 0 or m.start() >= tests[k][1]:
+            if outside(m.start()):
                 handle(code, rel, m, found)
+    derives = clike.matches(files, rel, _DERIVE, code.mask) or []
+    fields: list[CodeParam] = []
+    for i, m in enumerate(derives):
+        limit = derives[i + 1].start() if i + 1 < len(derives) else len(code.mask)
+        if outside(m.start()) and not _struct(code, rel, m, limit, fields):
+            # Структура с тысячами полей: враждебный вход, файл непрочитан.
+            files.refuse(rel)
+            return
+    found.code_params.extend(fields)
 
 
 def parse(files: Files, ctx: Context) -> Findings:

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -11,7 +11,7 @@ import yaml
 
 from archmap_scan import registry
 from archmap_scan.scan import Options, run
-from tests.helpers import files_of, tree
+from tests.helpers import files_of, timed, tree
 
 PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
@@ -83,9 +83,7 @@ def test_every_parser_survives_in_a_second(tmp_path: Path, kind: str) -> None:
     tree(tmp_path, _variant(kind))
     ctx, files = files_of(tmp_path)
     for spec in registry.PARSERS:
-        started = time.perf_counter()
-        spec.parse(files, ctx)
-        took = time.perf_counter() - started
+        _found, took = timed(partial(spec.parse, files, ctx), 1.0)
         assert took < 1.0, f"{spec.name}: {took:.2f} с"
 
 
@@ -107,9 +105,8 @@ def test_yaml_bomb_and_whole_run(tmp_path: Path) -> None:
         "api/openapi.yaml": "openapi: 3.0.0\n" + bomb,
         "package.json": "[" * 1_000_000,
     })
-    started = time.perf_counter()
-    run(Options(path=str(tmp_path / "repo"), out=str(tmp_path / "out"), use_git=False))
-    assert time.perf_counter() - started < 2.0
+    options = Options(path=str(tmp_path / "repo"), out=str(tmp_path / "out"), use_git=False)
+    assert timed(partial(run, options), 2.0)[1] < 2.0
     coverage = yaml.safe_load((tmp_path / "out" / "coverage.yaml").read_text(encoding="utf-8"))
     assert all(f["status"] != "error" for f in coverage["families"].values())
     hints = yaml.safe_load((tmp_path / "out" / "agent" / "hints.yaml").read_text(encoding="utf-8"))

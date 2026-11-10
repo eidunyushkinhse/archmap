@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from archmap_scan import codebase, pyast, pycode, texts
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
 
 # Сколько разных префиксов держать у одного роутера (подключён в нескольких местах) и
@@ -138,7 +138,8 @@ class _Collector:
             if var is not None:
                 mod.objects[var] = ("app" if name in fl.apps else "router", prefix)
 
-    def _path(self, mod: _Module, call: ast.Call) -> str | None:
+    def _path(self, mod: _Module, call: ast.Call, methods: list[str] | None = None) -> str | None:
+        """Путь регистрации; не строкой — подсказка с методом, если он один (П3)."""
         raw = pycode.arg(call, 0)
         if raw is None:
             for kw in self.flavor.path_kws:
@@ -149,7 +150,7 @@ class _Collector:
             return None
         path = pycode.string(raw)
         if path is None:
-            self._dynamic(mod, raw)
+            self._dynamic(mod, raw, methods[0] if methods and len(methods) == 1 else None)
             return None
         if path and not path.startswith("/"):
             return None  # не путь маршрута: у FastAPI и Flask путь начинается с «/»
@@ -174,7 +175,7 @@ class _Collector:
             methods = self._methods(dec)
         else:
             return
-        path = self._path(mod, dec)
+        path = self._path(mod, dec, methods)
         if path is None:
             return
         target = self._ref(mod, dec.func.value)
@@ -183,11 +184,12 @@ class _Collector:
 
     def _rule(self, mod: _Module, call: ast.Call) -> None:
         assert isinstance(call.func, ast.Attribute)
-        path = self._path(mod, call)
+        methods = self._methods(call)
+        path = self._path(mod, call, methods)
         if path is None:
             return
         target = self._ref(mod, call.func.value)
-        for method in self._methods(call):
+        for method in methods:
             mod.decls.append(_Decl(target, method, path, Loc(mod.rel, call.lineno)))
 
     def _mount(self, mod: _Module, call: ast.Call) -> None:
@@ -220,7 +222,7 @@ class _Collector:
 
         def visit(call: ast.Call, kind: str, prefix: str) -> None:
             seen.add(id(call))
-            path = self._path(mod, call)
+            path = self._path(mod, call, self._methods(call) if kind == "Route" else None)
             if path is None:
                 return
             if kind == "Route":
@@ -259,12 +261,11 @@ class _Collector:
         name = pycode.dotted(node)
         return (mod.rel, name) if name is not None else None
 
-    def _dynamic(self, mod: _Module, node: ast.AST) -> None:
-        self.found.hints.append(Hint("dynamic_names", {
-            "kind": "route", "name": pycode.short(node),
-            "reason": pycode.dynamic_reason(node, texts.REASON_DYNAMIC_ROUTE),
-            "source": str(Loc(mod.rel, getattr(node, "lineno", 1))),
-        }))
+    def _dynamic(self, mod: _Module, node: ast.AST, method: str | None = None) -> None:
+        self.found.hints.append(route_hint(
+            pycode.short(node), pycode.dynamic_reason(node, texts.REASON_DYNAMIC_ROUTE),
+            Loc(mod.rel, getattr(node, "lineno", 1)), method,
+        ))
 
     # Сборка по всем файлам
 

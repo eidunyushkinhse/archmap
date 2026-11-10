@@ -3,13 +3,14 @@ Zulip 93 таблицы ушли в hints.unassigned без колонок)."""
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import yaml
 
 from archmap_scan import dialect, texts
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, model_of, tree
+from tests.helpers import FIXTURES, model_of, timed, tree
 
 DJANGO_MIGRATION = (
     "from django.db import migrations, models\n\n\n"
@@ -104,18 +105,18 @@ def test_dialect_helpers() -> None:
     assert dialect.sql_types("int") is None
 
 
-def test_dialect_hostile_in_time() -> None:
-    import time
+def _dialect_all(text: str) -> None:
+    dialect.sql_types(text)
+    dialect.django_engine(text)
+    dialect.url_literal(text)
+    dialect.alembic_url(text)
 
+
+def test_dialect_hostile_in_time() -> None:
     payloads = ("SERIA" * 400_000, '"ENGINE": "' + "a" * 2_000_000, "postgresql+" * 200_000,
                 "sqlalchemy.url = " + "x" * 2_000_000)
     for text in payloads:
-        started = time.perf_counter()
-        dialect.sql_types(text)
-        dialect.django_engine(text)
-        dialect.url_literal(text)
-        dialect.alembic_url(text)
-        assert time.perf_counter() - started < 1.0
+        assert timed(partial(_dialect_all, text), 1.0)[1] < 1.0
 
 
 def test_sqlite_as_settings_default(tmp_path: Path) -> None:

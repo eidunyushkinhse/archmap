@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -14,7 +14,7 @@ from archmap_scan import stats
 from archmap_scan.model import Package
 from archmap_scan.parsers import manifests
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, timed, tree
 
 
 def _packages() -> dict[str, Package]:
@@ -86,9 +86,10 @@ def test_code_unsupported_stacks() -> None:
     # Sidekiq из кода не заводятся.
     assert stacks["channels"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
     assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
-    # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler — sidekiq,
-    # clokwerk — clokwerk (ТЗ §15 п. 15 Л3): Rust в расписаниях не назван.
-    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP", "Ruby"]
+    # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler и sidekiq-cron —
+    # sidekiq (ТЗ §15 п. 16 П2), clokwerk — clokwerk (п. 15 Л3): Rust и Ruby в расписаниях не
+    # названы.
+    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP"]
     assert stacks["tables"] == ["Ecto", "Kysely"]
 
 
@@ -100,9 +101,8 @@ def test_pom_with_doctype_is_refused() -> None:
 def test_oversized_manifest_is_named_not_parsed(tmp_path: Path) -> None:
     tree(tmp_path, {"pyproject.toml": '[project]\nname = "' + "a" * 600_000 + '"\n'})
     ctx, files = files_of(tmp_path)
-    started = time.perf_counter()
-    found = manifests.parse(files, ctx)
-    assert time.perf_counter() - started < 0.1
+    found, took = timed(partial(manifests.parse, files, ctx), 0.1)
+    assert took < 0.1
     assert found.packages == []
     assert [h.data["reason"] for h in found.hints] == ["манифест сборки больше предела разбора"]
 

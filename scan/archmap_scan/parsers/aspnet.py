@@ -15,8 +15,12 @@ builder) — корень, получатель не имя (цепочка вы
 шаблона — путь префикса; `[Route("x")]` метода без глагола — ANY. `[controller]` — имя класса
 без суффикса Controller как написано, `[action]` — имя метода без суффикса Async (так их
 подставляет ASP.NET Core). Контроллер без `[Route]` у класса и метода идёт по маршруту по
-соглашению: путь `/Контроллер/действие` с `prefix_unresolved`, шаблон соглашения
-(MapControllerRoute) не читается.
+соглашению (ТЗ §15 п. 16 П5): шаблон берётся из любого файла того же проекта
+(`MapDefaultControllerRoute()` — `{controller=Home}/{action=Index}/{id?}`,
+`MapControllerRoute` — аргумент `pattern:` или второй по счёту литерал), первый шаблон без
+`{area`; `{controller}` и `{action}` подставляются, необязательные `{x?}` отбрасываются,
+остальное как написано. Шаблона нет или он не литерал — путь `/Контроллер/действие` с
+`prefix_unresolved`, как раньше.
 
 Путь интерполированной строкой `$"…{x}…"`, константой или выражением — подсказка о
 динамическом пути. Поиск по маске C# (codetext.CS); файлы `*Test.cs`, `*Tests.cs`, `*.Tests*` и
@@ -33,7 +37,7 @@ from dataclasses import dataclass, field
 from archmap_scan import clike, codebase, codetext, paths, texts, vocab
 from archmap_scan.codetext import SP
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Route
+from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
 
 NAME = "aspnet"
@@ -63,6 +67,12 @@ _ARG_END = re.compile(r"[()\[\]{},]")
 # Сколько разделителей смотреть в аргументах одного вызова MapMethods.
 _MAX_TOKENS = 200
 _NEEDLES = (".Map", "Http", "Route")
+# Шаблоны маршрутов по соглашению (П5).
+_CONVENTION = re.compile(r"\.[ \t]*Map(Default)?ControllerRoute[ \t]*\(")
+_DEFAULT_TEMPLATE = "{controller=Home}/{action=Index}/{id?}"
+_LABEL = re.compile(rf"[ \t\r\n]*({_ID})[ \t\r\n]*:(?!:)")
+_TEMPLATE_TOKEN = re.compile(r"\{([^{}]{0,200})\}")
+_TOKEN_NAME = re.compile(r"[=:?]")
 _TEST_FILE = re.compile(r"(?:Tests?\.cs|\.Tests?\.[^/]*)$")
 _KEYWORDS = frozenset({"if", "for", "foreach", "while", "switch", "using", "lock", "return", "new"})
 
@@ -91,6 +101,9 @@ class _File:
     # литералом)]; вызов берёт последнее присваивание до себя.
     groups: dict[str, list[tuple[int, str | None, str | None]]] = field(default_factory=dict)
     count: int = 0
+    # Маршруты по соглашению ждут шаблона проекта (П5): (метод, контроллер, действие, место).
+    conventional: list[tuple[str, str, str, Loc]] = field(default_factory=list)
+    templates: list[str | None] = field(default_factory=list)  # шаблоны файла, None — не литерал
 
     def matches(self, pattern: re.Pattern[str]) -> list[re.Match[str]]:
         found = clike.matches(self.files, self.rel, pattern, self.code.mask)
@@ -116,11 +129,19 @@ def _literal(f: _File, start: int, end: int) -> str | None:
     return clike.literal_value(f.code, start, end)
 
 
-def _dynamic(f: _File, at: int, expr_at: int) -> None:
-    f.found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": f.code.expression(expr_at), "reason": texts.REASON_DYNAMIC_ROUTE,
-        "source": str(Loc(f.rel, f.code.line(at))),
-    }))
+def _dynamic(f: _File, at: int, expr_at: int, method: str | None = None) -> None:
+    f.found.hints.append(route_hint(
+        f.code.expression(expr_at), texts.REASON_DYNAMIC_ROUTE, Loc(f.rel, f.code.line(at)),
+        method,
+    ))
+
+
+def _map_method(kind: str) -> str | None:
+    """Метод вызова Map<kind>: MapHealthChecks — GET, у MapMethods и MapGroup метод в
+    имени не назван."""
+    if kind == "HealthChecks":
+        return "GET"
+    return None if kind in ("Methods", "Group") else kind.upper()
 
 
 def _add(f: _File, method: str, path: str, at: int, unresolved: bool = False) -> None:
@@ -228,11 +249,11 @@ def _minimal(f: _File) -> None:
             f.groups.setdefault(name, []).append((m.start(), recv, path))
             continue
         if arg is None:
-            _dynamic(f, m.start(), m.end())
+            _dynamic(f, m.start(), m.end(), _map_method(kind))
             continue
         path = _literal(f, m.start("arg"), m.end("arg"))
         if path is None or code.joined(m.start("arg"), m.end("arg")):
-            _dynamic(f, m.start(), m.start("arg"))
+            _dynamic(f, m.start(), m.start("arg"), _map_method(kind))
             continue
         base, ok = _prefix(f, recv, m.start())
         full = _join(base, path)
@@ -242,8 +263,7 @@ def _minimal(f: _File) -> None:
             for method in dict.fromkeys(methods or ["ANY"]):
                 _add(f, method, full, m.start(), not ok)
             continue
-        method = "GET" if kind == "HealthChecks" else kind.upper()
-        _add(f, method, full, m.start(), not ok)
+        _add(f, _map_method(kind) or "ANY", full, m.start(), not ok)
 
 
 # Контроллеры
@@ -366,7 +386,7 @@ def _action(f: _File, cls: _Class, name: str, at: int) -> None:
         if m.group("arg") is not None:
             template = _literal(f, m.start("arg"), m.end("arg"))
             if template is None:
-                _dynamic(f, m.start(), m.start("arg"))
+                _dynamic(f, m.start(), m.start("arg"), m.group(1).upper())
                 return
         verbs.append((m.group(1).upper(), template, m.start()))
     for m in _ROUTE_ATTR.finditer(mask, start, end):
@@ -402,9 +422,90 @@ def _action(f: _File, cls: _Class, name: str, at: int) -> None:
         elif tpl is not None:
             path = _join(_token(tpl, controller, action))
         else:
-            # Маршрут по соглашению: шаблон регистрирует MapControllerRoute, его не читаем.
-            path, unresolved = _join(controller, action), True
+            # Маршрут по соглашению: шаблон проекта подставит parse после всех файлов (П5).
+            f.count += 1
+            if f.count > clike.MAX_READS:
+                raise _TooMany
+            f.conventional.append((method, controller, action, Loc(f.rel, f.code.line(pos))))
+            continue
         _add(f, method, path, pos, unresolved)
+
+
+def _call_args(mask: str, pos: int) -> list[tuple[int, int]] | None:
+    """Аргументы вызова от позиции после «(»: границы каждого аргумента своего уровня.
+    Вызов не закрыт за _MAX_TOKENS разделителей или 2000 знаков — None."""
+    out: list[tuple[int, int]] = []
+    depth = 0
+    start = pos
+    for n, m in enumerate(_ARG_END.finditer(mask, pos, min(len(mask), pos + 2000))):
+        if n > _MAX_TOKENS:
+            return None
+        tok = m.group()
+        if tok in "([{":
+            depth += 1
+        elif tok in ")]}":
+            if depth == 0:
+                out.append((start, m.start()))
+                return out
+            depth -= 1
+        elif depth == 0:
+            out.append((start, m.start()))
+            start = m.end()
+    return None
+
+
+def _arg_literal(f: _File, start: int, end: int) -> str | None:
+    """Значение аргумента [start, end), если он строковый литерал целиком; иначе None."""
+    mask = f.code.mask
+    lo, hi = start, end
+    while lo < hi and mask[lo] in " \t\r\n":
+        lo += 1
+    while hi > lo and mask[hi - 1] in " \t\r\n":
+        hi -= 1
+    if re.fullmatch(_STR, mask[lo:hi]) is None:
+        return None
+    return _literal(f, lo, hi)
+
+
+def _templates(f: _File) -> None:
+    """Шаблоны маршрутов по соглашению файла по порядку (П5): MapDefaultControllerRoute() —
+    шаблон по умолчанию, MapControllerRoute — аргумент pattern: или второй позиционный."""
+    mask = f.code.mask
+    for m in f.matches(_CONVENTION):
+        if m.group(1):
+            f.templates.append(_DEFAULT_TEMPLATE)
+            continue
+        args = _call_args(mask, m.end())
+        if args is None:
+            f.templates.append(None)
+            continue
+        template: tuple[int, int] | None = None
+        positional = 0
+        for start, end in args:
+            label = _LABEL.match(mask, start, end)
+            if label is not None:
+                if label.group(1) == "pattern":
+                    template = (label.end(), end)
+                continue
+            if positional == 1 and template is None:
+                template = (start, end)
+            positional += 1
+        f.templates.append(_arg_literal(f, *template) if template is not None else None)
+
+
+def _template_path(template: str, controller: str, action: str) -> str:
+    """Путь действия по шаблону соглашения: {controller} и {action} — имена, {x?} —
+    отбрасывается, остальное как написано."""
+    def token(m: re.Match[str]) -> str:
+        body = m.group(1)
+        name = _TOKEN_NAME.split(body, 1)[0].strip().lower()
+        if name == "controller":
+            return controller
+        if name == "action":
+            return action
+        return "" if body.endswith("?") else m.group(0)
+
+    return _join(*(_TEMPLATE_TOKEN.sub(token, seg) for seg in template.split("/")))
 
 
 def _test_file(rel: str) -> bool:
@@ -419,6 +520,8 @@ def parse(files: Files, ctx: Context) -> Findings:
     ):
         return found
     found.applied.add(NAME)
+    templates: dict[str, list[str | None]] = {}
+    pending: list[tuple[str, str, str, str, Loc]] = []
     for rel, text in codebase.sources(files, ctx, codebase.DOTNET, None, _NEEDLES):
         if _test_file(rel):
             continue
@@ -433,9 +536,44 @@ def parse(files: Files, ctx: Context) -> Findings:
         try:
             _minimal(f)
             _controllers(f, _classes(f))
+            _templates(f)
         except _TooMany:
             files.refuse(rel)
             continue
         found.routes.extend(part.routes)
         found.hints.extend(part.hints)
+        project = _project(files, ctx, rel)
+        templates.setdefault(project, []).extend(f.templates)
+        pending.extend((project, *item) for item in f.conventional)
+    _conventional(found, templates, pending)
     return found
+
+
+def _project(files: Files, ctx: Context, rel: str) -> str:
+    """Каталог проекта .NET файла: ближайший вверх каталог с .csproj."""
+    pkgs = codebase.owner_packages(files, ctx, rel, codebase.DOTNET)
+    own = [p for p in pkgs if p.kind == "csproj"] or pkgs
+    return own[0].dir if own else ""
+
+
+def _conventional(
+    found: Findings, templates: dict[str, list[str | None]],
+    pending: list[tuple[str, str, str, str, Loc]],
+) -> None:
+    """Маршруты по соглашению (П5): первый шаблон проекта без {area; шаблона нет или он не
+    литерал — /Контроллер/действие с prefix_unresolved, как раньше."""
+    chosen: dict[str, str | None] = {}
+    for project, items in templates.items():
+        chosen[project] = next(
+            (t for t in items if t is None or "{area" not in t.lower()), None,
+        )
+    for project, method, controller, action, loc in pending:
+        template = chosen.get(project)
+        if template is None:
+            path, unresolved = _join(controller, action), True
+        else:
+            path, unresolved = _template_path(template, controller, action), False
+        found.routes.append(Route(
+            method=method, path=path, loc=loc, framework=FRAMEWORK, parser=NAME,
+            prefix_unresolved=unresolved,
+        ))

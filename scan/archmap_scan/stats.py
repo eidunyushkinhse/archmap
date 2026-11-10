@@ -10,10 +10,11 @@ from archmap_scan.objects import BROKER, DATABASE, SERVICE, Model, Obj
 from archmap_scan.output.coverage import FamilyStat
 
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
-# Источники параметра, которые читают файлы каталога кода: чтения в коде и примеры
-# окружения. Окружение манифеста (compose, k8s) записано своему сервису и общим кодом не
-# бывает, даже если имя повторено через якоря YAML.
-_SHARED_PARAM_PARSERS = _CODE_PARSERS | {"env-example"}
+# Источники параметра, которые читают файлы каталога кода: чтения в коде, примеры
+# окружения и файлы настроек (appsettings.json и defaults.hjson, ТЗ §15 п. 16 Р1, Р2).
+# Окружение манифеста (compose, k8s) записано своему сервису и общим кодом не бывает, даже
+# если имя повторено через якоря YAML.
+_SHARED_PARAM_PARSERS = _CODE_PARSERS | {"env-example", "appsettings", "hjson"}
 # Семьи яруса кода: им считается пропущенный код в каталогах для разработки (ТЗ §4).
 _DEV_CODE_FAMILIES = ("config", "channels", "http_routes", "schedules")
 
@@ -275,9 +276,9 @@ def code_unsupported(
         ("workers", vocab.UNSUPPORTED_WORKER_DEPS), ("schedules", vocab.UNSUPPORTED_SCHEDULE_DEPS),
     )
     # Языки без чтения кода по семьям: язык, код на котором семья читает по стеку пакета
-    # (vocab.family_language: маршруты Rails, ASP.NET Core, actix-web, расписания clokwerk),
-    # языком не называется; его стеки без разборщика названы по vocab.UNSUPPORTED_ROUTE_DEPS
-    # и UNSUPPORTED_SCHEDULE_DEPS.
+    # (vocab.family_language: маршруты Rails, ASP.NET Core, actix-web, расписания clokwerk и
+    # Sidekiq), языком не называется; его стеки без разборщика названы по
+    # vocab.UNSUPPORTED_ROUTE_DEPS и UNSUPPORTED_SCHEDULE_DEPS.
     unread: dict[str, list[str]] = {fam: [] for fam in _LANGUAGE_FAMILIES}
 
     def add(fam: str, name: str) -> None:

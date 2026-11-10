@@ -434,6 +434,9 @@ REASON_PROXY_OUTSIDE = "файл тома вне репозитория, кон�
 REASON_PROXY_MISSING = (
     "файл тома не найден среди файлов обхода, конфигурация прокси не прочитана"
 )
+REASON_PROXY_COPY_MISSING = (
+    "файл из COPY Dockerfile не найден среди файлов обхода, конфигурация прокси не прочитана"
+)
 # Compose по содержимому (ТЗ §13.3): файл не с именем compose, но в формате compose.
 REASON_EXTERNAL_REPO = "сервис из другого репозитория, объект для него сборщик не создаёт"
 # Склейка дублей (ТЗ §13.5): контейнер, слитый с другим.
@@ -567,6 +570,7 @@ def django_broken(migration: str, parent: str) -> str:
     return f"обрыв цепочки Django: миграция {migration} ссылается на неизвестную миграцию {parent}"
 REASON_OPENAPI_TOO_LARGE = "файл больше предела разбора YAML, операции не посчитаны"
 REASON_BAD_OPENAPI = "файл OpenAPI не разбирается"
+REASON_BAD_HJSON = "файл настроек hjson не разбирается или превышает пределы разбора"
 REASON_OPENAPI_REFS = "пути заданы ссылками, которые не удалось развернуть, операции не посчитаны"
 REASON_OPENAPI_FILE = "спецификацию сборщик не импортирует, её добавляют в разделе «OpenAPI» объекта"
 REASON_OPENAPI_FOREIGN = (
@@ -622,6 +626,10 @@ REASON_NO_RUNNER = "среди контейнеров файла нет проц
 REASON_NO_PROCESS = "процесс консьюмера {name} в манифестах не найден"
 # mount в маршрутах Rails (ТЗ §15 п. 15 К1): путь виден, маршрутов внутри сборщик не читает.
 REASON_RAILS_MOUNT = "движок Rails смонтирован по этому пути, его маршруты сборщик не читает"
+# devise_for в маршрутах Rails (ТЗ §15 п. 16 П6): модуль модели без известного набора
+# маршрутов (invitable) и devise_for без модели или без вызова devise в ней.
+REASON_DEVISE_MODULE = "модуль devise без известного набора маршрутов"
+REASON_DEVISE_MODEL = "модель devise не найдена"
 
 # Служебные каталоги, конфиги инструментов и переменные ОС (ТЗ §13.1): записи кода из них
 # не факты сервиса, а окружение разработчика и CI. Они не удаляются, а лежат в подсказках.
@@ -636,7 +644,7 @@ REASON_BUILD_VARIABLE = (
 )
 ASIDE_REASONS = frozenset({
     REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER, REASON_OS_VARIABLE,
-    REASON_BUILD_VARIABLE, REASON_RAILS_MOUNT,
+    REASON_BUILD_VARIABLE, REASON_RAILS_MOUNT, REASON_DEVISE_MODULE, REASON_DEVISE_MODEL,
 })
 TOOLING_REASONS = frozenset({REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER})
 

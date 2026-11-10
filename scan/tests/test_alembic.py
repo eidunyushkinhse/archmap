@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-import time
+from functools import partial
 from pathlib import Path
 
 import yaml
@@ -11,7 +11,7 @@ import yaml
 from archmap_scan.model import Table
 from archmap_scan.parsers import alembic
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, timed, tree
 
 Col = tuple[str, str | None, bool, bool | None, str | None]
 
@@ -199,7 +199,6 @@ def test_hostile_input_is_fast(tmp_path: Path) -> None:
     files["m/versions/huge.py"] = "revision = 'h'\ndown_revision = None\ns = '" + "x" * 2_000_000
     tree(tmp_path, files)
     ctx, found_files = files_of(tmp_path)
-    started = time.perf_counter()
-    found = alembic.parse(found_files, ctx)
-    assert time.perf_counter() - started < 1.0
+    found, took = timed(partial(alembic.parse, found_files, ctx), 1.0)
+    assert took < 1.0
     assert found.table_sets[0].error is None

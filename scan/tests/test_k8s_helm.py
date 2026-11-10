@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 from archmap_scan import texts
 from archmap_scan.parsers import helm, k8s
-from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 
 def test_k8s_units() -> None:
@@ -84,9 +84,9 @@ def test_helm_units_and_templates() -> None:
 def test_helm_mark_regex_on_hostile_text() -> None:
     """Признак Helm на враждебном тексте: длинные пробелы после «{{» и сплошные «{{»."""
     for text in ("{{" + " \t" * 1_000_000, "{{ " * 700_000, "{" * 2_000_000, "{{ Values" * 250_000):
-        started = time.perf_counter()
-        assert k8s._HELM.search(text) is None
-        assert time.perf_counter() - started < time_limit()
+        hit, took = timed(partial(k8s._HELM.search, text), time_limit())
+        assert hit is None
+        assert took < time_limit()
 
 
 def test_helm_rendered_output_not_read() -> None:
@@ -155,9 +155,8 @@ def test_network_policy_shared_label_is_fast(tmp_path: Path) -> None:
         "k8s/policy.yaml": policy,
     })
     ctx, files = files_of(root)
-    started = time.perf_counter()
-    found = k8s.parse(files, ctx)
-    assert time.perf_counter() - started < 10 * time_limit()
+    found, took = timed(partial(k8s.parse, files, ctx), 10 * time_limit())
+    assert took < 10 * time_limit()
     assert found.links == [] and len(found.hints) == 2000
 
 

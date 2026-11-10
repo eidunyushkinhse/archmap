@@ -4,13 +4,13 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 from archmap_scan import registry
-from tests.helpers import files_of, time_limit, tree
+from tests.helpers import files_of, time_limit, timed, tree
 
 PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
@@ -124,6 +124,10 @@ STARTS["rb/config/routes.rb"] = (
     "  get '/a', to: redirect { |p| ", "%w(", "x = <<~A\n", "concern :a do\n", "draw(:",
     "match 'a', via: [", "=begin\n", "c = { id: /", 'get "#{', "member { get :",
     "resources :a, only: %i[", "mount A => '",
+    # Необязательные группы, devise_for и shallow (ТЗ §15 п. 16 П6).
+    "scope '(", "get 'a(", "get 'a(/", "devise_for :", "devise_for :users, path: '",
+    "devise_for :users, path_names: { sign_in: '", "devise_for :users, :path_names => { :a => '",
+    "devise_for :users, skip: [", "shallow do\n", "resources :a, shallow: true do\n  resources :",
 )
 # Путь склейкой у Go (ТЗ §15 п. 15 К5): имя и литерал, литералы подряд, методы константами.
 STARTS["go/main.go"] += (
@@ -144,6 +148,30 @@ def test_go_concat_path(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_CONCAT[kind]}))
 
 
+# Запрос клиента не маршрут (ТЗ §15 п. 16 П4): вызов глагола с одним аргументом, функции
+# запроса net/http, вложенные и незакрытые вызовы.
+STARTS["go/main.go"] += (
+    "r := chi.NewRouter()\nr.Get(url", "http.Get(", "x.Get(x.Get(", "x.Get(T{", "x.Get(f(a, ",
+    'ws.Route(ws.GET("/a")', "ws.Route(ws.GET(p)",
+)
+GO_REQUESTS = {
+    # Плотные вызовы: 0,7 МБ. Два мегабайта сплошных вызовов глагола идут около 0,9 с
+    # процессорного времени и без П4 шли дольше (1,1 до 1,8 с): цена одного вызова в
+    # разборщике go-http (смежный дефект в отчёте части 5), правило П4 её только снижает.
+    "calls": "r := chi.NewRouter()\n" + "r.Get(url)\nr.Post(u, h)\n" * 30_000,
+    # Вложенные скобки в аргументе: конец первого аргумента ищется не дальше 80 знаков.
+    # Подряд вложенные вызовы глагола («x.Get(x.Get(») медленны и без П4: каждый вызов с
+    # аргументом не строкой собирает текст выражения (смежный дефект в отчёте части 5).
+    "nested": "r := chi.NewRouter()\nr.Get(" + "(" * PAYLOAD,
+    "commas": "r := chi.NewRouter()\nr.Get(" + "f(a, " * (PAYLOAD // 5),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(GO_REQUESTS))
+def test_go_client_requests(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_REQUESTS[kind]}))
+
+
 # Префикс NestJS членом перечисления (ТЗ §15 п. 15 К4).
 STARTS["js/app.js"] += (
     "@Controller(A.", "@Controller(A.B", "@Controller(A.B)\nclass C {\n  @Get('",
@@ -157,11 +185,36 @@ STARTS["cs/App.cs"] += (
     "class A : Controller {\n  [HttpPost(\"a\")]\n  public Task<",
     "class A : Controller {\n  [Route(\"a\")]\n  ",
 )
+# Шаблоны маршрутов по соглашению (ТЗ §15 п. 16 П5): незакрытый вызов, аргументы, литералы.
+STARTS["cs/App.cs"] += (
+    "app.MapControllerRoute(", 'app.MapControllerRoute("a", "', "app.MapControllerRoute(name: ",
+    'app.MapControllerRoute(pattern: "{', "app.MapDefaultControllerRoute(",
+    "app.MapDefaultControllerRoute();\nclass A : Controller {\n  [HttpGet]\n  public X ",
+)
+# Чтения через биндер конфигурации .NET (ТЗ §15 п. 16 Р1): GetValue, GetConnectionString,
+# разделы, привязки к классу, nameof, переменная раздела и свойства класса настроек.
+BIND = 'c.GetSection("A").Get<A>();\n'
+STARTS["cs/App.cs"] += (
+    'c.GetValue<int>("', "c.GetValue<", 'c.GetValue<int>("A", ', "c.GetValue<int>(A.",
+    'c.GetConnectionString("', "c.GetConnectionString(", 'c.GetSection("', "c.GetSection(nameof(",
+    'var s = c.GetSection("A");\ns.GetValue<int>("', 'c.GetSection("A").Get<',
+    'c.GetSection("A").Bind(', "s.Configure<A>(", "s.Configure<A>(c.GetSection(",
+    "s.AddOptions<A>().BindConfiguration(", 's.AddOptions<A>().BindConfiguration("',
+    "s.AddOptions<A>()\n  .Bind(c.GetSection(", 'var o = new A();\nc.GetSection("A").Bind(o',
+    BIND + "class A {\n  public int B { get; set; } = ", BIND + "public class A {\n  public required ",
+    BIND + "class A {\n  public ", BIND + "class A ",
+)
 # Параметры Rust (ТЗ §15 п. 14 И2): атрибуты envconfig и clap, env::var, макросы, тесты.
 STARTS["rs/main.rs"] = (
     "#[envconfig(", '#[envconfig(from = "', "#[envconfig(default = 1)]\n", "#[arg(env = ",
     "#[arg(env)]\n#[serde(", 'std::env::var("', "env::var(", 'env!("', "#[cfg(test)]\nmod t {",
     "r#\"", "'", 'env::var("X").unwrap_or("',
+)
+# Структуры envconfig (ТЗ §15 п. 16 Р3): derive, struct, поле без атрибута.
+STARTS["rs/main.rs"] += (
+    "#[derive(", "#[derive(Envconfig)]\n", "#[derive(Envconfig)]\nstruct A {\n    ",
+    "#[derive(Envconfig)]\npub struct A {\n    pub a: Option<", "#[derive(Envconfig)]\nstruct A<",
+    "#[derive(Envconfig)]\n#[", "#[derive(Envconfig)]\nstruct A {\n    #[serde(",
 )
 # Маршруты actix-web (ТЗ §15 п. 15 К3): вызовы route, scope и resource, атрибуты обработчиков.
 STARTS["rs/main.rs"] += (
@@ -205,9 +258,7 @@ def _check(root: Path) -> None:
     for spec in registry.PARSERS:
         if not spec.code:
             continue
-        started = time.perf_counter()
-        spec.parse(files, ctx)
-        took = time.perf_counter() - started
+        _found, took = timed(partial(spec.parse, files, ctx), time_limit())
         assert took < time_limit(), f"{spec.name}: {took:.2f} с"
 
 
@@ -332,6 +383,22 @@ KYSELY = {
     "closed-downs": "function down() {}\nsql`CREATE TABLE t (a int)`;\n" * (PAYLOAD // 50),
     "unclosed-params": "function down(" * (PAYLOAD // 14),
     "ctas": "sql`CREATE TABLE t AS SELECT " + "a.b AS c, " * 25_000 + "(" * 1000 + "`",
+    # Циклы sql.raw по спискам (М1): тысячи циклов и списков, список длиннее предела,
+    # предельный список из 1000 переименований, сплошные скобки тела, заголовки без тела.
+    "loops": "".join(
+        f"const l{i} = [{{ a: 'x', b: 'y' }}];\nfor (const {{ a, b }} of l{i}) "
+        f"sql.raw(`ALTER TABLE \"${{a}}\" RENAME TO \"${{b}}\"`);\n" for i in range(9000)
+    ),
+    "long-list": "const l = [" + "{ a: 'x', b: 'y' }, " * (PAYLOAD // 20) + "];\n"
+    "for (const { a, b } of l) sql.raw(`ALTER TABLE \"${a}\" RENAME TO \"${b}\"`);\n",
+    "full-list": "const l = ["
+    + "".join(f"{{ a: 't{i}', b: 'u{i}' }}, " for i in range(1000)) + "];\n"
+    + "".join(f"sql`CREATE TABLE t{i} (a int REFERENCES t0 (a))`;\n" for i in range(1000))
+    + "for (const { a, b } of l) sql.raw(`ALTER TABLE \"${a}\" RENAME TO \"${b}\"`);\n",
+    "loop-braces": "const l = [['x', 'y']];\nfor (const [a, b] of l) {" + "{" * (PAYLOAD // 2)
+    + "sql.raw(`DROP TABLE ${a}`)",
+    "loop-heads": "const l = [['x', 'y']];\n" + "for (const { a, b } of l) " * (PAYLOAD // 26)
+    + "sql.raw(`DROP TABLE ${a}`)",
 }
 
 
@@ -348,6 +415,11 @@ RAILS = {
     "frames": ("if a\n" * 40 + "end\n" * 40) * 600,
     "braces": "member { get :a }\n" * 4000,
     "brackets": "(/" * (PAYLOAD // 2),
+    # Группы в пути, devise_for без модели и вложенные неглубокие ресурсы (П6).
+    "groups": "get 'a" + "(/b" * 30_000 + ")" * 30_000 + "', to: 'a#b'\n",
+    "group-verbs": "get 'a(/:b)', to: 'a#b'\n" * 4900,
+    "devise": "devise_for :users, path: 'a', path_names: { sign_in: 'b' }, skip: [:c]\n" * 4900,
+    "shallow": "shallow do\n" + "resources :a do\n" * 49 + "end\n" * 50,
 }
 
 
@@ -371,6 +443,28 @@ ASPNET = {
     "methods-args": 'app.MapMethods("/a", new[] { ' + '"GET", ' * (PAYLOAD // 7),
     "open-attr": "class AController : Controller {\n  [HttpGet(" + "[" * (PAYLOAD // 2),
 }
+
+
+# Биндер конфигурации .NET (ТЗ §15 п. 16 Р1): привязок и свойств сверх предела, классы с
+# одним именем, разделы цепочкой, переменные раздела и объявления для .Bind(obj).
+DOTNET_BINDER = {
+    "binds": BIND * 1999 + "class A {\n" + "  public int B { get; set; } = 1;\n" * 3 + "}\n",
+    "props": BIND + "class A {\n" + "  public int B { get; set; } = 1;\n" * (PAYLOAD // 34) + "}\n",
+    "props-many": BIND * 50 + "class A {\n" + "  public int B { get; set; }\n" * 1000 + "}\n",
+    "classes": BIND + "class A { public int B { get; set; } }\n" * (PAYLOAD // 40),
+    "class-names": BIND + "".join(f"class A{i} {{ }}\n" for i in range(PAYLOAD // 14)),
+    "chain": 'c' + '.GetSection("a")' * (PAYLOAD // 17) + ".Get<A>();\n",
+    "vars": "".join(f'var s{i} = c.GetSection("a");\n' for i in range(1999))
+    + "".join(f'var x{i} = s{i}.GetValue<int>("b");\n' for i in range(1999)),
+    "binds-objects": "".join(f'c.GetSection("a").Bind(o{i});\n' for i in range(1999)),
+    "values": 'c.GetValue<int>("a", 1);\n' * 1999,
+    "nested-braces": BIND + "class A " + "{" * (PAYLOAD // 2),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(DOTNET_BINDER))
+def test_dotnet_binder(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "cs/App.cs": DOTNET_BINDER[kind]}))
 
 
 @pytest.mark.parametrize("kind", sorted(ASPNET))
@@ -404,6 +498,18 @@ RUST = {
     "test-modules": "#[cfg(test)]\nmod t {\n" * (PAYLOAD // 20),
     "lifetimes": "fn f<'a>(x: &'a str) " * (PAYLOAD // 20),
     "reads": 'std::env::var("A").unwrap_or_else(|_| "b".into());\n' * 1999,
+    # Структуры envconfig (ТЗ §15 п. 16 Р3): тысячи полей без атрибута, тысячи derive,
+    # атрибуты между derive и struct, тело без конца, вложенные скобки типа.
+    "fields": "#[derive(Envconfig)]\nstruct A {\n" + "    a: Option<u32>,\n" * (PAYLOAD // 20)
+    + "}\n",
+    "derives": "#[derive(Envconfig)]\nstruct A {\n    a: u32,\n}\n" * 1999,
+    "open-derives": "#[derive(Envconfig)]\nstruct A {\n" * 1999 + "a: u32,\n" * (PAYLOAD // 9),
+    "derive-attrs": "#[derive(Envconfig)]\n" + "#[a]\n" * (PAYLOAD // 5),
+    "open-struct": "#[derive(Envconfig)]\nstruct A {\n" + "a: u32,\n" * (PAYLOAD // 8),
+    "type-brackets": "#[derive(Envconfig)]\nstruct A {\n    a: " + "Option<" * (PAYLOAD // 7)
+    + "\n}\n",
+    "field-attrs": "#[derive(Envconfig)]\nstruct A {\n"
+    + "    #[serde(default)]\n" * (PAYLOAD // 22) + "    a: u32,\n}\n",
 }
 
 

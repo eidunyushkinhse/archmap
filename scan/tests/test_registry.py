@@ -3,14 +3,13 @@ kafka, rabbitmq, celery и nats (pyregistry.py)."""
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from archmap_scan import pyregistry, stats, texts
 from archmap_scan.model import Findings
 from archmap_scan.objects import BROKER
 from archmap_scan.parsers import celery, kafka, nats, rabbitmq
-from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Row = tuple[str, str, str, str | None, str]
 
@@ -315,10 +314,11 @@ def test_registry_name_last_word_and_camel_case() -> None:
 
 
 def test_name_words_on_hostile_name() -> None:
-    started = time.perf_counter()
-    for name in ("A" * 2_000_000 + "b", "aB" * 1_000_000, "_" * 2_000_000):
-        pyregistry.name_words(name)
-    assert time.perf_counter() - started < time_limit()
+    def run() -> None:
+        for name in ("A" * 2_000_000 + "b", "aB" * 1_000_000, "_" * 2_000_000):
+            pyregistry.name_words(name)
+
+    assert timed(run, time_limit())[1] < time_limit()
 
 
 def test_module_constants_registry() -> None:

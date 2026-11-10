@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 from pathlib import Path
 
 from archmap_scan import owners, registry, stats, texts, vocab, walk
 from archmap_scan.assemble import assemble
 from archmap_scan.objects import Model, Obj
 from archmap_scan.walk import Files
-from tests.helpers import FIXTURES, ctx_of, files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, ctx_of, files_of, model_of, time_limit, timed, tree
 
 
 def _obj(model: Model, name: str) -> Obj:
@@ -424,9 +424,9 @@ def test_dev_procfile_on_hostile_makefile(tmp_path: Path) -> None:
         + "X=" * 200_000 + "\n",
     })
     _ctx, files = files_of(tmp_path)
-    started = time.perf_counter()
-    assert walk.dev_procfile(files, "Procfile") is None
-    assert time.perf_counter() - started < time_limit()
+    sign, took = timed(partial(walk.dev_procfile, files, "Procfile"), time_limit())
+    assert sign is None
+    assert took < time_limit()
 
 
 def test_suffixed_dockerfile_owns_no_code(tmp_path: Path) -> None:
@@ -566,12 +566,15 @@ def test_init_tasks_are_not_services() -> None:
     assert vocab.init_image("prometheuscommunity/postgres-exporter") is None
 
     # Враждебная команда на 2 МБ: слова считаются до предела, ключ оболочки без регулярки.
-    started = time.perf_counter()
-    for command in ("-" + "c" * 2_000_000 + "!", "sh -" + "c" * 2_000_000 + " postgres",
-                    "psql " * 400_000, "-c " * 700_000):
-        vocab.starts_server("PostgreSQL", command)
-    assert vocab.init_task_name("x-" * 1_000_000) is False
-    assert time.perf_counter() - started < time_limit()
+    def run() -> bool:
+        for command in ("-" + "c" * 2_000_000 + "!", "sh -" + "c" * 2_000_000 + " postgres",
+                        "psql " * 400_000, "-c " * 700_000):
+            vocab.starts_server("PostgreSQL", command)
+        return vocab.init_task_name("x-" * 1_000_000)
+
+    named, took = timed(run, time_limit())
+    assert named is False
+    assert took < time_limit()
 
 
 def test_image_vocabulary_and_redis_queue_broker() -> None:
@@ -615,11 +618,12 @@ def test_image_dictionary_by_name_part() -> None:
 
 def test_image_dictionary_hostile_is_fast() -> None:
     """Имя образа на 2 МБ из частей словаря и разделителей разбирается за линейное время."""
-    started = time.perf_counter()
-    for image in ("redis-" * 300_000 + "client", "-_" * 1_000_000, "postgres_" * 200_000,
-                  "x/" * 500_000 + "clickhouse-" * 100_000):
-        vocab.image_kind(image)
-    assert time.perf_counter() - started < time_limit()
+    def run() -> None:
+        for image in ("redis-" * 300_000 + "client", "-_" * 1_000_000, "postgres_" * 200_000,
+                      "x/" * 500_000 + "clickhouse-" * 100_000):
+            vocab.image_kind(image)
+
+    assert timed(run, time_limit())[1] < time_limit()
 
 
 def test_queue_broker_by_manifest_next_to_dockerfile() -> None:

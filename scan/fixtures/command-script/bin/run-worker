@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+help () {
+  echo "--with-scheduler  celery beat рядом с воркером"
+}
+if [ "$1" = "--with-scheduler" ]; then
+  ./bin/run-beat &
+fi
+X=1
+celery -A app worker
+./bin/run-worker

@@ -19,7 +19,7 @@ import re
 from archmap_scan import clike, codebase, codetext, gocode, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
-from archmap_scan.model import CodeSchedule, Findings, Hint, Loc
+from archmap_scan.model import CodeSchedule, Findings, Loc, schedule_hint
 from archmap_scan.walk import Files
 
 NAME = "go-cron"
@@ -93,14 +93,14 @@ def _scan(files: Files, code: codetext.Code, rel: str, found: Findings) -> None:
             continue
         loc = Loc(rel, code.line(m.start()))
         schedule, variable = _spec(code, consts, start, spec_end)
-        if schedule is None:
-            found.hints.append(Hint("dynamic_names", {
-                "kind": "schedule", "name": variable, "reason": texts.REASON_SCHEDULE_VARIABLE,
-                "source": str(loc),
-            }))
-            continue
         job_at = _SPACES.match(mask, end + 1)
         name = _job(code, rel, job_at.end() if job_at is not None else end + 1, m.start())
+        if schedule is None:
+            # Задача подсказки та же, что была бы у записи (ТЗ §15 п. 16 П3).
+            found.hints.append(schedule_hint(
+                variable, texts.REASON_SCHEDULE_VARIABLE, loc, schedule=variable, task=name,
+            ))
+            continue
         found.schedules.append(CodeSchedule(
             name=name, schedule=schedule, task=name, loc=loc, parser=NAME,
         ))
