@@ -664,3 +664,13 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     дефолт, `.orElseThrow(f)` — обязательный, тип по обёртке снаружи `Optional`
     (`Integer.parseInt(x)` — int); другой вызов между ними (`.map(f)`) дефолта не даёт. Kotlin в
     непрочитанных параметрах больше не назван (`vocab.CONFIG_LANGUAGES`; Е3).
+  - связи из файлов настроек Spring (`parsers/springconf.py`, все документы, и профильные):
+    `uri` маршрутов Spring Cloud Gateway (`spring.cloud.gateway.routes`, `.server.webflux.routes`,
+    `.mvc.routes`, `.server.webmvc.routes`; у `.properties` ключ `routes[N].uri`), сервер
+    конфигурации (`spring.config.import` с `configserver:` и `optional:`, `spring.cloud.config.uri`)
+    и Eureka (`eureka.client.serviceUrl.defaultZone` и написания через `-`, адреса через запятую).
+    Начало связи — контейнер-владелец файла (как у маршрутов), конец — объект по хосту или
+    имени (`lb://orders`, `http://config:8888`), технология HTTP; та же пара из манифестов — одна
+    связь со всеми основаниями. Подстановка раскрывается дефолтом, без дефолта — подсказка;
+    хост не объект — подсказка «другой конец связи не объект схемы», `localhost` и IP — ни
+    связи, ни подсказки; не больше 2000 адресов на файл (С1).

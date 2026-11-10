@@ -101,7 +101,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
     ParserSpec(appsettings.NAME, ("config",), appsettings.parse),
     ParserSpec(hjson.NAME, ("config",), hjson.parse),
-    ParserSpec(springconf.NAME, ("config",), springconf.parse),
+    ParserSpec(springconf.NAME, ("config", "edges"), springconf.parse),
     ParserSpec(sql.NAME, ("tables",), sql.parse),
     ParserSpec(alembic.NAME, ("tables",), alembic.parse),
     ParserSpec(django.NAME, ("tables",), django.parse),

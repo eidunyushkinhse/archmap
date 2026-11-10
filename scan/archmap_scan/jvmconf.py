@@ -391,3 +391,37 @@ def _close(value: str, start: int, budget: list[int]) -> int:
         else:
             depth -= 1
     return -1
+
+
+def expand(value: str) -> str | None:
+    """Значение с подстановками, раскрытыми их дефолтами («${A:http://x:1}/p» —
+    «http://x:1/p», вложенные тоже); None — у подстановки нет дефолта или разбор вышел за
+    пределы (_close)."""
+    return _expand(value, 0, [_MAX_BRACES])
+
+
+def _expand(value: str, depth: int, budget: list[int]) -> str | None:
+    if "${" not in value:
+        return value
+    if depth > _MAX_NESTING:
+        return None
+    out: list[str] = []
+    i = 0
+    for _ in range(_MAX_PLACEHOLDERS):
+        start = value.find("${", i)
+        if start < 0:
+            out.append(value[i:])
+            return "".join(out)
+        close = _close(value, start + 2, budget)
+        if close < 0:
+            return None
+        _name, sep, default = value[start + 2:close].partition(":")
+        if not sep:
+            return None
+        inner = _expand(default, depth + 1, budget)
+        if inner is None:
+            return None
+        out.append(value[i:start])
+        out.append(inner)
+        i = close + 1
+    return None

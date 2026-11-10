@@ -180,6 +180,13 @@ SETTINGS_HOSTILE = {
     "yml:holes": "a: '" + "${" * ((MAX_YAML_BYTES - 100) // 2) + "'\n",
     "yml:documents": "a: 1\n---\n" * (MAX_YAML_BYTES // 10),
     "yml:nested": "a:\n" + "".join("  " * i + f"b{i}:\n" for i in range(1, 49)) + "  " * 49 + "c: 1\n",
+    # Адреса связей (С1): тысячи маршрутов шлюза, списки импорта и Eureka, подстановки в адресе.
+    "yml:routes": "spring.cloud.gateway.routes:\n" + "  - uri: lb://h\n" * ((MAX_YAML_BYTES - 100) // 16),
+    "properties:imports": "spring.config.import=" + "optional:configserver:http://a:1," * (_NEAR // 34),
+    "properties:import-braces": "spring.config.import=" + "${a," * (_NEAR // 4),
+    "properties:eureka": "eureka.client.serviceUrl.defaultZone=" + "http://a/," * (_NEAR // 10),
+    "properties:address-holes": "spring.cloud.config.uri=" + "${A:" * (_NEAR // 4),
+    "properties:route-keys": "".join(f"spring.cloud.gateway.routes[{i}].uri=lb://h\n" for i in range(4900)),
 }
 
 
