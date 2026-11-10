@@ -59,3 +59,23 @@ def test_lookup_file_package_repo(tmp_path: Path) -> None:
     assert value("a/src/use.ts", "TWICE") == "?"
     assert value("a/src/use.ts", "MISSING") is None
     assert value("b/src/other.ts", "SHARED") == "from-b"
+
+
+def test_index_does_not_count_dev_code(tmp_path: Path) -> None:
+    """Индекс экспортов проходит весь код Node.js, но пропуск кода для разработки в чужих
+    пакетах не записывается разборщику, который спросил константу первым: у redis-pubsub в
+    покрытии только файлы пакетов с клиентом Redis."""
+    from archmap_scan.parsers import redispubsub
+
+    ctx, files = files_of(tree(tmp_path, {
+        "a/package.json": '{"name": "a", "dependencies": {"ioredis": "*"}}',
+        "a/src/pub.ts": "import Redis from 'ioredis';\nredis.publish(CHANNEL, 1);\n",
+        "a/src/dev/tool.ts": "redis.publish('x', 1);\n",
+        "b/package.json": '{"name": "b"}',
+        "b/src/names.ts": "export const CHANNEL = 'events';\n",
+        "b/hack/run.ts": "export const OTHER = 'o';\n",
+    }))
+    files.dev_code = set()
+    found = redispubsub.parse(files, ctx)
+    assert [(u.name, str(u.loc)) for u in found.channels] == [("events", "a/src/pub.ts:2")]
+    assert files.dev_code == {"a/src/dev/tool.ts"}

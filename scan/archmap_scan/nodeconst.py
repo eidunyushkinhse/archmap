@@ -130,6 +130,10 @@ class Index:
     def _export_files(self) -> dict[str, list[str]]:
         if self._exports is None:
             index: dict[str, list[str]] = {}
+            # Пропуск кода для разработки при поиске констант в покрытие разборщика, который
+            # спросил первым, не идёт: его записей в этих файлах никто не искал (как у
+            # перечислений nest._enums).
+            kept, self.files.dev_code = self.files.dev_code, set()
             for rel in codebase.code_files(self.files, self.ctx, codebase.NODE):
                 text = self.files.read(rel, keep=False)
                 if text is None or "export const" not in text:
@@ -138,6 +142,7 @@ class Index:
                     rels = index.setdefault(m.group(1), [])
                     if (not rels or rels[-1] != rel) and len(rels) < _MAX_SAME_NAME:
                         rels.append(rel)
+            self.files.dev_code = kept
             self._exports = index
         return self._exports
 
