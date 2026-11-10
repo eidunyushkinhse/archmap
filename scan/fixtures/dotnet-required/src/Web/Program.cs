@@ -1,0 +1,18 @@
+var builder = WebApplication.CreateBuilder(args);
+var identityUrl = builder.Configuration.GetRequiredValue("IdentityUrl");
+var port = builder.Configuration.GetRequiredValue<int>("Port");
+var identity = builder.Configuration.GetSection("Identity");
+var audience = identity.GetRequiredValue("Audience");
+var authority = identity["Authority"];
+var timeout = int.Parse(identity["Timeout"] ?? "30");
+var strict = identity["Strict"] ?? throw new InvalidOperationException("Strict");
+var title = builder.Configuration.GetSection("OpenApi").GetRequiredValue("Document:Title");
+var name = builder.Configuration.GetRequiredSection("Service")["Name"];
+var scopes = identity.GetRequiredSection("Scopes").GetChildren();
+identity["Written"] = "x";
+var byKey = identity[key];
+var expr = builder.Configuration.GetRequiredValue($"{prefix}:Url");
+var first = values[0];
+// var commented = builder.Configuration.GetRequiredValue("Commented");
+var app = builder.Build();
+app.Run();

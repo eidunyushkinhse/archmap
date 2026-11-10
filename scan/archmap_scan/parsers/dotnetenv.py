@@ -21,6 +21,12 @@ required). Класс ищется в файлах того же проекта 
 не раскрываются; класса нет — один параметр A с типом T как написан. Имя раздела литералом,
 константой (clike) или nameof(Класс); переменная раздела (var s = configuration.GetSection("A"))
 ставит раздел перед ключами GetValue, GetSection и привязок через неё.
+
+Часть 6 (ТЗ §15 п. 18 Р1): GetRequiredValue("X") и GetRequiredValue<T>("X") — обязательный
+параметр X (тип по T, без T строка), у переменной раздела и в цепочке GetSection("S") — S:X;
+индексатор раздела s["Y"] и GetSection("S")["Y"] — параметр S:Y без обязательности, дефолт и
+«?? throw» как у индексатора конфигурации. Объявление метода GetRequiredValue(this
+IConfiguration …) не чтение: читается только вызов через точку.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ NAME = "dotnet-env"
 _NEEDLES = (
     "Configuration[", "configuration[", "GetEnvironmentVariable(", "GetValue",
     "GetConnectionString", "GetSection", "GetRequiredSection", "BindConfiguration",
+    "GetRequiredValue",
 )
 _INDEX = re.compile(r"onfiguration[ \t]*\[")
 _ENV = re.compile(r"GetEnvironmentVariable[ \t]*\(")
@@ -63,6 +70,9 @@ _TYPES = {
 _ID = r"[A-Za-z_][A-Za-z0-9_]{0,99}"
 _TYPE = rf"{_ID}(?:\.{_ID}){{0,6}}(?:<[A-Za-z0-9_.,?\[\] \t]{{0,200}}>)?(?:\[\])?\??"
 _GET_VALUE = re.compile(rf"\bGetValue[ \t]*<[ \t]*(?P<t>{_TYPE})[ \t]*>[ \t]*\(")
+# Часть 6 (ТЗ §15 п. 18 Р1): обязательное чтение GetRequiredValue("X") и GetRequiredValue<T>("X").
+_REQUIRED_VALUE = re.compile(rf"\bGetRequiredValue[ \t]*(?:<[ \t]*(?P<t>{_TYPE})[ \t]*>)?[ \t]*\(")
+_BRACKET = re.compile(r"[ \t]*\[")
 _CONNECTION = re.compile(r"\bGetConnectionString[ \t]*\(")
 _SECTION = re.compile(r"\bGet(?:Required)?Section[ \t]*\(")
 _GET_T = re.compile(rf"\.{SP}Get[ \t]*<[ \t]*(?P<t>{_TYPE})[ \t]*>[ \t]*\({SP}\)")
@@ -109,7 +119,7 @@ def _receiver(mask: str, end: int) -> tuple[int, str] | None:
 
 def _read(
     found: Findings, repo: clike.Repo, code: codetext.Code, rel: str, start: int, pos: int,
-    arg: re.Match[str] | None,
+    arg: re.Match[str] | None, prefix: str = "",
 ) -> None:
     """Чтение с аргументом на позиции pos: дефолт и обязательность по «??» за ним."""
     default: str | None = None
@@ -127,7 +137,7 @@ def _read(
     type_ = clike.wrapped_type(code.mask, clike.chain_start(code.mask, start), _TYPES)
     clike.read(
         found, repo, code, rel, pos, arg, NAME, _VAR, default=default, has_default=has_default,
-        required=required, type_=type_ or secrets.value_type(default),
+        required=required, type_=type_ or secrets.value_type(default), prefix=prefix,
     )
 
 
@@ -407,11 +417,14 @@ class _Binder:
         mask = self.code.mask
         lists = [
             clike.matches(self.files, self.rel, pattern, mask)
-            for pattern in (_SECTION, _CONFIGURE, _OPTIONS, _GET_T, _BIND, _GET_VALUE, _CONNECTION)
+            for pattern in (
+                _SECTION, _CONFIGURE, _OPTIONS, _GET_T, _BIND, _GET_VALUE, _CONNECTION,
+                _REQUIRED_VALUE,
+            )
         ]
         if any(found is None for found in lists):
             return
-        sections, configures, options, gets, binds, values, connections = (
+        sections, configures, options, gets, binds, values, connections, required = (
             found or [] for found in lists
         )
         # Аргумент Configure<T>(…) и AddOptions<T>().Bind(…): начало → T.
@@ -449,6 +462,9 @@ class _Binder:
         self.found.code_params.extend(self.bound)
         for m in values:
             self.value(m)
+        for m in required:
+            self.required(m)
+        self.indexers()
         for m in connections:
             arg = clike.ARG.match(mask, m.end())
             if arg is not None and arg.group("end") != ")":
@@ -497,6 +513,50 @@ class _Binder:
         if assigned is not None and assigned.group("v") not in _KEYWORDS:
             var = assigned.group("v")
             self.vars[var] = sec if self.vars.get(var, sec) == sec else None
+
+    def required(self, m: re.Match[str]) -> None:
+        """GetRequiredValue("X") и GetRequiredValue<T>("X"): обязательный параметр (ТЗ §15
+        п. 18 Р1). Без «.» перед именем — объявление метода, не чтение."""
+        mask = self.code.mask
+        dot = clike.skip_back(mask, m.start())
+        if dot == 0 or mask[dot - 1] != ".":
+            return
+        arg = clike.ARG.match(mask, m.end())
+        if arg is not None and arg.group("end") != ")":
+            arg = None
+        outer = self.prefix(m.start())
+        clike.read(
+            self.found, self.repo, self.code, self.rel, m.end(), arg, NAME, _VAR, required=True,
+            type_=_type_of(m.group("t")) if m.group("t") else "string",
+            prefix=f"{outer[0]}:" if outer is not None else "",
+        )
+
+    def indexers(self) -> None:
+        """Индексатор раздела (ТЗ §15 п. 18 Р1): s["Y"] у переменной раздела и
+        GetSection("S")["Y"] в цепочке — параметр S:Y; запись «s["Y"] = …» не чтение."""
+        mask = self.code.mask
+        # (позиция после «[», начало получателя для обёртки разбора, раздел)
+        spots: list[tuple[int, int, _Section]] = []
+        for end, sec in self.ends.items():
+            hit = _BRACKET.match(mask, end)
+            if hit is not None:
+                spots.append((hit.end(), hit.end(), sec))
+        names = sorted(v for v, known in self.vars.items() if known is not None)
+        if names:
+            pattern = re.compile(rf"\b(?P<v>{'|'.join(map(re.escape, names))})[ \t]*\[")
+            for m in clike.matches(self.files, self.rel, pattern, mask) or []:
+                dot = clike.skip_back(mask, m.start())
+                var_sec = self.vars.get(m.group("v"))
+                if var_sec is not None and not (dot > 0 and mask[dot - 1] == "."):
+                    spots.append((m.end(), m.start(), var_sec))
+        for pos, recv, sec in sorted(spots, key=lambda item: item[0]):
+            arg = clike.ARG.match(mask, pos)
+            if arg is not None:
+                if arg.group("end") != "]":
+                    arg = None
+                elif _ASSIGN.match(mask, arg.end()):
+                    continue
+            _read(self.found, self.repo, self.code, self.rel, recv, pos, arg, prefix=f"{sec[0]}:")
 
     def value(self, m: re.Match[str]) -> None:
         """GetValue<T>("A:B") и GetValue<T>("A:B", дефолт)."""

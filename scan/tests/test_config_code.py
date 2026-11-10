@@ -383,6 +383,33 @@ def test_dotnet_binder() -> None:
     assert extra["Catalog:Timeout"] == [f"{opts}/Settings.cs:7"]
 
 
+def test_dotnet_required_and_section_indexer() -> None:
+    """GetRequiredValue и индексатор раздела (ТЗ §15 п. 18 Р1, eShop
+    `src/WebApp/Extensions/Extensions.cs:60` configuration.GetRequiredValue("IdentityUrl"),
+    `src/eShop.ServiceDefaults/AuthenticationExtensions.cs:35` identitySection.GetRequiredValue("Url")):
+    обязательный параметр, тип по T или строка; раздел переменной и цепочкой GetSection(…) и
+    GetRequiredSection(…) ставится перед ключом; индексатор раздела с дефолтом после «??», с
+    обёрткой int.Parse и с «?? throw». Ловушки: объявление метода GetRequiredValue(this
+    IConfiguration …), GetRequiredSection(…).GetChildren(), запись s["Y"] = …, индексатор
+    обычного массива, строка в комментарии; имя выражением и переменной — подсказки."""
+    at = "src/Web/Program.cs"
+    assert _params(dotnetenv, FIXTURES / "dotnet-required") == [
+        ("Identity:Audience", None, False, True, "string", f"{at}:5"),
+        ("Identity:Authority", None, False, None, None, f"{at}:6"),
+        ("Identity:Strict", None, False, True, None, f"{at}:8"),
+        ("Identity:Timeout", "30", True, None, "int", f"{at}:7"),
+        ("IdentityUrl", None, False, True, "string", f"{at}:2"),
+        ("OpenApi:Document:Title", None, False, True, "string", f"{at}:9"),
+        ("Port", None, False, True, "int", f"{at}:3"),
+        ("Service:Name", None, False, None, None, f"{at}:10"),
+    ]
+    dynamic = texts.REASON_DYNAMIC_PARAM
+    assert sorted(_hints(dotnetenv, FIXTURES / "dotnet-required")) == [
+        ('$"{prefix}:Url"', dynamic, f"{at}:14"), ("key", dynamic, f"{at}:13"),
+        ("name", dynamic, "src/Web/ConfigurationExtensions.cs:4"),
+    ]
+
+
 def test_dotnet_appsettings_merge() -> None:
     """Запись файла и чтение в коде одного ключа — один параметр (ТЗ §15 п. 16 Р1): дефолт
     из файла (Cache:Ttl 30, а не 60 из GetValue), тип из кода; места из обоих. Адрес из

@@ -370,6 +370,13 @@ STARTS["go/main.go"] += (
     RDG + 'const A = "a"\nrdb.Publish(ctx, A, ',
 )
 
+# GetRequiredValue и индексатор раздела .NET (ТЗ §15 п. 18 Р1): литерал, параметр типа,
+# переменная раздела и цепочка без закрытия.
+STARTS["cs/App.cs"] += (
+    'c.GetRequiredValue("', "c.GetRequiredValue<", "c.GetRequiredValue<int>(",
+    'var s = c.GetSection("A");\ns["', 'var s = c.GetSection("A");\ns[', 'c.GetSection("A")["',
+    'c.GetRequiredSection("A").GetRequiredValue("',
+)
 # Путь маршрута константой и app.get(Класс) NestJS (ТЗ §15 п. 18 К1): импорт по именам и
 # require без закрытия, шаблон константы, незакрытые аргументы.
 STARTS["js/app.js"] += (
