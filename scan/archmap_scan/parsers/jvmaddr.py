@@ -19,7 +19,10 @@ from archmap_scan.model import Findings, Loc, PathLink
 from archmap_scan.walk import Files
 
 NAME = "jvm-address"
-_NEEDLES = ("://",)
+# Подстроки текста, без которых файл не читается: литерал адреса начинается кавычкой прямо
+# перед схемой («"http://»), а ссылки лицензий в шапках файлов («http://www.apache.org») без
+# кавычки, и такие файлы маска не строит.
+_NEEDLES = ('"http://', '"https://', '"lb://')
 _ADDRESS = re.compile(r"(?:https?|lb)://([A-Za-z0-9][A-Za-z0-9_-]{0,62})(?:[/?#][^\s]*)?")
 _SCHEME = re.compile(r'"(?:https?|lb)://')
 _LOCAL = frozenset({"localhost"})

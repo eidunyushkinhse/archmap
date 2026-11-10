@@ -2386,7 +2386,10 @@ unread: {too_large: 3, binary: 0}
      (`"see http://x/"` не адрес), склейка `"http://x/" + путь` адрес по первому литералу.
      Сырая строка Kotlin `"""http://x/"""` читается, текстовый блок Java нет. Правило только для
      Java и Kotlin: в Python, Go, JavaScript и других языках литералы адресов связей не дают.
-     Больше 2000 адресов в файле — файл непрочитан. Petclinic: связей 14 → 15, новая
+     Больше 2000 адресов в файле — файл непрочитан. Файл читается, только если в тексте есть
+     кавычка прямо перед схемой (`"http://`, `"https://`, `"lb://`): ссылки лицензий в шапках
+     файлов Java без кавычки, и у Keycloak маска таких файлов не строится (выводы те же,
+     отдельный коммит). Petclinic: связей 14 → 15, новая
      `genai-service` → `vets-service` (`VectorStoreController.java:66`), у `api-gateway` →
      `customers-service` и `visits-service` добавились основания `CustomersServiceClient.java:37`
      и `VisitsServiceClient.java:34`; других адресов литералами в `src/main` клона нет. Keycloak:
