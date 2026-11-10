@@ -149,7 +149,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   каналы `celery`, `kafka`, `kafka-jvm`, `rabbitmq`, `nats`, `bullmq`, `redis-pubsub`, `sidekiq`, расписания
   `celerybeat`, `gocron`, `clokwerk`, `nodecron`, `spring-scheduled`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
   стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`, строковые константы
-  Node.js по файлу, пакету и репозиторию — `nodeconst.py`.
+  Node.js по файлу, пакету и репозиторию — `nodeconst.py`, роль «брокер и кэш» по
+  свидетельствам `cache-store` — `cacherole.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
   (`class Topic(Enum)`, словарь, у имени которого последнее слово `topic`/`queue`/`subject`)
@@ -738,3 +739,13 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     (`codefacts._owned_switch`); без владельца запись остаётся подсказкой с объектом. Объекта
     Redis нет: брокер по клиенту не заводится, подсказка «брокер не найден»; несколько
     объектов Redis без брокера среди них дают подсказку «несколько объектов Redis» (В1).
+  - роль «брокер и кэш» (`parsers/cachestore.py`, `cacherole.py`, семьи нет): свидетельство кэша
+    Rails `config.cache_store = :redis_cache_store` или `:redis_store` (config/environments/*.rb,
+    config/application.rb), Django `"BACKEND"` `django_redis.cache.RedisCache` или
+    `django.core.cache.backends.redis.RedisCache` в файлах настроек (первое на файл), Laravel
+    `CACHE_DRIVER=redis` или `CACHE_STORE=redis` в `.env.example` и `env('CACHE_STORE', 'redis')`
+    в `config/cache.php`, пакет `cache-manager-redis-store`, `cache-manager-redis-yet` или
+    `cache-manager-ioredis-yet` в `package.json`; файлы разработки и тестов не в счёт. Объект Redis
+    по переменной со словом CACHE в окружении контейнеров файла, иначе единственный Redis, с
+    которым они связаны; при нескольких подсказка `kind: cache` «кэш на одном из двух Redis».
+    Роль меняется только у брокера, строка свидетельства идёт в основания объекта (В2).

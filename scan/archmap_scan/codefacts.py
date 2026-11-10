@@ -52,7 +52,16 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from archmap_scan import codebase, owners, registry, secrets, shared, texts, vocab
+from archmap_scan import (
+    cacherole,
+    codebase,
+    owners,
+    registry,
+    secrets,
+    shared,
+    texts,
+    vocab,
+)
 from archmap_scan.links import hosts_in
 from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc, hint_fields
 from archmap_scan.objects import (
@@ -643,3 +652,4 @@ def attach(model: Model, findings: Findings, env_of: EnvOf) -> None:
     _path_links(model, findings, containers)
     _channels(model, findings, containers, env_of)
     _schedules(model, findings, containers)
+    cacherole.apply(model, findings, containers, env_of)

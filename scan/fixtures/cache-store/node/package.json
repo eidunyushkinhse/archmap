@@ -1,0 +1,8 @@
+{
+  "name": "node",
+  "dependencies": {
+    "bullmq": "*",
+    "cache-manager": "*",
+    "cache-manager-redis-yet": "*"
+  }
+}

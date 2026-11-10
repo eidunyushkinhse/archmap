@@ -565,7 +565,7 @@ def _label(files: Files, app_dir: str) -> str:
     return paths.name(app_dir) or "app"
 
 
-def _settings_files(files: Files) -> list[str]:
+def settings_files(files: Files) -> list[str]:
     """Файлы настроек Django: каталог или имя со словом settings, каталог conf."""
     out = []
     for rel in files.paths:
@@ -581,7 +581,7 @@ def _engine(files: Files) -> tuple[str, Loc] | None:
     """Диалект базы по DATABASES[…]["ENGINE"] в настройках (ТЗ §7, пункт 3). SQLite уступает
     другим движкам: обычно это настройки разработки и тестов."""
     found: list[tuple[str, Loc]] = []
-    for rel in _settings_files(files):
+    for rel in settings_files(files):
         text = files.read(rel)
         if text is None or "ENGINE" not in text:
             continue
@@ -599,7 +599,7 @@ def _sqlite_overridden(files: Files, loc: Loc) -> bool:
     AWX: awx/settings/defaults.py:24 задаёт sqlite3, а production_defaults.py сбрасывает
     DATABASES = {}, боевая база PostgreSQL задаётся при запуске."""
     folder = paths.parent(loc.path)
-    for rel in _settings_files(files):
+    for rel in settings_files(files):
         if rel == loc.path or paths.parent(rel) != folder:
             continue
         text = files.read(rel)
@@ -616,7 +616,7 @@ def _sqlite_overridden(files: Files, loc: Loc) -> bool:
 
 def _user_model(files: Files) -> tuple[str, str]:
     """AUTH_USER_MODEL из файлов настроек (каталог или имя со словом settings, каталог conf)."""
-    for rel in _settings_files(files):
+    for rel in settings_files(files):
         text = files.read(rel)
         if text is None or "AUTH_USER_MODEL" not in text:
             continue

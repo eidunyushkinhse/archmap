@@ -182,7 +182,8 @@ archmap-scan/
   broker`) по разделу 6.1. Компонентов, внешних систем (SaaS) и людей сборщик не создаёт.
 - У каждого объекта: `name` как в манифесте дословно; `technology` по словарю (раздел 6.5);
   `role` из короткого словаря: «сервис», «фронтенд», «воркер», «БД», «кэш», «брокер», «прокси»,
-  «хранилище», «планировщик»; `status: existing`; `description` пустое (ключ не пишется).
+  «хранилище», «планировщик», «брокер и кэш» (брокер Redis со свидетельством кэша у связанного
+  контейнера, ч. 6, В2); `status: existing`; `description` пустое (ключ не пишется).
 - `source`: `repo` из адреса origin (как есть, нормализует ArchMap), `path` по каталогу кода
   контейнера (контекст сборки compose, каталог Dockerfile, каталог сервиса в монорепо), `host`
   по имени сервиса compose или k8s Service. Правила: `repo`+`path` ставятся только тем
@@ -317,7 +318,9 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   `mariadb`→«MariaDB», `mongo`→«MongoDB», `clickhouse`→«ClickHouse», `elasticsearch`→
   «Elasticsearch», `opensearch`→«OpenSearch», `redis`/`valkey`→database «Redis» (роль «кэш»;
   становится broker «Redis», если на него указывает `CELERY_BROKER_URL`/`BROKER_URL`/`RQ_*`
-  или в него публикует либо из него читает по коду pub/sub контейнер-владелец, ч. 6, В1),
+  или в него публикует либо из него читает по коду pub/sub контейнер-владелец, ч. 6, В1;
+  брокер Redis с кэшем Rails, Django, Laravel или Node.js у связанного контейнера получает роль
+  «брокер и кэш», ч. 6, В2),
   `memcached`→database «Memcached» (роль «кэш»), `minio`→database «MinIO» (роль «хранилище»),
   `rabbitmq`→broker «RabbitMQ», `kafka`/`cp-kafka`/`bitnami/kafka`→broker «Kafka»,
   `redpanda`→broker «Redpanda», `nats`→broker «NATS», `pulsar`→broker «Pulsar»,
@@ -2551,3 +2554,21 @@ unread: {too_large: 3, binary: 0}
      разборщик `redis-pubsub` (стек есть, вызовов нет), статусы те же. Вердикты шести угловых без
      регрессий (у Mastodon кандидат `[channels] timeline:public` «нет» → «есть», у PostHog
      «заменена связью с каналом: web -> redis7»), слои Sentry пройдены.
+   - В2 (решение исполнителя): свидетельства кэша собирает `parsers/cachestore.py` (семьи нет,
+     записей нет), роль ставит `cacherole.py` после раздачи каналов, когда связи уже
+     окончательные. Владельцы свидетельства — контейнеры его файла (`owners.file_owners`, у
+     `production.rb` Mastodon это web и sidekiq: оба связаны с одним `redis`). Файлы разработки и
+     тестов (`walk.is_dev_path`) не свидетельство: у Mastodon `development.rb:29` и у Forem
+     `development.rb:36` тоже `:redis_cache_store`, но это кэш разработки. Из файла берётся
+     первое свидетельство: у PostHog основание `posthog/settings/data_stores.py:733` (строка
+     `"BACKEND": "django_redis.cache.RedisCache"` в `CACHES`; бриф называл `:729`, строку
+     `CACHES = {`), у Forem `production.rb:79` (условная замена на `LocalRedisCacheStore.new` в
+     `:85` той же формы не имеет). Строка свидетельства идёт в основания объекта, разборщик в
+     покрытие брокеров не добавляется. Подсказка о нескольких Redis: раздел `unassigned`,
+     `kind: cache`, имя то, что названо (`:redis_cache_store`, имя пакета), список `objects`. По
+     корпусу: роль «брокер и кэш» у Mastodon `redis` (`config/environments/production.rb:58`),
+     Forem `redis` (`config/environments/production.rb:79`), PostHog `redis7` (web и остальные
+     контейнеры Python связаны только с `redis7`, `valkey` связан с `plugins` на Node.js);
+     immich `redis` остаётся «брокер» (свидетельств нет), у Monica `CACHE_STORE=database`, Argo
+     CD, Online Boutique, otel-demo без изменений, подсказок о двух Redis в корпусе нет. Судья у
+     Mastodon пишет «wrong-kind «redis»: изменилось role» справкой, регрессией не считает.

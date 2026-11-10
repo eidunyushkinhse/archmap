@@ -20,6 +20,8 @@ ROLE_WORKER = "воркер"
 ROLE_DB = "БД"
 ROLE_CACHE = "кэш"
 ROLE_BROKER = "брокер"
+# Брокер Redis, который служит и кэшем контейнера (ТЗ §15 п. 18 В2).
+ROLE_BROKER_CACHE = "брокер и кэш"
 ROLE_PROXY = "прокси"
 ROLE_STORAGE = "хранилище"
 ROLE_SCHEDULER = "планировщик"
@@ -28,7 +30,7 @@ ROLE_SCHEDULER = "планировщик"
 ROLE_TASK = "задача"
 ROLES = frozenset({
     ROLE_SERVICE, ROLE_FRONTEND, ROLE_WORKER, ROLE_DB, ROLE_CACHE, ROLE_BROKER, ROLE_PROXY,
-    ROLE_STORAGE, ROLE_SCHEDULER, ROLE_TASK,
+    ROLE_STORAGE, ROLE_SCHEDULER, ROLE_TASK, ROLE_BROKER_CACHE,
 })
 
 
