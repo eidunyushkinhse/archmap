@@ -95,7 +95,7 @@ def settings_files(files: Files, ctx: Context, keys: tuple[str, ...]) -> list[st
     wanted = {p.dir for p in jvm.packages(files, ctx, keys)}
     out: list[str] = []
     for rel in files.select(is_settings_file):
-        if module_of(rel) in wanted and not clike.in_test_dir(rel) and not files.skip_dev_code(rel):
+        if module_of(rel) in wanted and not clike.in_jvm_test_dir(rel) and not files.skip_dev_code(rel):
             out.append(rel)
     return out
 

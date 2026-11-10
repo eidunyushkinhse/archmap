@@ -598,11 +598,11 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     (`codetext.KOTLIN`): вложенные `/* /* */ */`, сырые `"""…"""` и подстановки `${…}`; `.kt`
     читается у пакетов Gradle с плагином Kotlin. Обход: каталоги под `src/main/java/` и
     `src/main/kotlin/` — имя пакета, а не каталог проекта, и по соглашению не исключаются
-    (`walk.package_start`: `org.springframework.samples` у Petclinic). Каталог тестов по имени
-    (`clike.in_test_dir`): ещё часть имени через `-`, `_`, `.` из test, tests, testsuite,
-    testsuites (`testsuite/`, `test-framework/`) и набор Gradle `testX` (`testFixtures/`);
-    слово внутри части имени (`latest/`, `contest/`) не в счёт, пакет под корнем исходников
-    тоже. Java и Kotlin в непрочитанных маршрутах языком не называются (`FAMILY_LANGUAGES`),
+    (`walk.package_start`: `org.springframework.samples` у Petclinic). Каталог тестов кода Java и
+    Kotlin по имени (`clike.in_jvm_test_dir`): ещё часть имени через `-`, `_`, `.` из test,
+    tests, testsuite, testsuites (`testsuite/`, `test-framework/`) и набор Gradle `testX`
+    (`testFixtures/`); слово внутри части имени (`latest/`, `contest/`) не в счёт, пакет под
+    корнем исходников тоже; у других языков правило прежнее (`clike.in_test_dir`). Java и Kotlin в непрочитанных маршрутах языком не называются (`FAMILY_LANGUAGES`),
     серверы JVM без разборщика (Ktor, Micronaut, Javalin, Vert.x, Helidon) названы стеком;
     пределы файла: 400 000 скобок, 2000 объявлений типов, аннотаций или записей (К1).
   - маршруты JAX-RS (`parsers/jaxrs.py`): пакет Java или Kotlin с артефактом JAX-RS

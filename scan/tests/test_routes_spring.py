@@ -210,8 +210,21 @@ def test_jvm_package_is_not_a_directory() -> None:
     ("testing/A.java", False),
 ])
 def test_test_dirs(rel: str, want: bool) -> None:
-    """Каталог тестов по имени: часть имени через «-», «_» или «.» — test, tests, testsuite,
-    testsuites, набор исходников Gradle testX; слово внутри части имени не в счёт."""
+    """Каталог тестов у кода Java и Kotlin по имени: часть имени через «-», «_» или «.» —
+    test, tests, testsuite, testsuites, набор исходников Gradle testX; слово внутри части
+    имени не в счёт."""
+    assert clike.in_jvm_test_dir(rel) is want
+
+
+@pytest.mark.parametrize(("rel", "want"), [
+    ("rust/personhog-test-harness/src/cli.rs", False),
+    ("testsuite/a.go", False),
+    ("Cart.UnitTests/A.cs", True),
+    ("billing-tests/a.rs", True),
+])
+def test_test_dirs_other_languages(rel: str, want: bool) -> None:
+    """У других языков правило каталогов тестов прежнее (имя кончается на Test или Tests):
+    крейт PostHog rust/personhog-test-harness/ читается, как до части 5б."""
     assert clike.in_test_dir(rel) is want
 
 

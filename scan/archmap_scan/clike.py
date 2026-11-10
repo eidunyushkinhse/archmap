@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from archmap_scan import codebase, codetext, paths, texts
 from archmap_scan.codetext import SP
@@ -64,9 +64,17 @@ def _test_segment(seg: str) -> bool:
 
 
 def in_test_dir(rel: str) -> bool:
-    """Файл в каталоге тестов по имени каталога: Cart.UnitTests/, Billing.Tests/,
-    testsuite/, test-framework/. Сегменты пакета JVM под src/main/java/ и src/main/kotlin/ —
-    имя пакета, а не каталог (walk.package_start)."""
+    """Файл в каталоге тестов по имени каталога: Cart.UnitTests/, Billing.Tests/ (имя
+    кончается на Test или Tests)."""
+    return any(_TEST_DIR.search(seg) for seg in rel.split("/")[:-1])
+
+
+def in_jvm_test_dir(rel: str) -> bool:
+    """Каталог тестов у кода Java и Kotlin (ТЗ §15 п. 17 К1): ещё testsuite/, test-framework/
+    (часть имени через «-», «_» или «.» — test, tests, testsuite, testsuites) и наборы Gradle
+    testX. Сегменты пакета под src/main/java/ и src/main/kotlin/ — имя пакета, а не каталог
+    (walk.package_start). У других языков правило прежнее (in_test_dir): у PostHog крейт
+    rust/personhog-test-harness/ читается, как читался."""
     parts = rel.split("/")
     return any(_test_segment(seg) for seg in parts[:min(len(parts) - 1, package_start(parts))])
 
@@ -310,10 +318,11 @@ def read(
 
 def sources(
     files: Files, ctx: Context, language: str, lang: str, needles: tuple[str, ...], repo: Repo,
+    test_dir: Callable[[str], bool] = in_test_dir,
 ) -> Iterator[tuple[str, codetext.Code]]:
-    """Файлы кода языка с одной из needles, кроме каталогов тестов по имени."""
+    """Файлы кода языка с одной из needles, кроме каталогов тестов по имени (test_dir)."""
     for rel, text in codebase.sources(files, ctx, language, None, needles):
-        if in_test_dir(rel):
+        if test_dir(rel):
             continue
         code = codetext.load(files, rel, text, lang)
         if code is not None:

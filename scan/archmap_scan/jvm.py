@@ -6,7 +6,7 @@
 зависимость совпадает с ключом, если равна ему или начинается с «ключ-» или «ключ_»
 (spring-boot-starter-web у ключа spring-boot, jboss-jaxrs-api_2.1_spec у jboss-jaxrs-api).
 Файлы .java читаются у пакетов Java, .kt — у пакетов Kotlin; каталоги тестов по имени
-(clike.in_test_dir) не читаются, src/test/ исключён обходом.
+(clike.in_jvm_test_dir) не читаются, src/test/ исключён обходом.
 
 Разбор идёт по маске кода (codetext.JAVA, codetext.KOTLIN) одним проходом: пары скобок
 считаются стеком один раз на файл, классы и члены класса находятся прыжками по парам, поэтому
@@ -90,7 +90,7 @@ def sources(
     wanted = tuple(keys) if keys is not None else None
     for language in LANGUAGES:
         for rel, text in codebase.sources(files, ctx, language, None, needles):
-            if clike.in_test_dir(rel):
+            if clike.in_jvm_test_dir(rel):
                 continue
             if wanted is not None and not reads(deps_of(files, ctx, rel, language), wanted):
                 continue

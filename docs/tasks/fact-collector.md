@@ -2207,11 +2207,16 @@ unread: {too_large: 3, binary: 0}
      Keycloak по этому правилу из `excluded` ушли `operator/src/main/java/org/keycloak/operator/crds/v2beta1/deployment/spec/`
      (22 файла, пакет `spec`) и `test-framework/test-providers/src/main/java/org/keycloak/testframework/tests/` (2
      файла; каталог `test-framework/` по-прежнему не читается кодом по правилу тестов).
-     Правило каталогов тестов (`clike.in_test_dir`, бриф ставил его в К2, нужно уже здесь):
+     Правило каталогов тестов (`clike.in_jvm_test_dir`, бриф ставил его в К2, нужно уже здесь):
      часть имени каталога через «-», «_» или «.» равна test, tests, testsuite или testsuites,
      либо имя начинается с test и заглавной буквы (наборы Gradle `testFixtures`); `latest`,
      `contest`, `attestation`, `testing` и пакеты под корнем исходников (`org/test/`) кодом
-     остаются. Переменная пути с регулярным выражением `{id:[0-9]+}` пишется `{id}` и у
+     остаются. Правило только для кода Java и Kotlin (разбор JVM, файлы настроек, `java-env`):
+     сначала оно стояло в общем `clike.in_test_dir`, и перемер после блоков К и Е показал, что у
+     PostHog пропали 81 запись параметров (27 имён у трёх контейнеров) крейта
+     `rust/personhog-test-harness/` (часть `test`); у других языков правило прежнее (имя
+     каталога кончается на Test или Tests), вывод PostHog снова совпал с базой судьи.
+     Переменная пути с регулярным выражением `{id:[0-9]+}` пишется `{id}` и у
      Spring (бриф просил это для JAX-RS): путь маршрута от выражения не меняется.
      `method` у `@RequestMapping` класса задаёт метод `@RequestMapping` метода без своего
      `method`. Префикс приложения берётся из документа без профиля файла настроек модуля
@@ -2286,7 +2291,7 @@ unread: {too_large: 3, binary: 0}
      переменные операционной системы, как `PATH`. Адрес или секрет в дефолте подстановки
      снимает дефолт и с ключа: иначе `${PRODUCT_CATALOG_ADDR:localhost:3550}` дал бы адрес среды
      значением `spring.grpc.client.channel.product-catalog.target`. Каталоги тестов
-     (`clike.in_test_dir`) не читаются и здесь: у Keycloak файлы `testsuite/` и
+     (`clike.in_jvm_test_dir`) не читаются и здесь: у Keycloak файлы `testsuite/` и
      `test-framework/` описывают тестовые серверы. Пределы на враждебный вход сверх брифа: YAML
      больше чем с 500 разделителями документов непрочитан (25 000 документов в 225 КБ YAML
      разбирались `yamlload` 2 с), 5000 ключей на файл, 200 подстановок на значение и

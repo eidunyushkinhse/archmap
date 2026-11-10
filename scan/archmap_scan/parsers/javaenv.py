@@ -204,6 +204,8 @@ def parse(files: Files, ctx: Context) -> Findings:
             continue
         found.applied.add(NAME)
         repo = clike.Repo(files, ctx, language, lang)
-        for rel, code in clike.sources(files, ctx, language, lang, _NEEDLES, repo):
+        for rel, code in clike.sources(
+            files, ctx, language, lang, _NEEDLES, repo, clike.in_jvm_test_dir,
+        ):
             _scan(files, code, rel, repo, found)
     return found
