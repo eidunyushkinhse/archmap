@@ -320,8 +320,11 @@ def test_appsettings_hostile(tmp_path: Path, kind: str) -> None:
         "App/appsettings.json": APPSETTINGS_HOSTILE[kind],
     })
     ctx, files = files_of(tmp_path)
-    _found, took = timed(partial(appsettings.parse, files, ctx), time_limit())
-    assert took < time_limit() * 0.7, f"{took:.2f} с"
+    # Повтор в timed по тому же пределу, что проверяется: иначе прогон между 0,7 и 1 с не
+    # повторяется, и нагрузка хоста роняет гейт (полевая находка части 5б).
+    limit = time_limit() * 0.7
+    _found, took = timed(partial(appsettings.parse, files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
 
 
 def test_appsettings_limits(tmp_path: Path) -> None:
