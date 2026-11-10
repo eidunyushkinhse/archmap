@@ -73,9 +73,9 @@ def test_code_unsupported_stacks() -> None:
     # веб-SDK в маршрутах не названы, решение .sln без зависимостей тоже (у .NET маршруты
     # только у ASP.NET Core); крейт с axum назван фреймворком (vocab.UNSUPPORTED_ROUTE_DEPS).
     # Фреймворк языка, код на котором сборщик не читает, назван с языком (ТЗ §15 п. 10 А12).
-    assert stacks["http_routes"] == [
-        "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Rust: axum",
-    ]
+    # Контроллеры Spring читает разборщик spring (ТЗ §15 п. 17 К1): Java со Spring Boot в
+    # маршрутах не названа.
+    assert stacks["http_routes"] == ["Elixir: Phoenix", "PHP: Laravel", "Rust: axum"]
     # Параметры в коде Python, Node.js, Go, .NET и Java читает ярус кода (ТЗ §15 п. 14 Е4):
     # язык не назван, но у Java со Spring Boot параметры application.yml и @Value не читаются,
     # стек назван с языком; viper только транзитивный.

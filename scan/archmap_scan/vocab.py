@@ -470,7 +470,7 @@ UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (
 )
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
-    "Echo", "chi", "Fiber", "Rails", "actix-web",
+    "Echo", "chi", "Fiber", "Rails", "actix-web", "Spring Boot",
 })
 # Языки вне CODE_LANGUAGES, код которых ярус кода читает в одной семье, и зависимости пакета,
 # при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web, расписания
@@ -482,6 +482,9 @@ FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
         # Веб-проект .NET (Sdk="Microsoft.NET.Sdk.Web") или зависимость Microsoft.AspNetCore.*.
         ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
         "Rust": ("actix-web",),
+        # Контроллеры Spring MVC и WebFlux (ТЗ §15 п. 17 К1): артефакт spring-boot*.
+        "Java": ("spring-boot",),
+        "Kotlin": ("spring-boot",),
     },
     # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2).
     "schedules": {"Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron")},
@@ -495,6 +498,10 @@ UNSUPPORTED_ROUTE_DEPS: tuple[tuple[str, str], ...] = (
     ("axum", "axum"), ("rocket", "Rocket"), ("warp", "warp"), ("poem", "poem"), ("tide", "tide"),
     ("sinatra", "Sinatra"), ("hanami", "Hanami"), ("grape", "Grape"), ("roda", "Roda"),
     ("fastendpoints", "FastEndpoints"), ("carter", "Carter"),
+    # Серверы JVM без разборщика (ТЗ §15 п. 17 К1): артефакты Maven по точному имени.
+    ("ktor-server-core", "Ktor"), ("ktor-server-netty", "Ktor"), ("micronaut-http-server", "Micronaut"),
+    ("micronaut-http-server-netty", "Micronaut"), ("javalin", "Javalin"), ("vertx-web", "Vert.x"),
+    ("helidon-webserver", "Helidon"),
 )
 
 
@@ -504,11 +511,21 @@ def family_language(family: str, language: str) -> bool:
     return language in FAMILY_LANGUAGES.get(family, {})
 
 
+# Языки JVM: артефакт Maven совпадает с ключом и по началу «ключ-» или «ключ_»
+# (spring-boot-starter-web у ключа spring-boot, ТЗ §15 п. 17).
+JVM_LANGUAGES = frozenset({"Java", "Kotlin"})
+
+
 def family_reads(family: str, language: str, deps: Iterable[str]) -> bool:
     """Код пакета языка language с зависимостями deps ярус кода читает в семье family:
-    зависимость равна ключу или начинается с «ключ.» (Microsoft.AspNetCore.*)."""
+    зависимость равна ключу или начинается с «ключ.» (Microsoft.AspNetCore.*), у языков JVM
+    ещё с «ключ-» и «ключ_»."""
     keys = FAMILY_LANGUAGES.get(family, {}).get(language, ())
-    return any(d.lower() == k or d.lower().startswith(k + ".") for d in deps for k in keys)
+    tails = (".", "-", "_") if language in JVM_LANGUAGES else (".",)
+    return any(
+        d.lower() == k or d.lower().startswith(tuple(k + t for t in tails))
+        for d in deps for k in keys
+    )
 
 # ORM и описания схем, которые сборщик пока не разбирает (ТЗ §6.4) → имя стека.
 UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (

@@ -1,5 +1,5 @@
-"""Текст кода JavaScript/TypeScript, Go, C#, Java, Rust и Ruby для разборщиков на регулярных
-выражениях (ТЗ §6.2).
+"""Текст кода JavaScript/TypeScript, Go, C#, Java, Kotlin, Rust и Ruby для разборщиков на
+регулярных выражениях (ТЗ §6.2).
 
 Маска — текст той же длины, где комментарии заменены пробелами, а содержимое строк —
 пробелами между сохранёнными кавычками (переводы строк сохраняются). Регулярные выражения
@@ -21,6 +21,7 @@ from archmap_scan import texts
 from archmap_scan.walk import Files
 
 JS, GO, CS, JAVA, RUST, RUBY = "js", "go", "cs", "java", "rust", "ruby"
+KOTLIN = "kotlin"
 
 _C_COMMENTS = r"//[^\n]*|/\*[\s\S]*?(?:\*/|\Z)"
 # Подстановка интерполированной строки C#: «{выражение}», строки внутри без вложенных скобок.
@@ -42,12 +43,14 @@ _TOKENS = {
         r'|"(?:[^"\\\n]|\\[\s\S])*"?'
         r"|`[^`]*`?"
     ),
-    # Java: текстовый блок «"""…"""», символ и строка.
+    # Java: текстовый блок «"""…"""», символ и строка. Строка и символ записаны развёрнутым
+    # циклом (обычные знаки серией, экранирование между ними): тот же язык, что у
+    # «(?:[^"\\\n]|\\.)*», но строка в мегабайты проходится за один шаг движка (ТЗ §15 п. 17).
     JAVA: re.compile(
         _C_COMMENTS
         + r'|"""[\s\S]*?(?:"""|\Z)'
-        + r"|'(?:[^'\\\n]|\\[\s\S])*'?"
-        + r'|"(?:[^"\\\n]|\\[\s\S])*"?'
+        + r"|'[^'\\\n]*(?:\\[\s\S][^'\\\n]*)*'?"
+        + r'|"[^"\\\n]*(?:\\[\s\S][^"\\\n]*)*"?'
     ),
     # C#: сырая строка «"""…"""», дословная @"…" (кавычка внутри удвоена, переводы строк
     # допустимы), интерполяция $"…{выражение}…" (ТЗ §15 п. 14 Е4): выражения подстановок в маске
@@ -72,6 +75,28 @@ _TOKENS[RUST] = re.compile(
     + r'|"(?:[^"\\]|\\[\s\S])*"?'
 )
 _NOT_NEWLINE = re.compile(r"[^\n]")
+
+
+def _blank(text: str) -> str:
+    """Текст той же длины из пробелов, переводы строк на месте (то же, что замена
+    _NOT_NEWLINE, но строка без переводов строк собирается за один шаг)."""
+    if "\n" not in text:
+        return " " * len(text)
+    return "\n".join(" " * len(part) for part in text.split("\n"))
+
+# Kotlin (ТЗ §15 п. 17 К1, Е3): комментарий «//», блочный комментарий «/* … */» бывает вложенным
+# (его конец ищет _kotlin_comment_end со счётом глубины), сырая строка «"""…"""» в несколько
+# строк кончается серией из трёх и более кавычек, строка «"…"» — на кавычке или конце строки,
+# подстановка «${…}» внутри неё (со строками без вложенных скобок) частью строки и остаётся,
+# символ 'a' и '\n'. У каждой ветки есть успешный исход, проход линейный.
+_KT_HOLE = r'\$\{(?:[^{}"\n]|"(?:[^"\\\n]|\\.)*")*\}'
+_KT_TOKENS = re.compile(
+    r"//[^\n]*|/\*|\"{3}"
+    + r'|"[^"\\\n$]*(?:(?:\\[\s\S]|\$(?!\{)|' + _KT_HOLE + r'|\$\{)[^"\\\n$]*)*"?'
+    + r"|'[^'\\\n]*(?:\\[\s\S][^'\\\n]*)*'?"
+)
+_KT_NESTED = re.compile(r"/\*|\*/")
+_KT_RAW_END = re.compile(r'"{3,}')
 
 # Ruby (ТЗ §15 п. 15 К1): комментарий «#», блок =begin … =end, всё после __END__, строки в
 # одинарных и двойных кавычках (бывают в несколько строк), литералы %w[…], %i[…], %r{…} и
@@ -138,6 +163,8 @@ def mask(text: str, lang: str) -> str:
     )
     if marks > MAX_MARKS:
         raise TooDense
+    if lang == KOTLIN:
+        return _mask_kotlin(text)
     out: list[str] = []
     pos = 0
     for m in _TOKENS[lang].finditer(text):
@@ -150,7 +177,7 @@ def mask(text: str, lang: str) -> str:
             # знаков комментария.
             out.append("  " if tok[0] == "/" else tok)
         elif tok[0] == "/":
-            out.append(_NOT_NEWLINE.sub(" ", tok))
+            out.append(_blank(tok))
         elif lang == CS and tok.startswith('$"') and not tok.startswith('$""'):
             out.append(_holes(tok))
         elif lang == RUST and tok[0] in "rb":
@@ -160,12 +187,12 @@ def mask(text: str, lang: str) -> str:
             quote = tok.index('"')
             closing = '"' if len(tok) > quote + 1 and tok[-1] == '"' else ""
             inner = tok[quote + 1:len(tok) - len(closing)]
-            out.append(tok[:quote + 1] + _NOT_NEWLINE.sub(" ", inner) + closing)
+            out.append(tok[:quote + 1] + _blank(inner) + closing)
         else:
             first = tok[0]
             closing = first if tok[-1] == first else ""
             inner = tok[1:len(tok) - len(closing)]
-            out.append(first + _NOT_NEWLINE.sub(" ", inner) + closing)
+            out.append(first + _blank(inner) + closing)
         pos = end
     out.append(text[pos:])
     return "".join(out)
@@ -191,7 +218,7 @@ def _ruby_token(tok: str) -> str:
     """Маска одного токена Ruby: у комментария и блоков =begin и __END__ всё пробелы, у
     строки, литерала % и регулярного выражения остаются открывающие и закрывающий знаки."""
     if tok[0] in "#=_":
-        return _NOT_NEWLINE.sub(" ", tok)
+        return _blank(tok)
     body = tok.lstrip(" \t")
     lead = tok[:len(tok) - len(body)]
     if body[0] == "%":
@@ -201,7 +228,7 @@ def _ruby_token(tok: str) -> str:
         opener, close = 1, body[0]
     closing = close if len(body) > opener and body[-1] == close else ""
     inner = body[opener:len(body) - len(closing)]
-    return lead + body[:opener] + _NOT_NEWLINE.sub(" ", inner) + closing
+    return lead + body[:opener] + _blank(inner) + closing
 
 
 def _mask_ruby(text: str) -> str:
@@ -233,8 +260,54 @@ def _mask_ruby(text: str) -> str:
         out.append(rest)
         body_end = _heredoc_end(text, line_end + 1, name, m.group("h1") is not None)
         out.append(text[line_end:line_end + 1])
-        out.append(_NOT_NEWLINE.sub(" ", text[line_end + 1:body_end]))
+        out.append(_blank(text[line_end + 1:body_end]))
         pos = body_end
+    return "".join(out)
+
+
+def _kotlin_comment_end(text: str, start: int) -> int:
+    """Конец вложенного блочного комментария Kotlin, начатого «/*» перед позицией start: после
+    «*/», закрывающей первый уровень; не закрыт — конец текста."""
+    depth = 1
+    for m in _KT_NESTED.finditer(text, start):
+        depth += 1 if m.group() == "/*" else -1
+        if depth == 0:
+            return m.end()
+    return len(text)
+
+
+def _mask_kotlin(text: str) -> str:
+    """Маска кода Kotlin той же длины, что текст (ТЗ §15 п. 17): комментарии — пробелы, у строк
+    и символов остаются кавычки, содержимое (и подстановки «${…}») — пробелы."""
+    out: list[str] = []
+    pos = 0
+    size = len(text)
+    while pos < size:
+        m = _KT_TOKENS.search(text, pos)
+        if m is None:
+            out.append(text[pos:])
+            break
+        start, end = m.span()
+        out.append(text[pos:start])
+        tok = m.group()
+        if tok == "/*":
+            end = _kotlin_comment_end(text, end)
+            out.append(_blank(text[start:end]))
+        elif tok == '"""':
+            close = _KT_RAW_END.search(text, end)
+            inner_end = close.end() - 3 if close is not None else size
+            end = close.end() if close is not None else size
+            out.append('"""' + _blank(text[start + 3:inner_end]) + text[inner_end:end])
+        elif tok[0] == "/":
+            out.append(_blank(tok))
+        elif end - start <= 2:
+            out.append(tok)
+        else:
+            first = tok[0]
+            closing = first if tok[-1] == first else ""
+            inner = tok[1:len(tok) - len(closing)]
+            out.append(first + _blank(inner) + closing)
+        pos = end
     return "".join(out)
 
 
@@ -244,7 +317,7 @@ def _raw(tok: str) -> str:
     quote = tok.index('"')
     closing = '"' + "#" * tok[:quote].count("#")
     end = len(tok) - len(closing) if len(tok) > quote + 1 and tok.endswith(closing) else len(tok)
-    return tok[:quote + 1] + _NOT_NEWLINE.sub(" ", tok[quote + 1:end]) + tok[end:]
+    return tok[:quote + 1] + _blank(tok[quote + 1:end]) + tok[end:]
 
 
 def _holes(tok: str) -> str:
@@ -256,7 +329,7 @@ def _holes(tok: str) -> str:
         if m.group("hole") is not None:
             out.append(mask(m.group(), CS))
         else:
-            out.append(_NOT_NEWLINE.sub(" ", m.group()))
+            out.append(_blank(m.group()))
     out.append(closing)
     return "".join(out)
 
@@ -287,6 +360,7 @@ class Code:
 
     def __init__(self, text: str, lang: str) -> None:
         self.text = text
+        self.lang = lang
         self.mask = mask(text, lang)
         self._breaks: list[int] | None = None
 

@@ -581,3 +581,27 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `down` не читается, файл только с `sql.raw(` тоже миграция. Переименование таблицы или
     колонки (`RENAME TO`, `RENAME COLUMN`, `RENAME TABLE`) переносит ссылки других колонок на
     неё, как внешний ключ в базе; ссылок переписывается не больше 200 000 на цепочку (М1).
+- Правила части 5б (фаза 5б, ТЗ §15 п. 17, по строке на пункт):
+  - маршруты Spring MVC и WebFlux (`parsers/spring.py`, общее для Java и Kotlin в `jvm.py`):
+    пакет Java или Kotlin с артефактом `spring-boot*` (у Gradle плагин
+    `org.springframework.boot`), класс с `@RestController` или `@Controller` (интерфейсы,
+    `@FeignClient` и клиентские контракты маршрутов не дают). Префикс класса и путь метода из
+    `@RequestMapping`, `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`,
+    `@PatchMapping`: первый аргумент, `value =` или `path =`, массив `{…}` (Kotlin `[…]`,
+    `arrayOf`) по маршруту на элемент, без пути путь префикса; методы `method = {RequestMethod.X}`
+    по маршруту на элемент, без них ANY (или `method` префикса класса). Путь складывается как
+    у ASP.NET Core, `{id:regex}` пишется `{id}`; префикс приложения
+    `server.servlet.context-path` или `spring.webflux.base-path` из `application.yml`,
+    `application.properties` или `bootstrap.*` того же модуля (документ без профиля), с `${`
+    маршруты получают `prefix_unresolved`. Путь константой раскрывается `clike.Repo` (Java),
+    выражение, склейка и шаблон Kotlin с `$` дают подсказку с методом. Маска Kotlin
+    (`codetext.KOTLIN`): вложенные `/* /* */ */`, сырые `"""…"""` и подстановки `${…}`; `.kt`
+    читается у пакетов Gradle с плагином Kotlin. Обход: каталоги под `src/main/java/` и
+    `src/main/kotlin/` — имя пакета, а не каталог проекта, и по соглашению не исключаются
+    (`walk.package_start`: `org.springframework.samples` у Petclinic). Каталог тестов по имени
+    (`clike.in_test_dir`): ещё часть имени через `-`, `_`, `.` из test, tests, testsuite,
+    testsuites (`testsuite/`, `test-framework/`) и набор Gradle `testX` (`testFixtures/`);
+    слово внутри части имени (`latest/`, `contest/`) не в счёт, пакет под корнем исходников
+    тоже. Java и Kotlin в непрочитанных маршрутах языком не называются (`FAMILY_LANGUAGES`),
+    серверы JVM без разборщика (Ktor, Micronaut, Javalin, Vert.x, Helidon) названы стеком;
+    пределы файла: 400 000 скобок, 2000 объявлений типов, аннотаций или записей (К1).

@@ -1,0 +1,7 @@
+services:
+  owners:
+    build: ./owners
+  gateway:
+    build: ./gateway
+  items:
+    build: ./items

@@ -28,16 +28,17 @@ from archmap_scan.walk import (
 )
 
 PYTHON, NODE, GO, RUBY = "Python", "Node.js", "Go", "Ruby"
-DOTNET, JAVA, RUST = ".NET", "Java", "Rust"
+DOTNET, JAVA, RUST, KOTLIN = ".NET", "Java", "Rust", "Kotlin"
 
 LANG_EXTS: dict[str, tuple[str, ...]] = {
     PYTHON: (".py",),
     NODE: (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx"),
     GO: (".go",),
     RUBY: (".rb",),  # только классы воркеров Sidekiq (ТЗ §15 п. 13 В3)
-    # Только параметры конфигурации (ТЗ §15 п. 14 Е4); .kt у пакета Kotlin не читается.
     DOTNET: (".cs",),
     JAVA: (".java",),
+    # Файлы Kotlin у пакетов Gradle с плагином Kotlin (ТЗ §15 п. 17): .kts — сценарии сборки.
+    KOTLIN: (".kt",),
     RUST: (".rs",),  # только параметры конфигурации (ТЗ §15 п. 14 И2)
 }
 # Собранный и сжатый код, объявления типов: исполняемого кода продукта там нет.

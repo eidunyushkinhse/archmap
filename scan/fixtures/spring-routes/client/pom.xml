@@ -1,0 +1,8 @@
+<project>
+  <artifactId>client</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+  </dependencies>
+</project>

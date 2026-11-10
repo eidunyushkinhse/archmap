@@ -28,7 +28,11 @@ MANIFESTS: dict[str, str | bytes] = {
         "\tgithub.com/robfig/cron/v3 v3.0.1\n)\n"
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
-    "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
+    "java/pom.xml": (
+        "<project><artifactId>x</artifactId><dependencies><dependency>"
+        "<artifactId>spring-boot-starter-web</artifactId></dependency></dependencies></project>\n"
+    ),
+    "kt/build.gradle.kts": 'plugins {\n    kotlin("jvm")\n    id("org.springframework.boot")\n}\n',
     "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\nclokwerk = "0.4"\n',
 }
 
@@ -117,6 +121,30 @@ STARTS: dict[str, tuple[str, ...]] = {
         "Integer.parseInt(System.getenv(", '"""', "System.getenv(Env.",
     ),
 }
+
+# Маршруты Spring (ТЗ §15 п. 17 К1): аннотации без закрытия, массивы путей, методы, классы,
+# параметры типа и маска Kotlin (вложенные комментарии, сырые строки, подстановки).
+RC = "@RestController\nclass A {\n  "
+STARTS["java/App.java"] += (
+    '@GetMapping("', RC + '@GetMapping("', RC + '@GetMapping(value = {"', RC + "@GetMapping(",
+    "@RequestMapping(", RC + "@RequestMapping(method = {RequestMethod.", RC + "@GetMapping\n  public ",
+    "@RestController\nclass A<", RC + "@GetMapping(A.", '@RestController\n@RequestMapping("',
+    "@", "@a.", "class A ", "@RestController\nclass A(", RC + "@GetMapping\n  public <",
+)
+STARTS["kt/App.kt"] = (
+    RC + '@GetMapping("', '"""', "/*", '"${', '"$', "@RestController\nclass A(",
+    RC + '@GetMapping(value = ["', RC + "@RequestMapping(method = [RequestMethod.",
+    RC + "@GetMapping\n  fun ", RC + "@GetMapping\n  val ", "/* /* */", "'",
+)
+# Файл настроек модуля, из которого маршрутам берётся префикс приложения.
+STARTS["java/src/main/resources/application.properties"] = (
+    "server.servlet.context-path=${", "server.servlet.context-path=", "a=\\\n", "#---\n", "!",
+    "%dev.server.servlet.context-path=", "server.servlet.context-path: \\u",
+)
+STARTS["java/src/main/resources/application.yml"] = (
+    "server:\n  servlet:\n    context-path: ", "spring:\n  webflux:\n    base-path: '${",
+    "---\nspring.config.activate.on-profile: a\n---\n", "a: [",
+)
 
 # Маршруты Rails (ТЗ §15 п. 15 К1): незакрытые строки, литералы, heredoc и блоки маски Ruby.
 STARTS["rb/config/routes.rb"] = (
@@ -370,6 +398,31 @@ CLIKE = {
     "cs/App.cs:verbatim": '@"' + '""' * (PAYLOAD // 2),
     "cs/App.cs:coalesce": 'Configuration["A"] ?? ' * 1999,
 }
+
+
+# Аннотации Spring (ТЗ §15 п. 17 К1): аннотаций и классов сверх предела, скобки сверх
+# предела, далёкие от аннотаций члены, вложенные в аргументы аннотации, длинные заголовки
+# классов и параметры типа без закрытия.
+SPRING = {
+    "java/App.java:annotations": '@GetMapping("/a")\n' * (PAYLOAD // 18),
+    "java/App.java:stacked": RC + '@GetMapping("/a") ' * 1999 + "void a() {}\n}\n",
+    "java/App.java:classes": "class A {}\n" * (PAYLOAD // 11),
+    "java/App.java:brackets": "{" * (PAYLOAD // 2),
+    "java/App.java:far-members": RC + ('@GetMapping("/a")' + " a" * 1400 + "\n") * 600,
+    "java/App.java:nested-args": RC + "@GetMapping @A(" * 1000 + ")" * 1000 + " a" * 1500,
+    "java/App.java:headers": "@RestController class A " + "(a) " * (PAYLOAD // 5),
+    "java/App.java:type-args": RC + "@GetMapping public " + "<" * (PAYLOAD // 2),
+    "java/App.java:arrays": RC + '@GetMapping({"' + '", "' * (PAYLOAD // 5) + '"}) void a() {}\n}',
+    "kt/App.kt:nested-comments": RC + "/*" * (PAYLOAD // 4) + "*/" * (PAYLOAD // 4),
+    "kt/App.kt:properties": RC + ('@GetMapping("/a") val a = 1\n' * 1999) + "}\n",
+    "kt/App.kt:headers": "@RestController\nclass A :\n" * (PAYLOAD // 26),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(SPRING))
+def test_spring_routes(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":", 1)[0]
+    _check(tree(tmp_path, {**MANIFESTS, name: SPRING[kind]}))
 
 
 # Миграции с шаблонами sql (ТЗ §15 п. 14 З2): тысячи шаблонов и инструкций, вставки без
