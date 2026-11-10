@@ -1,0 +1,8 @@
+<project>
+  <artifactId>server</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>quarkus-rest</artifactId>
+    </dependency>
+  </dependencies>
+</project>

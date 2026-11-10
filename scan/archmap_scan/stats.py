@@ -11,10 +11,11 @@ from archmap_scan.output.coverage import FamilyStat
 
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
 # Источники параметра, которые читают файлы каталога кода: чтения в коде, примеры
-# окружения и файлы настроек (appsettings.json и defaults.hjson, ТЗ §15 п. 16 Р1, Р2).
+# окружения и файлы настроек (appsettings.json и defaults.hjson, ТЗ §15 п. 16 Р1, Р2;
+# application.yml и application.properties Spring Boot и Quarkus, п. 17 Е1).
 # Окружение манифеста (compose, k8s) записано своему сервису и общим кодом не бывает, даже
 # если имя повторено через якоря YAML.
-_SHARED_PARAM_PARSERS = _CODE_PARSERS | {"env-example", "appsettings", "hjson"}
+_SHARED_PARAM_PARSERS = _CODE_PARSERS | {"env-example", "appsettings", "hjson", "spring-config"}
 # Семьи яруса кода: им считается пропущенный код в каталогах для разработки (ТЗ §4).
 _DEV_CODE_FAMILIES = ("config", "channels", "http_routes", "schedules")
 

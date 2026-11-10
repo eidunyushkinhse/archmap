@@ -77,10 +77,11 @@ def test_code_unsupported_stacks() -> None:
     # маршрутах не названа.
     assert stacks["http_routes"] == ["Elixir: Phoenix", "PHP: Laravel", "Rust: axum"]
     # Параметры в коде Python, Node.js, Go, .NET и Java читает ярус кода (ТЗ §15 п. 14 Е4):
-    # язык не назван, но у Java со Spring Boot параметры application.yml и @Value не читаются,
-    # стек назван с языком; viper только транзитивный.
+    # язык не назван; viper только транзитивный.
     # Параметры Rust читает rust-env (ТЗ §15 п. 14 И2): Rust в config больше не назван.
-    assert stacks["config"] == ["Elixir", "Java: Spring Boot", "PHP", "Ruby"]
+    # Файлы настроек Spring Boot читает spring-config (ТЗ §15 п. 17 Е1): Java со Spring Boot в
+    # config больше не названа.
+    assert stacks["config"] == ["Elixir", "PHP", "Ruby"]
     # Каналы Celery, Kafka, RabbitMQ, NATS, BullMQ и Sidekiq читает ярус кода; прочий код на
     # Ruby нет, и язык назван сам, как любые каналы на языках без чтения кода. Воркеры BullMQ и
     # Sidekiq из кода не заводятся.

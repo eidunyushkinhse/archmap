@@ -7,7 +7,8 @@ application.properties, bootstrap.yml, bootstrap.yaml или bootstrap.propertie
 сред. YAML читает yamlload (пределы размера и ссылок), .properties — свой разбор по строкам
 по правилам java.util.Properties: комментарии «#» и «!», ключ до «=», «:» или пробела,
 продолжение строки «\\», экранирование «\\=» и «\\uXXXX». Файл .properties больше 1 МБ
-непрочитан.
+непрочитан, как и YAML больше чем с MAX_DOCUMENTS разделителями документов «---» (разбор YAML
+на документ дорог, в настоящем файле документов единицы).
 
 Документы: YAML с «---» и .properties с «#---» дают несколько документов; документ с
 spring.config.activate.on-profile (или старым spring.profiles) — документ профиля: его ключи
@@ -26,7 +27,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from archmap_scan import codebase, jvm, paths, yamlload
+from archmap_scan import clike, codebase, jvm, paths, secrets, yamlload
 from archmap_scan.context import Context
 from archmap_scan.walk import Files
 
@@ -38,6 +39,8 @@ RESOURCES = "src/main/resources"
 MAX_PROPERTIES_BYTES = 1_000_000
 MAX_DEPTH = 50
 MAX_ENTRIES = 5000
+MAX_DOCUMENTS = 500
+_DOC_START = re.compile(r"^---(?=[ \t\r]|$)", re.M)
 _MAX_RENDER = 2000  # знаков значения списка одной строкой (дальше обрезается)
 PROFILE_KEYS = frozenset({"spring.config.activate.on-profile", "spring.profiles"})
 _INT = re.compile(r"-?[0-9]+")
@@ -87,11 +90,12 @@ def module_of(rel: str) -> str:
 
 def settings_files(files: Files, ctx: Context, keys: tuple[str, ...]) -> list[str]:
     """Файлы настроек модулей Java и Kotlin, у пакета которых есть зависимость из keys (пакет —
-    манифест сборки в каталоге модуля), кроме каталогов для разработки."""
+    манифест сборки в каталоге модуля), кроме каталогов для разработки и тестов по имени
+    (test-framework/ Keycloak)."""
     wanted = {p.dir for p in jvm.packages(files, ctx, keys)}
     out: list[str] = []
     for rel in files.select(is_settings_file):
-        if module_of(rel) in wanted and not files.skip_dev_code(rel):
+        if module_of(rel) in wanted and not clike.in_test_dir(rel) and not files.skip_dev_code(rel):
             out.append(rel)
     return out
 
@@ -107,7 +111,6 @@ def value_type(text: str | None) -> str | None:
         return "int"
     if _FLOAT.fullmatch(v):
         return "float"
-    from archmap_scan import secrets  # noqa: PLC0415 — без цикла импортов
     return secrets.value_type(v)
 
 
@@ -166,6 +169,9 @@ def _flatten(node: Any, prefix: str, depth: int, out: list[Entry], line: int) ->
 
 
 def _yaml(text: str) -> list[Document]:
+    starts = _DOC_START.finditer(text)
+    if any(i >= MAX_DOCUMENTS for i, _ in enumerate(starts)):
+        raise Unread
     try:
         docs = yamlload.load_all(text)
     except yamlload.YamlTooLarge as exc:
@@ -178,35 +184,27 @@ def _yaml(text: str) -> list[Document]:
             continue
         entries: list[Entry] = []
         _flatten(doc, "", 0, entries, doc.line)
-        profile = any(e.key in PROFILE_KEYS and e.type != "array" for e in entries)
+        profile = any(e.key in PROFILE_KEYS for e in entries)
         out.append(Document(profile, entries))
     return out
 
 
 _ESCAPES = {"t": "\t", "n": "\n", "r": "\r", "f": "\f"}
-_HEX = re.compile(r"[0-9a-fA-F]{4}")
+_ESCAPE = re.compile(r"\\(u[0-9a-fA-F]{4}|[\s\S]?)")
 
 
 def _unescape(raw: str) -> str:
     """Экранирование .properties: «\\t», «\\n», «\\uXXXX», иначе знак за «\\» как есть."""
     if "\\" not in raw:
         return raw
-    out: list[str] = []
-    i = 0
-    while i < len(raw):
-        ch = raw[i]
-        if ch != "\\" or i + 1 == len(raw):
-            out.append(ch)
-            i += 1
-            continue
-        nxt = raw[i + 1]
-        if nxt == "u" and _HEX.fullmatch(raw, i + 2, i + 6):
-            out.append(chr(int(raw[i + 2:i + 6], 16)))
-            i += 6
-            continue
-        out.append(_ESCAPES.get(nxt, nxt))
-        i += 2
-    return "".join(out)
+    return _ESCAPE.sub(_escaped, raw)
+
+
+def _escaped(m: re.Match[str]) -> str:
+    body = m.group(1)
+    if len(body) == 5:
+        return chr(int(body[1:], 16))
+    return _ESCAPES.get(body, body)
 
 
 def _logical_lines(text: str) -> Iterator[tuple[int, str]]:
@@ -241,27 +239,18 @@ def _continues(line: str) -> bool:
     return n % 2 == 1
 
 
+_KEY = re.compile(r"(?:[^\\=: \t\f]|\\[\s\S]?)*")
+_SEPARATOR = re.compile(r"[ \t\f]*[=:]?[ \t\f]*")
+
+
 def _split(line: str) -> tuple[str, str]:
-    """Ключ и значение логической строки .properties."""
-    i = 0
-    size = len(line)
-    while i < size:
-        ch = line[i]
-        if ch == "\\":
-            i += 2
-            continue
-        if ch in "=: \t\f":
-            break
-        i += 1
-    key = line[:i]
-    j = i
-    while j < size and line[j] in " \t\f":
-        j += 1
-    if j < size and line[j] in "=:":
-        j += 1
-        while j < size and line[j] in " \t\f":
-            j += 1
-    return _unescape(key), _unescape(line[j:])
+    """Ключ и значение логической строки .properties: ключ до первого неэкранированного «=»,
+    «:» или пробела, разделитель с пробелами вокруг."""
+    key = _KEY.match(line)
+    end = key.end() if key is not None else 0
+    sep = _SEPARATOR.match(line, end)
+    start = sep.end() if sep is not None else end
+    return _unescape(line[:end]), _unescape(line[start:])
 
 
 def _properties(text: str) -> list[Document]:
@@ -355,48 +344,50 @@ class Placeholder:
 
 def placeholders(value: str) -> list[Placeholder]:
     """Подстановки в значении по порядку, вложенные тоже: «${A:${B:c}}» — A с дефолтом не
-    литералом и B с дефолтом c. Проход один, глубина и число ограничены."""
+    литералом и B с дефолтом c. Поиск прыжками по «${» и фигурным скобкам; глубина, число
+    подстановок и просмотр скобок ограничены (враждебный вход)."""
     out: list[Placeholder] = []
-    _scan(value, 0, out, 0)
+    budget = [_MAX_BRACES]
+    _scan(value, out, 0, budget)
     return out
 
 
-def _scan(value: str, start: int, out: list[Placeholder], depth: int) -> int:
-    """Подстановки value начиная с start; возвращает позицию после разобранного (у вложенного
-    уровня — после закрывающей «}»)."""
-    i = start
-    size = len(value)
-    while i < size and len(out) < 200:
-        if value.startswith("${", i):
-            close = _close(value, i + 2)
-            if close < 0 or depth > 20:
-                return size
-            body = value[i + 2:close]
-            name, sep, default = body.partition(":")
-            nested = "${" in default
-            if nested:
-                _scan(default, 0, out, depth + 1)
-            if _NAME.fullmatch(name):
-                literal = default if sep and not nested else None
-                out.insert(len(out), Placeholder(name, literal, bool(sep)))
-            i = close + 1
-            continue
-        if depth and value[i] == "}":
-            return i + 1
-        i += 1
-    return size
+_MAX_PLACEHOLDERS = 200
+_MAX_NESTING = 8
+_MAX_BRACES = 50_000
+_BRACE = re.compile(r"[{}]")
 
 
-def _close(value: str, start: int) -> int:
+def _scan(value: str, out: list[Placeholder], depth: int, budget: list[int]) -> None:
+    i = 0
+    while len(out) < _MAX_PLACEHOLDERS:
+        start = value.find("${", i)
+        if start < 0:
+            return
+        close = _close(value, start + 2, budget)
+        if close < 0:
+            return
+        name, sep, default = value[start + 2:close].partition(":")
+        nested = "${" in default
+        if _NAME.fullmatch(name):
+            out.append(Placeholder(name, default if sep and not nested else None, bool(sep)))
+        if nested and depth < _MAX_NESTING:
+            _scan(default, out, depth + 1, budget)
+        i = close + 1
+
+
+def _close(value: str, start: int, budget: list[int]) -> int:
     """Позиция «}», закрывающей подстановку, тело которой начинается на start (вложенные
-    «${…}» и «{…}» учитываются); -1 — не закрыта."""
+    «${…}» и «{…}» учитываются); -1 — не закрыта за 4000 знаков или кончился просмотр."""
     depth = 0
-    for i in range(start, min(len(value), start + 4000)):
-        ch = value[i]
-        if ch == "{":
+    for m in _BRACE.finditer(value, start, min(len(value), start + 4000)):
+        budget[0] -= 1
+        if budget[0] < 0:
+            return -1
+        if m.group() == "{":
             depth += 1
-        elif ch == "}":
-            if depth == 0:
-                return i
+        elif depth == 0:
+            return m.start()
+        else:
             depth -= 1
     return -1

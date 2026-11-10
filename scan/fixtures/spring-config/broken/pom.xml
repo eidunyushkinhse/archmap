@@ -1,0 +1,8 @@
+<project>
+  <artifactId>broken</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>spring-boot-starter-webflux</artifactId>
+    </dependency>
+  </dependencies>
+</project>

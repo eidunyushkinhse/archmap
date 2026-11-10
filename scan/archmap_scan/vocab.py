@@ -443,6 +443,12 @@ OS_VARIABLES = frozenset({
     "TERM", "HOSTNAME", "CI", "CODESPACES", "NODE_OPTIONS",
 })
 _OS_PROXY_VARIABLES = frozenset({"http_proxy", "https_proxy", "no_proxy"})
+# Свойства JVM, которые подставляет сама виртуальная машина (${file.separator} в
+# application.properties Keycloak, ТЗ §15 п. 17 Е1): параметрами продукта не считаются.
+JVM_PROPERTIES = frozenset({
+    "file.separator", "path.separator", "line.separator", "user.home", "user.dir", "user.name",
+    "java.io.tmpdir", "java.home", "java.version", "os.name", "os.arch",
+})
 _OS_VARIABLE_PREFIXES = ("LC_", "GITHUB_", "GITLAB_", "PYTHON")
 
 
@@ -451,7 +457,7 @@ def is_os_variable(name: str) -> bool:
     NODE_ENV и DJANGO_SETTINGS_MODULE сюда не входят: их задаёт сам продукт."""
     return (
         name in OS_VARIABLES or name.lower() in _OS_PROXY_VARIABLES
-        or name.startswith(_OS_VARIABLE_PREFIXES)
+        or name.startswith(_OS_VARIABLE_PREFIXES) or name in JVM_PROPERTIES
     )
 
 
@@ -463,11 +469,9 @@ def is_os_variable(name: str) -> bool:
 # конфигурации (ТЗ §15 п. 14 Е4, И2), прочие семьи у них по-прежнему названы языком.
 CODE_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
 CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java", "Rust"}
-# Spring Boot читает параметры из application.yml и @Value("${X}"), а не System.getenv: у Java
-# с ним чтение кода неполное, и стек назван (ТЗ §15 п. 14 Е4, решение исполнителя).
-UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (
-    ("github.com/spf13/viper", "viper"), ("spring-boot", "Spring Boot"),
-)
+# Параметры Spring Boot из application.yml и application.properties читает spring-config
+# (ТЗ §15 п. 17 Е1): Spring Boot больше не назван.
+UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (("github.com/spf13/viper", "viper"),)
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
     "Echo", "chi", "Fiber", "Rails", "actix-web", "Spring Boot",
