@@ -1,0 +1,9 @@
+services:
+  web:
+    build: ./web
+  worker:
+    build: ./worker
+  helper:
+    image: example/helper:1.0
+  db:
+    image: postgres:16

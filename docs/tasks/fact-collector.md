@@ -267,14 +267,23 @@ archmap-scan/
 | | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1); необязательная группа в круглых скобках в пути не пишется, `devise_for` по модулям `devise` модели (`app/models/<имя>.rb`, `path:`, `path_names:`, `skip:`, `only:`, `sign_out_via:`), `shallow: true` и блок `shallow do` (ч. 5, П6) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints; модуль devise без известного набора и модель без `devise` в hints, провайдеры omniauth не раскрываются (`/имя/auth/:provider`) |
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"`, `Microsoft.AspNetCore.*` или `<FrameworkReference Include="Microsoft.AspNetCore.App" />`, ч. 5, П5): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2); маршрут по соглашению по шаблону того же проекта: `MapDefaultControllerRoute()` (`{controller=Home}/{action=Index}/{id?}`), `MapControllerRoute` с `pattern:` или вторым литералом, первый шаблон без `{area` (ч. 5, П5) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints; `{controller}` и `{action}` шаблона подставляются, `{x?}` отбрасывается; шаблона нет или он не литерал — `/Контроллер/действие` с `prefix_unresolved: true` |
 | | Rust: actix-web (`Cargo.toml` с actix-web): `.route("/p", web::get().to(h))` и другие методы (`web::method`, `web::to` — ANY), `web::resource("/p").route(web::get()…)` и `.to(h)`, `web::scope("/v1")` с вложенными `.service(web::scope(…))`, `#[get("/p")]` и `#[route("/p", method = "GET")]` над `fn` (ч. 4, К3) | один проход по парным скобкам маски Rust; атрибут — путь без префикса; константа `const` файла раскрывается, `format!` и переменная в hints |
+| | Java и Kotlin: Spring MVC и WebFlux (пакет с артефактом `spring-boot*`, у Gradle плагин `org.springframework.boot`; ч. 5б, К1): класс с `@RestController` или `@Controller`, префикс `@RequestMapping("/x")`, `value =`, `path =`, массив `{"/a", "/b"}` (Kotlin `[…]`) по маршруту на элемент; методы `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, `@PatchMapping`, `@RequestMapping(method = {RequestMethod.GET, …})`, без `method` ANY; префикс приложения `server.servlet.context-path` или `spring.webflux.base-path` из `application.yml`/`.properties` модуля | по маске Java и Kotlin одним проходом по парным скобкам; интерфейсы (`@FeignClient`) не читаются; ведущая косая добавляется, `{id:regex}` пишется `{id}`; константа класса раскрывается, выражение и шаблон Kotlin с `$` в hints; префикс приложения с `${` — `prefix_unresolved: true` |
+| | Java и Kotlin: JAX-RS (пакет с `jakarta.ws.rs-api`, `javax.ws.rs-api`, `jboss-jaxrs-api_*`, `resteasy-*`, `quarkus-resteasy*`, `quarkus-rest*` или `jersey-*`; ч. 5б, К2): корневой ресурс — класс с `@Path("/x")`, до которого не доходит локатор; метод с `@GET`, `@POST`, `@PUT`, `@DELETE`, `@PATCH`, `@HEAD`, `@OPTIONS` и `@Path("y")` → `/x/y`; локатор (метод с `@Path` без глагола) — маршруты возвращаемого класса под своим путём, цепочка до восьми локаторов; методы базового класса наследуются; префикс `quarkus.http.root-path` и `@ApplicationPath` приложения, где работает модуль | по маске Java и Kotlin; интерфейсы (клиентские прокси) не читаются; `@Path` класса подресурса не применяется; класс подресурса по файлу, импорту, пакету, модулю или единственный в репозитории; Object, интерфейс, класс вне кода, имя в нескольких пакетах, путь выражением в hints; `{name: regex}` пишется `{name}` |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре; поле без атрибута в структуре с `#[derive(Envconfig)]` — тоже, обязательно, если не `Option<T>`, ч. 5, Р3), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
 | | .NET: `appsettings.json` в каталоге проекта (рядом с `*.csproj`; не `appsettings.<Среда>.json` и не каталог тестов): ключ с вложением `A:B:C`, значение дефолтом как написано (массив одной строкой, `null` без дефолта), JSON с комментариями `//`, `/* */` и висячими запятыми; в коде C# `GetValue<T>("A:B")` и `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` → `ConnectionStrings:x`, раздел `GetSection("A")` или `GetRequiredSection("A")` с `.Get<T>()`, `.Bind(obj)` (тип `obj` по объявлению в файле), аргументом `Configure<T>(раздел)` или `AddOptions<T>().Bind(раздел)`, `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по публичным свойствам с `set` или `init` класса `T` того же проекта (дефолт из инициализатора-литерала, `required` — обязателен); имя раздела литералом, константой или `nameof(T)`, переменная раздела ставит его перед ключом (ч. 5, Р1) | тип у файла по значению (`string`, `int`, `float`, `bool`, `array`), у кода по `T` и типу свойства; запись файла и чтение того же ключа — один параметр: дефолт из файла, тип из кода; файл больше 1 МБ или глубже 50 уровней непрочитан, класса нет — параметр `A` с типом `T` как написан, имя раздела выражением в hints |
 | | hjson: `config/defaults.hjson` или `config/default.hjson` рядом с манифестом сборки пакета (`config.hjson` и другие имена не читаются; у Lemmy `config/defaults.hjson` рядом с `Cargo.toml`): ключ с вложением через точку (`database.pool_size`), значение дефолтом как написано (строка без кавычек, число, `true`/`false`; массив одной строкой; `null` без дефолта); комментарии `#`, `//`, `/* */`, ключи и строки без кавычек, `'''` многострочные, запятые необязательны (ч. 5, Р2) | тип по значению (`string`, `int`, `float`, `bool`, `array`); файл больше 1 МБ, глубже 50 уровней или больше 5000 ключей непрочитан с подсказкой в `unparsed`, ошибка синтаксиса — подсказка без записей |
+| | Java и Kotlin: файлы настроек Spring Boot и Quarkus (пакет с артефактом `spring-boot*` или `quarkus-*`; ч. 5б, Е1): `src/main/resources/application.yml`, `application.yaml`, `application.properties`, `bootstrap.*` модуля (не `application-<профиль>.yml`, не `application.<профиль>.properties` и не каталог тестов); ключ через точку (`spring.application.name`), значение дефолтом как написано (список одной строкой); документ YAML после `---` или `.properties` после `#---` с `spring.config.activate.on-profile` или `spring.profiles` и ключ Quarkus `%профиль.` параметров не дают; подстановка `${X:d}` в значении — параметр `X` с дефолтом `d`, `${X}` — обязательный `X` | тип по значению (`string`, `int`, `float`, `bool`, `duration`, `array`); `.properties` по правилам `java.util.Properties` (комментарии `#` и `!`, разделитель `=`, `:` или пробел, продолжение `\`, экранирование `\uXXXX`); адрес или секрет в дефолте подстановки дефолтом не пишется, и у ключа с ней тоже; свойства JVM (`file.separator`, `user.home`) — переменные среды; `.properties` больше 1 МБ, YAML больше предела `yamlload` или больше 500 разделителей документов, больше 5000 ключей непрочитан с подсказкой в `unparsed`, ошибка YAML — подсказка без записей |
+| | Java и Kotlin: Spring в коде (пакет с артефактом `spring-boot*`; ч. 5б, Е2): `@Value("${key}")` и `@Value("${key:default}")` над полем, свойством, параметром конструктора или метода и над сеттером; `@ConfigurationProperties(prefix = "p")` (`value =`, первый аргумент) над классом, record или data class: `p.<свойство>` в kebab-case по компонентам record, параметрам первичного конструктора Kotlin, полям с сеттером `setИмя` (или под `@Data`/`@Setter` Lombok) и свойствам `var` тела Kotlin, тип того же файла раскрывается на один уровень | тип по объявленному типу (`int`, `bool`, `float`, `duration`, `string`, `array`), у `@Value` только для значения из одной подстановки целиком; дефолт из подстановки, литерала инициализатора или `@DefaultValue`; `@Value` без дефолта обязательный; выражение SpEL `#{x}` и значение без `${` не параметр, склейка и префикс выражением в hints; `@ConfigurationProperties` над методом `@Bean` не читается |
+| | Kotlin и `Optional` Java: окружение (ч. 5б, Е3): `.kt` пакетов Gradle с плагином Kotlin, `System.getenv("X")`, `System.getenv().getOrDefault("X", "d")`, дефолт из элвиса `?: "d"` той же инструкции; Java `Optional.ofNullable(System.getenv("X"))` с `.orElse("d")`, `.orElseGet(() -> "d")`, `.orElseThrow(f)` | Kotlin: без элвиса и без `?.` обязательный, `?: throw` и `?: error(x)` обязательный, выражение или шаблон с `$` в элвисе — дефолт без значения; тип по `.toInt()`, `.toLong()`, `.toBoolean()`, `.toDouble()` (и `OrNull`) за вызовом или за скобкой вокруг элвиса, иначе по дефолту; имя `const val` в hints. Java: `.orElseThrow` — обязательный, тип по обёртке снаружи `Optional` |
 | каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
+| | Java и Kotlin: Kafka (пакет с `kafka-clients` или `spring-kafka`; ч. 5б, В1): потребление `subscribe(List.of("t"))`, `Arrays.asList`, `Collections.singletonList`, `Set.of`, Kotlin `listOf`, `setOf` (с получателем и без, как в блоке `apply`), `@KafkaListener(topics = "t")` и массивом `{"a", "b"}`, Kotlin `["a"]`; публикация `new ProducerRecord<>("t", v)`, Kotlin `ProducerRecord("t", v)`, `kafkaTemplate.send("t", v)` | топик литералом, константой класса Java (`clike`) или переменной файла с дефолтом окружения (`System.getenv("X") ?: "t"`, `Optional.ofNullable(System.getenv("X")).orElse("t")`: имя дефолтом); иначе `hints.dynamic_names`, обработчик реактивного потока (`subscribe(v -> f(v))`, `::`) подсказки не даёт; брокер по клиенту Kafka; Java и Kotlin уходят из `unsupported` каналов только у пакетов с Kafka; больше 2000 записей и подсказок в файле — файл непрочитан |
+| связи из файлов настроек Spring (ч. 5б, С1) | файлы настроек модуля (Е1), все документы: `uri` маршрутов Spring Cloud Gateway (`spring.cloud.gateway.routes`, `.server.webflux.routes`, `.mvc.routes`, `.server.webmvc.routes`, у `.properties` `routes[N].uri`), `spring.config.import` с `configserver:`, `spring.cloud.config.uri`, `eureka.client.serviceUrl.defaultZone` | связь контейнер-владелец файла → объект по хосту или имени (`lb://x`, `http(s)://x[:порт]`), технология HTTP; подстановка раскрывается дефолтом, без дефолта — подсказка; хост не объект — подсказка, как у прокси; `localhost` и IP не связь |
+| | Java и Kotlin: адреса объектов литералами в коде (ч. 5б, С2) | строковый литерал в `src/main` пакета Java или Kotlin, который весь адрес `http://<хост>/путь`, `https://<хост>` или `lb://<хост>`, хост без точек и порта → связь контейнер-владелец файла → объект с таким хостом или именем, технология HTTP; хост не объект, `localhost`, хост с точкой или портом, шаблон Kotlin с `$`, комментарии и каталоги тестов — ни связи, ни подсказки; больше 2000 адресов в файле — файл непрочитан. Для других языков правило не действует |
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`, `add_periodic_task` и обёртка над ним в файлах того же каталога, ч. 4, Л1), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), sidekiq-cron (`config/schedule.yml`, `config/schedule.yaml`, `config/sidekiq_cron.yml`: запись верхнего уровня с `class` и `cron` или `every`, без sidekiq-cron в Gemfile только с `cron` и `class`; тот же владелец; ч. 5, П2), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
 | | Go: robfig/cron (`go.mod` с `github.com/robfig/cron`, файл с её импортом): `c.AddFunc("spec", f)`, `c.AddJob("spec", j)`, `c.Schedule(cron.Every(d), j)` (ч. 4, Л2) | расписание как написано, строковая константа файла раскрывается, выражение текстом, имя без значения в hints; имя и задача — функция или задание вторым аргументом, у литеральной функции `файл:строка` |
 | | Rust: clokwerk (`Cargo.toml` с clokwerk): `scheduler.every(TimeUnits::minutes(5))`, `.every(1.hour())`, `.every(Interval::Daily).at("03:00")`, `.run(move || f(…))` (ч. 4, Л3) | расписание текстом аргумента every и at через пробел; имя и задача — первая свободная функция в теле run, без неё `файл:строка`; модуль тестов не читается |
 | | Node: пакеты `cron` и `@nestjs/schedule` (`package.json`): `@Cron("expr")` и `@Cron(CronExpression.X)` над методом, `new CronJob("expr", f)`, объект `{ name, expression | cronTime, onTick }` (`create({ … })`, `CronJob.from({ … })`) (ч. 4, Л4) | выражение как написано, член `CronExpression.X` по словарю (`EVERY_HOUR` → `0 * * * *`), имя из `name:`, члена перечисления, имени метода или функции; выражение полем конфигурации или именем в hints |
+| | Java и Kotlin: Spring `@Scheduled` (пакет со Spring Boot; ч. 5б, Л1): `@Scheduled(cron = "expr")`, `fixedRate = 5000`, `fixedDelay = 5000`, `timeUnit = TimeUnit.X`, `fixedRateString` и `fixedDelayString`, `@Schedules` с несколькими `@Scheduled` над методом | расписание с именем метода и задачей метод: cron как написан, интервал «every 5000 ms» и «every 5000 ms after completion» (единица по `timeUnit`: ns, us, ms, s, min, h, d), длительность строкой как написана («every PT10S»); константа класса Java раскрывается, подстановка — дефолтом, без дефолта — подсказка «из конфигурации» с выражением, выражение и `const val` Kotlin — «задано переменной»; `cron = "-"` (выключено) и одноразовый `initialDelay` не расписание; Java и Kotlin уходят из `unsupported` расписаний только у пакетов со Spring Boot |
 
 ### 6.3 Миграции → `facts/*.tables.yaml`
 
@@ -292,10 +301,10 @@ archmap-scan/
 
 Prisma `schema.prisma` (Rails `schema.rb` читается с части 3, З1; `structure.sql` разбирает 6.3),
 построитель схемы Kysely `db.schema.createTable` (шаблоны `sql` читаются с части 3, З2),
-Liquibase (снят владельцем), Helm `templates/`, маршруты Spring/Laravel/Phoenix и Rust без actix-web (Rails, ASP.NET Core и actix-web читаются с части 4, К1–К3),
+Liquibase (снят владельцем), Helm `templates/`, маршруты Laravel/Phoenix, Rust без actix-web и серверов JVM без разборщика (Ktor, Micronaut, Javalin, Vert.x, Helidon; Rails, ASP.NET Core и actix-web читаются с части 4, К1–К3, Spring с части 5б, К1),
 планировщики в коде без разборщика (node-cron, node-schedule, Agenda, schedule, APScheduler, gocron,
 tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue и другие; robfig/cron, clokwerk, пакеты cron и @nestjs/schedule читаются с части 4, Л2–Л4, sidekiq-cron с части 5, П2),
-ключи viper и Spring `@Value`, параметры Kotlin, исходящие HTTP-вызовы в коде, компоненты,
+ключи viper (Spring `@Value` и `@ConfigurationProperties` читаются с части 5б, Е2, окружение Kotlin с Е3), исходящие HTTP-вызовы в коде, компоненты,
 внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
 (кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
 и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
@@ -350,6 +359,14 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   Н3); у программы без контейнера записи
   уходят в `hints.unassigned` с причиной «код программы из cmd/<имя>/, у которой нет
   контейнера в манифестах» (§15 п. 14 Ф1).
+  Модули сборки Java вне каталога контейнера (ч. 5б, К2) правило не меняют. У Keycloak два
+  контейнера со своими каталогами кода (`container`, `quarkus/container`, образ из архива
+  выпуска, и `operator`), а ресурсы JAX-RS лежат в модуле `services/` (ни под одним из них):
+  472 маршрута уходят в `hints.unassigned` «общий код». Граф зависимостей Maven
+  (`quarkus/runtime` подключает `keycloak-services`) владельца не даёт: каталог
+  `quarkus/runtime` тоже вне каталога контейнера, а сборка образа из кода репозитория не видна
+  (Dockerfile скачивает архив выпуска). Сборщик использует этот граф только для префикса
+  приложения.
 - **База для миграций.** Цепочка: (1) контейнер, владеющий каталогом миграций, и адрес базы в
   его `environment`/дефолтах → объект-база с таким `host`; (1а) владелец каталога есть, адреса
   базы в его окружении нет, а в файлах его манифестов (тот же файл compose, тот же каталог
@@ -2176,3 +2193,257 @@ unread: {too_large: 3, binary: 0}
      теперь следуют за таблицей, 8 ссылок без цели → 0 (`postgres.tables.yaml`, только поле
      `references`). Остальные репозитории и дым без изменений. Кандидат вердикта immich
      `[tables] users` теперь «нет»: таблица называется `user`.
+17. **Решения исполнителя части 5б** (2026-11-10, ветка feat/scan-5b, сборщик 0.7.0 без выпуска;
+   Java и Kotlin: маршруты Spring и JAX-RS, файлы настроек Spring и Quarkus, связи шлюза,
+   Kafka в коде, расписания `@Scheduled`; владелец может отменить, числа перемера в конце
+   пункта).
+   - К1 (решение исполнителя): общий разбор Java и Kotlin вынесен в `jvm.py` (пакеты по стеку
+     с совпадением артефакта по началу «ключ-» и «ключ_», пары скобок одним проходом,
+     объявления типов, аннотации, их аргументы и члены класса под ними); разбор линеен:
+     заголовок типа ищется до следующего объявления, член класса под аннотацией до следующей
+     аннотации списка (её ответ берётся из памяти). Маска Kotlin своя (`codetext._mask_kotlin`):
+     вложенный блочный комментарий считается по глубине, сырая строка кончается серией из
+     трёх и более кавычек (последние три закрывают), подстановка `${…}` частью строки.
+     Сверх пункта, по клону: весь код Petclinic лежит в пакете `org.springframework.samples`,
+     и обход исключал его по сегменту `samples` (все 53 файла `src/main/java` восьми модулей
+     были в `excluded`). Каталоги под `src/main/java/` и `src/main/kotlin/` теперь
+     имя пакета (`walk.package_start`), соглашение действует только до корня исходников; у
+     Keycloak по этому правилу из `excluded` ушли `operator/src/main/java/org/keycloak/operator/crds/v2beta1/deployment/spec/`
+     (22 файла, пакет `spec`) и `test-framework/test-providers/src/main/java/org/keycloak/testframework/tests/` (2
+     файла; каталог `test-framework/` по-прежнему не читается кодом по правилу тестов).
+     Правило каталогов тестов (`clike.in_jvm_test_dir`, бриф ставил его в К2, нужно уже здесь):
+     часть имени каталога через «-», «_» или «.» равна test, tests, testsuite или testsuites,
+     либо имя начинается с test и заглавной буквы (наборы Gradle `testFixtures`); `latest`,
+     `contest`, `attestation`, `testing` и пакеты под корнем исходников (`org/test/`) кодом
+     остаются. Правило только для кода Java и Kotlin (разбор JVM, файлы настроек, `java-env`):
+     сначала оно стояло в общем `clike.in_test_dir`, и перемер после блоков К и Е показал, что у
+     PostHog пропали 81 запись параметров (27 имён у трёх контейнеров) крейта
+     `rust/personhog-test-harness/` (часть `test`); у других языков правило прежнее (имя
+     каталога кончается на Test или Tests), вывод PostHog снова совпал с базой судьи.
+     Переменная пути с регулярным выражением `{id:[0-9]+}` пишется `{id}` и у
+     Spring (бриф просил это для JAX-RS): путь маршрута от выражения не меняется.
+     `method` у `@RequestMapping` класса задаёт метод `@RequestMapping` метода без своего
+     `method`. Префикс приложения берётся из документа без профиля файла настроек модуля
+     (каталог пакета, `jvmconf.py`; разбор файлов настроек общий с Е1). Константы путей
+     раскрываются только у Java (`clike.Repo` знает `static final String`); у Kotlin
+     `const val` не раскрывается, путь им даёт подсказку. Java и Kotlin в `unsupported`
+     маршрутов языком больше не называются (правило К3 части 4): Online Boutique `adservice`
+     (gRPC) и `fraud-detection` OpenTelemetry Demo тоже; серверы JVM без разборщика названы
+     стеком (`vocab.UNSUPPORTED_ROUTE_DEPS`: Ktor, Micronaut, Javalin, Vert.x, Helidon по точным
+     именам артефактов). Petclinic: 16 маршрутов у пяти контейнеров, как ожидал бриф
+     (`customers-service` 8, `visits-service` 3, `vets-service` 1, `genai-service` 1,
+     `api-gateway` 3), семья маршрутов `covered`, `parsers: [spring]`. Запас по времени на
+     враждебном входе: строка и символ маски Java записаны развёрнутым циклом, пробелы маски
+     собираются одним шагом (`codetext._blank`); маска та же (сверено со старым модулем на 128
+     файлах фикстур и 24 000 случайных строках шести языков), строка в 2 МБ маскируется в десять раз
+     быстрее. Разборщик строит пары скобок только у файла с нужными аннотациями, член класса
+     ищется прыжками по важным знакам; худшая строка матрицы 0,18 с при пределе 1 с.
+   - К2 (решение исполнителя): ключи стека собраны по `pom.xml` Keycloak (`services` —
+     `jakarta.ws.rs-api`, `resteasy-core`, `resteasy-reactive`; `rest/admin-ui-ext` —
+     `resteasy-reactive-common`; `quarkus/runtime` — `quarkus-rest`; `rest/admin-v2/api` —
+     `jakarta.ws.rs-api`) и совпадают по началу артефакта (`jvm.jvm_match`); клиентский модуль
+     `integration/admin-client-core` (`resteasy-client`) тоже на стеке, но его 75 файлов —
+     интерфейсы, и маршрутов они не дают. Kotlin читается так же, как Java (бриф называл
+     только Java): разбор общий, тип локатора Kotlin после `):`. Отбор файлов по `@Path`,
+     `@ApplicationPath` и глаголам: класс подресурса часто без `@Path` (у Keycloak
+     `ClientPoliciesResource`, `ClientProfilesResource`, `ClientTypesResource`), с отбором
+     только по `@Path` терялось 9 маршрутов. Корень: бриф велел не считать корнем класс, до
+     которого дошёл хоть один локатор; в цикле A → B → A корень A тогда терял бы все маршруты,
+     поэтому в счёт идут только локаторы из другой компоненты сильной связности графа
+     локаторов (итеративный Тарьян). `@Path` у класса подресурса не применяется, как велит
+     JAX-RS (бриф допускал оба прочтения): у фикстуры `RealmResource` с `@Path("ignored")`
+     идёт под путём локатора `/realms/{realm}`. Сверх брифа: методы базового класса
+     (`extends`, до восьми уровней) наследуются (у Keycloak `RealmsAdminResourcePreflight`,
+     `ResourceService`, `ParEndpoint`), метод базового класса с тем же именем, что у метода
+     наследника, считается переопределённым; перегрузки одного класса берутся все (у Keycloak
+     это ещё 10 маршрутов). Класс
+     подресурса ищется в том же файле, по импорту, в том же пакете, в том же модуле, затем
+     единственный в репозитории: у Keycloak два `OrganizationsResource` в одном модуле, и без
+     импорта и пакета их не различить; имя в нескольких пакетах без такого выбора даёт
+     подсказку «класс подресурса с этим именем объявлен в нескольких пакетах». Префикс
+     приложения: `@ApplicationPath` и `quarkus.http.root-path` берутся у модулей, где работает
+     модуль ресурса (сам модуль и модули, манифест которых зависит от его артефакта); у
+     Keycloak `quarkus/runtime` подключает `keycloak-services`, оба значения «/», префикс
+     пустой. Пределы: цепочка не длиннее восьми локаторов (дальше подсказка), повтор класса
+     обрывает цепочку без подсказки, обход не больше 50 000 методов на запуск (у Keycloak около
+     тысячи; дальше одна подсказка), подсказка локатора одна на место (файл, строка, причина),
+     под каким бы путём до него ни дошли. Keycloak: 472 маршрута (469 разных пар метод и путь:
+     три пары повторяются из разных классов), GET 239, POST 103, DELETE 65, PUT 56, OPTIONS 8,
+     HEAD 1, все из `services/`; ни одного из `integration/admin-client-core`, `testsuite/`,
+     `tests/`, `test-framework/`, `docs/`. Бриф ждал не меньше 500: 132 аннотации глаголов в 45
+     файлах (протоколы OpenID Connect и SAML, консоль аккаунта, авторизация, конечные точки
+     брокера, регистрация клиентов, типы политик, `serverinfo`) лежат за локаторами,
+     возвращающими `Object` (`RealmsResource.java:108` `getProtocol`, `:197`
+     `getAccountService`, `:261` `getAuthorizationService`, `:276` `resolveRealmExtension`,
+     `AdminRoot.java:278` `getServerInfo`, `IdentityBrokerService.java:476`,
+     `ClientRegistrationService.java:48`, `PolicyService.java:95`, `RealmAdminResource.java:667`):
+     девять подсказок с путём локатора. `GET /admin/serverinfo` из брифа поэтому подсказка, а
+     пользователи называются `{user-id}` (`UsersResource.java:234`), а не `{id}`. Ещё две
+     подсказки — пути выражением `DebugHostnameSettingsResource.java:82` и `:131`. Владелец
+     маршрутов (правило 1, §7): у Keycloak два контейнера со своими каталогами кода, все 472 в
+     `hints.unassigned` «общий код»; семья маршрутов `covered`, `parsers: [openapi, jaxrs]`,
+     `unsupported` без Java.
+   - Е1 (решение исполнителя): ключи стека `spring-boot` и `quarkus` (артефакты `quarkus-*`,
+     у Keycloak `quarkus-rest`, у оператора `quarkus-operator-sdk`). Список YAML одной записью
+     строкой с типом `array` (бриф давал выбор с индексами): так же пишут `appsettings.json` и
+     hjson, а адреса внутри списков разбирает С1 по самому значению; ключи `.properties` с
+     индексом (`quarkus.helm.keywords[2]`) остаются как написаны. Документ профиля и со старым
+     `spring.profiles` строкой или списком (`spring.profiles.active` профилем не считается).
+     Подстановка с именем через точку (`${kc.home.dir:default}`) тоже параметр: Spring и
+     Quarkus подставляют так и ключи своих файлов, и переменные среды. Свойства JVM
+     (`file.separator`, `user.home`, `java.io.tmpdir` и другие, `vocab.JVM_PROPERTIES`) идут в
+     переменные операционной системы, как `PATH`. Адрес или секрет в дефолте подстановки
+     снимает дефолт и с ключа: иначе `${PRODUCT_CATALOG_ADDR:localhost:3550}` дал бы адрес среды
+     значением `spring.grpc.client.channel.product-catalog.target`. Каталоги тестов
+     (`clike.in_jvm_test_dir`) не читаются и здесь: у Keycloak файлы `testsuite/` и
+     `test-framework/` описывают тестовые серверы. Пределы на враждебный вход сверх брифа: YAML
+     больше чем с 500 разделителями документов непрочитан (25 000 документов в 225 КБ YAML
+     разбирались `yamlload` 2 с), 5000 ключей на файл, 200 подстановок на значение и
+     вложенность 8. Petclinic: 47 записей у восьми контейнеров (28 разных имён):
+     `admin-server` 3, `api-gateway` 6, `config-server` 5, `customers-service` 3,
+     `discovery-server` 5, `genai-service` 17, `vets-service` 5, `visits-service` 3; это листья
+     первых документов (2, 5, 4, 2, 4, 13, 4, 2) и параметры подстановок, а листья всех
+     документов (4, 7, 4, 4, 6, 15, 6, 4) совпадают с подсчётом судьи как набор;
+     `CONFIG_SERVER_URL` у семи (без дефолта: адрес), `GIT_REPO` у `config-server`
+     обязательный; семья config `covered`. Keycloak: у `operator` 48 параметров (раньше 0) из
+     `operator/src/main/resources/application.properties`; 52 ключа `quarkus/runtime` и 2
+     подстановки (54) и 4 ключа `quarkus/server` ушли в `hints.unassigned` «общий код»
+     (правило 1, §7: два контейнера со своими каталогами кода, как маршруты К2),
+     `file.separator` в переменные операционной системы. OpenTelemetry Demo: бриф считал, что
+     у `recommendation` файлов настроек нет, но в клоне есть
+     `src/recommendation/src/main/resources/application.yaml`: `spring.application.name`,
+     `spring.grpc.server.port` (`${RECOMMENDATION_PORT:9001}`), `spring.grpc.client.channel.product-catalog.target`
+     без дефолта и параметры подстановок `RECOMMENDATION_PORT` (дефолт `9001`, int) и
+     `PRODUCT_CATALOG_ADDR` (адрес, без дефолта) слились с записями compose; параметров 132 →
+     135, Spring Boot из `unsupported` семьи config ушёл.
+   - Е2 (решение исполнителя): отдельный разборщик кода `spring-value` (ярус кода, `applied`).
+     Тип по объявлению берётся, только когда значение `@Value` одна подстановка целиком
+     (`${a}/${b}` типа по полю не даёт); список, `Set`, массив и vararg — `array` (бриф называл
+     четыре типа). `@Value` над сеттером даёт тип по его единственному параметру. Цели
+     применения Kotlin (`@field:Value`, `@get:Path`) понимает общий разбор аннотаций `jvm.py`,
+     то есть и JAX-RS. `@ConfigurationProperties`: у record и data class Kotlin связывание
+     идёт конструктором, поэтому свойства это все компоненты и параметры первичного
+     конструктора (с `val`, `var` и без); у класса Java поля с сеттером `setИмя` того же
+     класса, а сверх брифа и под `@Data` или `@Setter` Lombok над классом (сеттеры генерирует
+     Lombok); класс Java только с конструктором без сеттеров записей не даёт; у класса Kotlin
+     без параметров конструктора свойства `var` тела. Сверх брифа: `@DefaultValue("d")`
+     компонента даёт дефолт, `1_000L` пишется `1000`. Свойство с типом, объявленным в том же
+     файле одним классом, раскрывается на один уровень, глубже (и с типом из другого файла)
+     пишется свойство без типа; `required` у свойств классов не ставится (Spring оставляет
+     пустое значение, проверки `@NotNull` сборщик не читает). kebab-case как у Spring
+     (`DataObjectPropertyName`): `URLPath` — `u-r-l-path`. Пределы на враждебный вход: 500 слов
+     и аннотаций в одном объявлении, 2000 параметров в одних скобках и свойств в одном классе
+     (больше записей файл всё равно не даёт), дальше файл непрочитан; последнее имя
+     объявления ищется окном с конца (регулярное выражение с `$` на мегабайте пробелов
+     занимало 5 с). В корпусе ровно два места: Petclinic `VetsProperties.java:30` и `:31`
+     (`vets.cache.ttl`, `vets.cache.heap-size`, int, без дефолта, у `vets-service`; параметров
+     28 → 30) и OpenTelemetry Demo `RecommendationService.java:61`
+     (`recommendation.catalog-timeout-ms`, дефолт `2000`, int; 135 → 136). Keycloak на Quarkus
+     читает настройки через `@ConfigProperty` (13 мест): это не Spring, вне пункта.
+   - Е3 (решение исполнителя): Kotlin читает тот же разборщик `java-env` по маске Kotlin,
+     репозиторий констант у Kotlin свой и `const val` не знает (как у маршрутов К1), поэтому имя
+     константой даёт подсказку. Бриф называл `vocab.CONFIG_LANGUAGES` и `FAMILY_LANGUAGES`:
+     у семьи config языки ведёт только `CONFIG_LANGUAGES`, Kotlin добавлен туда. «Без дефолта
+     обязательный» из брифа применён к Kotlin с уточнением: безопасный вызов `?.` без элвиса
+     значит, что отсутствие обработано, и обязательности не даёт; `?: throw` и `?: error(x)`
+     обязательные, как `?? throw` у C#. Элвис ищется в той же инструкции и на следующей строке
+     (Kotlin разрешает перенос перед `?:`). Сверх брифа: `.orElseThrow(f)` у Java даёт
+     обязательный (`AD_PORT`), тип по преобразованию за скобкой вокруг элвиса
+     (`(System.getenv("X") ?: "5").toInt()`). Java без `Optional` не менялась: `System.getenv("X")`
+     без дефолта по-прежнему без `required` (решение части 3). OpenTelemetry Demo, как ждал бриф:
+     `fraud-detection` `KAFKA_TOPIC` дефолт `orders` (`main.kt:26`), `KAFKA_ADDR` обязательный
+     (`main.kt:50`, запись слита с compose), `ad` `AD_PORT` int обязательный
+     (`AdService.java:100`), `AD_PROMETHEUS_PORT` дефолт `9465` int (`:106`); Kotlin ушёл из
+     `unsupported` семьи config, параметров 136 (число записей то же, у четырёх добавились
+     тип, дефолт или обязательность). Airflow: записей Kotlin нет; `java-sdk` читает
+     `System.getenv(LOGGING_LEVEL_ENV)` и `System.getenv(NamespaceLevels.ENV_VAR)` с именами
+     `const val` (`Logger.kt:132`, `:133`), это две новые подсказки о динамическом имени (36 →
+     38). Supabase: файлы Kotlin только в `examples/` (приложения Android), чтений окружения в
+     них нет, вывод не изменился. В корпусе части 4 `.kt` с `System.getenv` нет.
+   - С1 (решение исполнителя): связи из файла настроек идут новым видом находки `PathLink`
+     (начало по владельцу файла, как у маршрутов: `codefacts.route_owner`, конец по хосту, затем
+     по имени объекта); та же пара из манифестов или окружения — одна связь со всеми
+     основаниями. Сверх брифа: маршруты Spring Cloud Gateway MVC (`.mvc.routes`,
+     `.server.webmvc.routes`), ключ `.properties` `routes[N].uri` и `spring.cloud.config.uri`
+     (старая запись адреса сервера конфигурации в `bootstrap.*`). «Подсказка, как у прокси»
+     прочитана так: хост не объект — подсказка «другой конец связи не объект схемы»;
+     `localhost` и IP у прокси связи не дают и подсказки тоже, здесь так же; подстановка
+     раскрывается дефолтом (`${CONFIG_SERVER_URL:http://localhost:8888/}` первого документа
+     Petclinic даёт `localhost`, то есть ни связи, ни подсказки), без дефолта — подсказка
+     «адрес задан подстановкой без значения по умолчанию». Ключи Quarkus `%профиль.` связей
+     не дают. Не больше 2000 адресов на файл. Petclinic: связей 3 → 14, как ждал бриф:
+     `api-gateway` → `vets-service`, `visits-service`, `customers-service`, `genai-service`
+     (`application.yml:22`, `:28`, `:34`, `:40`) и семь `<сервис>` → `config-server` из
+     документов профиля `docker` (у `config-server` своего импорта нет). Ключа
+     `eureka.client.serviceUrl.defaultZone` в `src/main` клона нет: он в отдельном репозитории
+     конфигурации, в клоне только `eureka:` в `src/test/resources/application-test.yml`
+     (тесты не читаются). Keycloak и OpenTelemetry Demo: связей не прибавилось (у Keycloak
+     ключей шлюза, импорта и Eureka нет, у `recommendation` только `spring.grpc.*`), у
+     Keycloak в `parsers` семьи связей добавился `spring-config`, статус `empty` тот же.
+   - С2 (решение исполнителя): адрес литералом в коде (`parsers/jvmaddr.py`) идёт той же
+     находкой `PathLink` с признаком `quiet`: хост не объект схемы — ни связи, ни подсказки
+     (литерал в коде чаще внешний адрес, чем пропущенный объект); литерал вне каталогов кода
+     контейнеров даёт подсказку о владельце, как С1. Литерал должен быть адресом целиком
+     (`"see http://x/"` не адрес), склейка `"http://x/" + путь` адрес по первому литералу.
+     Сырая строка Kotlin `"""http://x/"""` читается, текстовый блок Java нет. Правило только для
+     Java и Kotlin: в Python, Go, JavaScript и других языках литералы адресов связей не дают.
+     Больше 2000 адресов в файле — файл непрочитан. Файл читается, только если в тексте есть
+     кавычка прямо перед схемой (`"http://`, `"https://`, `"lb://`): ссылки лицензий в шапках
+     файлов Java без кавычки, и у Keycloak маска таких файлов не строится (выводы те же,
+     отдельный коммит). Petclinic: связей 14 → 15, новая
+     `genai-service` → `vets-service` (`VectorStoreController.java:66`), у `api-gateway` →
+     `customers-service` и `visits-service` добавились основания `CustomersServiceClient.java:37`
+     и `VisitsServiceClient.java:34`; других адресов литералами в `src/main` клона нет. Keycloak:
+     литералы адресов без точки и порта в `src/main` только в комментариях
+     (`KeycloakUriBuilder.java:337`, `WellKnownProviderFactory.java:29`), с `localhost`
+     (`DefaultClientValidationProvider.java:125`) и в `testsuite` (каталог тестов), в `parsers`
+     семьи связей добавился `jvm-address`, статус `empty` тот же. OpenTelemetry Demo (`ad`,
+     `fraud-detection`) и Airflow: литералов адресов в коде Java и Kotlin нет; у Airflow в
+     `parsers` добавились `spring-config` и `jvm-address` (пакет Java есть), статус `empty`.
+     Supabase: пакетов Java и Kotlin с манифестом нет, вывод не изменился.
+   - В1 (решение исполнителя): язык JVM уходит из `unsupported` семьи каналов только у пакета
+     с `kafka-clients` или `spring-kafka` (`vocab.package_named`, ключи в
+     `FAMILY_LANGUAGES["channels"]`), а не у любого пакета, как у маршрутов К1: пакет Java без
+     Kafka может слать сообщения через RabbitMQ, JMS или Pulsar, этот код не читается. Так
+     ожидал и бриф (Petclinic и Keycloak каналами не меняются). Чтобы у пакета с Kafka такие
+     клиенты не пропали молча, артефакты `amqp-client`, `spring-rabbit`,
+     `spring-boot-starter-amqp`, `jnats`, `pulsar-client`, `spring-jms`, `jakarta.jms-api` и
+     `aws-java-sdk-sqs` добавлены в `vocab.UNSUPPORTED_CHANNEL_DEPS` («Java: RabbitMQ»; в корпусе
+     их нет, выводы не меняются; отдельный коммит). Сверх брифа: `Set.of`,
+     `mutableListOf`, `mutableSetOf`, `arrayListOf`, `arrayOf` в `@KafkaListener` и `sendDefault`
+     шаблона. Подписка аргументом-выражением даёт подсказку о динамическом имени
+     (`subscribe(Pattern.compile("x"))`, `subscribe(topics)`), кроме обработчиков реактивных
+     потоков Reactor и RxJava (`flux.subscribe(v -> f(v))`, `mono.subscribe(System.out::println)`,
+     блок Kotlin): в пакете с Kafka и WebFlux их много, и это не топики. Вызов со скобкой без
+     пары (код оборван) не читается вовсе. Подсказки считаются в предел 2000 записей файла
+     вместе с записями, в подсказку идёт начало выражения (200 знаков). Обрезка пробелов
+     аргумента `jvm._trim` стала по длине пробелов, а не всего отрезка: вложенные вызовы
+     `send(send(send(` на файле в 2 МБ иначе копировались на каждом уровне (квадрат); границы
+     те же, сторож — тест на случайных строках. Kotlin `const val` по-прежнему не раскрывается
+     (подсказка). OpenTelemetry Demo: `facts/kafka.channels.yaml` с топиком `orders`
+     (`main.kt:57` и `:78`, `subscribe(listOf(topic))` при `val topic = System.getenv("KAFKA_TOPIC")
+     ?: "orders"`), связь `kafka` → `fraud-detection` с `channel: orders` (потребление) и
+     запись в `entrypoints` у `fraud-detection`; связь «использует» `fraud-detection` → `kafka`
+     из compose поглощена связью с каналом той же пары (правило ч. 2), связей по-прежнему 32.
+     Семья каналов `unsupported` → `partial`, Kotlin ушёл из `unsupported`, Java остался (`ad`
+     без Kafka). `accounting` (.NET) и `checkout` (Go) без изменений. Других вызовов Kafka в
+     коде Java и Kotlin корпуса нет; у Supabase `kafka-jvm` добавился в `parsers` каналов по
+     правилу «стек не опознан, но языки читаются» (ч. 1), статус `empty` тот же.
+   - Л1 (решение исполнителя): форма интервала — «every 5000 ms» у `fixedRate` (как в брифе) и
+     «every 5000 ms after completion» у `fixedDelay` (отсчёт от конца прошлого запуска, а не от
+     начала); единица по `timeUnit` (ns, us, ms, s, min, h, d), без него миллисекунды, как у
+     Spring. `fixedRateString` и `fixedDelayString` с числом той же формой, с длительностью
+     («PT10S», «10s») длительность как написана без единицы: «every PT10S». Подстановка в cron и
+     в строке интервала раскрывается дефолтом (`${key:0 0 * * * *}` даёт `0 0 * * * *`, как
+     параметры Е1 и адреса С1); без дефолта или с дефолтом «-» — подсказка «расписание берётся
+     из конфигурации» с выражением. `cron = "-"` (`Scheduled.CRON_DISABLED`) записи не даёт,
+     `@Scheduled` только с `initialDelay` (одноразовый запуск) тоже. Строковая константа класса
+     Java раскрывается (`clike`), вызов и `const val` Kotlin дают подсказку «задано
+     переменной». Записи `@Schedules` — по одной на каждый `@Scheduled` со своей строкой. Язык
+     JVM уходит из `unsupported` расписаний только у пакета со Spring Boot (как каналы В1):
+     пакет без него может запускать задачи Quartz. Планировщики JVM без разборщика
+     (`quartz`, `spring-boot-starter-quartz`, `db-scheduler`, `jobrunr`) добавлены в
+     `vocab.UNSUPPORTED_SCHEDULE_DEPS` и названы сами («Java: Quartz»). Больше 2000 записей и
+     подсказок в файле — файл непрочитан. В корпусе `@Scheduled` нет: Petclinic расписаний
+     `unsupported: [Java]` → `empty` (все пакеты со Spring Boot), Keycloak (Quarkus, без
+     Spring Boot) `unsupported: [Java]` тот же, остальные без изменений.

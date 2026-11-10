@@ -1,0 +1,7 @@
+services:
+  gateway:
+    build: ./gateway
+  server:
+    build: ./server
+  broken:
+    build: ./broken

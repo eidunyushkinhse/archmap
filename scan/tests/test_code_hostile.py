@@ -28,7 +28,17 @@ MANIFESTS: dict[str, str | bytes] = {
         "\tgithub.com/robfig/cron/v3 v3.0.1\n)\n"
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
-    "java/pom.xml": "<project><artifactId>x</artifactId></project>\n",
+    "java/pom.xml": (
+        "<project><artifactId>x</artifactId><dependencies><dependency>"
+        "<artifactId>spring-boot-starter-web</artifactId></dependency><dependency>"
+        "<artifactId>jakarta.ws.rs-api</artifactId></dependency><dependency>"
+        "<artifactId>kafka-clients</artifactId></dependency></dependencies></project>\n"
+    ),
+    "kt/build.gradle.kts": (
+        'plugins {\n    kotlin("jvm")\n    id("org.springframework.boot")\n}\n'
+        'dependencies {\n    implementation("io.quarkus:quarkus-rest")\n'
+        '    implementation("org.springframework.kafka:spring-kafka")\n}\n'
+    ),
     "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\nclokwerk = "0.4"\n',
 }
 
@@ -117,6 +127,94 @@ STARTS: dict[str, tuple[str, ...]] = {
         "Integer.parseInt(System.getenv(", '"""', "System.getenv(Env.",
     ),
 }
+
+# Маршруты Spring (ТЗ §15 п. 17 К1): аннотации без закрытия, массивы путей, методы, классы,
+# параметры типа и маска Kotlin (вложенные комментарии, сырые строки, подстановки).
+RC = "@RestController\nclass A {\n  "
+STARTS["java/App.java"] += (
+    '@GetMapping("', RC + '@GetMapping("', RC + '@GetMapping(value = {"', RC + "@GetMapping(",
+    "@RequestMapping(", RC + "@RequestMapping(method = {RequestMethod.", RC + "@GetMapping\n  public ",
+    "@RestController\nclass A<", RC + "@GetMapping(A.", '@RestController\n@RequestMapping("',
+    "@", "@a.", "class A ", "@RestController\nclass A(", RC + "@GetMapping\n  public <",
+)
+STARTS["kt/App.kt"] = (
+    RC + '@GetMapping("', '"""', "/*", '"${', '"$', "@RestController\nclass A(",
+    RC + '@GetMapping(value = ["', RC + "@RequestMapping(method = [RequestMethod.",
+    RC + "@GetMapping\n  fun ", RC + "@GetMapping\n  val ", "/* /* */", "'",
+)
+# Ресурсы JAX-RS (ТЗ §15 п. 17 К2): @Path и глаголы без закрытия, локаторы, базовые классы.
+RES = '@Path("/a")\npublic class A {\n  '
+STARTS["java/App.java"] += (
+    '@Path("', RES + '@GET\n  @Path("', '@ApplicationPath("', RES + '@Path("b")\n  public ',
+    RES + '@Path("b")\n  public B<', RES + "@GET\n  public ", "public class B extends ",
+    RES + '@Path("{a: ', RES + "@Path(A.", '@Path("/a")\npublic abstract class ',
+)
+STARTS["kt/App.kt"] += (
+    '@Path("/a")\nclass A {\n  @Path("b")\n  fun b(): ', '@Path("/a")\nclass A : ',
+    '@Path("/a")\nclass A(', '@Path("/a")\nclass A {\n  @GET\n  fun ',
+)
+# Параметры Spring в коде (ТЗ §15 п. 17 Е2): @Value без закрытия, подстановки, классы свойств
+# с незакрытыми полями, сеттерами, компонентами record и параметрами конструктора Kotlin.
+CP = '@ConfigurationProperties("p")\npublic class A {\n  '
+STARTS["java/App.java"] += (
+    '@Value("${', '@Value("${a:', "@Value(", '@Value("#{', CP + "private ", CP + "private int a = ",
+    CP + "void setA(", '@ConfigurationProperties(prefix = "', "@lombok.Data\n" + CP + "private ",
+    '@ConfigurationProperties("p")\npublic record A(', '@ConfigurationProperties("p")\npublic record A(@DefaultValue("',
+    'class A {\n  A(@Value("${a}") ', 'class A {\n  @Value("${a}") private Map<',
+)
+STARTS["kt/App.kt"] += (
+    '@Value("\\${', '@field:Value("\\${a:', '@ConfigurationProperties("p")\nclass A(val a: ',
+    '@ConfigurationProperties("p")\nclass A {\n  var a: ', 'class A(@Value("\\${a}") val a: ',
+)
+# Окружение в Kotlin и Optional в Java (ТЗ §15 п. 17 Е3): незакрытые элвис, преобразование,
+# хвост Optional и лямбда orElseGet.
+GE = 'System.getenv("A")'
+STARTS["kt/App.kt"] += (
+    'System.getenv("', GE + ' ?: "', GE + " ?: ", GE + "?.", GE + "?.toInt() ?: ", "(" + GE + ' ?: "',
+    GE + " ?: throw ", GE + ' ?: "${',
+)
+STARTS["java/App.java"] += (
+    "Optional.ofNullable(" + GE + ').orElse("', "Optional.ofNullable(" + GE + ').orElseGet(() -> "',
+    "Integer.parseInt(Optional.ofNullable(" + GE + ").orElse(", "Optional.ofNullable(",
+)
+# Топики Kafka (ТЗ §15 п. 17 В1): подписки, записи и аннотации без закрытия, списки и
+# параметры типа без конца, переменные файла с дефолтом окружения.
+KS = "c.subscribe("
+STARTS["java/App.java"] += (
+    KS, KS + 'List.of("', KS + "Arrays.asList(", KS + "Collections.singletonList(",
+    'new ProducerRecord<>("', "new ProducerRecord<", 'kafkaTemplate.send("',
+    '@KafkaListener(topics = {"', '@KafkaListener(topics = "', "@KafkaListener(",
+    'String t = Optional.ofNullable(System.getenv("A")).orElse("',
+)
+STARTS["kt/App.kt"] += (
+    'subscribe(listOf("', "subscribe(setOf(", 'ProducerRecord("', '@KafkaListener(topics = ["',
+    'val t = System.getenv("A") ?: "', "val t: String = System.getenv(",
+)
+# Расписания Spring (ТЗ §15 п. 17 Л1): @Scheduled и @Schedules без закрытия, подстановки и
+# единицы времени без конца.
+SC = "@Scheduled("
+STARTS["java/App.java"] += (
+    SC, SC + 'cron = "', SC + "fixedRate = ", SC + 'fixedRateString = "${', SC + 'cron = "${a:',
+    '@Schedules({' + SC + 'cron = "', SC + "fixedRate = 1, timeUnit = TimeUnit.",
+)
+STARTS["kt/App.kt"] += (SC + 'cron = "', SC + 'fixedDelayString = "\\${', SC + "fixedRate = ")
+# Адреса объектов литералами (ТЗ §15 п. 17 С2): литерал адреса без закрытия, хост и путь без
+# конца, сырые строки и шаблоны Kotlin. Разборщик смотрит только src/main.
+STARTS["java/src/main/java/A.java"] = (
+    '"http://', '"lb://', '"https://a', '"http://a/', '"http://a?', 'String a = "', '"\\"http://',
+)
+STARTS["kt/src/main/kotlin/A.kt"] = (
+    '"http://', '"""http://', '"http://a/$', '"http://a/${', '"http://a/\\$', "'\"' + \"http://",
+)
+# Файл настроек модуля, из которого маршрутам берётся префикс приложения.
+STARTS["java/src/main/resources/application.properties"] = (
+    "server.servlet.context-path=${", "server.servlet.context-path=", "a=\\\n", "#---\n", "!",
+    "%dev.server.servlet.context-path=", "server.servlet.context-path: \\u",
+)
+STARTS["java/src/main/resources/application.yml"] = (
+    "server:\n  servlet:\n    context-path: ", "spring:\n  webflux:\n    base-path: '${",
+    "---\nspring.config.activate.on-profile: a\n---\n", "a: [",
+)
 
 # Маршруты Rails (ТЗ §15 п. 15 К1): незакрытые строки, литералы, heredoc и блоки маски Ruby.
 STARTS["rb/config/routes.rb"] = (
@@ -370,6 +468,181 @@ CLIKE = {
     "cs/App.cs:verbatim": '@"' + '""' * (PAYLOAD // 2),
     "cs/App.cs:coalesce": 'Configuration["A"] ?? ' * 1999,
 }
+
+
+# Аннотации Spring (ТЗ §15 п. 17 К1): аннотаций и классов сверх предела, скобки сверх
+# предела, далёкие от аннотаций члены, вложенные в аргументы аннотации, длинные заголовки
+# классов и параметры типа без закрытия.
+SPRING = {
+    "java/App.java:annotations": '@GetMapping("/a")\n' * (PAYLOAD // 18),
+    "java/App.java:stacked": RC + '@GetMapping("/a") ' * 1999 + "void a() {}\n}\n",
+    "java/App.java:classes": "class A {}\n" * (PAYLOAD // 11),
+    "java/App.java:brackets": "{" * (PAYLOAD // 2),
+    "java/App.java:far-members": RC + ('@GetMapping("/a")' + " a" * 1400 + "\n") * 600,
+    "java/App.java:nested-args": RC + "@GetMapping @A(" * 1000 + ")" * 1000 + " a" * 1500,
+    "java/App.java:headers": "@RestController class A " + "(a) " * (PAYLOAD // 5),
+    "java/App.java:type-args": RC + "@GetMapping public " + "<" * (PAYLOAD // 2),
+    "java/App.java:arrays": RC + '@GetMapping({"' + '", "' * (PAYLOAD // 5) + '"}) void a() {}\n}',
+    "kt/App.kt:nested-comments": RC + "/*" * (PAYLOAD // 4) + "*/" * (PAYLOAD // 4),
+    "kt/App.kt:properties": RC + ('@GetMapping("/a") val a = 1\n' * 1999) + "}\n",
+    "kt/App.kt:headers": "@RestController\nclass A :\n" * (PAYLOAD // 26),
+}
+
+
+# Классы свойств и @Value на файле в 2 МБ: сотни тысяч полей без сеттеров и с ними, одно поле
+# в миллион слов, параметры типа без закрытия, тысячи классов со ссылками друг на друга,
+# список параметров в сотни тысяч, стопки аннотаций, подстановки без конца.
+KCP = '@ConfigurationProperties("p")\nclass A {\n'
+SPRING_VALUE = {
+    "java/App.java:values": '@Value("${a}") int a;\n' * (PAYLOAD // 22),
+    "java/App.java:fields": CP + "private int a;\n" * (PAYLOAD // 15) + "void setB(int b) {}\n}\n",
+    "java/App.java:setters": CP + "private int a;\n  void setA(int a) {}\n" * (PAYLOAD // 38) + "}\n",
+    "java/App.java:long-field": CP + "private " + "a " * (PAYLOAD // 2) + ";\nvoid setA() {}\n}\n",
+    "java/App.java:spaced-field": (
+        CP + "private " + "a" * 100 + " " * (PAYLOAD - 300) + "b;\nvoid setB() {}\n}\n"
+    ),
+    "java/App.java:spaced-fields": CP + ("a" * 100 + " " * 200) * 6000 + "b;\nvoid setB() {}\n}\n",
+    "java/App.java:type-args": CP + "private Map" + "<" * (PAYLOAD // 2) + " a;\nvoid setA() {}\n}\n",
+    "java/App.java:linked-classes": "".join(
+        f'@ConfigurationProperties("p{i}")\nclass C{i} {{\n  private C{i + 1} f;\n'
+        f"  public void setF(C{i + 1} f) {{}}\n}}\n"
+        for i in range(1999)
+    ),
+    "java/App.java:params": "class A {\n  A(" + '@Value("${a}") int a, ' * 1999 + ") {}\n}\n",
+    "java/App.java:setter-params": '@Value("${a}") ' * 1999 + "void setA(" + "int a, " * (PAYLOAD // 8) + ") {}\n",
+    "java/App.java:record": '@ConfigurationProperties("p")\npublic record A(' + "int a, " * (PAYLOAD // 7) + ") {}\n",
+    "java/App.java:default-values": (
+        '@ConfigurationProperties("p")\npublic record A(' + '@DefaultValue("1") ' * (PAYLOAD // 19)
+        + "int a) {}\n"
+    ),
+    "java/App.java:holes": '@Value("' + "${" * (PAYLOAD // 2 - 10) + '") int a;\n',
+    "java/App.java:closed-holes": '@Value("' + "${a}" * (PAYLOAD // 4 - 10) + '") int a;\n',
+    "java/App.java:lombok-heads": "@Data " * (PAYLOAD // 6) + CP + "private int a;\n}\n",
+    "kt/App.kt:vars": KCP + "  var a: Int = 1\n" * (PAYLOAD // 17) + "}\n",
+    "kt/App.kt:vars-in-fun": KCP + "  fun f() {\n" + "    var a: Int = 1\n" * (PAYLOAD // 19) + "  }\n}\n",
+    "kt/App.kt:ctor": '@ConfigurationProperties("p")\nclass A(' + "val a: Int = 1, " * (PAYLOAD // 16) + ")\n",
+    "kt/App.kt:values": "class A {\n" + '  @Value("\\${a}") var a: Int = 1\n' * 1999 + "}\n",
+}
+
+
+SPRING_VALUE.update({
+    # Окружение Kotlin и Optional Java (Е3): чтения подряд до предела записей файла.
+    "kt/App.kt:elvis": (GE + ' ?: "b"\n') * (PAYLOAD // 26),
+    "kt/App.kt:elvis-spaces": GE + " ?:" + " " * (PAYLOAD - 30) + '"b"\n',
+    "java/App.java:optional": ("Optional.ofNullable(" + GE + ').orElse("b");\n') * 1999,
+    "java/App.java:optional-spaces": "Optional.ofNullable(" + GE + ")" + " " * (PAYLOAD - 60) + '.orElse("b");\n',
+})
+
+
+# Топики Kafka на файле в 2 МБ: сотни тысяч подписок, записей и аннотаций, список в
+# миллион элементов, параметры типа без закрытия, переменные с дефолтом подряд.
+SPRING_VALUE.update({
+    "java/App.java:subscribes": 'c.subscribe(List.of("t"));\n' * (PAYLOAD // 27),
+    "java/App.java:long-list": KS + "List.of(" + '"t", ' * (PAYLOAD // 5) + "));\n",
+    "java/App.java:records": 'p.send(new ProducerRecord<>("t", v));\n' * (PAYLOAD // 37),
+    "java/App.java:record-types": "new ProducerRecord<" + "<" * (PAYLOAD // 2) + "(\n",
+    "java/App.java:listeners": '@KafkaListener(topics = "t")\nvoid f() {}\n' * (PAYLOAD // 40),
+    "java/App.java:listener-array": '@KafkaListener(topics = {"' + '", "' * (PAYLOAD // 4) + '"})\n',
+    "java/App.java:templates": "kafkaTemplate.send(" * (PAYLOAD // 19),
+    "java/App.java:template-name": "a" * PAYLOAD + 'Template.send("t");\n',
+    "java/App.java:handlers": "f.subscribe(v -> g(v));\n" * (PAYLOAD // 24),
+    "kt/App.kt:env-vars": 'val t = System.getenv("A") ?: "x"\n' * (PAYLOAD // 34),
+    "kt/App.kt:var-spaces": 'val t = System.getenv("A")' + " " * (PAYLOAD - 40) + '?: "x"\n',
+    "kt/App.kt:subscribes": "subscribe(listOf(t))\n" * (PAYLOAD // 21),
+})
+
+
+# Расписания Spring на файле в 2 МБ: сотни тысяч @Scheduled и групп, одна группа в сотни
+# тысяч аннотаций, подстановки без конца, единицы времени без конца.
+SPRING_VALUE.update({
+    "java/App.java:scheduled": (SC + 'cron = "0 0 * * * *")\nvoid f() {}\n') * (PAYLOAD // 45),
+    "java/App.java:schedules-groups": ("@Schedules({" + SC + 'cron = "x")})\nvoid f() {}\n') * (PAYLOAD // 47),
+    "java/App.java:schedules-one": "@Schedules({" + (SC + 'cron = "x"), ') * (PAYLOAD // 22) + "})\nvoid f() {}\n",
+    "java/App.java:schedule-holes": SC + 'cron = "' + "${" * (PAYLOAD // 2 - 20) + '")\nvoid f() {}\n',
+    "java/App.java:time-units": SC + "fixedRate = 1" + ", timeUnit = TimeUnit.SECONDS" * (PAYLOAD // 30) + ")\nvoid f() {}\n",
+    "kt/App.kt:scheduled": (SC + 'fixedDelayString = "\\${a:PT1S}")\nfun f() {}\n') * (PAYLOAD // 46),
+})
+
+
+# Адреса литералами на файле в 2 МБ: сотни тысяч адресов на разных строках и в одной, хост
+# и путь в мегабайт, литералы без закрытия построчно.
+SPRING_VALUE.update({
+    "java/src/main/java/A.java:addresses": 'String u = "http://a/";\n' * (PAYLOAD // 24),
+    "java/src/main/java/A.java:one-line": '"http://a/" + ' * (PAYLOAD // 14),
+    "java/src/main/java/A.java:long-host": '"http://' + A + '/"\n',
+    "java/src/main/java/A.java:long-path": '"http://a/' + A + '"\n',
+    "java/src/main/java/A.java:unclosed": ('"http://a/' + "a" * 1000 + "\n") * 1999,
+    "kt/src/main/kotlin/A.kt:templates": 'val u = "http://$a/"\n' * (PAYLOAD // 22),
+})
+
+
+@pytest.mark.parametrize("kind", sorted(SPRING_VALUE))
+def test_spring_value(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":", 1)[0]
+    _check(tree(tmp_path, {**MANIFESTS, name: SPRING_VALUE[kind]}))
+
+
+# Локаторы JAX-RS: цепочка из тысяч классов, ветвление (десять локаторов на класс), цикл
+# A → B → A из тысяч пар, базовые классы цепочкой, тысячи корней.
+def _jaxrs_chain(n: int, fanout: int, cycle: bool = False) -> str:
+    out = []
+    for i in range(n):
+        nxt = 0 if cycle and i == n - 1 else i + 1
+        head = '@Path("/r")\n' if i == 0 else ""
+        locators = "".join(
+            f'  @Path("s{k}")\n  public C{nxt} n{k}() {{ return null; }}\n' for k in range(fanout)
+        )
+        out.append(f'{head}public class C{i} {{\n  @GET\n  public String g() {{ return ""; }}\n{locators}}}\n')
+    return "".join(out)
+
+
+JAXRS = {
+    "java/App.java:chain": _jaxrs_chain(600, 1),
+    "java/App.java:fanout": _jaxrs_chain(150, 10),
+    "java/App.java:cycle": _jaxrs_chain(600, 2, cycle=True),
+    "java/App.java:bases": "".join(
+        f'public class C{i} extends C{i + 1} {{\n  @GET\n  public String g{i}() {{ return ""; }}\n}}\n'
+        for i in range(1999)
+    ) + '@Path("/r")\npublic class R extends C0 {}\n',
+    "java/App.java:roots": "".join(
+        f'@Path("/r{i}")\npublic class C{i} {{\n  @GET\n  public String g() {{ return ""; }}\n}}\n'
+        for i in range(999)
+    ),
+    "kt/App.kt:chain": "".join(
+        ('@Path("/r")\n' if i == 0 else "")
+        + f'class C{i} {{\n  @GET\n  fun g() = ""\n  @Path("s")\n  fun n(): C{i + 1} = C{i + 1}()\n}}\n'
+        for i in range(999)
+    ),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(JAXRS))
+def test_jaxrs_locators(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":", 1)[0]
+    _check(tree(tmp_path, {**MANIFESTS, name: JAXRS[kind]}))
+
+
+def test_jaxrs_locators_across_files(tmp_path: Path) -> None:
+    """Цепочка и ветвление локаторов по 1000 файлам по классу в каждом (цикл через все):
+    пределы глубины и обхода действуют на репозиторий, а не на файл. Скорость разбора
+    плотного кода меряют строки выше на файле в 2 МБ."""
+    files: dict[str, str | bytes] = dict(MANIFESTS)
+    for i in range(1000):
+        head = '@Path("/r")\n' if i == 0 else ""
+        nxt = (i + 1) % 1000
+        locators = "".join(
+            f'  @Path("s{k}")\n  public C{nxt} n{k}() {{ return null; }}\n' for k in range(10)
+        )
+        files[f"java/C{i}.java"] = (
+            f'{head}public class C{i} {{\n  @GET\n  public String g() {{ return ""; }}\n{locators}}}\n'
+        )
+    _check(tree(tmp_path, files))
+
+
+@pytest.mark.parametrize("kind", sorted(SPRING))
+def test_spring_routes(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":", 1)[0]
+    _check(tree(tmp_path, {**MANIFESTS, name: SPRING[kind]}))
 
 
 # Миграции с шаблонами sql (ТЗ §15 п. 14 З2): тысячи шаблонов и инструкций, вставки без

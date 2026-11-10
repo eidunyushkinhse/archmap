@@ -1,0 +1,8 @@
+<project>
+  <artifactId>admin-client</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>resteasy-client</artifactId>
+    </dependency>
+  </dependencies>
+</project>

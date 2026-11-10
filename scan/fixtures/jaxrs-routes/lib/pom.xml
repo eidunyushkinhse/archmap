@@ -1,0 +1,8 @@
+<project>
+  <artifactId>lib-resources</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>jakarta.ws.rs-api</artifactId>
+    </dependency>
+  </dependencies>
+</project>

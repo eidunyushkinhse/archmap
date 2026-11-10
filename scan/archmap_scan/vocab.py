@@ -409,6 +409,11 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
+    # Брокеры JVM без разборщика (ТЗ §15 п. 17 В1): у пакета с Kafka язык в непрочитанных
+    # каналах больше не назван, и эти клиенты названы сами, артефакты Maven по точному имени.
+    ("amqp-client", "RabbitMQ"), ("spring-rabbit", "RabbitMQ"),
+    ("spring-boot-starter-amqp", "RabbitMQ"), ("jnats", "NATS"), ("pulsar-client", "Pulsar"),
+    ("spring-jms", "JMS"), ("jakarta.jms-api", "JMS"), ("aws-java-sdk-sqs", "SQS"),
 )
 
 # Библиотеки фоновых обработчиков в коде, которые ярус кода не читает (ТЗ §15 п. 10 А12:
@@ -432,6 +437,10 @@ UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("job_scheduler", "job_scheduler"),
     ("whenever", "whenever"), ("rufus-scheduler", "rufus-scheduler"), ("clockwork", "Clockwork"),
     ("good_job", "GoodJob"), ("solid_queue", "Solid Queue"),
+    # Планировщики JVM без разборщика (ТЗ §15 п. 17 Л1): у пакета со Spring Boot язык в
+    # непрочитанных расписаниях больше не назван, они названы сами.
+    ("quartz", "Quartz"), ("spring-boot-starter-quartz", "Quartz"),
+    ("db-scheduler", "db-scheduler"), ("jobrunr", "JobRunr"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -443,6 +452,12 @@ OS_VARIABLES = frozenset({
     "TERM", "HOSTNAME", "CI", "CODESPACES", "NODE_OPTIONS",
 })
 _OS_PROXY_VARIABLES = frozenset({"http_proxy", "https_proxy", "no_proxy"})
+# Свойства JVM, которые подставляет сама виртуальная машина (${file.separator} в
+# application.properties Keycloak, ТЗ §15 п. 17 Е1): параметрами продукта не считаются.
+JVM_PROPERTIES = frozenset({
+    "file.separator", "path.separator", "line.separator", "user.home", "user.dir", "user.name",
+    "java.io.tmpdir", "java.home", "java.version", "os.name", "os.arch",
+})
 _OS_VARIABLE_PREFIXES = ("LC_", "GITHUB_", "GITLAB_", "PYTHON")
 
 
@@ -451,7 +466,7 @@ def is_os_variable(name: str) -> bool:
     NODE_ENV и DJANGO_SETTINGS_MODULE сюда не входят: их задаёт сам продукт."""
     return (
         name in OS_VARIABLES or name.lower() in _OS_PROXY_VARIABLES
-        or name.startswith(_OS_VARIABLE_PREFIXES)
+        or name.startswith(_OS_VARIABLE_PREFIXES) or name in JVM_PROPERTIES
     )
 
 
@@ -462,30 +477,51 @@ def is_os_variable(name: str) -> bool:
 # которых читается во всех семьях яруса кода; у .NET, Java и Rust читаются только параметры
 # конфигурации (ТЗ §15 п. 14 Е4, И2), прочие семьи у них по-прежнему названы языком.
 CODE_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
-CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java", "Rust"}
-# Spring Boot читает параметры из application.yml и @Value("${X}"), а не System.getenv: у Java
-# с ним чтение кода неполное, и стек назван (ТЗ §15 п. 14 Е4, решение исполнителя).
-UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (
-    ("github.com/spf13/viper", "viper"), ("spring-boot", "Spring Boot"),
-)
+# Окружение в коде Kotlin читает java-env (ТЗ §15 п. 17 Е3).
+CONFIG_LANGUAGES = CODE_LANGUAGES | {".NET", "Java", "Kotlin", "Rust"}
+# Параметры Spring Boot из application.yml и application.properties читает spring-config
+# (ТЗ §15 п. 17 Е1): Spring Boot больше не назван.
+UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (("github.com/spf13/viper", "viper"),)
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
-    "Echo", "chi", "Fiber", "Rails", "actix-web",
+    "Echo", "chi", "Fiber", "Rails", "actix-web", "Spring Boot",
 })
 # Языки вне CODE_LANGUAGES, код которых ярус кода читает в одной семье, и зависимости пакета,
 # при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web, расписания
 # clokwerk, sidekiq-scheduler и sidekiq-cron (п. 16 П2). Пакет такого языка своим языком в
 # unsupported семьи не называется.
+JVM_ROUTE_KEYS = (
+    "spring-boot", "jakarta.ws.rs", "javax.ws.rs", "jboss-jaxrs-api", "resteasy",
+    "quarkus-resteasy", "quarkus-rest", "jersey",
+)
+# Каналы Kafka в коде Java и Kotlin (ТЗ §15 п. 17 В1): артефакты kafka-clients и spring-kafka.
+JVM_KAFKA_KEYS = ("kafka-clients", "spring-kafka")
 FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
     "http_routes": {
         "Ruby": ("rails", "railties"),
         # Веб-проект .NET (Sdk="Microsoft.NET.Sdk.Web") или зависимость Microsoft.AspNetCore.*.
         ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
         "Rust": ("actix-web",),
+        # Контроллеры Spring MVC и WebFlux (ТЗ §15 п. 17 К1): артефакт spring-boot*; ресурсы
+        # JAX-RS (К2): API и реализации RESTEasy, Quarkus REST и Jersey.
+        "Java": JVM_ROUTE_KEYS,
+        "Kotlin": JVM_ROUTE_KEYS,
     },
-    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2).
-    "schedules": {"Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron")},
+    # Каналы Kafka Java и Kotlin читает kafka-jvm (ТЗ §15 п. 17 В1).
+    "channels": {"Java": JVM_KAFKA_KEYS, "Kotlin": JVM_KAFKA_KEYS},
+    # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2),
+    # @Scheduled Spring в Java и Kotlin — spring-scheduled (п. 17 Л1).
+    "schedules": {
+        "Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron"),
+        "Java": ("spring-boot",), "Kotlin": ("spring-boot",),
+    },
 }
+# Семьи, где язык JVM уходит из unsupported только у пакета со стеком разборщика (ТЗ §15
+# п. 17 В1, Л1): пакет Java без Kafka может слать сообщения через RabbitMQ, JMS или Pulsar,
+# пакет без Spring Boot запускать задачи Quartz, этот код не читается, и пакет по-прежнему
+# назван языком. Маршруты JVM язык не называют у любого пакета (К1): серверы без
+# разборщика названы стеком (UNSUPPORTED_ROUTE_DEPS).
+_JVM_BY_PACKAGE = frozenset({"channels", "schedules"})
 # Серверные фреймворки маршрутов без разборщика у языков из FAMILY_LANGUAGES (ТЗ §15 п. 15 К3,
 # решение исполнителя): пакет с ними назван в unsupported «Язык: фреймворк», пакет без
 # известного стека не назван вовсе, как у языков CODE_LANGUAGES (у Lemmy библиотечные крейты
@@ -495,6 +531,10 @@ UNSUPPORTED_ROUTE_DEPS: tuple[tuple[str, str], ...] = (
     ("axum", "axum"), ("rocket", "Rocket"), ("warp", "warp"), ("poem", "poem"), ("tide", "tide"),
     ("sinatra", "Sinatra"), ("hanami", "Hanami"), ("grape", "Grape"), ("roda", "Roda"),
     ("fastendpoints", "FastEndpoints"), ("carter", "Carter"),
+    # Серверы JVM без разборщика (ТЗ §15 п. 17 К1): артефакты Maven по точному имени.
+    ("ktor-server-core", "Ktor"), ("ktor-server-netty", "Ktor"), ("micronaut-http-server", "Micronaut"),
+    ("micronaut-http-server-netty", "Micronaut"), ("javalin", "Javalin"), ("vertx-web", "Vert.x"),
+    ("helidon-webserver", "Helidon"),
 )
 
 
@@ -504,11 +544,32 @@ def family_language(family: str, language: str) -> bool:
     return language in FAMILY_LANGUAGES.get(family, {})
 
 
+def package_named(family: str, language: str, deps: Iterable[str]) -> bool:
+    """Пакет языка language вне CODE_LANGUAGES с зависимостями deps назван своим языком в
+    unsupported семьи family: семья язык не читает вовсе или (у языков JVM в каналах и
+    расписаниях) у пакета нет стека разборщика (_JVM_BY_PACKAGE)."""
+    if not family_language(family, language):
+        return True
+    if language in JVM_LANGUAGES and family in _JVM_BY_PACKAGE:
+        return not family_reads(family, language, deps)
+    return False
+
+
+# Языки JVM: артефакт Maven совпадает с ключом и по началу «ключ-» или «ключ_»
+# (spring-boot-starter-web у ключа spring-boot, ТЗ §15 п. 17).
+JVM_LANGUAGES = frozenset({"Java", "Kotlin"})
+
+
 def family_reads(family: str, language: str, deps: Iterable[str]) -> bool:
     """Код пакета языка language с зависимостями deps ярус кода читает в семье family:
-    зависимость равна ключу или начинается с «ключ.» (Microsoft.AspNetCore.*)."""
+    зависимость равна ключу или начинается с «ключ.» (Microsoft.AspNetCore.*), у языков JVM
+    ещё с «ключ-» и «ключ_»."""
     keys = FAMILY_LANGUAGES.get(family, {}).get(language, ())
-    return any(d.lower() == k or d.lower().startswith(k + ".") for d in deps for k in keys)
+    tails = (".", "-", "_") if language in JVM_LANGUAGES else (".",)
+    return any(
+        d.lower() == k or d.lower().startswith(tuple(k + t for t in tails))
+        for d in deps for k in keys
+    )
 
 # ORM и описания схем, которые сборщик пока не разбирает (ТЗ §6.4) → имя стека.
 UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (

@@ -326,12 +326,28 @@ def _name_rule(name: str) -> str | None:
     return None
 
 
+# Корень исходников JVM по соглашению Maven и Gradle (ТЗ §15 п. 17 К1): каталоги под
+# src/main/java/ и src/main/kotlin/ — имя пакета, а не каталог проекта. У Spring Petclinic
+# весь код лежит в пакете org.springframework.samples, и по сегменту samples обход исключал
+# его целиком. Код тестов лежит в src/test/ и исключается по сегменту test, как раньше.
+_JVM_SOURCE_ROOTS = (("src", "main", "java"), ("src", "main", "kotlin"))
+
+
+def package_start(parts: Sequence[str]) -> int:
+    """Номер первого сегмента пакета JVM в пути (после src/main/java или src/main/kotlin),
+    иначе длина пути: сегменты дальше этого номера каталогами по соглашению не считаются."""
+    for i in range(len(parts) - 3):
+        if tuple(parts[i:i + 3]) in _JVM_SOURCE_ROOTS:
+            return i + 3
+    return len(parts)
+
+
 def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     """Почему путь исключён по соглашению. Первое — что писать в отчёт: каталог («tests/»),
     шаблон имени или путь compose-файла для тестов и CI; второе — это путь от области обхода
     (тогда к нему добавляется путь области). None — путь не исключается."""
     parts = rel_in_scope.split("/")
-    for i, seg in enumerate(parts[:-1]):
+    for i, seg in enumerate(parts[:min(len(parts) - 1, package_start(parts))]):
         if _convention_dir(seg):
             return "/".join(parts[: i + 1]) + "/", True
     name = parts[-1]

@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: owners
+server:
+  servlet:
+    context-path: /api
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+server:
+  servlet:
+    context-path: /docker

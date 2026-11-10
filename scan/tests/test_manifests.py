@@ -73,14 +73,15 @@ def test_code_unsupported_stacks() -> None:
     # веб-SDK в маршрутах не названы, решение .sln без зависимостей тоже (у .NET маршруты
     # только у ASP.NET Core); крейт с axum назван фреймворком (vocab.UNSUPPORTED_ROUTE_DEPS).
     # Фреймворк языка, код на котором сборщик не читает, назван с языком (ТЗ §15 п. 10 А12).
-    assert stacks["http_routes"] == [
-        "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Rust: axum",
-    ]
+    # Контроллеры Spring читает разборщик spring (ТЗ §15 п. 17 К1): Java со Spring Boot в
+    # маршрутах не названа.
+    assert stacks["http_routes"] == ["Elixir: Phoenix", "PHP: Laravel", "Rust: axum"]
     # Параметры в коде Python, Node.js, Go, .NET и Java читает ярус кода (ТЗ §15 п. 14 Е4):
-    # язык не назван, но у Java со Spring Boot параметры application.yml и @Value не читаются,
-    # стек назван с языком; viper только транзитивный.
+    # язык не назван; viper только транзитивный.
     # Параметры Rust читает rust-env (ТЗ §15 п. 14 И2): Rust в config больше не назван.
-    assert stacks["config"] == ["Elixir", "Java: Spring Boot", "PHP", "Ruby"]
+    # Файлы настроек Spring Boot читает spring-config (ТЗ §15 п. 17 Е1): Java со Spring Boot в
+    # config больше не названа.
+    assert stacks["config"] == ["Elixir", "PHP", "Ruby"]
     # Каналы Celery, Kafka, RabbitMQ, NATS, BullMQ и Sidekiq читает ярус кода; прочий код на
     # Ruby нет, и язык назван сам, как любые каналы на языках без чтения кода. Воркеры BullMQ и
     # Sidekiq из кода не заводятся.
@@ -88,8 +89,9 @@ def test_code_unsupported_stacks() -> None:
     assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
     # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler и sidekiq-cron —
     # sidekiq (ТЗ §15 п. 16 П2), clokwerk — clokwerk (п. 15 Л3): Rust и Ruby в расписаниях не
-    # названы.
-    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP"]
+    # названы. @Scheduled Spring читает spring-scheduled (п. 17 Л1): Java со Spring Boot в
+    # расписаниях не назван.
+    assert stacks["schedules"] == [".NET", "Elixir", "PHP"]
     assert stacks["tables"] == ["Ecto", "Kysely"]
 
 
@@ -251,7 +253,7 @@ def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["channels"]["status"] == "empty"
     assert families["channels"]["parsers"] == [
-        "celery", "kafka", "rabbitmq", "nats", "bullmq", "sidekiq",
+        "celery", "kafka", "kafka-jvm", "rabbitmq", "nats", "bullmq", "sidekiq",
     ]
     assert families["http_routes"]["status"] == "empty"
 

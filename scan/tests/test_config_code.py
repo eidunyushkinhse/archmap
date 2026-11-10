@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from archmap_scan import clike, texts
+from archmap_scan import clike, registry, stats, texts
 from archmap_scan.parsers import (
     appsettings,
     dotnetenv,
@@ -320,8 +320,11 @@ def test_appsettings_hostile(tmp_path: Path, kind: str) -> None:
         "App/appsettings.json": APPSETTINGS_HOSTILE[kind],
     })
     ctx, files = files_of(tmp_path)
-    _found, took = timed(partial(appsettings.parse, files, ctx), time_limit())
-    assert took < time_limit() * 0.7, f"{took:.2f} с"
+    # Повтор в timed по тому же пределу, что проверяется: иначе прогон между 0,7 и 1 с не
+    # повторяется, и нагрузка хоста роняет гейт (полевая находка части 5б).
+    limit = time_limit() * 0.7
+    _found, took = timed(partial(appsettings.parse, files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
 
 
 def test_appsettings_limits(tmp_path: Path) -> None:
@@ -525,6 +528,51 @@ def test_java_getenv() -> None:
     assert sorted(str(loc) for loc in model.params["ads"]["DISABLE_TRACING"].locs) == [
         f"{src}:15", "ads/src/main/java/shop/ads/Names.java:4",
     ]
+
+
+def test_kotlin_env_and_java_optional() -> None:
+    """Окружение в Kotlin и Optional в Java (ТЗ §15 п. 17 Е3). Найдено в OpenTelemetry Demo:
+    src/fraud-detection/src/main/kotlin/frauddetection/main.kt:26 System.getenv("KAFKA_TOPIC")
+    ?: "orders" и :50 System.getenv("KAFKA_ADDR") без дефолта; src/ad/src/main/java/oteldemo/
+    AdService.java:100 Optional.ofNullable(System.getenv("AD_PORT")).orElseThrow(…) и :106
+    Integer.parseInt(Optional.ofNullable(System.getenv("AD_PROMETHEUS_PORT")).orElse("9465")).
+    Ловушки: System.getProperty, комментарии (и вложенные Kotlin), строка; const val именем —
+    подсказка; шаблон Kotlin и выражение в элвисе — дефолт есть, но не пишется; между Optional
+    и orElse другой вызов (map) — дефолта нет."""
+    root = FIXTURES / "jvm-env"
+    kt, ad = "fraud/src/main/kotlin/fraud/main.kt", "ad/src/main/java/shop/ad/AdService.java"
+    assert _params(javaenv, root) == [
+        ("AD_HOST", "ads", True, None, "string", f"{ad}:14"),
+        ("AD_OTHER", None, True, None, None, f"{ad}:15"),
+        # orElseThrow — обязательный; тип по обёртке снаружи Optional.
+        ("AD_PORT", None, False, True, "int", f"{ad}:10"),
+        ("AD_PROMETHEUS_PORT", "9465", True, None, "int", f"{ad}:13"),
+        ("AD_QUALIFIED", "q", True, None, "string", f"{ad}:17"),
+        ("AD_TRIMMED", None, False, None, None, f"{ad}:16"),
+        ("FRAUD_DEBUG", None, False, True, "bool", f"{kt}:11"),
+        ("FRAUD_HOME", None, False, True, None, f"{kt}:14"),
+        # Безопасный вызов «?.» без элвиса: значение может не быть, не обязательный.
+        ("FRAUD_LEVEL", None, False, None, None, f"{kt}:13"),
+        ("FRAUD_MAP", "m", True, None, "string", f"{kt}:21"),
+        ("FRAUD_MODE", None, True, None, None, f"{kt}:16"),
+        # Элвис на следующей строке той же инструкции.
+        ("FRAUD_NEXT", "n", True, None, "string", f"{kt}:18"),
+        ("FRAUD_PORT", "8080", True, None, "int", f"{kt}:10"),
+        # Преобразование за скобкой вокруг элвиса.
+        ("FRAUD_RATIO", "0.5", True, None, "float", f"{kt}:12"),
+        ("FRAUD_STRICT", None, False, True, None, f"{kt}:15"),
+        ("FRAUD_TMPL", None, True, None, None, f"{kt}:17"),
+        ("KAFKA_ADDR", None, False, True, None, f"{kt}:9"),
+        ("KAFKA_TOPIC", "orders", True, None, "string", f"{kt}:4"),
+    ]
+    assert _hints(javaenv, root) == [("NAME_ENV", texts.REASON_DYNAMIC_PARAM, f"{kt}:20")]
+    model = model_of(root)
+    addr = model.params["fraud"]["KAFKA_ADDR"]
+    assert addr.parsers == {"compose", "java-env"} and addr.required is True
+    ctx, files = files_of(root)
+    found, errors = registry.collect(files, ctx)
+    assert errors == {}
+    assert "Kotlin" not in stats.code_unsupported(found).get("config", [])
 
 
 def test_rust_env() -> None:

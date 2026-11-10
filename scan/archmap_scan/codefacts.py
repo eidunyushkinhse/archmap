@@ -54,6 +54,7 @@ from archmap_scan.links import hosts_in
 from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc, hint_fields
 from archmap_scan.objects import (
     BROKER,
+    SERVICE,
     SHAPE_ORDER,
     Channel,
     Consumer,
@@ -404,6 +405,47 @@ def _link(
     link.parsers.add(use.parser)
 
 
+def _path_links(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
+    """Связи из файлов настроек и кода (ТЗ §15 п. 17 С1, С2): начало — владелец файла (как у
+    маршрутов), конец — объект по хосту, затем по имени; та же пара, что из манифестов, —
+    одна связь со всеми основаниями."""
+    by_host = {o.host.lower(): o for o in model.objects if o.host}
+    by_name = {o.name: o for o in model.objects}
+    index = {
+        (lk.src.name, lk.dst.name): lk for lk in model.links
+        if lk.channel is None and lk.label == texts.LABEL_USES
+    }
+    added = False
+    for item in sorted(findings.path_links, key=lambda i: (i.loc, i.host)):
+        dst = by_host.get(item.host.lower()) or by_name.get(item.host)
+        if dst is None and item.quiet:
+            continue
+        model.code_parsers.setdefault("edges", set()).add(item.parser)
+        src, why = route_owner(item.loc.path, containers)
+        if src is None:
+            _unassigned(model, "edge", item.host, why or "", item.loc)
+            continue
+        if dst is None:
+            _unassigned(
+                model, "edge", f"{src.name}→{item.host}", texts.REASON_LINK_NOT_OBJECT, item.loc,
+            )
+            continue
+        if dst is src:
+            continue
+        link = index.get((src.name, dst.name))
+        if link is None:
+            tech = item.technology if dst.shape == SERVICE else dst.technology
+            link = index[(src.name, dst.name)] = Link(
+                src=src, dst=dst, label=texts.LABEL_USES, technology=tech,
+            )
+            model.links.append(link)
+            added = True
+        link.locs.add(item.loc)
+        link.parsers.add(item.parser)
+    if added:
+        model.links.sort(key=lambda lk: (lk.src.name, lk.dst.name, lk.label, lk.channel or ""))
+
+
 def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_of: EnvOf) -> None:
     index: dict[tuple[str, str, str, str], Link] = {}
     uses = [(u, None) for u in findings.channels] + _worker_queues(model)
@@ -503,5 +545,6 @@ def attach(model: Model, findings: Findings, env_of: EnvOf) -> None:
     _routes(model, findings, containers)
     _params(model, findings, containers)
     _os_variables(model)
+    _path_links(model, findings, containers)
     _channels(model, findings, containers, env_of)
     _schedules(model, findings, containers)

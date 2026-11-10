@@ -1,0 +1,14 @@
+<project>
+  <artifactId>server</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>jakarta.ws.rs-api</artifactId>
+    </dependency>
+    <dependency>
+      <artifactId>resteasy-core</artifactId>
+    </dependency>
+    <dependency>
+      <artifactId>lib-resources</artifactId>
+    </dependency>
+  </dependencies>
+</project>

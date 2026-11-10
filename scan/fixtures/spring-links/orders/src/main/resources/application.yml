@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: orders
+  config:
+    import: optional:configserver:${CONFIG_URL:http://config:8888},optional:classpath:/extra.yml
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://discovery:8761/eureka/
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+    import: configserver:http://config:8888

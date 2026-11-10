@@ -95,6 +95,20 @@ class ManifestLink:
 
 
 @dataclass
+class PathLink:
+    """Связь из файла настроек или кода (ТЗ §15 п. 17 С1, С2): начало — контейнер-владелец
+    файла loc.path (owners.file_owners), конец — объект по хосту или имени host. quiet: хост
+    не объект — ни связи, ни подсказки (адреса литералами в коде, С2); иначе подсказка
+    «другой конец связи не объект схемы», как у прокси."""
+
+    host: str
+    loc: Loc
+    parser: str
+    technology: str | None = "HTTP"
+    quiet: bool = False
+
+
+@dataclass
 class Dockerfile:
     path: str
     dir: str
@@ -348,6 +362,8 @@ class Findings:
     applied: set[str] = field(default_factory=set)
     # Связи, которые манифесты называют сами (NetworkPolicy, конфигурация прокси).
     links: list[ManifestLink] = field(default_factory=list)
+    # Связи из файлов настроек и кода с началом по владельцу файла (ТЗ §15 п. 17 С1, С2).
+    path_links: list[PathLink] = field(default_factory=list)
     # Файлы кода в каталогах для разработки, которые разборщик не читал: имя разборщика →
     # файлы (ТЗ §4, покрытие skipped.dev_code по семьям).
     dev_code: dict[str, set[str]] = field(default_factory=dict)
@@ -382,6 +398,7 @@ class Findings:
         self.schedules.extend(other.schedules)
         self.applied |= other.applied
         self.links.extend(other.links)
+        self.path_links.extend(other.path_links)
         for parser, rels in other.dev_code.items():
             self.dev_code.setdefault(parser, set()).update(rels)
         self.build_units.extend(other.build_units)

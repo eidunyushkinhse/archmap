@@ -1,0 +1,11 @@
+<project>
+  <parent>
+    <artifactId>spring-boot-starter-parent</artifactId>
+  </parent>
+  <artifactId>gateway</artifactId>
+  <dependencies>
+    <dependency>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+  </dependencies>
+</project>

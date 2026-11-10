@@ -1,0 +1,11 @@
+services:
+  gateway:
+    build: ./gateway
+  orders:
+    build: ./orders
+  billing:
+    build: ./billing
+  config:
+    build: ./config
+  discovery:
+    image: example/discovery:1.0

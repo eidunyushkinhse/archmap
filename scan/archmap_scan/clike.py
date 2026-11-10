@@ -15,13 +15,13 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from archmap_scan import codebase, codetext, paths, texts
 from archmap_scan.codetext import SP
 from archmap_scan.context import Context
 from archmap_scan.model import CodeParam, Findings, Hint, Loc
-from archmap_scan.walk import Files
+from archmap_scan.walk import Files, package_start
 
 _ID = r"[A-Za-z_][A-Za-z0-9_]{0,99}"
 # Аргумент чтения сразу за «(» или «[»: строковый литерал (у C# и дословный @"…") или имя
@@ -39,8 +39,15 @@ _IMPORT = re.compile(
     rf"^[ \t]*import[ \t]+(static[ \t]+)?({_ID}(?:\.{_ID}){{0,30}})(\.\*)?[ \t]*;", re.MULTILINE,
 )
 # Каталог тестов по имени (ТЗ §15 п. 14 Е4): Ordering.UnitTests/, Cart.Tests/, it-tests/.
-# Каталоги test/ и tests/ исключает обход по соглашению (walk.CONVENTION_DIRS).
+# Каталоги test/ и tests/ исключает обход по соглашению (walk.CONVENTION_DIRS). С части 5б
+# (ТЗ §15 п. 17 К2) ещё каталог, одна из частей имени которого через «-», «_» или «.» — test,
+# tests, testsuite или testsuites (testsuite/ и test-framework/ Keycloak), и набор исходников
+# Gradle с началом test и заглавной буквой (testFixtures/, testIntegration/). Слово внутри
+# части имени не в счёт: latest/, contest/ и attestation/ — код.
 _TEST_DIR = re.compile(r"(?:Tests?|[._-][Tt]ests?)$")
+_TEST_PARTS = frozenset({"test", "tests", "testsuite", "testsuites"})
+_TEST_CAMEL = re.compile(r"[Tt]est[A-Z]")
+_PARTS = re.compile(r"[-_.]")
 _MAX_STEPS = 8  # сколько звеньев «a.b.c» перед чтением просматривается
 # Сколько чтений одного вида в файле разбирается. В настоящем коде их единицы и десятки;
 # файл из одних «Configuration[» — враждебный вход, он считается непрочитанным.
@@ -49,9 +56,27 @@ MAX_READS = 2000
 _MAX_IMPORTS = 500
 
 
+def _test_segment(seg: str) -> bool:
+    return (
+        _TEST_DIR.search(seg) is not None or _TEST_CAMEL.match(seg) is not None
+        or not _TEST_PARTS.isdisjoint(_PARTS.split(seg.lower()))
+    )
+
+
 def in_test_dir(rel: str) -> bool:
-    """Файл в каталоге тестов по имени каталога: Cart.UnitTests/, Billing.Tests/."""
+    """Файл в каталоге тестов по имени каталога: Cart.UnitTests/, Billing.Tests/ (имя
+    кончается на Test или Tests)."""
     return any(_TEST_DIR.search(seg) for seg in rel.split("/")[:-1])
+
+
+def in_jvm_test_dir(rel: str) -> bool:
+    """Каталог тестов у кода Java и Kotlin (ТЗ §15 п. 17 К1): ещё testsuite/, test-framework/
+    (часть имени через «-», «_» или «.» — test, tests, testsuite, testsuites) и наборы Gradle
+    testX. Сегменты пакета под src/main/java/ и src/main/kotlin/ — имя пакета, а не каталог
+    (walk.package_start). У других языков правило прежнее (in_test_dir): у PostHog крейт
+    rust/personhog-test-harness/ читается, как читался."""
+    parts = rel.split("/")
+    return any(_test_segment(seg) for seg in parts[:min(len(parts) - 1, package_start(parts))])
 
 
 def matches(
@@ -227,6 +252,11 @@ def _constants(rel: str, code: codetext.Code) -> dict[str, tuple[str, Loc] | Non
     return out
 
 
+def imports(code: codetext.Code) -> list[tuple[bool, str, bool]]:
+    """Импорты Java (для разборщиков классов: подресурсы JAX-RS, ТЗ §15 п. 17 К2)."""
+    return _imports(code)
+
+
 def _imports(code: codetext.Code) -> list[tuple[bool, str, bool]]:
     """Импорты Java: (статический, путь, «.*» в конце)."""
     out: list[tuple[bool, str, bool]] = []
@@ -288,10 +318,11 @@ def read(
 
 def sources(
     files: Files, ctx: Context, language: str, lang: str, needles: tuple[str, ...], repo: Repo,
+    test_dir: Callable[[str], bool] = in_test_dir,
 ) -> Iterator[tuple[str, codetext.Code]]:
-    """Файлы кода языка с одной из needles, кроме каталогов тестов по имени."""
+    """Файлы кода языка с одной из needles, кроме каталогов тестов по имени (test_dir)."""
     for rel, text in codebase.sources(files, ctx, language, None, needles):
-        if in_test_dir(rel):
+        if test_dir(rel):
             continue
         code = codetext.load(files, rel, text, lang)
         if code is not None:
