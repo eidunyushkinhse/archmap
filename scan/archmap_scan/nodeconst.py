@@ -7,8 +7,11 @@
 константой не считаются. Имя ищется как перечисление у NestJS (parsers/nest.py): сначала в
 файле, потом среди экспортов пакета файла (ближайший package.json), потом единственное
 экспортированное в репозитории; разные значения в пакете или в репозитории — неоднозначность.
-Импорты не разбираются: поиск по имени этого не требует (псевдонимы путей вида @/constants
-так и так не видны).
+Пути импортов не разбираются: поиск по имени этого не требует (псевдонимы путей вида
+@/constants так и так не видны). Но за пределами файла имя ищется, только если файл его
+импортирует (import { ИМЯ } from …, import { ДРУГОЕ as ИМЯ }, const { ИМЯ } = require(…)):
+имя, которое не объявлено в файле и не импортировано, — переменная или параметр, а не
+константа другого файла (n8n healthPath, PostHog channel).
 
 Индекс экспортов строится один раз за запуск и только при первом поиске за пределами файла:
 сырой текст файлов проходится одним выражением по началу строки, маска строится только у
@@ -35,6 +38,10 @@ _DECL = re.compile(
 # То же по сырому тексту для индекса экспортов: только имя, значение проверит маска.
 _RAW_EXPORT = re.compile(rf"^export[ \t]+const[ \t]+({_NAME})[ \t]*(?::[^=\n]{{0,100}})?=[ \t]*[`'\"]", re.M)
 _HOLE = re.compile(rf"\$\{{[ \t]*({_NAME})[ \t]*\}}")
+# Импорт по именам и разбор require по маске: список в фигурных скобках (предел длины).
+_IMPORT = re.compile(r"\bimport[ \t]+(?:type[ \t]+)?(?:[A-Za-z_$][\w$]{0,199}[ \t]*,[ \t]*)?\{([^{}]{0,10000})\}")
+_REQUIRE = re.compile(r"\b(?:const|let|var)[ \t]+\{([^{}]{0,10000})\}[ \t]*=[ \t]*require[ \t]*\(")
+_ITEM = re.compile(rf"(?:type[ \t]+)?({_NAME})(?:[ \t]*(?:as|:)[ \t]*({_NAME}))?")
 # Сколько объявлений файла и экспортов одного имени в репозитории смотреть (враждебный вход).
 _MAX_DECLS = 2000
 _MAX_SAME_NAME = 50
@@ -109,6 +116,19 @@ def _fill(value: str, raw: dict[str, tuple[str, int, bool, bool]]) -> str | None
     return "".join(out) + rest
 
 
+def imported(code: codetext.Code) -> dict[str, str]:
+    """Имена, которые файл импортирует по именам: местное имя → имя экспорта (у «A as B» и
+    «{ A: B } = require(…)» местное B, экспорт A)."""
+    out: dict[str, str] = {}
+    for pattern in (_IMPORT, _REQUIRE):
+        for m in pattern.finditer(code.mask):
+            for piece in m.group(1).split(","):
+                item = _ITEM.fullmatch(piece.strip())
+                if item is not None:
+                    out.setdefault(item.group(2) or item.group(1), item.group(1))
+    return out
+
+
 class Index:
     """Константы Node.js репозитория: свои у файла и экспорты по именам."""
 
@@ -116,6 +136,7 @@ class Index:
         self.files = files
         self.ctx = ctx
         self._own: dict[str, dict[str, tuple[Const | None, bool]]] = {}
+        self._imports: dict[str, dict[str, str]] = {}
         self._exports: dict[str, list[str]] | None = None
 
     def of(self, rel: str, code: codetext.Code | None = None) -> dict[str, tuple[Const | None, bool]]:
@@ -125,6 +146,7 @@ class Index:
                 text = self.files.read(rel, keep=False)
                 code = codetext.load(self.files, rel, text, codetext.JS) if text is not None else None
             self._own[rel] = declarations(code, rel) if code is not None else {}
+            self._imports[rel] = imported(code) if code is not None else {}
         return self._own[rel]
 
     def _export_files(self) -> dict[str, list[str]]:
@@ -151,16 +173,20 @@ class Index:
         return pkgs[0].dir if pkgs else None
 
     def lookup(self, rel: str, name: str, code: codetext.Code | None = None) -> Const | None:
-        """Значение константы name для файла rel: в файле, в пакете файла, единственное в
-        репозитории. AMBIGUOUS — разные значения; None — не найдена или не литерал."""
+        """Значение константы name для файла rel: в файле, затем, если файл импортирует это
+        имя, в пакете файла, единственное в репозитории. AMBIGUOUS — разные значения; None —
+        не найдена, не импортирована или не литерал."""
         own = self.of(rel, code).get(name)
         if own is not None:
             return own[0]
+        exported = self._imports.get(rel, {}).get(name)
+        if exported is None:
+            return None
         found: list[Const] = []
-        for other in self._export_files().get(name, []):
+        for other in self._export_files().get(exported, []):
             if other == rel:
                 continue
-            item = self.of(other).get(name)
+            item = self.of(other).get(exported)
             if item is not None and item[1] and item[0] is not None:
                 found.append(item[0])
         if not found:

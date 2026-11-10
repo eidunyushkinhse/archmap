@@ -7,7 +7,11 @@ app.setGlobalPrefix('api') в любом файле пакета добавля�
 строковое значение `enum Имя { Член = 'строка' }`: сначала в пакете файла контроллера, иначе
 в любом пакете репозитория; объявления с разными значениями в нескольких пакетах —
 подсказка «неоднозначно», член не строкой или не найден — подсказка, как раньше. Перечисления
-репозитория читаются один раз за запуск и только когда такой префикс встретился."""
+репозитория читаются один раз за запуск и только когда такой префикс встретился.
+
+Префикс и путь метода именем константы (`@Controller(PREFIX)`, `@Get(PATH)`, ТЗ §15 п. 18
+К1) раскрываются по nodeconst (файл, затем импортированное имя в пакете или репозитории);
+разные значения — подсказка «константа объявлена в нескольких файлах»."""
 
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ import re
 from collections.abc import Callable
 from typing import cast
 
-from archmap_scan import codebase, codetext, texts
+from archmap_scan import codebase, codetext, nodeconst, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Loc, Route, route_hint
@@ -31,6 +35,7 @@ _PATH_KEY = re.compile(rf"path[ \t]*:{SP}({STR})")
 _STR = re.compile(STR)
 _ID = r"[A-Za-z_$][A-Za-z0-9_$]{0,99}"
 _MEMBER_REF = re.compile(rf"({_ID})[ \t]*\.[ \t]*({_ID}){SP}[),]")
+_NAME_REF = re.compile(rf"({_ID}){SP}[),]")
 _ENUM = re.compile(rf"\benum[ \t]+({_ID})[ \t]*\{{")
 _ENUM_ITEM = re.compile(rf"\s*({_ID})\s*(?:=\s*({STR})?)?")
 # Сколько знаков тела перечисления читается и сколько перечислений в файле.
@@ -123,10 +128,26 @@ def enum_value(files: Files, ctx: Context, rel: str, name: str, member: str) -> 
     return _resolver(files, ctx, rel)(name, member)[0]
 
 
+Named = Callable[[str], tuple[str | None, str] | None]
+
+
+def _named(consts: nodeconst.Index, code: codetext.Code, rel: str) -> Named:
+    """Значение константы по имени и причина подсказки, если значения нет; None — имя не
+    константа (подсказка о выражении, как раньше)."""
+    def resolve(name: str) -> tuple[str | None, str] | None:
+        found = consts.lookup(rel, name, code)
+        if found is None:
+            return None
+        if found is nodeconst.AMBIGUOUS:
+            return None, texts.REASON_CONST_AMBIGUOUS
+        return found.value, texts.REASON_DYNAMIC_ROUTE
+    return resolve
+
+
 def _controller(
-    code: codetext.Code, rel: str, found: Findings, start: int, enum: Resolver,
+    code: codetext.Code, rel: str, found: Findings, start: int, enum: Resolver, named: Named,
 ) -> str | None:
-    """Префикс контроллера по аргументу @Controller: строка, член перечисления,
+    """Префикс контроллера по аргументу @Controller: строка, член перечисления, константа,
     { path: '…' } или пусто; None — префикс не строкой."""
     mask = code.mask
     ch = mask[start:start + 1]
@@ -143,8 +164,12 @@ def _controller(
     if hit is None:
         ref = _MEMBER_REF.match(mask, start)
         if ref is None:
-            _dynamic(code, rel, found, start)
-            return None
+            name = _NAME_REF.match(mask, start)
+            const = named(name.group(1)) if name is not None else None
+            if const is None or const[0] is None:
+                _dynamic(code, rel, found, start, const[1] if const else texts.REASON_DYNAMIC_ROUTE)
+                return None
+            return const[0]
         member, reason = enum(ref.group(1), ref.group(2))
         if member is None:
             _dynamic(code, rel, found, start, reason)
@@ -196,8 +221,9 @@ def parse(files: Files, ctx: Context) -> Findings:
         if code is None:
             continue
         enum = _resolver(files, ctx, rel)
+        named = _named(nodeconst.index(files, ctx), code, rel)
         controllers = [
-            (m.start(), _controller(code, rel, found, m.end(), enum))
+            (m.start(), _controller(code, rel, found, m.end(), enum, named))
             for m in _CONTROLLER.finditer(code.mask)
         ]
         for m in _METHOD.finditer(code.mask):
@@ -217,8 +243,13 @@ def parse(files: Files, ctx: Context) -> Findings:
             elif code.mask[m.end():m.end() + 1] == ")":
                 path = ""
             else:
-                _dynamic(code, rel, found, m.end(), method=method)
-                continue
+                ref = _NAME_REF.match(code.mask, m.end())
+                value = named(ref.group(1)) if ref is not None else None
+                if value is None or value[0] is None:
+                    reason = value[1] if value else texts.REASON_DYNAMIC_ROUTE
+                    _dynamic(code, rel, found, m.end(), reason, method)
+                    continue
+                path = value[0]
             found.routes.append(Route(
                 method=method,
                 path=_join(global_prefix or "", prefix or "", path),

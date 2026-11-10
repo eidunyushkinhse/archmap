@@ -298,25 +298,11 @@ def _back_ident(mask: str, dot: int, chars: str) -> tuple[str, int] | None:
 
 
 def _args(mask: str, start: int) -> list[tuple[int, int]] | None:
-    """Аргументы вызова от позиции после «(»: отрезки до запятых верхнего уровня, до
-    парной «)». Дальше _MAX_ARGS знаков или без пары — None (код оборван)."""
-    out: list[tuple[int, int]] = []
-    depth = 0
-    begin = start
-    stop = min(len(mask), start + _MAX_ARGS)
-    for i in range(start, stop):
-        ch = mask[i]
-        if ch in "([{":
-            depth += 1
-        elif ch in ")]}":
-            if depth == 0:
-                out.append((begin, i))
-                return out
-            depth -= 1
-        elif ch == "," and depth == 0:
-            out.append((begin, i))
-            begin = i + 1
-    return None
+    """Аргументы вызова от позиции после «(» по запятым верхнего уровня (gocode.split_spans:
+    маска JavaScript и Ruby в скобках устроена так же); дальше _MAX_ARGS знаков или без
+    парной «)» — None (код оборван)."""
+    parts = gocode.split_spans(mask, start, _MAX_ARGS)
+    return parts[0] if parts is not None else None
 
 
 def _strip(mask: str, start: int, end: int) -> tuple[int, int]:
@@ -378,9 +364,11 @@ def _js(files: Files, ctx: Context, rel: str, code: codetext.Code, out: _Out) ->
     mask = code.mask
     imported: bool | None = None
 
-    def constant(name: str) -> str | None:
+    def constant(name: str) -> tuple[str | None, str]:
         found = nodeconst.index(files, ctx).lookup(rel, name, code)
-        return None if found is None or found is nodeconst.AMBIGUOUS else found.value
+        if found is nodeconst.AMBIGUOUS:
+            return None, texts.REASON_CONST_AMBIGUOUS
+        return (found.value if found is not None else None), texts.REASON_DYNAMIC_CHANNEL
 
     for m in _JS_CALL.finditer(mask):
         recv = _back_ident(mask, m.start(), "_$")
@@ -406,7 +394,7 @@ def _js(files: Files, ctx: Context, rel: str, code: codetext.Code, out: _Out) ->
 
 def _mask_args(
     code: codetext.Code, spans: list[tuple[int, int]], verb: str, line: int, out: _Out,
-    constant: Callable[[str], str | None] | None,
+    constant: Callable[[str], tuple[str | None, str]] | None,
 ) -> None:
     """Аргументы-каналы по маске: литерал, условный оператор с литералами, имя константы.
     Функция-обработчик (подписка с обратным вызовом) заканчивает список; первое выражение —
@@ -420,14 +408,14 @@ def _mask_args(
             return
         value = _literal(code, start, end)
         names = [value] if value is not None else _ternary(code, start, end)
+        reason = code.reason(start, end, texts.REASON_DYNAMIC_CHANNEL)
         if names is None:
             ident = _IDENT.fullmatch(mask, start, end)
             if ident is not None and constant is not None:
-                resolved = constant(ident.group())
+                resolved, reason = constant(ident.group())
                 names = [resolved] if resolved is not None else None
         if names is None:
-            out.hint(_expression(code, start, end), line,
-                     code.reason(start, end, texts.REASON_DYNAMIC_CHANNEL))
+            out.hint(_expression(code, start, end), line, reason)
             return
         if not out.names(names, verb, line):
             return
@@ -529,7 +517,7 @@ def _go(rel: str, code: codetext.Code, out: _Out, consts: _GoConsts) -> None:
             continue
         chosen = spans[1:2] if verb == "Publish" else spans[1:]
         _mask_args(code, chosen, verb, code.line(m.start()), out,
-                   lambda name: consts.get(rel, code, name))
+                   lambda name: (consts.get(rel, code, name), texts.REASON_DYNAMIC_CHANNEL))
 
 
 def parse(files: Files, ctx: Context) -> Findings:

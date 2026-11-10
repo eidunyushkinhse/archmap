@@ -33,11 +33,16 @@ def test_declarations() -> None:
 
 
 def test_lookup_file_package_repo(tmp_path: Path) -> None:
-    """Сначала файл, потом экспорт пакета файла, потом единственное значение в репозитории;
-    разные значения в пакете или репозитории дают неоднозначность."""
+    """Сначала файл, потом, если файл импортирует имя (и под псевдонимом «as»), экспорт пакета
+    файла, потом единственное значение в репозитории; разные значения в пакете или
+    репозитории дают неоднозначность."""
     root = tree(tmp_path, {
         "a/package.json": '{"name": "a"}',
-        "a/src/use.ts": "const OWN = 'own';\n",
+        "a/src/use.ts": (
+            "import { SHARED, ONLY_B as B_ONLY } from '@/names';\n"
+            "import { TWICE, MISSING } from './more';\nconst OWN = 'own';\n"
+        ),
+        "a/src/plain.ts": "const local = 1;\n",
         "a/src/names.ts": "export const SHARED = 'from-a';\nexport const TWICE = 'one';\n",
         "a/src/more.ts": "export const TWICE = 'two';\n",
         "b/package.json": '{"name": "b"}',
@@ -55,10 +60,12 @@ def test_lookup_file_package_repo(tmp_path: Path) -> None:
 
     assert value("a/src/use.ts", "OWN") == "own"
     assert value("a/src/use.ts", "SHARED") == "from-a"
-    assert value("a/src/use.ts", "ONLY_B") == "b"
+    assert value("a/src/use.ts", "B_ONLY") == "b"
+    assert value("a/src/use.ts", "ONLY_B") is None
     assert value("a/src/use.ts", "TWICE") == "?"
     assert value("a/src/use.ts", "MISSING") is None
-    assert value("b/src/other.ts", "SHARED") == "from-b"
+    # Имя без импорта в файле — переменная или параметр, а не константа другого файла.
+    assert value("a/src/plain.ts", "SHARED") is None
 
 
 def test_index_does_not_count_dev_code(tmp_path: Path) -> None:
@@ -69,7 +76,9 @@ def test_index_does_not_count_dev_code(tmp_path: Path) -> None:
 
     ctx, files = files_of(tree(tmp_path, {
         "a/package.json": '{"name": "a", "dependencies": {"ioredis": "*"}}',
-        "a/src/pub.ts": "import Redis from 'ioredis';\nredis.publish(CHANNEL, 1);\n",
+        "a/src/pub.ts": (
+            "import Redis from 'ioredis';\nimport { CHANNEL } from 'b';\nredis.publish(CHANNEL, 1);\n"
+        ),
         "a/src/dev/tool.ts": "redis.publish('x', 1);\n",
         "b/package.json": '{"name": "b"}',
         "b/src/names.ts": "export const CHANNEL = 'events';\n",
@@ -77,5 +86,5 @@ def test_index_does_not_count_dev_code(tmp_path: Path) -> None:
     }))
     files.dev_code = set()
     found = redispubsub.parse(files, ctx)
-    assert [(u.name, str(u.loc)) for u in found.channels] == [("events", "a/src/pub.ts:2")]
+    assert [(u.name, str(u.loc)) for u in found.channels] == [("events", "a/src/pub.ts:3")]
     assert files.dev_code == {"a/src/dev/tool.ts"}

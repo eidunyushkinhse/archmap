@@ -8,6 +8,15 @@ router.route('/p').get(…).post(…), префиксы app.use('/prefix', route
 HTTP-клиентов (axios.get('/api/…')) маршрутами не становятся. Роутер, подключение
 которого в файле не видно, даёт маршруты с prefix_unresolved. Регулярные выражения идут
 по маске кода (codetext.py): строки в комментариях не находятся.
+
+Путь именем константы (app.get(METRICS_PATH, h), ТЗ §15 п. 18 К1) раскрывается по nodeconst:
+объявление в файле, иначе импортированное имя в пакете файла или единственное в
+репозитории; разные значения — подсказка «константа объявлена в нескольких файлах».
+Значение не путь (без «/» в начале) не маршрут, как у литерала: app.get('env') с одним
+строковым аргументом — чтение настройки Express, не маршрут и не подсказка. У приложения
+NestJS (пакет с @nestjs/core, NestFactory или INestApplication в файле) app.get(X) без
+обработчика среди аргументов (только X или X и объект настроек) — получение зависимости из
+контейнера, не маршрут и не подсказка (immich app.get(ConfigRepository)).
 """
 
 from __future__ import annotations
@@ -15,7 +24,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from archmap_scan import codebase, codetext, texts
+from archmap_scan import codebase, codetext, gocode, nodeconst, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Loc, Route, route_hint
@@ -50,11 +59,17 @@ _APP_NAMES = frozenset({"app", "server", "fastify", "instance"})
 _CHAIN_SPAN = 2000
 
 
+_NAME = re.compile(r"[A-Za-z_$][\w$]{0,199}")
+_NEST_MARKERS = ("NestFactory", "INestApplication")
+
+
 @dataclass
 class _File:
     code: codetext.Code
     rel: str
     framework: str
+    consts: nodeconst.Index | None = None
+    nest: bool = False
     apps: set[str] = field(default_factory=set)
     routers: dict[str, str | None] = field(default_factory=dict)  # имя → свой префикс
     mounts: dict[str, list[tuple[str, str | None]]] = field(default_factory=dict)
@@ -174,6 +189,33 @@ def _chain(f: _File, found: Findings, recv: str, path: str, start: int, at: int)
         i += 1
 
 
+def _di_get(f: _File, verb: str, spans: list[tuple[int, int]] | None) -> bool:
+    """app.get(X) у приложения NestJS без обработчика среди аргументов: только X или X и
+    объект настроек ({ strict: false }) — зависимость из контейнера, не маршрут."""
+    if not f.nest or verb != "get" or spans is None:
+        return False
+    return all(f.code.mask.startswith("{", a) for a, _b in spans[1:])
+
+
+def _named_path(
+    f: _File, found: Findings, recv: str, verb: str, span: tuple[int, int], at: int,
+) -> bool:
+    """Путь именем константы (ТЗ §15 п. 18 К1): маршрут, если значение — путь; подсказка о
+    неоднозначности. False — имя не константа, подсказка о выражении остаётся вызывающему."""
+    name = _NAME.fullmatch(f.code.mask, span[0], span[1])
+    if name is None or f.consts is None:
+        return False
+    value = f.consts.lookup(f.rel, name.group(), f.code)
+    if value is None:
+        return False
+    if value is nodeconst.AMBIGUOUS:
+        _dynamic(f, found, span[0], at, texts.REASON_CONST_AMBIGUOUS, _METHODS[verb])
+        return True
+    if value.value.startswith("/") or value.value == "*":
+        _emit(f, found, recv, _METHODS[verb], value.value, at)
+    return True
+
+
 def _scan(f: _File, found: Findings) -> None:
     _bindings(f)
     mask = f.code.mask
@@ -182,10 +224,16 @@ def _scan(f: _File, found: Findings) -> None:
         if recv is None or not _valid(f, recv):
             continue
         if m.group(2) is None:
-            # Первый аргумент не строка: путь из переменной или выражения.
+            # Первый аргумент не строка: путь из константы, переменной или выражения.
             arg = m.end()
             ch = mask[arg:arg + 1]
             if ch and (ch.isalpha() or ch in "_$") and not mask.startswith(("function", "async"), arg):
+                parts = gocode.split_spans(mask, arg)
+                spans = parts[0] if parts is not None else None
+                if _di_get(f, m.group(1), spans):
+                    continue
+                if spans and _named_path(f, found, recv, m.group(1), spans[0], m.start()):
+                    continue
                 _dynamic(f, found, arg, m.start(), method=_METHODS[m.group(1)])
             continue
         path = _path(f, found, m.start(2), m.end(2), m.start(), _METHODS[m.group(1)])
@@ -205,10 +253,12 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not codebase.stack_present(files, ctx, codebase.NODE, WANTED):
         return found
     found.applied.add(NAME)
+    consts = nodeconst.index(files, ctx)
     for rel, text in codebase.sources(files, ctx, codebase.NODE, WANTED, _NEEDLES):
         deps = {d.lower() for d in codebase.deps_of(files, ctx, rel, codebase.NODE)}
         framework = next((name for dep, name in FRAMEWORKS.items() if dep in deps), "")
+        nest = "@nestjs/core" in deps or any(marker in text for marker in _NEST_MARKERS)
         code = codetext.load(files, rel, text, codetext.JS)
         if code is not None:
-            _scan(_File(code, rel, framework), found)
+            _scan(_File(code, rel, framework, consts, nest), found)
     return found

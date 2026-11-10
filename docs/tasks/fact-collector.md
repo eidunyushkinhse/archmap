@@ -265,7 +265,7 @@ archmap-scan/
 | Семья | Стек | Что ищет (только литералы) |
 |---|---|---|
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
-| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
+| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4); путь именем константы `app.get(METRICS_PATH, h)`, `@Controller(PREFIX)`, `@Get(PATH)`: `export const ИМЯ = 'литерал'` или шаблон с константами того же файла, в файле, затем импортированное имя в пакете или единственное в репозитории; `app.get(Класс)` NestJS без обработчика не маршрут (ч. 6, К1) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
 | | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле; `имя + "/p"` на известном маршрутизаторе — путь литерала с `prefix_unresolved`, `"/a" + "/b"` — путь целиком, методы `.Methods(http.MethodGet)` (ч. 4, К5); запрос клиента не маршрут: `http.Get(url)`, `http.Post`, `http.Head` и глагол с одним аргументом без цепочки за скобкой (`api.Get(url)`), а построитель go-restful `ws.GET("/p").To(h)` маршрут (ч. 5, П4) | регулярные выражения |
 | | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1); необязательная группа в круглых скобках в пути не пишется, `devise_for` по модулям `devise` модели (`app/models/<имя>.rb`, `path:`, `path_names:`, `skip:`, `only:`, `sign_out_via:`), `shallow: true` и блок `shallow do` (ч. 5, П6) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints; модуль devise без известного набора и модель без `devise` в hints, провайдеры omniauth не раскрываются (`/имя/auth/:provider`) |
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"`, `Microsoft.AspNetCore.*` или `<FrameworkReference Include="Microsoft.AspNetCore.App" />`, ч. 5, П5): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2); маршрут по соглашению по шаблону того же проекта: `MapDefaultControllerRoute()` (`{controller=Home}/{action=Index}/{id?}`), `MapControllerRoute` с `pattern:` или вторым литералом, первый шаблон без `{area` (ч. 5, П5) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints; `{controller}` и `{action}` шаблона подставляются, `{x?}` отбрасывается; шаблона нет или он не литерал — `/Контроллер/действие` с `prefix_unresolved: true` |
@@ -2576,3 +2576,27 @@ unread: {too_large: 3, binary: 0}
      immich `redis` остаётся «брокер» (свидетельств нет), у Monica `CACHE_STORE=database`, Argo
      CD, Online Boutique, otel-demo без изменений, подсказок о двух Redis в корпусе нет. Судья у
      Mastodon пишет «wrong-kind «redis»: изменилось role» справкой, регрессией не считает.
+   - К1 (решение исполнителя): константы ищет `nodeconst.py` (тот же модуль, что у В1). За
+     пределами файла имя ищется, только если файл его импортирует по имени (`import { A }`,
+     `import { A as B }`, `const { A } = require(…)`): имя без объявления и без импорта — переменная
+     или параметр (n8n `healthPath`, `readinessPath` из объекта настроек), иначе поиск по имени
+     в репозитории приписал бы им чужие экспорты. Шаблон константы раскрывается на одну
+     вложенность: `${A}/x`, где `A` сам шаблон с подстановкой, остаётся подсказкой. Значение не
+     путь (без «/» в начале) не маршрут, как у литерала. `app.get('env')` с одним строковым
+     аргументом у Express по-прежнему ни маршрут, ни подсказка: путь не начинается с «/», это
+     чтение настройки Express. Приложение NestJS — пакет файла с `@nestjs/core` или
+     `NestFactory`, `INestApplication` в файле; `app.get(X)` без обработчика среди аргументов
+     (только `X` или `X` и объект настроек) там пропускается молча, у чистого Express
+     `app.get(переменная)` остаётся подсказкой. По корпусу: immich подсказок маршрутов 7 → 0
+     (`AppRepository` в `server/src/workers/api.ts:23`, `maintenance.ts:20`, `microservices.ts:21`,
+     `ConfigRepository` в `app.common.ts:40`, `websocket.adapter.ts:14`, `microservices.ts:20`,
+     `ssr` в `app.common.ts:86`), маршрутов по-прежнему 318. n8n подсказок именем 13 → 8, всех
+     подсказок о выражении 30 → 25: `GET /metrics` (`prometheus.service.ts:129`, константа
+     `metrics/prometheus/constant.ts:1`) и четыре маршрута `engine-control-plane-server.ts:106`,
+     `:120`, `:128`, `:136` (`/internal/status-callback`, `/internal/credentials/resolve`,
+     `/internal/data-tables/call`, `/internal/sub-workflows/resolve` из `engine-v2.constants.ts`).
+     Владельца у них нет по действующему правилу (`packages/cli/` вне каталогов кода
+     контейнеров n8n), поэтому это пять новых подсказок «общий код» (21 → 26), а не записи; бриф
+     ждал владельца у `prometheus.service.ts`. Остались подсказками `assetPath`, `authEndpoint`,
+     `healthPath` (два), `path`, `readinessPath` (два), `typeFile`. В корпусе нет
+     `@Controller(ИМЯ)` и `@Get(ИМЯ)` с константой: эта ветка проверена фикстурой.

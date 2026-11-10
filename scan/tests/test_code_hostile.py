@@ -370,6 +370,14 @@ STARTS["go/main.go"] += (
     RDG + 'const A = "a"\nrdb.Publish(ctx, A, ',
 )
 
+# Путь маршрута константой и app.get(Класс) NestJS (ТЗ §15 п. 18 К1): импорт по именам и
+# require без закрытия, шаблон константы, незакрытые аргументы.
+STARTS["js/app.js"] += (
+    "app.get(X", "app.get(X, {", "app.get(X, ", "import { A } from './a';\napp.get(A, ",
+    "import {", "import { A as ", "const { A } = require(", "export const A = `${B}/",
+    "export const A = '/a';\napp.get(A", "@Controller(A", "@Controller(A)\nclass C {\n  @Get(B",
+)
+
 CASES = [(name, start) for name, starts in STARTS.items() for start in starts]
 
 
