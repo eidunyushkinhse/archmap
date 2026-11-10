@@ -485,6 +485,8 @@ JVM_ROUTE_KEYS = (
     "spring-boot", "jakarta.ws.rs", "javax.ws.rs", "jboss-jaxrs-api", "resteasy",
     "quarkus-resteasy", "quarkus-rest", "jersey",
 )
+# Каналы Kafka в коде Java и Kotlin (ТЗ §15 п. 17 В1): артефакты kafka-clients и spring-kafka.
+JVM_KAFKA_KEYS = ("kafka-clients", "spring-kafka")
 FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
     "http_routes": {
         "Ruby": ("rails", "railties"),
@@ -496,9 +498,16 @@ FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
         "Java": JVM_ROUTE_KEYS,
         "Kotlin": JVM_ROUTE_KEYS,
     },
+    # Каналы Kafka Java и Kotlin читает kafka-jvm (ТЗ §15 п. 17 В1).
+    "channels": {"Java": JVM_KAFKA_KEYS, "Kotlin": JVM_KAFKA_KEYS},
     # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2).
     "schedules": {"Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron")},
 }
+# Семьи, где язык JVM уходит из unsupported только у пакета со стеком разборщика (ТЗ §15
+# п. 17 В1, Л1): пакет Java без Kafka может слать сообщения через RabbitMQ, JMS или Pulsar,
+# этот код не читается, и пакет по-прежнему назван языком. Маршруты JVM язык не называют
+# у любого пакета (К1): серверы без разборщика названы стеком (UNSUPPORTED_ROUTE_DEPS).
+_JVM_BY_PACKAGE = frozenset({"channels"})
 # Серверные фреймворки маршрутов без разборщика у языков из FAMILY_LANGUAGES (ТЗ §15 п. 15 К3,
 # решение исполнителя): пакет с ними назван в unsupported «Язык: фреймворк», пакет без
 # известного стека не назван вовсе, как у языков CODE_LANGUAGES (у Lemmy библиотечные крейты
@@ -519,6 +528,17 @@ def family_language(family: str, language: str) -> bool:
     """Код на языке language семья family читает по стеку пакета (FAMILY_LANGUAGES): пакет
     такого языка языком в unsupported семьи не называется."""
     return language in FAMILY_LANGUAGES.get(family, {})
+
+
+def package_named(family: str, language: str, deps: Iterable[str]) -> bool:
+    """Пакет языка language вне CODE_LANGUAGES с зависимостями deps назван своим языком в
+    unsupported семьи family: семья язык не читает вовсе или (у языков JVM в каналах) у пакета
+    нет стека разборщика (_JVM_BY_PACKAGE)."""
+    if not family_language(family, language):
+        return True
+    if language in JVM_LANGUAGES and family in _JVM_BY_PACKAGE:
+        return not family_reads(family, language, deps)
+    return False
 
 
 # Языки JVM: артефакт Maven совпадает с ключом и по началу «ключ-» или «ключ_»

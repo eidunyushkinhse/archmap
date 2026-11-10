@@ -360,13 +360,24 @@ def _arg(mask: str, lo: int, hi: int, out: list[Arg]) -> None:
         out.append(Arg(None, lo, hi))
 
 
+_NON_SPACE = re.compile(r"[^ \t\r\n]")
+_TAIL = 4096
+
+
 def _trim(mask: str, lo: int, hi: int) -> tuple[int, int]:
-    """Границы [lo, hi) без пробелов по краям (срезом: длинный пробел маски за один шаг)."""
-    seg = mask[lo:hi]
-    left = len(seg) - len(seg.lstrip(_SPACE))
-    if left == len(seg):
+    """Границы [lo, hi) без пробелов по краям: начало поиском первого не пробела, конец срезами
+    окна с хвоста. Время по длине пробелов, а не отрезка: аргумент вложенного вызова
+    «send(send(send(» на файле в 2 МБ не копируется целиком на каждом уровне (ТЗ §15 п. 17 В1)."""
+    first = _NON_SPACE.search(mask, lo, hi)
+    if first is None:
         return lo, lo
-    return lo + left, hi - (len(seg) - len(seg.rstrip(_SPACE)))
+    lo = first.start()
+    while True:
+        window = mask[max(lo, hi - _TAIL):hi]
+        kept = len(window.rstrip(_SPACE))
+        if kept:
+            return lo, hi - (len(window) - kept)
+        hi -= len(window)
 
 
 _ARRAY_CALL = re.compile(r"(?:arrayOf|listOf|setOf)[ \t]*\(")

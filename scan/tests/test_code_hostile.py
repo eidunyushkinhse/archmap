@@ -31,11 +31,13 @@ MANIFESTS: dict[str, str | bytes] = {
     "java/pom.xml": (
         "<project><artifactId>x</artifactId><dependencies><dependency>"
         "<artifactId>spring-boot-starter-web</artifactId></dependency><dependency>"
-        "<artifactId>jakarta.ws.rs-api</artifactId></dependency></dependencies></project>\n"
+        "<artifactId>jakarta.ws.rs-api</artifactId></dependency><dependency>"
+        "<artifactId>kafka-clients</artifactId></dependency></dependencies></project>\n"
     ),
     "kt/build.gradle.kts": (
         'plugins {\n    kotlin("jvm")\n    id("org.springframework.boot")\n}\n'
-        'dependencies {\n    implementation("io.quarkus:quarkus-rest")\n}\n'
+        'dependencies {\n    implementation("io.quarkus:quarkus-rest")\n'
+        '    implementation("org.springframework.kafka:spring-kafka")\n}\n'
     ),
     "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\nclokwerk = "0.4"\n',
 }
@@ -174,6 +176,19 @@ STARTS["kt/App.kt"] += (
 STARTS["java/App.java"] += (
     "Optional.ofNullable(" + GE + ').orElse("', "Optional.ofNullable(" + GE + ').orElseGet(() -> "',
     "Integer.parseInt(Optional.ofNullable(" + GE + ").orElse(", "Optional.ofNullable(",
+)
+# Топики Kafka (ТЗ §15 п. 17 В1): подписки, записи и аннотации без закрытия, списки и
+# параметры типа без конца, переменные файла с дефолтом окружения.
+KS = "c.subscribe("
+STARTS["java/App.java"] += (
+    KS, KS + 'List.of("', KS + "Arrays.asList(", KS + "Collections.singletonList(",
+    'new ProducerRecord<>("', "new ProducerRecord<", 'kafkaTemplate.send("',
+    '@KafkaListener(topics = {"', '@KafkaListener(topics = "', "@KafkaListener(",
+    'String t = Optional.ofNullable(System.getenv("A")).orElse("',
+)
+STARTS["kt/App.kt"] += (
+    'subscribe(listOf("', "subscribe(setOf(", 'ProducerRecord("', '@KafkaListener(topics = ["',
+    'val t = System.getenv("A") ?: "', "val t: String = System.getenv(",
 )
 # Адреса объектов литералами (ТЗ §15 п. 17 С2): литерал адреса без закрытия, хост и путь без
 # конца, сырые строки и шаблоны Kotlin. Разборщик смотрит только src/main.
@@ -508,6 +523,24 @@ SPRING_VALUE.update({
     "kt/App.kt:elvis-spaces": GE + " ?:" + " " * (PAYLOAD - 30) + '"b"\n',
     "java/App.java:optional": ("Optional.ofNullable(" + GE + ').orElse("b");\n') * 1999,
     "java/App.java:optional-spaces": "Optional.ofNullable(" + GE + ")" + " " * (PAYLOAD - 60) + '.orElse("b");\n',
+})
+
+
+# Топики Kafka на файле в 2 МБ: сотни тысяч подписок, записей и аннотаций, список в
+# миллион элементов, параметры типа без закрытия, переменные с дефолтом подряд.
+SPRING_VALUE.update({
+    "java/App.java:subscribes": 'c.subscribe(List.of("t"));\n' * (PAYLOAD // 27),
+    "java/App.java:long-list": KS + "List.of(" + '"t", ' * (PAYLOAD // 5) + "));\n",
+    "java/App.java:records": 'p.send(new ProducerRecord<>("t", v));\n' * (PAYLOAD // 37),
+    "java/App.java:record-types": "new ProducerRecord<" + "<" * (PAYLOAD // 2) + "(\n",
+    "java/App.java:listeners": '@KafkaListener(topics = "t")\nvoid f() {}\n' * (PAYLOAD // 40),
+    "java/App.java:listener-array": '@KafkaListener(topics = {"' + '", "' * (PAYLOAD // 4) + '"})\n',
+    "java/App.java:templates": "kafkaTemplate.send(" * (PAYLOAD // 19),
+    "java/App.java:template-name": "a" * PAYLOAD + 'Template.send("t");\n',
+    "java/App.java:handlers": "f.subscribe(v -> g(v));\n" * (PAYLOAD // 24),
+    "kt/App.kt:env-vars": 'val t = System.getenv("A") ?: "x"\n' * (PAYLOAD // 34),
+    "kt/App.kt:var-spaces": 'val t = System.getenv("A")' + " " * (PAYLOAD - 40) + '?: "x"\n',
+    "kt/App.kt:subscribes": "subscribe(listOf(t))\n" * (PAYLOAD // 21),
 })
 
 

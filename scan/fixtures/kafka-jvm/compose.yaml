@@ -1,0 +1,9 @@
+services:
+  kafka:
+    image: apache/kafka:3.8.0
+  orders:
+    build: ./orders
+  fraud:
+    build: ./fraud
+  plain:
+    build: ./plain

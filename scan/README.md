@@ -132,9 +132,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   файла OpenAPI маршрутами сервису, который его отдаёт, или оставляет подсказку с причиной;
   код, который называет файл литералом его имени, собирает разборщик `served`.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`,
-  `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, `actix`, параметры
-  `pyenv`, `nodeenv`, `goenv`, `dotnetenv`, `javaenv` (общее у C# и Java — `clike.py`),
-  `rustenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
+  `rails-routes` (маска Ruby — `codetext.RUBY`), `aspnet`, `actix`, `spring`, `jaxrs`
+  (общее у Java и Kotlin — `jvm.py`), параметры `pyenv`, `nodeenv`, `goenv`, `dotnetenv`,
+  `javaenv` (общее у C# и Java — `clike.py`), `spring-value`, `rustenv`, связи `jvm-address`,
+  каналы `celery`, `kafka`, `kafka-jvm`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания
   `celerybeat`, `gocron`, `clokwerk`, `nodecron`, `crontab`, таблицы из шаблонов `sql` в миграциях Node.js `kysely`; файлы по
   стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
@@ -681,3 +682,13 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     или портом, шаблон Kotlin с `$`, адрес внутри текста, комментарии и каталоги тестов — ни
     связи, ни подсказки; больше 2000 адресов в файле — файл непрочитан. Для других языков
     правило не действует (С2).
+  - топики Kafka в коде Java и Kotlin (`parsers/kafkajvm.py`, пакет с `kafka-clients` или
+    `spring-kafka`): потребление `subscribe(List.of("t"))`, `Arrays.asList`,
+    `Collections.singletonList`, Kotlin `listOf` и `setOf`, `@KafkaListener(topics = "t")` и
+    массивом; публикация `new ProducerRecord<>("t", v)`, Kotlin `ProducerRecord("t", v)`,
+    `kafkaTemplate.send("t", v)`. Имя литералом, константой класса Java или переменной файла с
+    дефолтом окружения (`System.getenv("X") ?: "t"`, `Optional.ofNullable(...).orElse("t")`:
+    имя дефолтом), иначе подсказка о динамическом имени; обработчик реактивного потока
+    (`subscribe(v -> f(v))`) не топик. Брокер по клиенту Kafka, `kind: topic`. Java и Kotlin
+    уходят из непрочитанных каналов только у пакетов с Kafka; больше 2000 записей и подсказок в
+    файле — файл непрочитан (В1).
