@@ -303,39 +303,50 @@ def find_annotations(outline: Outline, names: frozenset[str]) -> list[Annotation
 
 def args(outline: Outline, open_paren: int) -> list[Arg]:
     """Аргументы в скобках, открытых на позиции open_paren: границы на уровне этих скобок
-    (вложенные скобки перепрыгиваются по парам)."""
+    (вложенные скобки перепрыгиваются по парам, проход шагами по скобкам и запятым)."""
     mask = outline.code.mask
     close = outline.close_of(open_paren)
     out: list[Arg] = []
     start = open_paren + 1
     i = start
-    while i <= close:
-        ch = mask[i] if i < len(mask) else ")"
-        if ch in "({[" and i != open_paren:
+    while i < close:
+        m = _ARG_MARK.search(mask, i, close)
+        if m is None:
+            break
+        i = m.start()
+        if mask[i] in "({[":
             i = outline.close_of(i) + 1
             continue
-        if ch == "," or i == close:
-            lo, hi = _trim(mask, start, i)
-            if hi > lo:
-                label = _LABEL.match(mask, lo, hi)
-                if label is not None:
-                    lo, hi = _trim(mask, label.end(), hi)
-                    out.append(Arg(label.group(1), lo, hi))
-                else:
-                    out.append(Arg(None, lo, hi))
+        if mask[i] == ",":
+            _arg(mask, start, i, out)
             start = i + 1
-            if i == close:
-                break
         i += 1
+    _arg(mask, start, min(close, len(mask)), out)
     return out
 
 
+_ARG_MARK = re.compile(r"[({\[,]")
+
+
+def _arg(mask: str, lo: int, hi: int, out: list[Arg]) -> None:
+    lo, hi = _trim(mask, lo, hi)
+    if hi <= lo:
+        return
+    label = _LABEL.match(mask, lo, hi)
+    if label is not None:
+        lo, hi = _trim(mask, label.end(), hi)
+        out.append(Arg(label.group(1), lo, hi))
+    else:
+        out.append(Arg(None, lo, hi))
+
+
 def _trim(mask: str, lo: int, hi: int) -> tuple[int, int]:
-    while lo < hi and mask[lo] in _SPACE:
-        lo += 1
-    while hi > lo and mask[hi - 1] in _SPACE:
-        hi -= 1
-    return lo, hi
+    """Границы [lo, hi) без пробелов по краям (срезом: длинный пробел маски за один шаг)."""
+    seg = mask[lo:hi]
+    left = len(seg) - len(seg.lstrip(_SPACE))
+    if left == len(seg):
+        return lo, lo
+    return lo + left, hi - (len(seg) - len(seg.rstrip(_SPACE)))
 
 
 _ARRAY_CALL = re.compile(r"(?:arrayOf|listOf|setOf)[ \t]*\(")
@@ -546,3 +557,52 @@ def template(path: str) -> str:
         out.append("{" + name + "}" if name else path[i:j + 1])
         i = j + 1
     return "".join(out)
+
+
+_EXTENDS = re.compile(rf"(?<![\w$.])extends[ \t\r\n]+({_ID}(?:[ \t]*\.[ \t]*{_ID}){{0,8}})")
+_KT_SUPER = re.compile(
+    rf"({_ID}(?:[ \t]*\.[ \t]*{_ID}){{0,8}})[ \t\r\n]*(?:<[^<>(){{}};]{{0,200}}>)?[ \t\r\n]*\("
+)
+
+
+def superclass(outline: Outline, decl: Decl) -> str | None:
+    """Простое имя базового класса: Java — после extends, Kotlin — тип с «(» после «:»
+    заголовка (class A(x: Int) : B(x), C). None — базового класса нет или тела нет."""
+    if decl.body < 0:
+        return None
+    mask = outline.code.mask
+    start, end = decl.name_end, decl.body
+    if outline.code.lang != codetext.KOTLIN:
+        m = _EXTENDS.search(mask, start, end)
+        return _simple(m.group(1)) if m is not None else None
+    i = start
+    while i < end:
+        hit = _KT_HEADER_MARK.search(mask, i, end)
+        if hit is None:
+            return None
+        i = hit.start()
+        if mask[i] in "([":
+            i = outline.close_of(i) + 1
+            continue
+        m = _KT_SUPER.search(mask, i + 1, end)
+        return _simple(m.group(1)) if m is not None else None
+    return None
+
+
+_KT_HEADER_MARK = re.compile(r"[(\[:]")
+
+
+def _simple(name: str) -> str:
+    return re.sub(r"[ \t]", "", name).rsplit(".", 1)[-1]
+
+
+_MODIFIER_END = re.compile(r"[;{}]")
+
+
+def is_abstract(outline: Outline, decl: Decl) -> bool:
+    """Перед словом вида (до конца прошлой инструкции, не дальше 300 знаков) стоит abstract."""
+    mask = outline.code.mask
+    lo = max(0, decl.at - 300)
+    cut = max(mask.rfind(";", lo, decl.at), mask.rfind("{", lo, decl.at), mask.rfind("}", lo, decl.at))
+    head = mask[(cut + 1 if cut >= 0 else lo):decl.at]
+    return re.search(r"(?<![\w$])abstract(?![\w$])", head) is not None

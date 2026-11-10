@@ -244,6 +244,11 @@ def _constants(rel: str, code: codetext.Code) -> dict[str, tuple[str, Loc] | Non
     return out
 
 
+def imports(code: codetext.Code) -> list[tuple[bool, str, bool]]:
+    """Импорты Java (для разборщиков классов: подресурсы JAX-RS, ТЗ §15 п. 17 К2)."""
+    return _imports(code)
+
+
 def _imports(code: codetext.Code) -> list[tuple[bool, str, bool]]:
     """Импорты Java: (статический, путь, «.*» в конце)."""
     out: list[tuple[bool, str, bool]] = []

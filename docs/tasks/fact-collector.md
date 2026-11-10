@@ -268,6 +268,7 @@ archmap-scan/
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"`, `Microsoft.AspNetCore.*` или `<FrameworkReference Include="Microsoft.AspNetCore.App" />`, ч. 5, П5): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2); маршрут по соглашению по шаблону того же проекта: `MapDefaultControllerRoute()` (`{controller=Home}/{action=Index}/{id?}`), `MapControllerRoute` с `pattern:` или вторым литералом, первый шаблон без `{area` (ч. 5, П5) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints; `{controller}` и `{action}` шаблона подставляются, `{x?}` отбрасывается; шаблона нет или он не литерал — `/Контроллер/действие` с `prefix_unresolved: true` |
 | | Rust: actix-web (`Cargo.toml` с actix-web): `.route("/p", web::get().to(h))` и другие методы (`web::method`, `web::to` — ANY), `web::resource("/p").route(web::get()…)` и `.to(h)`, `web::scope("/v1")` с вложенными `.service(web::scope(…))`, `#[get("/p")]` и `#[route("/p", method = "GET")]` над `fn` (ч. 4, К3) | один проход по парным скобкам маски Rust; атрибут — путь без префикса; константа `const` файла раскрывается, `format!` и переменная в hints |
 | | Java и Kotlin: Spring MVC и WebFlux (пакет с артефактом `spring-boot*`, у Gradle плагин `org.springframework.boot`; ч. 5б, К1): класс с `@RestController` или `@Controller`, префикс `@RequestMapping("/x")`, `value =`, `path =`, массив `{"/a", "/b"}` (Kotlin `[…]`) по маршруту на элемент; методы `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, `@PatchMapping`, `@RequestMapping(method = {RequestMethod.GET, …})`, без `method` ANY; префикс приложения `server.servlet.context-path` или `spring.webflux.base-path` из `application.yml`/`.properties` модуля | по маске Java и Kotlin одним проходом по парным скобкам; интерфейсы (`@FeignClient`) не читаются; ведущая косая добавляется, `{id:regex}` пишется `{id}`; константа класса раскрывается, выражение и шаблон Kotlin с `$` в hints; префикс приложения с `${` — `prefix_unresolved: true` |
+| | Java и Kotlin: JAX-RS (пакет с `jakarta.ws.rs-api`, `javax.ws.rs-api`, `jboss-jaxrs-api_*`, `resteasy-*`, `quarkus-resteasy*`, `quarkus-rest*` или `jersey-*`; ч. 5б, К2): корневой ресурс — класс с `@Path("/x")`, до которого не доходит локатор; метод с `@GET`, `@POST`, `@PUT`, `@DELETE`, `@PATCH`, `@HEAD`, `@OPTIONS` и `@Path("y")` → `/x/y`; локатор (метод с `@Path` без глагола) — маршруты возвращаемого класса под своим путём, цепочка до восьми локаторов; методы базового класса наследуются; префикс `quarkus.http.root-path` и `@ApplicationPath` приложения, где работает модуль | по маске Java и Kotlin; интерфейсы (клиентские прокси) не читаются; `@Path` класса подресурса не применяется; класс подресурса по файлу, импорту, пакету, модулю или единственный в репозитории; Object, интерфейс, класс вне кода, имя в нескольких пакетах, путь выражением в hints; `{name: regex}` пишется `{name}` |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре; поле без атрибута в структуре с `#[derive(Envconfig)]` — тоже, обязательно, если не `Option<T>`, ч. 5, Р3), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
 | | .NET: `appsettings.json` в каталоге проекта (рядом с `*.csproj`; не `appsettings.<Среда>.json` и не каталог тестов): ключ с вложением `A:B:C`, значение дефолтом как написано (массив одной строкой, `null` без дефолта), JSON с комментариями `//`, `/* */` и висячими запятыми; в коде C# `GetValue<T>("A:B")` и `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` → `ConnectionStrings:x`, раздел `GetSection("A")` или `GetRequiredSection("A")` с `.Get<T>()`, `.Bind(obj)` (тип `obj` по объявлению в файле), аргументом `Configure<T>(раздел)` или `AddOptions<T>().Bind(раздел)`, `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по публичным свойствам с `set` или `init` класса `T` того же проекта (дефолт из инициализатора-литерала, `required` — обязателен); имя раздела литералом, константой или `nameof(T)`, переменная раздела ставит его перед ключом (ч. 5, Р1) | тип у файла по значению (`string`, `int`, `float`, `bool`, `array`), у кода по `T` и типу свойства; запись файла и чтение того же ключа — один параметр: дефолт из файла, тип из кода; файл больше 1 МБ или глубже 50 уровней непрочитан, класса нет — параметр `A` с типом `T` как написан, имя раздела выражением в hints |
 | | hjson: `config/defaults.hjson` или `config/default.hjson` рядом с манифестом сборки пакета (`config.hjson` и другие имена не читаются; у Lemmy `config/defaults.hjson` рядом с `Cargo.toml`): ключ с вложением через точку (`database.pool_size`), значение дефолтом как написано (строка без кавычек, число, `true`/`false`; массив одной строкой; `null` без дефолта); комментарии `#`, `//`, `/* */`, ключи и строки без кавычек, `'''` многострочные, запятые необязательны (ч. 5, Р2) | тип по значению (`string`, `int`, `float`, `bool`, `array`); файл больше 1 МБ, глубже 50 уровней или больше 5000 ключей непрочитан с подсказкой в `unparsed`, ошибка синтаксиса — подсказка без записей |
@@ -351,6 +352,14 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   Н3); у программы без контейнера записи
   уходят в `hints.unassigned` с причиной «код программы из cmd/<имя>/, у которой нет
   контейнера в манифестах» (§15 п. 14 Ф1).
+  Модули сборки Java вне каталога контейнера (ч. 5б, К2) правило не меняют. У Keycloak два
+  контейнера со своими каталогами кода (`container`, `quarkus/container`, образ из архива
+  выпуска, и `operator`), а ресурсы JAX-RS лежат в модуле `services/` (ни под одним из них):
+  472 маршрута уходят в `hints.unassigned` «общий код». Граф зависимостей Maven
+  (`quarkus/runtime` подключает `keycloak-services`) владельца не даёт: каталог
+  `quarkus/runtime` тоже вне каталога контейнера, а сборка образа из кода репозитория не видна
+  (Dockerfile скачивает архив выпуска). Сборщик использует этот граф только для префикса
+  приложения.
 - **База для миграций.** Цепочка: (1) контейнер, владеющий каталогом миграций, и адрес базы в
   его `environment`/дефолтах → объект-база с таким `host`; (1а) владелец каталога есть, адреса
   базы в его окружении нет, а в файлах его манифестов (тот же файл compose, тот же каталог
@@ -2217,3 +2226,48 @@ unread: {too_large: 3, binary: 0}
      файлах фикстур и 24 000 случайных строках шести языков), строка в 2 МБ маскируется в десять раз
      быстрее. Разборщик строит пары скобок только у файла с нужными аннотациями, член класса
      ищется прыжками по важным знакам; худшая строка матрицы 0,18 с при пределе 1 с.
+   - К2 (решение исполнителя): ключи стека собраны по `pom.xml` Keycloak (`services` —
+     `jakarta.ws.rs-api`, `resteasy-core`, `resteasy-reactive`; `rest/admin-ui-ext` —
+     `resteasy-reactive-common`; `quarkus/runtime` — `quarkus-rest`; `rest/admin-v2/api` —
+     `jakarta.ws.rs-api`) и совпадают по началу артефакта (`jvm.jvm_match`); клиентский модуль
+     `integration/admin-client-core` (`resteasy-client`) тоже на стеке, но его 75 файлов —
+     интерфейсы, и маршрутов они не дают. Kotlin читается так же, как Java (бриф называл
+     только Java): разбор общий, тип локатора Kotlin после `):`. Отбор файлов по `@Path`,
+     `@ApplicationPath` и глаголам: класс подресурса часто без `@Path` (у Keycloak
+     `ClientPoliciesResource`, `ClientProfilesResource`, `ClientTypesResource`), с отбором
+     только по `@Path` терялось 9 маршрутов. Корень: бриф велел не считать корнем класс, до
+     которого дошёл хоть один локатор; в цикле A → B → A корень A тогда терял бы все маршруты,
+     поэтому в счёт идут только локаторы из другой компоненты сильной связности графа
+     локаторов (итеративный Тарьян). `@Path` у класса подресурса не применяется, как велит
+     JAX-RS (бриф допускал оба прочтения): у фикстуры `RealmResource` с `@Path("ignored")`
+     идёт под путём локатора `/realms/{realm}`. Сверх брифа: методы базового класса
+     (`extends`, до восьми уровней) наследуются (у Keycloak `RealmsAdminResourcePreflight`,
+     `ResourceService`, `ParEndpoint`), метод базового класса с тем же именем, что у метода
+     наследника, считается переопределённым; перегрузки одного класса берутся все (у Keycloak
+     это ещё 10 маршрутов). Класс
+     подресурса ищется в том же файле, по импорту, в том же пакете, в том же модуле, затем
+     единственный в репозитории: у Keycloak два `OrganizationsResource` в одном модуле, и без
+     импорта и пакета их не различить; имя в нескольких пакетах без такого выбора даёт
+     подсказку «класс подресурса с этим именем объявлен в нескольких пакетах». Префикс
+     приложения: `@ApplicationPath` и `quarkus.http.root-path` берутся у модулей, где работает
+     модуль ресурса (сам модуль и модули, манифест которых зависит от его артефакта); у
+     Keycloak `quarkus/runtime` подключает `keycloak-services`, оба значения «/», префикс
+     пустой. Пределы: цепочка не длиннее восьми локаторов (дальше подсказка), повтор класса
+     обрывает цепочку без подсказки, обход не больше 50 000 методов на запуск (у Keycloak около
+     тысячи; дальше одна подсказка), подсказка локатора одна на место (файл, строка, причина),
+     под каким бы путём до него ни дошли. Keycloak: 472 маршрута (469 разных пар метод и путь:
+     три пары повторяются из разных классов), GET 239, POST 103, DELETE 65, PUT 56, OPTIONS 8,
+     HEAD 1, все из `services/`; ни одного из `integration/admin-client-core`, `testsuite/`,
+     `tests/`, `test-framework/`, `docs/`. Бриф ждал не меньше 500: 132 аннотации глаголов в 45
+     файлах (протоколы OpenID Connect и SAML, консоль аккаунта, авторизация, конечные точки
+     брокера, регистрация клиентов, типы политик, `serverinfo`) лежат за локаторами,
+     возвращающими `Object` (`RealmsResource.java:108` `getProtocol`, `:197`
+     `getAccountService`, `:261` `getAuthorizationService`, `:276` `resolveRealmExtension`,
+     `AdminRoot.java:278` `getServerInfo`, `IdentityBrokerService.java:476`,
+     `ClientRegistrationService.java:48`, `PolicyService.java:95`, `RealmAdminResource.java:667`):
+     девять подсказок с путём локатора. `GET /admin/serverinfo` из брифа поэтому подсказка, а
+     пользователи называются `{user-id}` (`UsersResource.java:234`), а не `{id}`. Ещё две
+     подсказки — пути выражением `DebugHostnameSettingsResource.java:82` и `:131`. Владелец
+     маршрутов (правило 1, §7): у Keycloak два контейнера со своими каталогами кода, все 472 в
+     `hints.unassigned` «общий код»; семья маршрутов `covered`, `parsers: [openapi, jaxrs]`,
+     `unsupported` без Java.

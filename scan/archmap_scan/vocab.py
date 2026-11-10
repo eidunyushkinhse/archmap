@@ -476,15 +476,20 @@ ROUTE_FRAMEWORKS = frozenset({
 # при которых читает (ТЗ §15 п. 15): маршруты Rails, ASP.NET Core и actix-web, расписания
 # clokwerk, sidekiq-scheduler и sidekiq-cron (п. 16 П2). Пакет такого языка своим языком в
 # unsupported семьи не называется.
+JVM_ROUTE_KEYS = (
+    "spring-boot", "jakarta.ws.rs", "javax.ws.rs", "jboss-jaxrs-api", "resteasy",
+    "quarkus-resteasy", "quarkus-rest", "jersey",
+)
 FAMILY_LANGUAGES: dict[str, dict[str, tuple[str, ...]]] = {
     "http_routes": {
         "Ruby": ("rails", "railties"),
         # Веб-проект .NET (Sdk="Microsoft.NET.Sdk.Web") или зависимость Microsoft.AspNetCore.*.
         ".NET": ("microsoft.net.sdk.web", "microsoft.aspnetcore"),
         "Rust": ("actix-web",),
-        # Контроллеры Spring MVC и WebFlux (ТЗ §15 п. 17 К1): артефакт spring-boot*.
-        "Java": ("spring-boot",),
-        "Kotlin": ("spring-boot",),
+        # Контроллеры Spring MVC и WebFlux (ТЗ §15 п. 17 К1): артефакт spring-boot*; ресурсы
+        # JAX-RS (К2): API и реализации RESTEasy, Quarkus REST и Jersey.
+        "Java": JVM_ROUTE_KEYS,
+        "Kotlin": JVM_ROUTE_KEYS,
     },
     # Расписания Rust читает clokwerk (ТЗ §15 п. 15 Л3), Ruby — разборщик sidekiq (п. 16 П2).
     "schedules": {"Rust": ("clokwerk",), "Ruby": ("sidekiq-scheduler", "sidekiq-cron")},

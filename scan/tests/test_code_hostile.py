@@ -30,9 +30,13 @@ MANIFESTS: dict[str, str | bytes] = {
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": (
         "<project><artifactId>x</artifactId><dependencies><dependency>"
-        "<artifactId>spring-boot-starter-web</artifactId></dependency></dependencies></project>\n"
+        "<artifactId>spring-boot-starter-web</artifactId></dependency><dependency>"
+        "<artifactId>jakarta.ws.rs-api</artifactId></dependency></dependencies></project>\n"
     ),
-    "kt/build.gradle.kts": 'plugins {\n    kotlin("jvm")\n    id("org.springframework.boot")\n}\n',
+    "kt/build.gradle.kts": (
+        'plugins {\n    kotlin("jvm")\n    id("org.springframework.boot")\n}\n'
+        'dependencies {\n    implementation("io.quarkus:quarkus-rest")\n}\n'
+    ),
     "rs/Cargo.toml": '[package]\nname = "x"\n\n[dependencies]\nactix-web = "4"\nclokwerk = "0.4"\n',
 }
 
@@ -135,6 +139,17 @@ STARTS["kt/App.kt"] = (
     RC + '@GetMapping("', '"""', "/*", '"${', '"$', "@RestController\nclass A(",
     RC + '@GetMapping(value = ["', RC + "@RequestMapping(method = [RequestMethod.",
     RC + "@GetMapping\n  fun ", RC + "@GetMapping\n  val ", "/* /* */", "'",
+)
+# Ресурсы JAX-RS (ТЗ §15 п. 17 К2): @Path и глаголы без закрытия, локаторы, базовые классы.
+RES = '@Path("/a")\npublic class A {\n  '
+STARTS["java/App.java"] += (
+    '@Path("', RES + '@GET\n  @Path("', '@ApplicationPath("', RES + '@Path("b")\n  public ',
+    RES + '@Path("b")\n  public B<', RES + "@GET\n  public ", "public class B extends ",
+    RES + '@Path("{a: ', RES + "@Path(A.", '@Path("/a")\npublic abstract class ',
+)
+STARTS["kt/App.kt"] += (
+    '@Path("/a")\nclass A {\n  @Path("b")\n  fun b(): ', '@Path("/a")\nclass A : ',
+    '@Path("/a")\nclass A(', '@Path("/a")\nclass A {\n  @GET\n  fun ',
 )
 # Файл настроек модуля, из которого маршрутам берётся префикс приложения.
 STARTS["java/src/main/resources/application.properties"] = (
@@ -417,6 +432,63 @@ SPRING = {
     "kt/App.kt:properties": RC + ('@GetMapping("/a") val a = 1\n' * 1999) + "}\n",
     "kt/App.kt:headers": "@RestController\nclass A :\n" * (PAYLOAD // 26),
 }
+
+
+# Локаторы JAX-RS: цепочка из тысяч классов, ветвление (десять локаторов на класс), цикл
+# A → B → A из тысяч пар, базовые классы цепочкой, тысячи корней.
+def _jaxrs_chain(n: int, fanout: int, cycle: bool = False) -> str:
+    out = []
+    for i in range(n):
+        nxt = 0 if cycle and i == n - 1 else i + 1
+        head = '@Path("/r")\n' if i == 0 else ""
+        locators = "".join(
+            f'  @Path("s{k}")\n  public C{nxt} n{k}() {{ return null; }}\n' for k in range(fanout)
+        )
+        out.append(f'{head}public class C{i} {{\n  @GET\n  public String g() {{ return ""; }}\n{locators}}}\n')
+    return "".join(out)
+
+
+JAXRS = {
+    "java/App.java:chain": _jaxrs_chain(600, 1),
+    "java/App.java:fanout": _jaxrs_chain(150, 10),
+    "java/App.java:cycle": _jaxrs_chain(600, 2, cycle=True),
+    "java/App.java:bases": "".join(
+        f'public class C{i} extends C{i + 1} {{\n  @GET\n  public String g{i}() {{ return ""; }}\n}}\n'
+        for i in range(1999)
+    ) + '@Path("/r")\npublic class R extends C0 {}\n',
+    "java/App.java:roots": "".join(
+        f'@Path("/r{i}")\npublic class C{i} {{\n  @GET\n  public String g() {{ return ""; }}\n}}\n'
+        for i in range(999)
+    ),
+    "kt/App.kt:chain": "".join(
+        ('@Path("/r")\n' if i == 0 else "")
+        + f'class C{i} {{\n  @GET\n  fun g() = ""\n  @Path("s")\n  fun n(): C{i + 1} = C{i + 1}()\n}}\n'
+        for i in range(999)
+    ),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(JAXRS))
+def test_jaxrs_locators(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":", 1)[0]
+    _check(tree(tmp_path, {**MANIFESTS, name: JAXRS[kind]}))
+
+
+def test_jaxrs_locators_across_files(tmp_path: Path) -> None:
+    """Цепочка и ветвление локаторов по 1000 файлам по классу в каждом (цикл через все):
+    пределы глубины и обхода действуют на репозиторий, а не на файл. Скорость разбора
+    плотного кода меряют строки выше на файле в 2 МБ."""
+    files: dict[str, str | bytes] = dict(MANIFESTS)
+    for i in range(1000):
+        head = '@Path("/r")\n' if i == 0 else ""
+        nxt = (i + 1) % 1000
+        locators = "".join(
+            f'  @Path("s{k}")\n  public C{nxt} n{k}() {{ return null; }}\n' for k in range(10)
+        )
+        files[f"java/C{i}.java"] = (
+            f'{head}public class C{i} {{\n  @GET\n  public String g() {{ return ""; }}\n{locators}}}\n'
+        )
+    _check(tree(tmp_path, files))
 
 
 @pytest.mark.parametrize("kind", sorted(SPRING))
