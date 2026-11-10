@@ -175,6 +175,14 @@ STARTS["java/App.java"] += (
     "Optional.ofNullable(" + GE + ').orElse("', "Optional.ofNullable(" + GE + ').orElseGet(() -> "',
     "Integer.parseInt(Optional.ofNullable(" + GE + ").orElse(", "Optional.ofNullable(",
 )
+# Адреса объектов литералами (ТЗ §15 п. 17 С2): литерал адреса без закрытия, хост и путь без
+# конца, сырые строки и шаблоны Kotlin. Разборщик смотрит только src/main.
+STARTS["java/src/main/java/A.java"] = (
+    '"http://', '"lb://', '"https://a', '"http://a/', '"http://a?', 'String a = "', '"\\"http://',
+)
+STARTS["kt/src/main/kotlin/A.kt"] = (
+    '"http://', '"""http://', '"http://a/$', '"http://a/${', '"http://a/\\$', "'\"' + \"http://",
+)
 # Файл настроек модуля, из которого маршрутам берётся префикс приложения.
 STARTS["java/src/main/resources/application.properties"] = (
     "server.servlet.context-path=${", "server.servlet.context-path=", "a=\\\n", "#---\n", "!",
@@ -500,6 +508,18 @@ SPRING_VALUE.update({
     "kt/App.kt:elvis-spaces": GE + " ?:" + " " * (PAYLOAD - 30) + '"b"\n',
     "java/App.java:optional": ("Optional.ofNullable(" + GE + ').orElse("b");\n') * 1999,
     "java/App.java:optional-spaces": "Optional.ofNullable(" + GE + ")" + " " * (PAYLOAD - 60) + '.orElse("b");\n',
+})
+
+
+# Адреса литералами на файле в 2 МБ: сотни тысяч адресов на разных строках и в одной, хост
+# и путь в мегабайт, литералы без закрытия построчно.
+SPRING_VALUE.update({
+    "java/src/main/java/A.java:addresses": 'String u = "http://a/";\n' * (PAYLOAD // 24),
+    "java/src/main/java/A.java:one-line": '"http://a/" + ' * (PAYLOAD // 14),
+    "java/src/main/java/A.java:long-host": '"http://' + A + '/"\n',
+    "java/src/main/java/A.java:long-path": '"http://a/' + A + '"\n',
+    "java/src/main/java/A.java:unclosed": ('"http://a/' + "a" * 1000 + "\n") * 1999,
+    "kt/src/main/kotlin/A.kt:templates": 'val u = "http://$a/"\n' * (PAYLOAD // 22),
 })
 
 
