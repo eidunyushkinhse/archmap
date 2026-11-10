@@ -265,7 +265,11 @@ class Arg:
     end: int
 
 
-_ANNOT_NAME = re.compile(rf"@[ \t]*((?:{_ID}[ \t]*\.[ \t]*){{0,8}})({_ID})")
+# Аннотация с пакетом или без; у Kotlin бывает цель применения «@field:Value», «@get:Path».
+_ANNOT_NAME = re.compile(
+    rf"@[ \t]*(?:(?:field|get|set|param|property|setparam|receiver|delegate|file)[ \t]*:[ \t]*)?"
+    rf"((?:{_ID}[ \t]*\.[ \t]*){{0,8}})({_ID})"
+)
 _LABEL = re.compile(rf"[ \t\r\n]*({_ID})[ \t\r\n]*=(?!=)")
 
 
@@ -296,14 +300,28 @@ def bind_annotations(outline: Outline, hits: list[tuple[str, int, int, int]]) ->
     ]
 
 
+def annotation_end(outline: Outline, at: int, stop: int) -> int:
+    """Позиция сразу после аннотации, «@» которой стоит на at (с аргументами в скобках по
+    паре); -1 — на at не аннотация."""
+    mask = outline.code.mask
+    m = _ANNOT_NAME.match(mask, at, stop)
+    if m is None:
+        return -1
+    j = m.end()
+    while j < stop and mask[j] in " \t":
+        j += 1
+    return outline.close_of(j) + 1 if j < stop and mask[j] == "(" else m.end()
+
+
 def find_annotations(outline: Outline, names: frozenset[str]) -> list[Annotation]:
     """Аннотации с именами из names в файле (annotation_hits и bind_annotations вместе)."""
     return bind_annotations(outline, annotation_hits(outline.code, names))
 
 
-def args(outline: Outline, open_paren: int) -> list[Arg]:
+def args(outline: Outline, open_paren: int, limit: int | None = None) -> list[Arg]:
     """Аргументы в скобках, открытых на позиции open_paren: границы на уровне этих скобок
-    (вложенные скобки перепрыгиваются по парам, проход шагами по скобкам и запятым)."""
+    (вложенные скобки перепрыгиваются по парам, проход шагами по скобкам и запятым). Больше
+    limit аргументов — TooMany (враждебный вход: список параметров в сотни тысяч)."""
     mask = outline.code.mask
     close = outline.close_of(open_paren)
     out: list[Arg] = []
@@ -320,6 +338,8 @@ def args(outline: Outline, open_paren: int) -> list[Arg]:
         if mask[i] == ",":
             _arg(mask, start, i, out)
             start = i + 1
+            if limit is not None and len(out) > limit:
+                raise TooMany
         i += 1
     _arg(mask, start, min(close, len(mask)), out)
     return out
@@ -459,7 +479,7 @@ def _member(
         if tok in "{;=}":
             return Member("field", i)
         if tok == "<":
-            i = _type_args_end(mask, i, stop)
+            i = type_args_end(mask, i, stop)
             if i < 0:
                 return None
             continue
@@ -472,7 +492,7 @@ def _member(
     return None
 
 
-def _type_args_end(mask: str, i: int, stop: int) -> int:
+def type_args_end(mask: str, i: int, stop: int) -> int:
     """Позиция после «>», закрывающей параметры типа с «<» на i; -1 — не закрыты."""
     depth = 0
     for m in _ANGLE.finditer(mask, i, stop):

@@ -1,0 +1,7 @@
+services:
+  vets:
+    build: ./vets
+  recs:
+    build: ./recs
+  kt:
+    build: ./kt

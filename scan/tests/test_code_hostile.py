@@ -151,6 +151,19 @@ STARTS["kt/App.kt"] += (
     '@Path("/a")\nclass A {\n  @Path("b")\n  fun b(): ', '@Path("/a")\nclass A : ',
     '@Path("/a")\nclass A(', '@Path("/a")\nclass A {\n  @GET\n  fun ',
 )
+# Параметры Spring в коде (ТЗ §15 п. 17 Е2): @Value без закрытия, подстановки, классы свойств
+# с незакрытыми полями, сеттерами, компонентами record и параметрами конструктора Kotlin.
+CP = '@ConfigurationProperties("p")\npublic class A {\n  '
+STARTS["java/App.java"] += (
+    '@Value("${', '@Value("${a:', "@Value(", '@Value("#{', CP + "private ", CP + "private int a = ",
+    CP + "void setA(", '@ConfigurationProperties(prefix = "', "@lombok.Data\n" + CP + "private ",
+    '@ConfigurationProperties("p")\npublic record A(', '@ConfigurationProperties("p")\npublic record A(@DefaultValue("',
+    'class A {\n  A(@Value("${a}") ', 'class A {\n  @Value("${a}") private Map<',
+)
+STARTS["kt/App.kt"] += (
+    '@Value("\\${', '@field:Value("\\${a:', '@ConfigurationProperties("p")\nclass A(val a: ',
+    '@ConfigurationProperties("p")\nclass A {\n  var a: ', 'class A(@Value("\\${a}") val a: ',
+)
 # Файл настроек модуля, из которого маршрутам берётся префикс приложения.
 STARTS["java/src/main/resources/application.properties"] = (
     "server.servlet.context-path=${", "server.servlet.context-path=", "a=\\\n", "#---\n", "!",
@@ -432,6 +445,48 @@ SPRING = {
     "kt/App.kt:properties": RC + ('@GetMapping("/a") val a = 1\n' * 1999) + "}\n",
     "kt/App.kt:headers": "@RestController\nclass A :\n" * (PAYLOAD // 26),
 }
+
+
+# Классы свойств и @Value на файле в 2 МБ: сотни тысяч полей без сеттеров и с ними, одно поле
+# в миллион слов, параметры типа без закрытия, тысячи классов со ссылками друг на друга,
+# список параметров в сотни тысяч, стопки аннотаций, подстановки без конца.
+KCP = '@ConfigurationProperties("p")\nclass A {\n'
+SPRING_VALUE = {
+    "java/App.java:values": '@Value("${a}") int a;\n' * (PAYLOAD // 22),
+    "java/App.java:fields": CP + "private int a;\n" * (PAYLOAD // 15) + "void setB(int b) {}\n}\n",
+    "java/App.java:setters": CP + "private int a;\n  void setA(int a) {}\n" * (PAYLOAD // 38) + "}\n",
+    "java/App.java:long-field": CP + "private " + "a " * (PAYLOAD // 2) + ";\nvoid setA() {}\n}\n",
+    "java/App.java:spaced-field": (
+        CP + "private " + "a" * 100 + " " * (PAYLOAD - 300) + "b;\nvoid setB() {}\n}\n"
+    ),
+    "java/App.java:spaced-fields": CP + ("a" * 100 + " " * 200) * 6000 + "b;\nvoid setB() {}\n}\n",
+    "java/App.java:type-args": CP + "private Map" + "<" * (PAYLOAD // 2) + " a;\nvoid setA() {}\n}\n",
+    "java/App.java:linked-classes": "".join(
+        f'@ConfigurationProperties("p{i}")\nclass C{i} {{\n  private C{i + 1} f;\n'
+        f"  public void setF(C{i + 1} f) {{}}\n}}\n"
+        for i in range(1999)
+    ),
+    "java/App.java:params": "class A {\n  A(" + '@Value("${a}") int a, ' * 1999 + ") {}\n}\n",
+    "java/App.java:setter-params": '@Value("${a}") ' * 1999 + "void setA(" + "int a, " * (PAYLOAD // 8) + ") {}\n",
+    "java/App.java:record": '@ConfigurationProperties("p")\npublic record A(' + "int a, " * (PAYLOAD // 7) + ") {}\n",
+    "java/App.java:default-values": (
+        '@ConfigurationProperties("p")\npublic record A(' + '@DefaultValue("1") ' * (PAYLOAD // 19)
+        + "int a) {}\n"
+    ),
+    "java/App.java:holes": '@Value("' + "${" * (PAYLOAD // 2 - 10) + '") int a;\n',
+    "java/App.java:closed-holes": '@Value("' + "${a}" * (PAYLOAD // 4 - 10) + '") int a;\n',
+    "java/App.java:lombok-heads": "@Data " * (PAYLOAD // 6) + CP + "private int a;\n}\n",
+    "kt/App.kt:vars": KCP + "  var a: Int = 1\n" * (PAYLOAD // 17) + "}\n",
+    "kt/App.kt:vars-in-fun": KCP + "  fun f() {\n" + "    var a: Int = 1\n" * (PAYLOAD // 19) + "  }\n}\n",
+    "kt/App.kt:ctor": '@ConfigurationProperties("p")\nclass A(' + "val a: Int = 1, " * (PAYLOAD // 16) + ")\n",
+    "kt/App.kt:values": "class A {\n" + '  @Value("\\${a}") var a: Int = 1\n' * 1999 + "}\n",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(SPRING_VALUE))
+def test_spring_value(tmp_path: Path, kind: str) -> None:
+    name = kind.split(":", 1)[0]
+    _check(tree(tmp_path, {**MANIFESTS, name: SPRING_VALUE[kind]}))
 
 
 # Локаторы JAX-RS: цепочка из тысяч классов, ветвление (десять локаторов на класс), цикл
