@@ -118,3 +118,25 @@ def test_copy_sources_of_last_stage() -> None:
     assert list(dockerfile.copy_sources(text)) == [
         (5, "envoy.yaml"), (5, "clusters/"), (7, "conf/extra.yaml"),
     ]
+
+
+def test_technology_by_final_image() -> None:
+    """Технология сервиса без языка по образу итоговой стадии (ТЗ §15 п. 18 Т1): у
+    grafana-server и prometheus-server Petclinic (docker/grafana/Dockerfile:1
+    grafana/grafana:11.4.0), frontend-proxy и image-provider OpenTelemetry Demo (Envoy и
+    nginx-unprivileged с дайджестом), executors Airflow (apache/airflow:latest) технологии не
+    было. Основание — строка последнего FROM; ссылка на стадию берёт образ стадии (ui).
+    Ловушки: базовый образ ОС (alpine, ubi9-micro), подстановка ${BASE_IMAGE} и имя без
+    стадии и образа в словаре (builder) технологии не дают; язык предыдущей стадии (python
+    перед nginx у site) остаётся старше образа."""
+    model = model_of(FIXTURES / "dockerfile-final")
+    techs = {o.name: o.technology for o in model.objects}
+    assert techs == {
+        "airflow": "Airflow", "base": None, "builder": None, "grafana": "Grafana",
+        "proxy": "Envoy", "site": "Python", "subst": None, "ui": "nginx",
+    }
+    locs = {o.name: sorted(str(loc) for loc in o.locs) for o in model.objects}
+    assert locs["proxy"] == ["proxy/Dockerfile:2"]
+    assert locs["ui"] == ["ui/Dockerfile:1", "ui/Dockerfile:3"]
+    info = dockerfile.parse_text("D", "FROM a AS b\nRUN x\nFROM b\n")
+    assert info is not None and str(info.final_loc) == "D:3" and str(info.from_loc) == "D:1"

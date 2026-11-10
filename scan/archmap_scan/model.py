@@ -121,6 +121,8 @@ class Dockerfile:
     copies_context: bool = False
     # Простые команды скриптов репозитория, которые запускает CMD (ТЗ §15 п. 16 П1).
     script_commands: list[str] = field(default_factory=list)
+    # Строка последнего FROM: итоговая стадия, основание технологии по образу (ТЗ §15 п. 18 Т1).
+    final_loc: Loc | None = None
 
 
 @dataclass

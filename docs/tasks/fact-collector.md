@@ -326,8 +326,12 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   `redpanda`→broker «Redpanda», `nats`→broker «NATS», `pulsar`→broker «Pulsar»,
   `zookeeper`→service «ZooKeeper» (роль «сервис»), `nginx`/`traefik`/`haproxy`/`envoy`→service
   (роль «прокси»), `mailhog`/`mailpit` → service. Неизвестный образ без `build` → service,
-  `technology` = имя образа без тега. Слово словаря ищется и среди частей имени через дефис
-  и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`, `docker-redis-cluster`), кроме
+  `technology` = имя образа без тега. У сервиса без языка пакета и образа compose технологию
+  даёт образ итоговой стадии Dockerfile: вид сервиса из этого словаря (Envoy, nginx) или
+  программа `grafana`→«Grafana», `prometheus`→«Prometheus», `airflow`→«Airflow»; базовые образы
+  ОС и подстановки `${ИМЯ}` технологии не дают (ч. 6, Т1). Слово словаря ищется и среди
+  частей имени через дефис и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`,
+  `docker-redis-cluster`), кроме
   имён со словом программы вокруг базы (`client`, `exporter`, `ui`, `meta`…) и с двумя
   технологиями (§15 п. 14 И3).
 - Базовый образ Dockerfile и манифест сборки → `technology`: «Python», «Node.js», «Go»,
@@ -2620,3 +2624,34 @@ unread: {too_large: 3, binary: 0}
      с `appsettings.json` новых имён два (`IdentityUrl`, `CallBackUrl`, оба `required: true`),
      параметров 45 → 47; у `Identity:Url`, `Identity:Audience` и `OpenApi:Document:*` прибавились
      основания, `required` у них не ставится: в `appsettings.json` есть значение.
+   - Т1 (решение исполнителя): Grafana, Prometheus и Airflow не добавлены в `vocab.IMAGES`, бриф
+     считал их там. Вид по образу из `IMAGES` решает больше, чем технологию: зависимость чарта
+     Helm с таким именем становится объектом (`helm.py`, в том числе по части имени
+     `kube-prometheus-stack`), сервис compose на таком образе перестаёт искать свой каталог кода
+     по имени (`assemble._named_candidate`) и получает роль из словаря мимо команды. Поэтому
+     программы лежат в отдельной таблице `vocab.PROGRAM_IMAGES` (имя образа целиком: `grafana`,
+     `grafana-oss`, `grafana-enterprise`, `prometheus`, `airflow`), её читает только
+     `vocab.stage_technology` вместе с видами сервиса из `IMAGES`; базы и брокеры итоговой
+     стадии технологию сервиса не дают (их вид, как и раньше, решает `_classify`). Технологии
+     таблицы входят в стеки (`vocab.is_stack`), как Envoy и nginx. Роль не меняется: бриф
+     называл только технологию, у frontend-proxy и image-provider роль «сервис», а не «прокси».
+     Сервис compose на образе `grafana/grafana` по-прежнему получает технологией имя образа
+     (`grafana` у immich, otel-demo и Loki), а сервис со своим Dockerfile на том же образе
+     «Grafana»: одинаковое написание требует решения владельца. Ссылка на стадию берёт образ
+     стадии, как и язык (`FROM serve` после `FROM nginx-unprivileged AS serve`), основание — строка
+     последнего `FROM` (`Dockerfile.final_loc`). По корпусу (46 сервисов без технологии в
+     дымовом прогоне и семи угловых): Petclinic `grafana-server` «Grafana» и
+     `prometheus-server` «Prometheus» (`docker/grafana/Dockerfile:1`, `docker/prometheus/
+     Dockerfile:1`), otel-demo `frontend-proxy` «Envoy» (`src/frontend-proxy/Dockerfile:4`) и
+     `image-provider` «nginx» (`src/image-provider/Dockerfile:4`), Airflow `executors`
+     «Airflow» (`providers/amazon/src/airflow/providers/amazon/aws/executors/Dockerfile:19`);
+     в стеках Petclinic прибавились Grafana и Prometheus, otel-demo Envoy и nginx, Airflow
+     Airflow. Остались без технологии 41: базовый образ ОС или чужая основа у семи (otel-demo
+     `currency` alpine, Keycloak `container` ubi9-micro, Airflow `pgbouncer` alpine, Loki
+     `docker-driver` alpine, Kubernetes `mounter` ubuntu:xenial, PostHog `agent` alpine, n8n
+     `node-pc` на собственной основе `n8nio/base`), подстановка образа у восьми (n8n `n8n`,
+     `n8n-base`, `runners`; Kubernetes `addon-manager`, `pause`, `server-image`; Envoy `envoy`;
+     PostHog `dagster-ml`), без Dockerfile у 26 (AWX 13, PostHog 9, n8n `sandbox-api`,
+     `sandbox-certs`, `sandbox-runner-1` и otel-demo `telemetry-docs`: его Dockerfile с nginx в
+     итоговой стадии лежит в `src/telemetry-docs/`, а каталог исключён соглашением по слову
+     `docs`).
