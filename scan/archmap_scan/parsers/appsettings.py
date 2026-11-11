@@ -29,14 +29,34 @@ FILE_NAME = "appsettings.json"
 MAX_BYTES = 1_000_000
 MAX_DEPTH = 50
 
-# Пробелы и комментарии строки между лексемами: шаблон без продолжения, поэтому жадное
-# совпадение принимается сразу, без возвратов. Начало блочного комментария «/*» ищется
-# отдельно (конец — str.find).
-_SKIP = re.compile(r"(?:[ \t\r\n]+|//[^\n]*)*")
-# Лексема: строка (без перевода строки внутри), знак, прочее (число, true, false, null).
-_TOKEN = re.compile(
-    r'(?P<str>"[^"\\\n]*(?:\\.[^"\\\n]*)*")|(?P<p>[{}\[\]:,])|(?P<atom>[^ \t\r\n{}\[\]:,"/]+)'
+# Пробелы, комментарии строки «//» и блочные «/* */» между лексемами. Блочный кончается
+# первым «*/» (развёрнутый цикл без возвратов); блочный без конца не совпадает, за ним
+# лексемы нет, и это BadJson, как и раньше.
+_GAP = r"(?:[ \t\r\n]+|//[^\n]*|/\*[^*]*\*+(?:[^/*][^*]*\*+)*/)*"
+
+
+def _skip(n: int) -> str:
+    """Пропуск _GAP внутри шаблона: опережающая проверка со ссылкой на неё (так в Python 3.10
+    пишется атомарная группа). За неудачей после пропуска возврата в него нет, время линейно."""
+    return f"(?=(?P<s{n}>{_GAP}))(?P=s{n})"
+
+
+# Строка (без перевода строки внутри) и прочее (число, true, false, null).
+_STR = r'"[^"\\\n]*(?:\\.[^"\\\n]*)*"'
+_ATOM = r'[^ \t\r\n{}\[\]:,"/]+'
+# Лексема: строка, знак, прочее.
+_TOKEN = rf"(?P<str>{_STR})|(?P<p>[{{}}\[\]:,])|(?P<atom>{_ATOM})"
+_VALUE = f"(?:(?P<str>{_STR})|(?P<atom>{_ATOM}))"
+# Лексема с пропуском перед ней (_LEX) и частые пути одним совпадением вместо нескольких
+# вызовов next: пара «ключ: строка или прочее» с разделителем за ней (_PAIR, тело объекта) и
+# элемент массива с разделителем (_ITEM). Вложенное значение и ошибка в них не совпадают и
+# идут по лексемам с того же места, результат тот же.
+_LEX = re.compile(_skip(1) + "(?:" + _TOKEN + ")")
+_PAIR = re.compile(
+    _skip(1) + f"(?P<key>{_STR})" + _skip(2) + ":" + _skip(3) + _VALUE + _skip(4)
+    + r"(?P<sep>[,}])"
 )
+_ITEM = re.compile(_skip(1) + _VALUE + _skip(2) + r"(?P<sep>[,\]])")
 _INT = re.compile(r"-?(?:0|[1-9][0-9]*)")
 _FLOAT = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
 
@@ -49,6 +69,7 @@ class TooDeep(Exception):
     """Вложенность больше MAX_DEPTH: файл непрочитан."""
 
 
+# Лексема: вид, начало и конец. Вид — "str", "atom" или сам знак («{», «}», «[», «]», «:», «,»).
 _Token = tuple[str, int, int]
 
 
@@ -69,21 +90,15 @@ class _Reader:
         return self.line
 
     def next(self) -> _Token:
-        text = self.text
-        pos = _SKIP.match(text, self.pos).end()  # type: ignore[union-attr]
-        while text.startswith("/*", pos):
-            close = text.find("*/", pos + 2)
-            if close < 0:
-                raise BadJson
-            pos = _SKIP.match(text, close + 2).end()  # type: ignore[union-attr]
-        m = _TOKEN.match(text, pos)
+        """Следующая лексема; нет её (конец текста, блочный комментарий без конца, чужой
+        знак) — BadJson."""
+        m = _LEX.match(self.text, self.pos)
         if m is None:
             raise BadJson
+        start = m.end("s1")
         self.pos = m.end()
-        return m.lastgroup or "", pos, self.pos
-
-    def char(self, tok: _Token) -> str:
-        return self.text[tok[1]] if tok[0] == "p" else ""
+        kind = m.lastgroup or ""
+        return (self.text[start] if kind == "p" else kind), start, self.pos
 
     def string(self, tok: _Token) -> str:
         raw = self.text[tok[1]:tok[2]]
@@ -98,7 +113,7 @@ class _Reader:
     # Разбор
 
     def document(self) -> None:
-        if self.char(self.next()) != "{":
+        if self.next()[0] != "{":
             raise BadJson
         self.obj([], 1)
         if self.text[self.pos:].strip():
@@ -111,35 +126,47 @@ class _Reader:
 
     def obj(self, path: list[str], depth: int) -> None:
         """Тело объекта после «{»: ключи пишутся параметрами."""
+        nxt = self.next
+        text = self.text
         while True:
-            tok = self.next()
-            if self.char(tok) == "}":
+            m = _PAIR.match(text, self.pos)
+            if m is not None:
+                kind = "atom" if m.start("str") < 0 else "str"
+                key = self.string(("str", *m.span("key")))
+                line = self.line_at(m.start("key"))
+                self.value([*path, key], line, (kind, *m.span(kind)), depth)
+                self.pos = m.end()
+                if m.group("sep") == "}":
+                    return
+                continue
+            tok = nxt()
+            if tok[0] == "}":
                 return
             if tok[0] != "str":
                 raise BadJson
             key = self.string(tok)
             line = self.line_at(tok[1])
-            if self.char(self.next()) != ":":
+            if nxt()[0] != ":":
                 raise BadJson
-            self.value([*path, key], line, self.next(), depth)
-            sep = self.char(self.next())
+            self.value([*path, key], line, nxt(), depth)
+            sep = nxt()[0]
             if sep == "}":
                 return
             if sep != ",":
                 raise BadJson
 
     def value(self, path: list[str], line: int, tok: _Token, depth: int) -> None:
-        ch = self.char(tok)
+        kind = tok[0]
         name = ":".join(path)
-        if ch == "{":
+        if kind == "{":
             if depth >= MAX_DEPTH:
                 raise TooDeep
             self.obj(path, depth + 1)
-        elif ch == "[":
+        elif kind == "[":
             self.out.append((name, line, self.render(tok, depth), "array"))
-        elif tok[0] == "str":
+        elif kind == "str":
             self.out.append((name, line, self.string(tok), "string"))
-        elif tok[0] == "atom":
+        elif kind == "atom":
             atom = self.text[tok[1]:tok[2]]
             if atom in ("true", "false"):
                 self.out.append((name, line, atom, "bool"))
@@ -156,8 +183,8 @@ class _Reader:
 
     def render(self, tok: _Token, depth: int) -> str:
         """Значение одной строкой: строки в кавычках как написаны, элементы через «, »."""
-        ch = self.char(tok)
-        if tok[0] in ("str", "atom"):
+        ch = tok[0]
+        if ch in ("str", "atom"):
             return self.text[tok[1]:tok[2]]
         if ch not in ("[", "{"):
             raise BadJson
@@ -165,18 +192,29 @@ class _Reader:
             raise TooDeep
         close = "]" if ch == "[" else "}"
         parts: list[str] = []
+        nxt = self.next
+        text = self.text
+        fast = _PAIR if ch == "{" else _ITEM
         while True:
-            item = self.next()
-            if self.char(item) == close:
+            m = fast.match(text, self.pos)
+            if m is not None:
+                value = m.group("str") or m.group("atom")
+                parts.append(f"{m.group('key')}: {value}" if ch == "{" else value)
+                self.pos = m.end()
+                if m.group("sep") == close:
+                    break
+                continue
+            item = nxt()
+            if item[0] == close:
                 break
             if ch == "{":
-                if item[0] != "str" or self.char(self.next()) != ":":
+                if item[0] != "str" or nxt()[0] != ":":
                     raise BadJson
                 key = self.text[item[1]:item[2]]
-                parts.append(f"{key}: {self.render(self.next(), depth + 1)}")
+                parts.append(f"{key}: {self.render(nxt(), depth + 1)}")
             else:
                 parts.append(self.render(item, depth + 1))
-            sep = self.char(self.next())
+            sep = nxt()[0]
             if sep == close:
                 break
             if sep != ",":
