@@ -234,11 +234,18 @@ def _code_family(stat: FamilyStat, model: Model, kind: str, found: int) -> None:
 def stacks(model: Model) -> list[str]:
     """Технологии объектов в порядке схемы, без повторов: только языки, фреймворки и виды
     из словаря (vocab.is_stack, ТЗ §15 п. 12 С7б). Имя образа остаётся технологией объекта,
-    но стеком репозитория не считается. Стек маркера сборки корня первым (С12)."""
+    но стеком репозитория не считается. Стек маркера сборки корня первым (С12). Программа по
+    словарю (vocab.PROGRAMS) — стек, только если её дал образ итоговой стадии своего
+    Dockerfile (ТЗ §15 п. 18 Т1): у сервиса на чужом образе она лишь написание имени образа
+    (п. 19 Т2), как раньше «grafana»."""
     out: list[str] = [model.root_stack] if model.root_stack else []
     for obj in model.objects:
-        if obj.technology and vocab.is_stack(obj.technology) and obj.technology not in out:
-            out.append(obj.technology)
+        tech = obj.technology
+        if not tech or not vocab.is_stack(tech) or tech in out:
+            continue
+        if tech in vocab.PROGRAMS and obj.dockerfile is None:
+            continue
+        out.append(tech)
     return out
 
 

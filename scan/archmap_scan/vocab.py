@@ -357,25 +357,60 @@ def image_language(image: str) -> str | None:
     return None
 
 
-# Образы программ, которые технологию дают только итоговой стадией Dockerfile (ТЗ §15 п. 18
-# Т1): в IMAGES их нет, потому что вид по образу там решает и другое (объекты зависимостей
-# чарта Helm, поиск каталога кода сервиса compose по имени), а сервис compose на таком
-# образе и так получает технологией имя образа. Сравнивается имя образа целиком.
+# Образы программ → написание программы (ТЗ §15 п. 18 Т1, п. 19 Т2). В IMAGES их нет, потому
+# что вид по образу там решает и другое (объекты зависимостей чарта Helm, поиск каталога кода
+# сервиса compose по имени); здесь только написание технологии: у сервиса compose, Helm и k8s
+# на таком образе и у итоговой стадии Dockerfile одно («Grafana», а не «grafana»). Сравнивается
+# имя образа целиком. Программы со строчным написанием (etcd, flagd, imgproxy) и имена, по
+# которым программу не узнать (app, node, ui), в словарь не входят.
 PROGRAM_IMAGES: dict[str, str] = {
     "grafana": "Grafana", "grafana-oss": "Grafana", "grafana-enterprise": "Grafana",
-    "prometheus": "Prometheus", "airflow": "Airflow",
+    "prometheus": "Prometheus", "airflow": "Airflow", "loki": "Loki", "promtail": "Promtail",
+    "alertmanager": "Alertmanager", "jaeger": "Jaeger", "zipkin": "Zipkin", "vault": "Vault",
+    "conjur": "Conjur", "vector": "Vector", "meilisearch": "Meilisearch", "searxng": "SearXNG",
+    "caddy": "Caddy", "dex": "Dex", "postgrest": "PostgREST", "gotrue": "GoTrue",
+    "logflare": "Logflare", "supavisor": "Supavisor", "seaweedfs": "SeaweedFS",
+    "opentelemetry-collector": "OpenTelemetry Collector",
+    "opentelemetry-collector-contrib": "OpenTelemetry Collector",
 }
+# Программы, которые узнаются только по организации и имени образа (последние два сегмента
+# пути): у temporalio/ui и jaegertracing/all-in-one имя само по себе программу не называет.
+PROGRAM_PATHS: dict[str, str] = {
+    "temporalio/auto-setup": "Temporal", "temporalio/admin-tools": "Temporal",
+    "temporalio/ui": "Temporal", "jaegertracing/all-in-one": "Jaeger",
+}
+PROGRAMS = frozenset({*PROGRAM_IMAGES.values(), *PROGRAM_PATHS.values()})
+
+
+def program(image: str) -> str | None:
+    """Написание программы по образу: имя целиком (PROGRAM_IMAGES), затем организация и имя
+    (PROGRAM_PATHS); неизвестный образ — None."""
+    found = PROGRAM_IMAGES.get(image_name(image))
+    if found is not None:
+        return found
+    return PROGRAM_PATHS.get("/".join(image_path(image).rsplit("/", 2)[-2:]))
+
+
+def image_technology(image: str) -> str | None:
+    """Технология сервиса по образу compose, Helm, k8s и задачи по образу (ТЗ §15 п. 19 Т2):
+    вид из IMAGES как в словаре («nginx», «Envoy», у задачи на образе базы «PostgreSQL»),
+    программа по словарю («Grafana»), иначе имя образа строчными, как раньше."""
+    kind = image_kind(image)
+    if kind is not None:
+        return kind.technology
+    return program(image) or image_name(image) or None
 
 
 def stage_technology(image: str) -> str | None:
     """Технология по образу итоговой стадии Dockerfile (ТЗ §15 п. 18 Т1): вид сервиса из
-    IMAGES (envoyproxy/envoy → Envoy, nginx-unprivileged → nginx) или программа из
-    PROGRAM_IMAGES (grafana/grafana → Grafana). Базовые образы ОС и языков (alpine, ubuntu,
-    python), подстановки (${BASE_IMAGE}) и образы баз и брокеров технологии сервиса не дают."""
+    IMAGES (envoyproxy/envoy → Envoy, nginx-unprivileged → nginx) или программа (program,
+    grafana/grafana → Grafana), с тем же написанием, что у образа compose (Т2). Базовые образы
+    ОС и языков (alpine, ubuntu, python), подстановки (${BASE_IMAGE}) и образы баз и брокеров
+    технологии сервиса не дают."""
     kind = image_kind(image)
     if kind is not None:
         return kind.technology if kind.shape == _SERVICE else None
-    return PROGRAM_IMAGES.get(image_name(image))
+    return program(image)
 
 
 # Манифест сборки → язык.
@@ -808,7 +843,7 @@ LANGUAGES = frozenset({
 _STACK_NAMES = frozenset({
     *LANGUAGES,
     *(name for _, name in SERVER_FRAMEWORKS), *(name for _, name in FRONTEND_FRAMEWORKS),
-    *(kind.technology for kind in IMAGES.values()), *PROGRAM_IMAGES.values(),
+    *(kind.technology for kind in IMAGES.values()), *PROGRAMS,
     *(kind for _, kind in CLIENTS),
     dialect.POSTGRESQL, dialect.MYSQL, dialect.MARIADB, dialect.SQLITE, dialect.ORACLE,
     dialect.SQLSERVER,

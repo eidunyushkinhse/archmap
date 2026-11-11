@@ -96,16 +96,19 @@ def _tasks(model: Model) -> None:
     признаком по имени или restart раньше убрал _init_tasks (Д7), здесь остаются задачи без
     него (оболочка и depends_on на сервис того же образа)."""
     images: dict[str, str] = {}
+    full: dict[str, str] = {}
     for obj in model.objects:
         image = next((u.image for u in obj.units if u.image), None)
         if image is not None:
             images[obj.name] = vocab.image_name(image)
+            full[obj.name] = image
     for obj in model.objects:
         if obj.shape not in (DATABASE, BROKER) or obj.name not in images:
             continue
         if any(_is_task(u, images[obj.name], images) for u in obj.units):
             obj.shape, obj.role = SERVICE, vocab.ROLE_TASK
-            obj.technology = images[obj.name]
+            # Написание по образу одно у задачи и сервиса (ТЗ §15 п. 19 Т2).
+            obj.technology = vocab.image_technology(full[obj.name])
 
 
 def _init_task(unit: Unit, kind: str) -> bool:
@@ -658,7 +661,8 @@ def _classify(
         if kind is not None:
             obj.shape, obj.technology, obj.role = kind.shape, kind.technology, kind.role
         else:
-            obj.shape, obj.technology = SERVICE, vocab.image_name(image) or None
+            # Программа по словарю своим написанием, иначе имя образа (ТЗ §15 п. 19 Т2).
+            obj.shape, obj.technology = SERVICE, vocab.image_technology(image)
     elif obj.dockerfile is not None and (shape_hint is not None or not _code_packages(obj, packages)):
         # Вид по образу итоговой стадии Dockerfile: у кандидата с видом и у контейнера без
         # своих манифестов сборки (src/kafka/Dockerfile OpenTelemetry Demo на apache/kafka,

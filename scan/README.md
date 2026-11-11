@@ -807,3 +807,15 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     с `env.py` (`walk.alembic_roots`); тесты Jest в каталоге миграций, `conftest.py` и каталоги
     по соглашению исключаются, как раньше. У Airflow ревизия
     `0147_3_4_0_add_commit_allows_update_to_connection_test.py` больше не рвёт цепочку (А1).
+  - технология по образу одним написанием (`vocab.image_technology`, `vocab.stage_technology`,
+    `vocab.program`): у сервиса compose, Helm, k8s, задачи по образу и итоговой стадии своего
+    Dockerfile вид из `IMAGES` как в словаре («nginx», «Envoy»), программа из словаря программ
+    своим написанием, остальное именем образа строчными. Словарь программ по имени образа
+    (`PROGRAM_IMAGES`): Grafana (`grafana`, `grafana-oss`, `grafana-enterprise`), Prometheus,
+    Airflow, Loki, Promtail, Alertmanager, Jaeger, Zipkin, Vault, Conjur, Vector, Meilisearch,
+    SearXNG, Caddy, Dex, PostgREST, GoTrue, Logflare, Supavisor, SeaweedFS, OpenTelemetry
+    Collector (`opentelemetry-collector`, `opentelemetry-collector-contrib`); по организации и
+    имени (`PROGRAM_PATHS`): Temporal (`temporalio/auto-setup`, `temporalio/admin-tools`,
+    `temporalio/ui`), Jaeger (`jaegertracing/all-in-one`). Программы со строчным написанием
+    (`etcd`, `flagd`, `imgproxy`) и имена `app`, `node`, `ui` без организации в словарь не входят.
+    Программа стеком считается, только если её дал образ итоговой стадии своего Dockerfile (Т2).

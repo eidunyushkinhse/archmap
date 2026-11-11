@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logs
+spec:
+  selector:
+    matchLabels: {app: logs}
+  template:
+    metadata:
+      labels: {app: logs}
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.7.9

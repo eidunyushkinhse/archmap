@@ -39,7 +39,8 @@ def test_k8s_model() -> None:
         "cleanup": ("service", "orders", None),
         "orders-db": ("database", "PostgreSQL", "orders-db"),
         "events": ("broker", "Kafka", None),
-        "collector": ("service", "opentelemetry-collector-contrib", None),
+        # Программа по образу своим написанием (ТЗ §15 п. 19 Т2).
+        "collector": ("service", "OpenTelemetry Collector", None),
     }
     links = {(lk.src.name, lk.dst.name) for lk in model.links}
     # events без Service: имени зависимости нет, адрес events:9092 ни к чему не ведёт.

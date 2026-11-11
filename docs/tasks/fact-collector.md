@@ -253,7 +253,7 @@ archmap-scan/
 | Источник | Что берёт | Куда кладёт |
 |---|---|---|
 | `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов; у сервиса с образом прокси (nginx, HAProxy, Caddy, Traefik, Envoy) файлы томов из репозитория и многострочные значения `environment`: `upstream { server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen` HAProxy дают связи прокси → объект с этим `host`, технология HTTP (ч. 3, Ж3); сервис с образом из переменной или своим тегом — прокси и по базовому образу последней стадии своего Dockerfile, конфигурация берётся и из `COPY`/`ADD` последней стадии внутри контекста сборки (Envoy `*.yaml`, nginx `*.conf`, `Caddyfile`, `haproxy.cfg`), Envoy — адреса кластеров `static_resources.clusters[]` (`load_assignment` и `hosts`) с подстановками `${VAR}` из окружения единицы и закоммиченного `.env` (ч. 5, С1) |
-| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology`, `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
+| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology` (у сервиса без языка по образу итоговой стадии тем же написанием, что у образа compose, ч. 6, Т1, ч. 7, Т2), `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
 | systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
@@ -329,10 +329,17 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   `redpanda`→broker «Redpanda», `nats`→broker «NATS», `pulsar`→broker «Pulsar»,
   `zookeeper`→service «ZooKeeper» (роль «сервис»), `nginx`/`traefik`/`haproxy`/`envoy`→service
   (роль «прокси»), `mailhog`/`mailpit` → service. Неизвестный образ без `build` → service,
-  `technology` = имя образа без тега. У сервиса без языка пакета и образа compose технологию
-  даёт образ итоговой стадии Dockerfile: вид сервиса из этого словаря (Envoy, nginx) или
-  программа `grafana`→«Grafana», `prometheus`→«Prometheus», `airflow`→«Airflow»; базовые образы
-  ОС и подстановки `${ИМЯ}` технологии не дают (ч. 6, Т1). Слово словаря ищется и среди
+  `technology` = имя образа без тега, а программа из словаря программ (`vocab.PROGRAM_IMAGES` по
+  имени образа, `vocab.PROGRAM_PATHS` по организации и имени) своим написанием: `grafana` →
+  «Grafana», `prometheus` → «Prometheus», `loki` → «Loki», `opentelemetry-collector-contrib` →
+  «OpenTelemetry Collector», `temporalio/ui` → «Temporal» и другие; то же у Helm, k8s и задачи
+  по образу, у задачи на образе базы или брокера вид словаря («Redpanda»); программы со строчным
+  написанием (`etcd`, `flagd`, `imgproxy`) и имена без программы (`app`, `node`, `ui`) остаются
+  именем образа (ч. 7, Т2). У сервиса без языка пакета и образа compose технологию
+  даёт образ итоговой стадии Dockerfile тем же написанием: вид сервиса из этого словаря (Envoy,
+  nginx) или программа из словаря программ; базовые образы ОС и подстановки `${ИМЯ}` технологии
+  не дают (ч. 6, Т1). Программа стеком (`coverage.stacks`) считается, только если её дал образ
+  итоговой стадии своего Dockerfile: у сервиса на чужом образе это написание имени образа. Слово словаря ищется и среди
   частей имени через дефис и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`,
   `docker-redis-cluster`), кроме
   имён со словом программы вокруг базы (`client`, `exporter`, `ui`, `meta`…) и с двумя
@@ -2852,3 +2859,41 @@ unread: {too_large: 3, binary: 0}
      `dataset*` остаются под старыми именами, а две ссылки `asset.id`
      (`asset_state_store.asset_id`, `task_inlet_asset_reference.asset_id`) без цели; цикл по
      списку-литералу модуля в остаток.
+   - Т2 (решение исполнителя): технология по образу у сервиса compose, Helm и k8s
+     (`assemble._classify`) и у задачи по образу (`assemble._tasks`) идёт через
+     `vocab.image_technology`, у итоговой стадии Dockerfile через `vocab.stage_technology`; обе
+     берут программу из одного словаря (`vocab.program`: `PROGRAM_IMAGES` по имени образа
+     целиком и `PROGRAM_PATHS` по организации и имени для `temporalio/auto-setup`,
+     `temporalio/admin-tools`, `temporalio/ui` и `jaegertracing/all-in-one`). Вид из `IMAGES`
+     пишется как в словаре и у задачи на образе базы или брокера («Redpanda», а не
+     «redpanda»; в корпусе задач нет). Ловушка брифа про стеки: `vocab.is_stack` знает все
+     программы словаря, и сервис compose на `grafana/grafana` со своим «Grafana» добавил бы
+     Grafana и Prometheus в `coverage.stacks` immich, Loki и otel-demo. Поэтому `stats.stacks`
+     считает программу стеком, только если у объекта есть свой Dockerfile (так она стала
+     стеком в Т1 части 6), а у сервиса на чужом образе это по-прежнему написание имени образа,
+     как раньше «grafana»; стеки корпуса не изменились. Во всём выводе корпуса против прогона
+     после А1 изменились 31 строка `technology` в `schema.yaml` и больше ничего (сверка
+     построчным `diff -r` всех 22 выводов); роли, формы и связи прежние, шесть вердиктов без
+     регрессий, слои Sentry пройдены. Таблица «репозиторий, объект, было, стало»:
+     Online Boutique `opentelemetrycollector` opentelemetry-collector-contrib → OpenTelemetry
+     Collector; immich `immich-grafana` grafana → Grafana, `immich-prometheus` prometheus →
+     Prometheus; Argo CD `argocd-dex-server` dex → Dex; PostHog `objectstorage` и `seaweedfs`
+     seaweedfs → SeaweedFS, `proxy` caddy → Caddy, `temporal` auto-setup → Temporal,
+     `temporal-admin-tools` admin-tools → Temporal, `temporal-ui` ui → Temporal; Petclinic
+     `tracing-server` zipkin → Zipkin; otel-demo `grafana` grafana → Grafana, `jaeger` jaeger →
+     Jaeger, `otel-collector` opentelemetry-collector-contrib → OpenTelemetry Collector,
+     `prometheus` prometheus → Prometheus; AWX `conjur` conjur → Conjur, `hashivault` vault →
+     Vault; Loki `alertmanager` alertmanager → Alertmanager, `grafana` и `nginx` (сервис на
+     образе grafana) grafana → Grafana, `loki-monolithic` и `loki-monolithic-compactor` loki →
+     Loki, `prometheus` prometheus → Prometheus, `promtail` promtail → Promtail; Supabase
+     `analytics` logflare → Logflare, `auth` gotrue → GoTrue, `rest` postgrest → PostgREST,
+     `supavisor` supavisor → Supavisor, `vector` vector → Vector; Monica `meilisearch`
+     meilisearch → Meilisearch; n8n `searxng` searxng → SearXNG. Без изменений остались
+     программы со строчным написанием и имена без программы: PostHog `etcd` и
+     `personhog-etcd-init` etcd, otel-demo `flagd`, Supabase `imgproxy`, имена образов без записи
+     в словаре (Supabase `realtime`, `storage-api`, `postgres-meta`, `edge-runtime`, `rustfs`, Loki
+     `memcached-exporter`, `k8s-sidecar`, otel-demo `firepit`,
+     `opentelemetry-collector-ebpf-profiler`, Monica `app` трижды, Kubernetes `node` и другие).
+     Т1 даёт то же написание: Petclinic `grafana-server` «Grafana» и `prometheus-server`
+     «Prometheus», otel-demo `frontend-proxy` «Envoy» и `image-provider` «nginx», Airflow
+     `executors` «Airflow» без изменений.
