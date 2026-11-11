@@ -32,8 +32,9 @@ def _parse(root: Path) -> tuple[list[tuple[str, str, str, str | None]], list[tup
 def test_fixture_schedules() -> None:
     """cron литералом и константой класса Java, fixedRate и fixedDelay числом (30_000L),
     timeUnit, fixedRateString и fixedDelayString с подстановкой (дефолт числом и
-    длительностью), две записи @Schedules; cron «-» (выключено), одноразовый initialDelay,
-    комментарий и каталог тестов записей не дают."""
+    длительностью), две записи @Schedules, cron константой Kotlin const val (с части 6, ТЗ §15
+    п. 18 Е1); cron «-» (выключено), одноразовый initialDelay, комментарий и каталог тестов
+    записей не дают."""
     schedules, _hints = _parse(ROOT)
     assert schedules == [
         (f"{JOBS}:10", "hourly", "0 0 * * * *", "hourly"),
@@ -45,6 +46,7 @@ def test_fixture_schedules() -> None:
         (f"{JOBS}:43", "twice", "0 0 9 * * MON", "twice"),
         (f"{JOBS}:44", "twice", "0 0 9 * * FRI", "twice"),
         (f"{KT}:10", "delayed", "every PT10S after completion", "delayed"),
+        (f"{KT}:14", "fromConst", "0 0 2 * * *", "fromConst"),
         (f"{KT}:18", "twoHours", "every 2 h", "twoHours"),
         (f"{KT}:6", "every5", "0 */5 * * * *", "every5"),
     ]
@@ -52,13 +54,13 @@ def test_fixture_schedules() -> None:
 
 def test_fixture_hints() -> None:
     """Подстановка без дефолта и с дефолтом «-» — расписание из конфигурации с выражением;
-    вызов и константа Kotlin (const val не раскрывается) — расписание задано переменной."""
+    вызов — расписание задано переменной. Константа Kotlin до части 6 тоже давала подсказку,
+    теперь раскрывается (ТЗ §15 п. 18 Е1)."""
     _schedules, hints = _parse(ROOT)
     assert hints == [
         (f"{JOBS}:30", texts.REASON_SCHEDULE_CONFIG, "${jobs.export.cron}"),
         (f"{JOBS}:38", texts.REASON_SCHEDULE_VARIABLE, "Settings.cron()"),
         (f"{JOBS}:53", texts.REASON_SCHEDULE_CONFIG, "${jobs.maybe:-}"),
-        (f"{KT}:14", texts.REASON_SCHEDULE_VARIABLE, "CRON"),
     ]
 
 
@@ -66,7 +68,7 @@ def test_fixture_owner_and_coverage() -> None:
     """Расписания у контейнеров модулей; Java и Kotlin у пакетов со Spring Boot в
     непрочитанных расписаниях не названы."""
     model = model_of(ROOT)
-    assert {k: len(v) for k, v in model.schedules.items()} == {"jobs": 8, "ktjobs": 3}
+    assert {k: len(v) for k, v in model.schedules.items()} == {"jobs": 8, "ktjobs": 4}
     ctx, files = files_of(ROOT)
     found, errors = registry.collect(files, ctx)
     assert errors == {}

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from archmap_scan import clike, codebase, codetext, jvm, texts
+from archmap_scan import clike, codetext, jvm, texts
 from archmap_scan.codetext import SP
 from archmap_scan.context import Context
 from archmap_scan.model import ChannelUse, Findings, Hint, Loc
@@ -176,14 +176,13 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not jvm.stack_present(files, ctx, STACK):
         return found
     found.applied.add(NAME)
-    repo = clike.Repo(files, ctx, codebase.JAVA, codetext.JAVA)
+    repos = jvm.Repos(files, ctx)
     for rel, code, language in jvm.sources(files, ctx, STACK, _NEEDLES):
-        if language == codebase.JAVA:
-            repo.note(rel, code)
+        repo = repos.note(rel, code, language)
         part = Findings()
         try:
             outline = jvm.Outline.of(code)
-            f = _File(rel, code, outline, repo if language == codebase.JAVA else None, part)
+            f = _File(rel, code, outline, repo, part)
             _subscriptions(f)
             _records(f)
             _listeners(f)

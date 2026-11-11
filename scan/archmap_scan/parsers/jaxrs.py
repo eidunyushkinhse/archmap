@@ -401,15 +401,13 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not jvm.stack_present(files, ctx, STACK):
         return found
     found.applied.add(NAME)
-    repo = clike.Repo(files, ctx, codebase.JAVA, codetext.JAVA)
+    repos = jvm.Repos(files, ctx)
     index = _Index()
     for rel, code, language in jvm.sources(files, ctx, STACK, _NEEDLES):
-        java = language == codebase.JAVA
-        if java:
-            repo.note(rel, code)
+        repo = repos.note(rel, code, language)
         part = _Index()
         try:
-            _read_file(files, ctx, rel, code, language, repo if java else None, part)
+            _read_file(files, ctx, rel, code, language, repo, part)
         except jvm.TooMany:
             files.refuse(rel)
             continue

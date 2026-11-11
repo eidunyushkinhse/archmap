@@ -557,15 +557,107 @@ def test_java_getenv() -> None:
     ]
 
 
+def test_kotlin_const_val(tmp_path: Path) -> None:
+    """const val Kotlin раскрывается как static final String у Java (ТЗ §15 п. 18 Е1).
+    Найдено в Airflow: java-sdk/sdk/src/main/kotlin/org/apache/airflow/sdk/execution/
+    Logger.kt:132 System.getenv(LOGGING_LEVEL_ENV) (private const val в object Log, :130) и
+    :133 System.getenv(NamespaceLevels.ENV_VAR) (object NamespaceLevels того же файла, :61).
+    Ещё companion object класса по имени без точки и по «Класс.ИМЯ» из другого файла пакета,
+    companion с именем, object другого пакета в файле со своим именем (как класс Java).
+    Ловушки: шаблон с «$» и склейка — не константа; одно имя в двух object файла без точки
+    неоднозначно, с точкой различимо; object другого пакета в файле с другим именем не
+    ищется; объявление в комментарии не в счёт."""
+    tree(tmp_path, {
+        "k/build.gradle.kts": 'plugins { kotlin("jvm") }\n',
+        "k/src/main/kotlin/app/Log.kt": (
+            "package app\n"
+            "\n"
+            "internal object NamespaceLevels {\n"
+            '  const val ENV_VAR = "APP_NAMESPACE_LEVELS"\n'
+            "}\n"
+            "object Log {\n"
+            '  private const val LEVEL_ENV = "APP_LOG_LEVEL"\n'
+            "  val level = System.getenv(LEVEL_ENV)\n"
+            "  val named = System.getenv(NamespaceLevels.ENV_VAR)\n"
+            "}\n"
+            "class Server(val name: String) {\n"
+            "  companion object {\n"
+            '    const val PORT_ENV: String = "APP_PORT"\n'
+            "  }\n"
+            "  val port = System.getenv(PORT_ENV)\n"
+            "}\n"
+            "class Client {\n"
+            '  companion object Names { const val URL_ENV = "APP_URL" }\n'
+            "}\n"
+            'object A { const val ENV = "A_ENV" }\n'
+            'object B { const val ENV = "B_ENV" }\n'
+            '// const val GHOST = "IN_COMMENT"\n'
+        ),
+        "k/src/main/kotlin/app/Main.kt": (
+            "package app\n"
+            "\n"
+            'const val SUFFIX = "S"\n'
+            'const val TEMPLATE = "APP_$SUFFIX"\n'
+            'const val JOINED = "APP_" + SUFFIX\n'
+            "fun main() {\n"
+            "  System.getenv(Server.PORT_ENV)\n"
+            "  System.getenv(Client.URL_ENV)\n"
+            "  System.getenv(Client.Names.URL_ENV)\n"
+            "  System.getenv(A.ENV)\n"
+            "  System.getenv(B.ENV)\n"
+            "  System.getenv(TEMPLATE)\n"
+            "  System.getenv(JOINED)\n"
+            "  System.getenv(Other.NAME)\n"
+            "  System.getenv(GHOST)\n"
+            "  System.getenv(Hidden.NAME)\n"
+            "}\n"
+        ),
+        "k/src/main/kotlin/other/Other.kt": (
+            'package other\n\nobject Other { const val NAME = "OTHER_NAME" }\n'
+            'object Else { const val SECRET = "ELSE_SECRET" }\n'
+        ),
+        "k/src/main/kotlin/other/Names.kt": (
+            'package other\n\nobject Hidden { const val NAME = "HIDDEN_NAME" }\n'
+        ),
+        "k/src/main/kotlin/app/Uses.kt": "package app\n\nfun f() = System.getenv(ENV)\n",
+    })
+    log, main = "k/src/main/kotlin/app/Log.kt", "k/src/main/kotlin/app/Main.kt"
+    assert [(r[0], r[5]) for r in _params(javaenv, tmp_path)] == [
+        ("APP_LOG_LEVEL", f"{log}:8"),
+        ("APP_NAMESPACE_LEVELS", f"{log}:9"),
+        ("APP_PORT", f"{log}:15"),
+        ("APP_PORT", f"{main}:7"),
+        ("APP_URL", f"{main}:8"),
+        ("APP_URL", f"{main}:9"),
+        ("A_ENV", f"{main}:10"),
+        ("B_ENV", f"{main}:11"),
+        ("OTHER_NAME", f"{main}:14"),
+    ]
+    assert _hints(javaenv, tmp_path) == [
+        ("ENV", texts.REASON_DYNAMIC_PARAM, "k/src/main/kotlin/app/Uses.kt:3"),
+        ("GHOST", texts.REASON_DYNAMIC_PARAM, f"{main}:15"),
+        ("Hidden.NAME", texts.REASON_DYNAMIC_PARAM, f"{main}:16"),
+        ("JOINED", texts.REASON_DYNAMIC_PARAM, f"{main}:13"),
+        ("TEMPLATE", texts.REASON_DYNAMIC_PARAM, f"{main}:12"),
+    ]
+    ctx, files = files_of(tmp_path)
+    found = javaenv.parse(files, ctx)
+    level = next(p for p in found.code_params if p.name == "APP_LOG_LEVEL")
+    assert [str(loc) for loc in level.extra_locs] == [f"{log}:7"]
+    named = next(p for p in found.code_params if p.name == "APP_NAMESPACE_LEVELS")
+    assert [str(loc) for loc in named.extra_locs] == [f"{log}:4"]
+
+
 def test_kotlin_env_and_java_optional() -> None:
     """Окружение в Kotlin и Optional в Java (ТЗ §15 п. 17 Е3). Найдено в OpenTelemetry Demo:
     src/fraud-detection/src/main/kotlin/frauddetection/main.kt:26 System.getenv("KAFKA_TOPIC")
     ?: "orders" и :50 System.getenv("KAFKA_ADDR") без дефолта; src/ad/src/main/java/oteldemo/
     AdService.java:100 Optional.ofNullable(System.getenv("AD_PORT")).orElseThrow(…) и :106
     Integer.parseInt(Optional.ofNullable(System.getenv("AD_PROMETHEUS_PORT")).orElse("9465")).
-    Ловушки: System.getProperty, комментарии (и вложенные Kotlin), строка; const val именем —
-    подсказка; шаблон Kotlin и выражение в элвисе — дефолт есть, но не пишется; между Optional
-    и orElse другой вызов (map) — дефолта нет."""
+    Ловушки: System.getProperty, комментарии (и вложенные Kotlin), строка; шаблон Kotlin и
+    выражение в элвисе — дефолт есть, но не пишется; между Optional и orElse другой вызов
+    (map) — дефолта нет. С части 6 (ТЗ §15 п. 18 Е1) const val именем раскрывается
+    (FRAUD_NAME с местом объявления), раньше это была подсказка."""
     root = FIXTURES / "jvm-env"
     kt, ad = "fraud/src/main/kotlin/fraud/main.kt", "ad/src/main/java/shop/ad/AdService.java"
     assert _params(javaenv, root) == [
@@ -582,6 +674,7 @@ def test_kotlin_env_and_java_optional() -> None:
         ("FRAUD_LEVEL", None, False, None, None, f"{kt}:13"),
         ("FRAUD_MAP", "m", True, None, "string", f"{kt}:21"),
         ("FRAUD_MODE", None, True, None, None, f"{kt}:16"),
+        ("FRAUD_NAME", None, False, True, None, f"{kt}:20"),
         # Элвис на следующей строке той же инструкции.
         ("FRAUD_NEXT", "n", True, None, "string", f"{kt}:18"),
         ("FRAUD_PORT", "8080", True, None, "int", f"{kt}:10"),
@@ -592,7 +685,7 @@ def test_kotlin_env_and_java_optional() -> None:
         ("KAFKA_ADDR", None, False, True, None, f"{kt}:9"),
         ("KAFKA_TOPIC", "orders", True, None, "string", f"{kt}:4"),
     ]
-    assert _hints(javaenv, root) == [("NAME_ENV", texts.REASON_DYNAMIC_PARAM, f"{kt}:20")]
+    assert _hints(javaenv, root) == []
     model = model_of(root)
     addr = model.params["fraud"]["KAFKA_ADDR"]
     assert addr.parsers == {"compose", "java-env"} and addr.required is True

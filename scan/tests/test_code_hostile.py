@@ -198,6 +198,12 @@ STARTS["java/App.java"] += (
     '@Schedules({' + SC + 'cron = "', SC + "fixedRate = 1, timeUnit = TimeUnit.",
 )
 STARTS["kt/App.kt"] += (SC + 'cron = "', SC + 'fixedDelayString = "\\${', SC + "fixedRate = ")
+# const val Kotlin (ТЗ §15 п. 18 Е1): объявления без конца, object и companion без закрытия,
+# чтение по имени объекта без имени константы.
+STARTS["kt/App.kt"] += (
+    'const val A = "', 'const val A: String = "', "object A {\n  const val B = ",
+    'class A {\n  companion object {\n    const val B = "', "System.getenv(A.",
+)
 # Адреса объектов литералами (ТЗ §15 п. 17 С2): литерал адреса без закрытия, хост и путь без
 # конца, сырые строки и шаблоны Kotlin. Разборщик смотрит только src/main.
 STARTS["java/src/main/java/A.java"] = (
@@ -499,6 +505,17 @@ CLIKE = {
     "java/App.java:constants": 'static final String A = "x";\n' * (PAYLOAD // 28)
     + "System.getenv(A);\n" * 1000,
     "java/App.java:class-reads": "System.getenv(Env.A);\n" * 1999,
+    # Kotlin (Е1): тысячи const val и чтений по ним, object и companion сверх предела классов,
+    # одна константа на весь файл со знаком «$» в конце, чтения «Объект.ИМЯ» тысяч разных
+    # объектов. Строка из одних «$» здесь не берётся: её 0,5 с — маска Kotlin
+    # (codetext._mask_kotlin), а не константы.
+    "kt/App.kt:const-vals": 'const val A = "x"\n' * (PAYLOAD // 18) + "System.getenv(A)\n" * 1000,
+    "kt/App.kt:object-consts": "object O {\n" + '  const val A = "x"\n' * (PAYLOAD // 20) + "}\n"
+    + "System.getenv(O.A)\n",
+    "kt/App.kt:companions": 'class C {\n  companion object {\n    const val A = "x"\n  }\n}\n'
+    * (PAYLOAD // 60) + "System.getenv(C.A)\n",
+    "kt/App.kt:dollars": 'const val A = "' + "a" * (PAYLOAD - 40) + '$"\nSystem.getenv(A)\n',
+    "kt/App.kt:object-reads": "".join(f"System.getenv(O{i}.A)\n" for i in range(1999)),
     "java/App.java:static-imports": "import static a.b.C.*;\n" * (PAYLOAD // 23)
     + "System.getenv(A);\n" * 1000,
     "cs/App.cs:holes": '$"' + '{"a"' * (PAYLOAD // 4),

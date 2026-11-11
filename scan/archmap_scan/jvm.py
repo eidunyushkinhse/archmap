@@ -99,6 +99,20 @@ def sources(
                 yield rel, code, language
 
 
+class Repos:
+    """Строковые константы Java и Kotlin на запуск разборщика: свой clike.Repo на язык (ТЗ
+    §15 п. 18 Е1: const val Kotlin раскрывается, как static final String у Java)."""
+
+    def __init__(self, files: Files, ctx: Context) -> None:
+        self._by = {lang: clike.Repo(files, ctx, lang, MASKS[lang]) for lang in LANGUAGES}
+
+    def note(self, rel: str, code: codetext.Code, language: str) -> clike.Repo:
+        """Константы разобранного файла языка language и Repo этого языка."""
+        repo = self._by[language]
+        repo.note(rel, code)
+        return repo
+
+
 class TooMany(Exception):
     """В файле больше скобок, объявлений или записей, чем разбирается: файл непрочитан."""
 

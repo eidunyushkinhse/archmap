@@ -138,8 +138,8 @@ def test_without_kafka_not_read(tmp_path: Path) -> None:
 
 def test_names(tmp_path: Path) -> None:
     """Константа другого класса Java раскрывается (clike), переменная с разными дефолтами
-    неоднозначна (подсказка), Kotlin const val не раскрывается (подсказка), spring-kafka по
-    строке Gradle тоже стек."""
+    неоднозначна (подсказка), spring-kafka по строке Gradle тоже стек. Kotlin const val с
+    части 6 раскрывается (ТЗ §15 п. 18 Е1), раньше это была подсказка."""
     tree(tmp_path, {
         "a/pom.xml": KAFKA_POM,
         "a/src/main/java/Topics.java": 'class Topics { static final String ORDERS = "orders"; }\n',
@@ -160,10 +160,9 @@ def test_names(tmp_path: Path) -> None:
     ctx, files = files_of(tmp_path)
     found = kafkajvm.parse(files, ctx)
     assert [(c.name, str(c.loc)) for c in found.channels] == [
-        ("orders", "a/src/main/java/A.java:2"),
+        ("orders", "a/src/main/java/A.java:2"), ("kt", "k/src/main/kotlin/K.kt:2"),
     ]
     assert sorted((h.data["name"], h.data["source"]) for h in found.hints) == [
-        ("T", "k/src/main/kotlin/K.kt:2"),
         ("t", "a/src/main/java/A.java:5"),
     ]
 
