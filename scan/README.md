@@ -770,3 +770,9 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     в чтениях окружения, маршрутах, топиках, расписаниях и `@Value`: имя без точки в том же файле,
     `Объект.ИМЯ` у `object` или companion класса в том же файле и каталоге (пакете), затем в
     единственном файле с именем объекта; склейка и шаблон остаются подсказкой (Е1).
+  - переименования в миграциях: Alembic пишет ссылки через `sqlddl.Schema.refer`, поэтому
+    `op.rename_table` и `op.alter_column(new_column_name=)` переносят ссылки других таблиц; у
+    Django ссылки моделей считаются по состоянию в конце цепочки, а таблицам `RunSQL` перенос
+    делают `RenameModel`, `RenameField` и `AlterModelTable`; цель из `django.contrib` без
+    миграций в репозитории пишется настоящей таблицей (`vocab.DJANGO_CONTRIB_TABLES`:
+    `django_content_type`, `django_session.session_key`, `django_admin_log`, `django_site`) (М1).

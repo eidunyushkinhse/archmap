@@ -253,6 +253,18 @@ def init_task_name(name: str) -> bool:
     )
 
 
+# Модели приложений django.contrib, миграций которых в репозитории нет (ТЗ §15 п. 18 М1):
+# (приложение, модель в нижнем регистре) → (таблица, первичный ключ). Имя по умолчанию
+# «<приложение>_<модель>» у них не настоящее: contenttypes.ContentType живёт в
+# django_content_type (Meta.db_table в Django), ключ сессии — session_key.
+DJANGO_CONTRIB_TABLES: dict[tuple[str, str], tuple[str, str]] = {
+    ("auth", "user"): ("auth_user", "id"),
+    ("contenttypes", "contenttype"): ("django_content_type", "id"),
+    ("sessions", "session"): ("django_session", "session_key"),
+    ("admin", "logentry"): ("django_admin_log", "id"),
+    ("sites", "site"): ("django_site", "id"),
+}
+
 # Реляционные базы: им принадлежат миграции (ТЗ §7).
 RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
 

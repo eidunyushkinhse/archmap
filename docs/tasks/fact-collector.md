@@ -293,8 +293,8 @@ archmap-scan/
 | Источник | Разбор |
 |---|---|
 | SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
-| Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
-| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
+| Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key` (переименование таблицы или колонки переносит ссылки других таблиц, ч. 6, М1); порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
+| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id` (переименования модели, поля и таблицы переносят ссылки; модель `django.contrib` без миграций в репозитории — настоящей таблицей: `contenttypes.ContentType` → `django_content_type.id`, `sessions.Session` → `django_session.session_key`, `admin.LogEntry` → `django_admin_log`, `sites.Site` → `django_site`, ч. 6, М1); порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
 | Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается; ``sql.raw(`SQL`)`` в цикле `for (const { a, b } of СПИСОК)` или `for (const [a, b] of СПИСОК)` по массиву-литералу верхнего уровня того же файла читается для каждого элемента со значениями вместо `${a}` и `${b}`, переименование таблицы или колонки переносит ссылки на неё (ч. 5, М1) |
 | Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
@@ -2677,3 +2677,36 @@ unread: {too_large: 3, binary: 0}
      стоит за вызовом `Level.parse`), это правило не менялось. otel-demo без изменений
      (`const val groupID` в `src/fraud-detection/src/main/kotlin/frauddetection/main.kt:27`
      в чтениях не участвует).
+   - М1 (решение исполнителя, отклонение от брифа): у Django ссылки моделей и раньше считались
+     по состоянию в конце цепочки (`_model_tables`), так что `RenameModel` (и для ссылок из
+     других приложений), `RenameField` и `AlterModelTable` их переносили; `Schema.refer` нужен
+     только таблицам `RunSQL` (свой `sqlddl.Schema` у приложения), им перенос добавлен. У
+     Alembic ссылки писались мимо `Schema.refer`, и `rename_table` с `new_column_name` их не
+     трогали: теперь `sa.ForeignKey` в `create_table` и `add_column`, `ForeignKeyConstraint` и
+     `create_foreign_key` идут через `refer`, `alter_column(new_column_name=)` зовёт
+     `rename_column_refs`. Словарь `vocab.DJANGO_CONTRIB_TABLES` (приложение и модель →
+     таблица и первичный ключ) применяется, только если модели цели нет в состоянии; у
+     `sessions.Session` ключ `session_key`, а не `id`; `auth.User` уже звался `auth_user`.
+     ArchMap ссылку без таблицы принимает (`backend/app/data_import.py`: связь колонок не
+     ставится, в отчёт идёт предупреждение «цель ссылки не найдена» на каждую такую ссылку).
+     Ожидания брифа PostHog 4 → 1 и awx «0 внутренних» не достигнуты: внутренние ссылки без цели
+     у них не от переименований. PostHog `alerts_platform_platformalertconfiguration` (три
+     ссылки: `products/alerts_platform/backend/migrations/0016_platformalertdeliverypath.py:46`,
+     `0018_alert_destination.py:89`, `0020_delivery_hold.py:62`): модель перенесена из
+     приложения `alerts` в `alerts_platform` только в состоянии Django
+     (`0001_initial.py:236` `SeparateDatabaseAndState(database_operations=database_operations,
+     state_operations=state_operations)`, списки заданы атрибутами класса), а сборщик читает
+     только `database_operations`; модели `alerts_platform.PlatformAlertConfiguration` в
+     состоянии нет, и ссылка получает имя по умолчанию. awx `main_workflowjob`,
+     `main_workflowjobnode`, `main_workflowjobtemplatenode`: их `CreateModel`
+     (`awx/main/migrations/0004_squashed_v310_release.py:92`, `:108`, `:142`) стоят в
+     `operations = _squashed.operations(SQUASHED_30) + [...]` (`:23`), это выражение, а не список,
+     и вся миграция считается пропущенной. Обе причины вне пункта, в остаток. По корпусу М1
+     меняет только имена ссылок на `django.contrib`: PostHog `posthog_taggeditem.content_type_id`
+     `contenttypes_contenttype.id` → `django_content_type.id`; awx `contenttypes_contenttype.id` →
+     `django_content_type.id` у трёх колонок и `sessions_session.id` →
+     `django_session.session_key` у `main_usersessionmembership.session_id`; ссылок без цели
+     PostHog 4 (внешних 1, `django_content_type`), awx 42 (внешних 39: `auth_user` 35,
+     `django_content_type` 3, `django_session` 1, внутренних 3); Sentry 0; Airflow без изменений
+     (в `tables` три таблицы, цепочка оборвана на `ee86eed19e24`, 14 файлов `versions/` с
+     `rename_table` или `new_column_name` правило не видят).

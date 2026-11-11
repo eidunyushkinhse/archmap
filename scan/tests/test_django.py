@@ -202,6 +202,60 @@ def test_user_model_default_and_hybrid_key(tmp_path: Path) -> None:
     ]
 
 
+def test_renames_and_contrib_tables(tmp_path: Path) -> None:
+    """Переименования и таблицы django.contrib (ТЗ §15 п. 18 М1). Ссылки моделей считаются по
+    состоянию в конце цепочки, поэтому RenameModel, RenameField и AlterModelTable их и так
+    переносят (у другого приложения тоже); таблицы из RunSQL получают перенос через
+    sqlddl.Schema.rename_refs и rename_column_refs. Модели django.contrib без миграций в
+    репозитории пишутся настоящим именем таблицы: в awx `main_rbac_roles.content_type_id`
+    (awx/main/migrations/0001_initial.py:1234 to='contenttypes.ContentType') и
+    `main_usersessionmembership.session_id` (0024_v330_create_user_session_membership.py:23
+    to='sessions.Session'), в PostHog `posthog_taggeditem.content_type_id`
+    (posthog/migrations/1363_taggeditem_generic_columns.py:23). Ловушка: auth.Group без
+    словаря остаётся именем по умолчанию auth_group, оно и настоящее."""
+    tree(tmp_path, {
+        "shop/migrations/0001_init.py": _migration("[]", (
+            'migrations.CreateModel(name="Customer", fields=['
+            '("id", models.AutoField(primary_key=True))]),'
+            'migrations.RunSQL("CREATE TABLE audit (customer_id integer REFERENCES shop_customer(id))"),'
+        )),
+        "shop/migrations/0002_rename.py": _migration('[("shop", "0001_init")]', (
+            'migrations.RenameModel(old_name="Customer", new_name="Client"),'
+            'migrations.RenameField(model_name="client", old_name="id", new_name="uid"),'
+        )),
+        "shop/migrations/0003_table.py": _migration('[("shop", "0002_rename")]', (
+            'migrations.AlterModelTable(name="client", table="clients"),'
+        )),
+        "billing/migrations/0001_init.py": _migration('[("shop", "0001_init")]', (
+            'migrations.CreateModel(name="Invoice", fields=['
+            '("id", models.AutoField(primary_key=True)),'
+            '("customer", models.ForeignKey(on_delete=models.CASCADE, to="shop.Customer")),'
+            '("ctype", models.ForeignKey(on_delete=models.CASCADE, to="contenttypes.ContentType")),'
+            '("session", models.OneToOneField(on_delete=models.CASCADE, to="sessions.Session")),'
+            '("entry", models.ForeignKey(on_delete=models.CASCADE, to="admin.LogEntry")),'
+            '("site", models.ForeignKey(on_delete=models.CASCADE, to="sites.Site")),'
+            '("owner", models.ForeignKey(on_delete=models.CASCADE, to=settings.AUTH_USER_MODEL)),'
+            '("group", models.ForeignKey(on_delete=models.CASCADE, to="auth.Group")),'
+            "])"
+        )),
+    })
+    sets = _sets(tmp_path)
+    refs = {
+        f"{t}.{c.name}": c.references for tables in sets.values() for t, table in tables.items()
+        for c in table.columns if c.references
+    }
+    assert refs == {
+        "audit.customer_id": "clients.uid",
+        "billing_invoice.customer_id": "clients.uid",
+        "billing_invoice.ctype_id": "django_content_type.id",
+        "billing_invoice.session_id": "django_session.session_key",
+        "billing_invoice.entry_id": "django_admin_log.id",
+        "billing_invoice.site_id": "django_site.id",
+        "billing_invoice.owner_id": "auth_user.id",
+        "billing_invoice.group_id": "auth_group.id",
+    }
+
+
 def test_not_django_and_odd_operations(tmp_path: Path) -> None:
     tree(tmp_path, {
         "tools/migrations/001_steps.py": "STEPS = ['create table x']\n",
