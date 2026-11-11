@@ -412,3 +412,39 @@ def test_named_operation_lists(tmp_path: Path) -> None:
         ("a/migrations/0002_y.py:10", "operations"),
     ]
     assert ts.skipped == 4
+
+
+def _renames_many_fields(root: Path) -> Path:
+    """30 моделей по 100 полей со ссылкой на a.M0 и цепочка 1500 RenameModel этой модели."""
+    fields = ", ".join(
+        f"('f{j}', models.ForeignKey(on_delete=models.CASCADE, to='a.m0'))" for j in range(100)
+    )
+    files: dict[str, str | bytes] = {
+        "requirements.txt": "django\n",
+        "a/migrations/0000_init.py": _migration(
+            "[]", "migrations.CreateModel(name='M0', fields=[('id', models.AutoField(primary_key=True))])",
+        ),
+        "b/migrations/0001_refs.py": _migration(
+            '[("a", "0000_init")]',
+            ", ".join(f"migrations.CreateModel(name='R{i}', fields=[{fields}])" for i in range(30)),
+        ),
+    }
+    for i in range(1, 1501):
+        before = "0000_init" if i == 1 else f"{i - 1:04d}_r"
+        deps = f'[("a", "{before}"), ("b", "0001_refs")]' if i == 1 else f'[("a", "{before}")]'
+        files[f"a/migrations/{i:04d}_r.py"] = _migration(
+            deps, f"migrations.RenameModel(old_name='M{i - 1}', new_name='M{i}')",
+        )
+    return tree(root, files)
+
+
+def test_hostile_renames_many_fields(tmp_path: Path) -> None:
+    """RenameModel переносит только поля со ссылкой на эту модель (ТЗ §15 п. 19 П8): 3000 полей
+    на a.M0 и цепочка 1500 переименований. Раньше каждое переименование перебирало все поля
+    всех моделей; теперь поля держит индекс по цели, группы сливаются меньшая в большую."""
+    ctx, found_files = files_of(_renames_many_fields(tmp_path))
+    limit = 0.7 * time_limit()
+    found, took = timed(partial(django.parse, found_files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
+    refs = {c.references for ts in found.table_sets for t in ts.tables for c in t.columns}
+    assert refs == {None, "a_m1500.id"}

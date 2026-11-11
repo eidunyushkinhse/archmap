@@ -148,9 +148,65 @@ class _AppStats:
 
 
 @dataclass
+class _Group:
+    """Поля со ссылкой на одну модель; key — её (приложение, модель) сейчас."""
+
+    key: tuple[str, str]
+    fields: dict[int, _Field] = field(default_factory=dict)
+
+
+class _Refs:
+    """Поля со ссылкой по цели (ТЗ §15 п. 19 П8): RenameModel переносит одну группу, а не
+    перебирает поля всех моделей. Группа нового имени, если она уже есть, сливается с
+    переименованной меньшая в большую, поэтому поле переходит из группы в группу не больше
+    log2(число полей) раз. Цель у самих полей (_Field.target) ставит settle в конце цепочки:
+    до него её читает только индекс."""
+
+    def __init__(self) -> None:
+        self.groups: dict[tuple[str, str], _Group] = {}
+        self.of: dict[int, _Group] = {}
+
+    def add(self, f: _Field) -> None:
+        if f.target is None:
+            return
+        group = self.groups.get(f.target)
+        if group is None:
+            group = self.groups[f.target] = _Group(f.target)
+        group.fields[id(f)] = f
+        self.of[id(f)] = group
+
+    def drop(self, f: _Field) -> None:
+        group = self.of.pop(id(f), None)
+        if group is not None:
+            group.fields.pop(id(f), None)
+
+    def move(self, old: tuple[str, str], new: tuple[str, str]) -> None:
+        group = self.groups.pop(old, None)
+        if group is None:
+            return
+        other = self.groups.get(new)
+        if other is None:
+            group.key = new
+            self.groups[new] = group
+            return
+        small, big = (group, other) if len(group.fields) <= len(other.fields) else (other, group)
+        big.fields.update(small.fields)
+        for key in small.fields:
+            self.of[key] = big
+        big.key = new
+        self.groups[new] = big
+
+    def settle(self) -> None:
+        for group in self.groups.values():
+            for f in group.fields.values():
+                f.target = group.key
+
+
+@dataclass
 class _State:
     user_model: tuple[str, str]
     models: dict[tuple[str, str], _Model] = field(default_factory=dict)
+    refs: _Refs = field(default_factory=_Refs)
     stats: dict[str, _AppStats] = field(default_factory=dict)
     # Приложения с таблицами из RunSQL: только их ссылки переносит переименование модели.
     sql_apps: set[str] = field(default_factory=set)
@@ -302,6 +358,11 @@ def _create_model(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
         managed=options.get("managed") is not False,
         fields=_fields(_arg(call, "fields", 1), app, name, state, loc.path), locs=[loc],
     )
+    replaced = state.models.get((app, name.lower()))
+    for f in replaced.fields if replaced is not None else ():
+        state.refs.drop(f)
+    for f in model.fields:
+        state.refs.add(f)
     state.models[(app, name.lower())] = model
     return True
 
@@ -319,10 +380,8 @@ def _rename_model(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
     model.locs.append(loc)
     state.models[(app, new.lower())] = model
     state.rename_table(before, model.table)
-    for other in state.models.values():
-        for f in other.fields:
-            if f.target == (app, old.lower()):
-                f.target = (app, new.lower())
+    # Ссылки на модель переносит индекс одной группой (П8), не перебор полей всех моделей.
+    state.refs.move((app, old.lower()), (app, new.lower()))
     return True
 
 
@@ -350,6 +409,9 @@ def _field_op(kind: str, call: ast.Call, app: str, state: _State, loc: Loc) -> b
         return False
     if kind == "RemoveField":
         if model is not None:
+            for f in model.fields:
+                if f.name == name:
+                    state.refs.drop(f)
             model.fields = [f for f in model.fields if f.name != name]
         return True
     node = _arg(call, "field", 2)
@@ -362,17 +424,21 @@ def _field_op(kind: str, call: ast.Call, app: str, state: _State, loc: Loc) -> b
     if kind == "AddField":
         if made is not None and old_field is None:
             model.fields.append(made)
+            state.refs.add(made)
         return True
     # AlterField: новое определение на месте старого.
     if old_field is not None:
         index = model.fields.index(old_field)
+        state.refs.drop(old_field)
         if made is None:
             del model.fields[index]
         else:
             made.locs = old_field.locs + [loc]
             model.fields[index] = made
+            state.refs.add(made)
     elif made is not None:
         model.fields.append(made)
+        state.refs.add(made)
     return True
 
 
@@ -394,6 +460,8 @@ def _operation(
         if name is None:
             return False
         gone = state.models.pop((app, name.lower()), None)
+        for f in gone.fields if gone is not None else ():
+            state.refs.drop(f)
         # Из state_operations модель уходит только из состояния, DROP TABLE в базе нет:
         # модель переехала в другое приложение с тем же db_table или таблицу оставили (М2).
         if gone is not None and gone.managed and not state_only:
@@ -802,6 +870,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         return found
     for m in ordered:
         _apply(m.operations, m.app, state, m.path, m.names)
+    state.refs.settle()
     engine = _engine(files)
     default = (
         engine is not None and engine[0] == dialect.SQLITE and _sqlite_overridden(files, engine[1])
