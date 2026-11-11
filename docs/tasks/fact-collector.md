@@ -253,7 +253,7 @@ archmap-scan/
 | Источник | Что берёт | Куда кладёт |
 |---|---|---|
 | `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов; у сервиса с образом прокси (nginx, HAProxy, Caddy, Traefik, Envoy) файлы томов из репозитория и многострочные значения `environment`: `upstream { server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen` HAProxy дают связи прокси → объект с этим `host`, технология HTTP (ч. 3, Ж3); сервис с образом из переменной или своим тегом — прокси и по базовому образу последней стадии своего Dockerfile, конфигурация берётся и из `COPY`/`ADD` последней стадии внутри контекста сборки (Envoy `*.yaml`, nginx `*.conf`, `Caddyfile`, `haproxy.cfg`), Envoy — адреса кластеров `static_resources.clusters[]` (`load_assignment` и `hosts`) с подстановками `${VAR}` из окружения единицы и закоммиченного `.env` (ч. 5, С1) |
-| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology` (у сервиса без языка по образу итоговой стадии тем же написанием, что у образа compose, ч. 6, Т1, ч. 7, Т2), `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
+| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology` (у сервиса без языка по образу итоговой стадии тем же написанием, что у образа compose, ч. 6, Т1, ч. 7, Т2; образ прокси nginx, Envoy, Traefik или HAProxy там даёт и роль «прокси» вместо роли по умолчанию, тем же словарём, что у образа compose, ч. 7, Т3), `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
 | systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
@@ -338,7 +338,8 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   именем образа (ч. 7, Т2). У сервиса без языка пакета и образа compose технологию
   даёт образ итоговой стадии Dockerfile тем же написанием: вид сервиса из этого словаря (Envoy,
   nginx) или программа из словаря программ; базовые образы ОС и подстановки `${ИМЯ}` технологии
-  не дают (ч. 6, Т1). Программа стеком (`coverage.stacks`) считается, только если её дал образ
+  не дают (ч. 6, Т1); вид сервиса с ролью «прокси» даёт эту роль, если иначе была бы роль по
+  умолчанию (ч. 7, Т3). Программа стеком (`coverage.stacks`) считается, только если её дал образ
   итоговой стадии своего Dockerfile: у сервиса на чужом образе это написание имени образа. Слово словаря ищется и среди
   частей имени через дефис и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`,
   `docker-redis-cluster`), кроме
@@ -2897,3 +2898,13 @@ unread: {too_large: 3, binary: 0}
      Т1 даёт то же написание: Petclinic `grafana-server` «Grafana» и `prometheus-server`
      «Prometheus», otel-demo `frontend-proxy` «Envoy» и `image-provider` «nginx», Airflow
      `executors` «Airflow» без изменений.
+   - Т3 (решение исполнителя): роль по итоговой стадии Dockerfile даёт `vocab.stage_role` (вид
+     сервиса из `IMAGES` с ролью «прокси»: nginx, Envoy, Traefik, HAProxy; нового списка нет),
+     и только когда технология взята из этой стадии (Т1) и роль иначе была бы «сервис» по
+     умолчанию: явная роль манифеста, роль по команде и «фронтенд» старше. Основание то же,
+     строка последнего `FROM`, оно уже стоит в основаниях объекта от Т1. По корпусу против
+     прогона после Т2: роль «сервис» → «прокси» у otel-demo `frontend-proxy`
+     (`src/frontend-proxy/Dockerfile:4` `FROM envoyproxy/envoy`) и `image-provider`
+     (`src/image-provider/Dockerfile:4` `FROM docker.io/nginxinc/nginx-unprivileged`), больше в
+     выводе ничего не изменилось; Lemmy `proxy`, Loki `gateway`, Supabase `api-gw` и Argo CD
+     `argocd-redis-ha-haproxy` и так «прокси» по образу compose.

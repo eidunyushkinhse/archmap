@@ -705,6 +705,7 @@ def _classify(
         obj.language = language
     if obj.technology is None:
         obj.technology = vocab.technology(language, server or front)
+    stage_role = None
     if obj.technology is None and obj.dockerfile is not None:
         # Без языка пакета и образа compose технологию даёт образ итоговой стадии (ТЗ §15
         # п. 18 Т1): envoyproxy/envoy у frontend-proxy OpenTelemetry Demo, grafana/grafana у
@@ -713,6 +714,9 @@ def _classify(
         if final is not None:
             obj.technology = final
             obj.locs.add(obj.dockerfile.final_loc or obj.dockerfile.from_loc)
+            # Роль «прокси» по тому же словарю, что у образа compose (ТЗ §15 п. 19 Т3), с тем
+            # же основанием; она только вместо роли по умолчанию.
+            stage_role = vocab.stage_role(obj.dockerfile.images[-1])
     for p in pkgs:
         obj.locs.add(p.name_loc or Loc(p.path, 1))
     if obj.role is None:
@@ -731,7 +735,7 @@ def _classify(
         elif front and not server and all(p.language == "Node.js" for p in pkgs):
             obj.role = vocab.ROLE_FRONTEND
         else:
-            obj.role = vocab.ROLE_SERVICE
+            obj.role = stage_role or vocab.ROLE_SERVICE
 
 
 def _service_root(pkgs: list[Package]) -> bool:

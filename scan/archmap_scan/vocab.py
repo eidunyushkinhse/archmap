@@ -413,6 +413,16 @@ def stage_technology(image: str) -> str | None:
     return program(image)
 
 
+def stage_role(image: str) -> str | None:
+    """Роль по образу итоговой стадии Dockerfile (ТЗ §15 п. 19 Т3): «прокси» у вида сервиса
+    с этой ролью в IMAGES (nginx, Envoy, Traefik, HAProxy), тот же словарь, что у образа
+    compose; иначе None."""
+    kind = image_kind(image)
+    if kind is None or kind.shape != _SERVICE or kind.role != ROLE_PROXY:
+        return None
+    return kind.role
+
+
 # Манифест сборки → язык.
 MANIFEST_LANGUAGE: dict[str, str] = {
     "package.json": "Node.js",

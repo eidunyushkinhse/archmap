@@ -138,5 +138,28 @@ def test_technology_by_final_image() -> None:
     locs = {o.name: sorted(str(loc) for loc in o.locs) for o in model.objects}
     assert locs["proxy"] == ["proxy/Dockerfile:2"]
     assert locs["ui"] == ["ui/Dockerfile:1", "ui/Dockerfile:3"]
+    # Роль «прокси» по тому же словарю образов (ТЗ §15 п. 19 Т3): у Envoy и nginx итоговой
+    # стадии; программа (Grafana, Airflow) и язык (site) — «сервис».
+    roles = {o.name: o.role for o in model.objects}
+    assert roles == {
+        "airflow": "сервис", "base": "сервис", "builder": "сервис", "grafana": "сервис",
+        "proxy": "прокси", "site": "сервис", "subst": "сервис", "ui": "прокси",
+    }
+
+
+def test_proxy_role_by_final_image() -> None:
+    """Роль «прокси» по итоговой стадии своего Dockerfile (ТЗ §15 п. 19 Т3): otel-demo
+    frontend-proxy (src/frontend-proxy/Dockerfile, FROM envoyproxy/envoy) и image-provider
+    (FROM nginxinc/nginx-unprivileged) были «сервис», а сервис compose на том же образе —
+    «прокси». Основание — строка FROM, как у технологии. Ловушки: роль по команде старше
+    (jobs на nginx с командой воркера), программа не прокси (Grafana)."""
+    model = model_of(FIXTURES / "dockerfile-proxy-role")
+    kinds = {o.name: (o.role, o.technology) for o in model.objects}
+    assert kinds == {
+        "edge": ("прокси", "Envoy"), "images": ("прокси", "nginx"), "jobs": ("воркер", "nginx"),
+        "stats": ("сервис", "Grafana"),
+    }
+    edge = next(o for o in model.objects if o.name == "edge")
+    assert "edge/Dockerfile:1" in {str(loc) for loc in edge.locs}
     info = dockerfile.parse_text("D", "FROM a AS b\nRUN x\nFROM b\n")
     assert info is not None and str(info.final_loc) == "D:3" and str(info.from_loc) == "D:1"

@@ -85,6 +85,17 @@ def test_image_technology_one_spelling() -> None:
     assert vocab.program("grafana/grafana") == "Grafana" and vocab.program("example/ui") is None
 
 
+
+def test_stage_role() -> None:
+    """Роль по образу итоговой стадии (ТЗ §15 п. 19 Т3): «прокси» только у видов сервиса с этой
+    ролью в IMAGES; программы, ОС, базы и языки роли не дают."""
+    for image in ("envoyproxy/envoy:v1.40", "nginxinc/nginx-unprivileged:1.29", "traefik:v3",
+                  "haproxy:3.0"):
+        assert vocab.stage_role(image) == "прокси", image
+    for image in ("grafana/grafana", "redis:7", "alpine", "python:3.12", "mailhog/mailhog"):
+        assert vocab.stage_role(image) is None, image
+
+
 def test_frameworks_and_clients() -> None:
     deps = ("fastapi", "starlette", "kafka-python", "psycopg2-binary")
     assert vocab.find_framework(deps, vocab.SERVER_FRAMEWORKS) == "FastAPI"
