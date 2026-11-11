@@ -4,13 +4,14 @@
 
 from __future__ import annotations
 
-from functools import partial
+import time
 from pathlib import Path
 
 import pytest
 
 from archmap_scan import registry
-from tests.helpers import files_of, time_limit, timed, tree
+from archmap_scan.registry import ParserSpec
+from tests.helpers import files_of, time_limit, tree
 
 PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
@@ -397,12 +398,30 @@ STARTS["js/app.js"] += (
 CASES = [(name, start) for name, starts in STARTS.items() for start in starts]
 
 
-def _check(root: Path) -> None:
+def _took(root: Path, before: list[ParserSpec], spec: ParserSpec) -> float:
+    """Время разборщика spec с памятью пакетов и индексов (Files.memo) в том же состоянии, что
+    у первого прогона в _check: новые файлы, разборщики до него без счёта времени."""
     ctx, files = files_of(root)
-    for spec in registry.PARSERS:
-        if not spec.code:
-            continue
-        _found, took = timed(partial(spec.parse, files, ctx), time_limit())
+    for other in before:
+        other.parse(files, ctx)
+    started = time.process_time()
+    spec.parse(files, ctx)
+    return time.process_time() - started
+
+
+def _check(root: Path) -> None:
+    """Каждый разборщик кода в пределе времени. Прогон за пределом повторяется один раз, в
+    счёт идёт меньшее из двух (как helpers.timed), но повтор мерит тот же путь, что первый
+    прогон: память пакетов, прогретая первым прогоном того же разборщика, сбрасывается (ТЗ §15
+    п. 18 П3)."""
+    ctx, files = files_of(root)
+    code = [spec for spec in registry.PARSERS if spec.code]
+    for i, spec in enumerate(code):
+        started = time.process_time()
+        spec.parse(files, ctx)
+        took = time.process_time() - started
+        if took >= time_limit():
+            took = min(took, _took(root, code[:i], spec))
         assert took < time_limit(), f"{spec.name}: {took:.2f} с"
 
 

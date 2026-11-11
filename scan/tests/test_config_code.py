@@ -543,8 +543,10 @@ def test_hjson_hostile(tmp_path: Path, kind: str) -> None:
     text, outcome = HJSON_HOSTILE[kind]
     tree(tmp_path, {"Cargo.toml": '[package]\nname = "x"\n', "config/defaults.hjson": text})
     ctx, files = files_of(tmp_path)
-    found, took = timed(partial(hjson.parse, files, ctx), time_limit())
-    assert took < time_limit() * 0.7, f"{took:.2f} с"
+    # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+    limit = time_limit() * 0.7
+    found, took = timed(partial(hjson.parse, files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
     assert bool(files.too_large) == (outcome == "refused")
     assert bool(found.code_params) == (outcome == "ok")
     reasons = [h.data["reason"] for h in found.hints]

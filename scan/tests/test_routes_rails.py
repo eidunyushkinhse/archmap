@@ -296,8 +296,10 @@ def test_devise_model_hostile(tmp_path: Path) -> None:
     ):
         tree(tmp_path, {"Gemfile": GEMFILE, "config/routes.rb": routes, "app/models/user.rb": body})
         ctx, files = files_of(tmp_path)
-        _found, took = timed(partial(rails_routes.parse, files, ctx), time_limit())
-        assert took < time_limit() * 0.7, f"{took:.2f} с"
+        # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+        limit = time_limit() * 0.7
+        _found, took = timed(partial(rails_routes.parse, files, ctx), limit)
+        assert took < limit, f"{took:.2f} с"
 
 
 def test_limits(tmp_path: Path) -> None:
