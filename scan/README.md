@@ -823,3 +823,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     из последнего `FROM` и это вид сервиса с ролью «прокси» в `IMAGES` (nginx, Envoy, Traefik,
     HAProxy), роль «прокси» ставится вместо роли по умолчанию; явная роль, роль по команде и
     «фронтенд» старше (Т3).
+  - `SeparateDatabaseAndState` Django: `state_operations` меняют состояние моделей, как обычные
+    операции, из `database_operations` читаются только `RunSQL` и `RunPython`; без
+    `state_operations` `database_operations` идут в состояние, как раньше. `DeleteModel` из
+    `state_operations` удалением таблицы (`dropped`) не считается. Список операций именем
+    (`operations = OPS`, `database_operations=database_operations`) раскрывается по атрибуту
+    класса `Migration` или последнему присваиванию списка модуля до класса; выражение и
+    генератор списка остаются подсказкой «operations» (М2).

@@ -395,6 +395,14 @@ STARTS["js/app.js"] += (
     "export const A = '/a';\napp.get(A", "@Controller(A", "@Controller(A)\nclass C {\n  @Get(B",
 )
 
+# Миграция Django как файл кода Python (ТЗ §15 п. 19 М2): список state_operations без
+# закрытия и список операций именем. Сам разборщик миграций не код, его время меряет
+# test_hostile (CANDIDATES).
+STARTS["py/app/migrations/0002_state.py"] = (
+    "class Migration:\n    operations = [migrations.SeparateDatabaseAndState(state_operations=[",
+    "OPS = ['",
+)
+
 CASES = [(name, start) for name, starts in STARTS.items() for start in starts]
 
 

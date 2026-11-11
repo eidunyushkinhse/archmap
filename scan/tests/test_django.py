@@ -44,15 +44,15 @@ def test_fixture_tables() -> None:
         ("tags", "varchar(20)[]", False, True, None),
         ("owner_id", "bigint", False, True, "accounts_user.id"),
     ]
+    # SeparateDatabaseAndState в 0002: state_operations убирают total, AddField weight из
+    # database_operations при state_operations пропускается (ТЗ §15 п. 19 М2).
     assert _cols(shop["store_purchase"]) == [
         ("id", "bigserial", True, True, None),
         ("buyer_id", "integer", False, True, "customers.id"),
-        ("total", "numeric(10, 2)", False, True, None),
         ("note", "text", False, True, None),
         ("parent_id", "bigint", False, False, "store_purchase.id"),
         ("order_code", "varchar(50)", False, True, None),
         ("status", "varchar(16)", False, True, None),
-        ("weight", "double precision", False, False, None),
         ("_order", "integer", False, True, None),
     ]
     # RunPython — миграция данных, а не пропуск; RunSQL с переменной — пропуск.
@@ -322,3 +322,93 @@ def test_hostile_renames_are_fast(tmp_path: Path) -> None:
     found, took = timed(partial(django.parse, found_files, ctx), limit)
     assert took < limit, f"{took:.2f} с"
     assert len(found.table_sets) == 901
+
+
+def test_separate_database_and_state() -> None:
+    """SeparateDatabaseAndState (ТЗ §15 п. 19 М2): state_operations меняют состояние моделей,
+    из database_operations берутся только RunSQL и RunPython; без state_operations
+    database_operations идут в состояние. Списки именем раскрываются по атрибуту класса и
+    присваиванию модуля, выражение остаётся пропуском «operations»."""
+    ctx, files = files_of(FIXTURES / "django-separate")
+    found = django.parse(files, ctx)
+    sets = {ts.dir: ts for ts in found.table_sets}
+    assert sorted(sets) == ["alerts", "core", "platform"]
+    # Модель переехала в platform с тем же db_table: в alerts её нет, удалением это не
+    # считается (DROP TABLE в базе нет).
+    assert [t.name for t in sets["alerts"].tables] == ["alerts_thread"]
+    assert sets["alerts"].dropped == 0
+    platform = {t.name: t for t in sets["platform"].tables}
+    assert sorted(platform) == ["alerts_alertconfiguration", "platform_deliverypath"]
+    assert _cols(platform["platform_deliverypath"]) == [
+        ("id", "bigserial", True, True, None),
+        ("configuration_id", "bigint", False, True, "alerts_alertconfiguration.id"),
+    ]
+    core = {t.name: t for t in sets["core"].tables}
+    # operations = OPERATIONS модуля; Feature ушла из состояния; AddField из
+    # database_operations при state_operations не дублирует колонку; RunSQL дал core_audit.
+    assert sorted(core) == ["core_audit", "core_token"]
+    assert _cols(core["core_token"]) == [
+        ("id", "serial", True, True, None),
+        ("value", "varchar(64)", False, True, None),
+        ("scope", "text", False, False, None),
+    ]
+    assert _cols(core["core_audit"]) == [
+        ("id", "integer", True, True, None),
+        ("token_id", "integer", False, False, "core_token.id"),
+    ]
+    assert sets["core"].dropped == 0 and sets["core"].data_migrations == 1
+    assert [(str(loc), text) for loc, text in sets["core"].skipped_examples] == [
+        ("core/migrations/0003_expression.py:10", "operations"),
+    ]
+    assert sets["core"].skipped == 1
+
+
+def test_named_operation_lists(tmp_path: Path) -> None:
+    """Имя списка операций (М2): атрибут класса старше присваивания модуля, у модуля берётся
+    последнее присваивание до класса; выражение, имя не списка и имя после класса остаются
+    пропуском «operations»."""
+    create = "[migrations.CreateModel(name='{0}', fields=[('id', models.AutoField(primary_key=True))])]"
+    tree(tmp_path, {
+        "a/migrations/0001_x.py": (
+            "from django.db import migrations, models\n\n"
+            f"OPS = {create.format('Old')}\n"
+            f"OPS = {create.format('New')}\n"
+            f"SHADOW = {create.format('Module')}\n\n"
+            "class Migration(migrations.Migration):\n"
+            "    dependencies = []\n"
+            f"    SHADOW = {create.format('Klass')}\n"
+            "    operations = OPS\n"
+        ),
+        "a/migrations/0002_y.py": (
+            "from django.db import migrations, models\n\n"
+            "class Migration(migrations.Migration):\n"
+            "    dependencies = [('a', '0001_x')]\n"
+            f"    SHADOW = {create.format('Klass')}\n"
+            "    operations = [\n"
+            "        migrations.SeparateDatabaseAndState(state_operations=SHADOW),\n"
+            "        migrations.SeparateDatabaseAndState(state_operations=LATER),\n"
+            "        migrations.SeparateDatabaseAndState(state_operations=made()),\n"
+            "        migrations.SeparateDatabaseAndState(state_operations=SHADOW + []),\n"
+            "    ]\n\n"
+            f"LATER = {create.format('Later')}\n"
+        ),
+        "a/migrations/0003_z.py": (
+            "from django.db import migrations, models\n\n"
+            f"OPS = {create.format('Gone')}\n"
+            "OPS = make()\n\n"
+            "class Migration(migrations.Migration):\n"
+            "    dependencies = [('a', '0002_y')]\n"
+            "    operations = OPS\n"
+        ),
+    })
+    ctx, files = files_of(tmp_path)
+    [ts] = django.parse(files, ctx).table_sets
+    # 0001: OPS модуля, последнее присваивание (New); 0002: SHADOW класса (Klass), LATER
+    # после класса, made() и SHADOW + [] пропущены; 0003: последнее присваивание OPS не список.
+    assert sorted(t.name for t in ts.tables) == ["a_klass", "a_new"]
+    assert [(str(loc), text) for loc, text in ts.skipped_examples] == [
+        ("a/migrations/0002_y.py:8", "operations"),
+        ("a/migrations/0002_y.py:9", "operations"),
+        ("a/migrations/0002_y.py:10", "operations"),
+    ]
+    assert ts.skipped == 4

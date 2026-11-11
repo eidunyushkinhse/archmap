@@ -407,7 +407,8 @@
         коммит на пункт. Сделано: А1 (миграция с именем теста остаётся в обходе: Airflow tables
         error → covered, таблиц 3 → 73), Т2 (технология по образу одним написанием: 31 объект,
         «Grafana» вместо «grafana»), Т3 (роль «прокси» по итоговому FROM: otel-demo
-        frontend-proxy и image-provider).
+        frontend-proxy и image-provider), М2 (SeparateDatabaseAndState: state_operations в
+        состояние; PostHog таблиц 1036 → 1033, ссылок без цели 4 → 2).
 - [ ] (2026-10-27, решение пользователя) АНГЛИЙСКАЯ ДОКУМЕНТАЦИЯ docs.archmap.tech/en —
         ОТЛОЖЕНА: английская версия руководств лежит в репозитории archmap-docs
         (content/en, снята с прода DOCS_LANGS=ru с 2026-10-23) и по дельтам продукта

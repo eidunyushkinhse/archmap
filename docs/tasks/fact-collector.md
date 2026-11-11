@@ -297,7 +297,7 @@ archmap-scan/
 |---|---|
 | SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
 | Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key` (переименование таблицы или колонки переносит ссылки других таблиц, ч. 6, М1); порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
-| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id` (переименования модели, поля и таблицы переносят ссылки; модель `django.contrib` без миграций в репозитории — настоящей таблицей: `contenttypes.ContentType` → `django_content_type.id`, `sessions.Session` → `django_session.session_key`, `admin.LogEntry` → `django_admin_log`, `sites.Site` → `django_site`, ч. 6, М1); порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
+| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id` (переименования модели, поля и таблицы переносят ссылки; модель `django.contrib` без миграций в репозитории — настоящей таблицей: `contenttypes.ContentType` → `django_content_type.id`, `sessions.Session` → `django_session.session_key`, `admin.LogEntry` → `django_admin_log`, `sites.Site` → `django_site`, ч. 6, М1); порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик); `SeparateDatabaseAndState`: `state_operations` меняют состояние моделей как обычные операции, из `database_operations` читаются только `RunSQL` и `RunPython`, без `state_operations` `database_operations` идут в состояние; `DeleteModel` из `state_operations` удалением таблицы не считается; список операций именем раскрывается по атрибуту класса `Migration` или последнему присваиванию списка на уровне модуля до класса, выражение остаётся пропуском «operations» (ч. 7, М2) |
 | Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается; ``sql.raw(`SQL`)`` в цикле `for (const { a, b } of СПИСОК)` или `for (const [a, b] of СПИСОК)` по массиву-литералу верхнего уровня того же файла читается для каждого элемента со значениями вместо `${a}` и `${b}`, переименование таблицы или колонки переносит ссылки на неё (ч. 5, М1) |
 | Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
@@ -2908,3 +2908,59 @@ unread: {too_large: 3, binary: 0}
      (`src/image-provider/Dockerfile:4` `FROM docker.io/nginxinc/nginx-unprivileged`), больше в
      выводе ничего не изменилось; Lemmy `proxy`, Loki `gateway`, Supabase `api-gw` и Argo CD
      `argocd-redis-ha-haproxy` и так «прокси» по образу compose.
+   - М2 (решения исполнителя): `state_operations` применяются к состоянию моделей теми же
+     правилами, что обычные операции; из `database_operations` при них читаются только `RunSQL`
+     (схема SQL приложения) и `RunPython` (счётчик миграций данных), прочее там пропускается без
+     счётчика и подсказки; без `state_operations` `database_operations` идут в состояние, как
+     раньше. Решение сверх брифа: `DeleteModel` из `state_operations` в `dropped` не идёт (DROP
+     TABLE в базе нет: модель переехала в другое приложение с тем же `db_table` или таблицу
+     оставили до следующего выпуска). У PostHog таких `DeleteModel` 210, почти все переезды
+     моделей из `posthog` в `products/*`; со счётом `dropped` вырос бы на сотни таблиц, которые
+     в базе есть. Имя списка операций: атрибут тела класса `Migration` (любой строки тела, как
+     уже собирает `_migration`) старше присваивания модуля, у модуля берётся последнее
+     присваивание до класса, присваивание не списка имя забывает; выражение и генератор списка
+     остаются подсказкой «operations». По корпусу против прогона после Т3 изменились только
+     PostHog и awx. PostHog: таблиц 1036 → 1033 (`coverage` found 1037 → 1034), пропусков
+     `django_operations` 375 → 331, `dropped` 1 без изменений. Исчезли 11 таблиц, у каждой
+     `DeleteModel` в `state_operations` без пересоздания в другом приложении:
+     `ee_dashboardprivilege` (`ee/migrations/0066_remove_dashboardprivilege.py:17`),
+     `posthog_persistedfolder` (`posthog/migrations/1349_delete_persistedfolder_from_state.py:13`),
+     `posthog_userproductlist` (`1398_remove_userproductlist_state.py:25`),
+     `posthog_datawarehousemodelpath` (`0897_migrate_data_warehouse_models.py:229`),
+     `posthog_task_loop`, `posthog_task_loop_trigger`, `posthog_task_loop_fire`
+     (`products/tasks/backend/migrations/0139_remove_loop_models.py:18`–`:20`),
+     `posthog_agent_peer_message` (`0141_remove_agent_peer_message.py:13`),
+     `posthog_dashboard_saved_view`
+     (`products/dashboards/backend/migrations/0022_remove_dashboardsavedview_from_state.py:11`),
+     `replay_vision_replayscannerpromptsuggestion`
+     (`products/replay_vision/backend/migrations/0106_remove_prompt_suggestions.py:18`),
+     `today_dailybriefing` (`products/today/backend/migrations/0003_delete_dailybriefing.py:16`);
+     комментарии у части из них говорят, что таблица пока остаётся в базе (`1349:11`, `0139:14`).
+     Появились 8 таблиц `products/warehouse_sources_queue`: `CreateModel` с `db_table` в
+     `state_operations`, а сами таблицы создаёт `RunPython` (`sourcebatch`, `sourcebatchstatus`
+     `0001_initial.py:116`, `:180`; `sourcegrouplease` `0004_source_group_lease.py:34`;
+     `queuejob`, `queuejobstatus`, `queuejoblease` `0011_generic_job_tables.py:133`, `:185`,
+     `:218`; `queueschedulerstate`, `queueschedulerdecision` `0012_scheduler_state.py:60`, `:89`).
+     Колонки изменились у 14 общих таблиц: `alerts_platform*` получили колонки модели и цель
+     `configuration_id` (`alerts_platformalertconfiguration.id`), `django_session` теперь из
+     `CreateModel` с `db_table` (`posthog/session/migrations/0001_initial.py:15`) с поздними
+     `AddField`, а не из `RunSQL`, `RemoveField` в состоянии убрал `posthog_canvas.context`,
+     `posthog_organization.is_hipaa`, `slack_app_slacksettings.ai_preferences`, `RenameField`
+     дал `wizard_wizarddetectedtool.alternative_to` вместо `competes_with`. Ссылок без цели 4 →
+     2, а не 1: три ссылки `alerts_platform` нашли цель, `posthog_taggeditem.content_type_id`
+     (`django_content_type`, внешняя) осталась, и появилась `posthog_task.loop_id` →
+     `tasks_loop.id`: модель `Loop` ушла из состояния (`0139:20`), а поле `task.loop` убирает
+     помощник проекта `untrack_field` (`0138_untrack_task_loop.py:16`), его сборщик не
+     раскрывает (подсказка с этим местом есть), в остаток. Подсказок «operations» 2 → 1, а не
+     0: две со списками именем ушли, появилась `products/event_definitions/backend/migrations/`
+     `0014_drop_taxonomy_project_id_fk_idx.py:33` (генератор списка в `state_operations`). awx:
+     внутренние ссылки без цели 3 остались, их причина не `SeparateDatabaseAndState`, а
+     выражение `_squashed.operations(SQUASHED_30) + [...]` (`0004_squashed_v310_release.py:23`),
+     внешних 39 как есть; подсказок «operations» 3, а не 2: все три выражения (`0003:34`,
+     `0004:23`, `0005:15`); единственное изменение вывода: колонка
+     `main_unifiedjob.result_stdout_text` исчезла (`0017_v330_move_deprecated_stdout.py:23`,
+     `RemoveField` только в состоянии, хотя комментарий там говорит, что колонка остаётся и её
+     читает неуправляемая модель `UnifiedJobDeprecatedStdout`), вопрос владельцу. `RunSQL` в
+     `database_operations` у awx `0206_jobhostsummary_host_id_idx.py:12` читается, как раньше.
+     Sentry 311 таблиц, `dropped` 12, ссылок без цели 0, без изменений; вердикты и слои Sentry
+     без изменений.
