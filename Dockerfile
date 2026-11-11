@@ -10,14 +10,14 @@
 # корневая ФС может быть только для чтения: писать приложению нужно лишь в /tmp.
 
 # Базовые образы — тег для чтения, digest для воспроизводимости; обновляет Dependabot
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS front
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS front
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ARG VERSION=dev
 ARG REVISION=""
 LABEL org.opencontainers.image.title="ArchMap" \
