@@ -355,7 +355,8 @@ def test_appsettings_hostile(tmp_path: Path, kind: str) -> None:
 
 def test_appsettings_limits(tmp_path: Path) -> None:
     """Файл больше 1 МБ и вложенность глубже 50 — файл непрочитан; ошибка синтаксиса —
-    файл пропущен без записей."""
+    файл без записей и подсказка unparsed с причиной (ТЗ §15 п. 18 П5, как у hjson; раньше
+    молчание)."""
     tree(tmp_path, {
         "A/A.csproj": "<Project></Project>\n", "A/appsettings.json": '{"a": "' + "x" * 1_000_001 + '"}',
         "B/B.csproj": "<Project></Project>\n", "B/appsettings.json": '{"a": ' * 60 + "1" + "}" * 60,
@@ -368,6 +369,9 @@ def test_appsettings_limits(tmp_path: Path) -> None:
     found = appsettings.parse(files, ctx)
     assert [p.name for p in found.code_params] == ["d"]
     assert sorted(files.too_large) == ["A/appsettings.json", "B/appsettings.json"]
+    assert [(h.section, h.data["name"], h.data["reason"]) for h in found.hints] == [
+        ("unparsed", "C/appsettings.json", texts.REASON_BAD_APPSETTINGS),
+    ]
 
 
 def test_dotnet_binder() -> None:
@@ -922,3 +926,19 @@ def test_go_named_reads_limit(tmp_path: Path) -> None:
     assert sum(1 for p in found.code_params if p.name == "APP_PORT") == limit
     assert not [h for h in found.hints if str(h.data["source"]).startswith("over.go")]
     assert files.too_large == {"over.go"}
+
+
+def test_appsettings_bad_syntax() -> None:
+    """appsettings.json с ошибкой синтаксиса (пропущена запятая): записей нет, в unparsed
+    подсказка на файл с причиной (ТЗ §15 п. 18 П5, как у hjson; раньше молчание); среди
+    непрочитанных по пределам его нет, соседний проект читается как прежде."""
+    ctx, files = files_of(FIXTURES / "dotnet-bad-settings")
+    found = appsettings.parse(files, ctx)
+    assert [(p.name, str(p.loc), p.default) for p in found.code_params] == [
+        ("Queue:Name", "Worker/appsettings.json:3", "orders"),
+    ]
+    assert [(h.section, h.data) for h in found.hints] == [("unparsed", {
+        "kind": "file", "name": "Api/appsettings.json", "reason": texts.REASON_BAD_APPSETTINGS,
+        "source": "Api/appsettings.json",
+    })]
+    assert not files.too_large

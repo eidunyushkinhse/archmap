@@ -10,8 +10,9 @@
 JSON читается так же, как его читает .NET: комментарии «//» и «/* */» и висячие запятые
 допустимы. Разбор одним проходом по лексемам без регулярных выражений с возвратами. Файл
 больше 1 МБ или глубже 50 уровней не читается и считается непрочитанным; файл с ошибкой
-синтаксиса пропускается целиком. Запись идёт как CodeParam с from_file: с чтением того же
-ключа в коде (dotnetenv) она сливается в один параметр (codefacts._merge).
+синтаксиса пропускается целиком с подсказкой unparsed (ТЗ §15 п. 18 П5). Запись идёт как
+CodeParam с from_file: с чтением того же ключа в коде (dotnetenv) она сливается в один
+параметр (codefacts._merge).
 """
 
 from __future__ import annotations
@@ -19,9 +20,9 @@ from __future__ import annotations
 import json
 import re
 
-from archmap_scan import clike, codebase, paths
+from archmap_scan import clike, codebase, paths, texts
 from archmap_scan.context import Context
-from archmap_scan.model import CodeParam, Findings, Loc
+from archmap_scan.model import CodeParam, Findings, Loc, unparsed_hint
 from archmap_scan.walk import Files
 
 NAME = "appsettings"
@@ -265,6 +266,8 @@ def parse(files: Files, ctx: Context) -> Findings:
             files.refuse(rel)
             continue
         except BadJson:
+            # Ошибка синтаксиса: подсказка, а не молчание (ТЗ §15 п. 18 П5, как у hjson).
+            found.hints.append(unparsed_hint(rel, texts.REASON_BAD_APPSETTINGS))
             continue
         for name, line, value, type_ in entries:
             found.code_params.append(CodeParam(

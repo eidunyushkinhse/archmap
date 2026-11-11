@@ -556,7 +556,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     каталоге проекта (рядом с `.csproj`, не `appsettings.<Среда>.json`, не каталог тестов) даёт
     параметры `A:B:C` с дефолтом как написано и типом по значению (массив одной строкой, `null`
     без дефолта); комментарии и висячие запятые допустимы, файл больше 1 МБ или глубже 50
-    уровней непрочитан. В коде `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` →
+    уровней непрочитан, файл с ошибкой синтаксиса даёт подсказку `unparsed` с причиной (П5).
+    В коде `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` →
     `ConnectionStrings:x`, раздел `GetSection("A")` с `.Get<T>()`, `.Bind(obj)`,
     `Configure<T>(раздел)` и `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по
     свойствам класса `T` того же проекта; класса нет — параметр `A` с типом `T`. Запись файла и чтение того же ключа
@@ -790,6 +791,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `KafkaTemplate` (Java: поле, параметр или переменная `KafkaTemplate<K, V> имя`, Kotlin
     `имя: KafkaTemplate<K, V>`); `rabbitTemplate.send` и `jmsTemplate.send` не топики,
     `sendDefault(data)` топика не называет (первый аргумент данные) и записи не даёт (П4).
+  - `appsettings.json` с ошибкой синтаксиса (`parsers/appsettings.py`): записей нет, в
+    `hints.unparsed` подсказка на файл с причиной «файл настроек appsettings.json не
+    разбирается» (`texts.REASON_BAD_APPSETTINGS`, как у hjson); раньше файл пропускался молча.
+    Файл больше 1 МБ или глубже 50 уровней по-прежнему только непрочитан (П5).
   - тесты времени: в пяти тестах (`test_compose.py` Envoy и compose, hjson в
     `test_config_code.py`, `test_command_scripts.py`, `test_routes_rails.py`) повтор `timed` идёт
     по тому же пределу, что проверяется; повтор в `_check` матрицы враждебного кода мерит путь
