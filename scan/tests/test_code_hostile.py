@@ -4,28 +4,29 @@
 
 from __future__ import annotations
 
-from functools import partial
+import time
 from pathlib import Path
 
 import pytest
 
 from archmap_scan import registry
-from tests.helpers import files_of, time_limit, timed, tree
+from archmap_scan.registry import ParserSpec
+from tests.helpers import files_of, time_limit, tree
 
 PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
 
 MANIFESTS: dict[str, str | bytes] = {
-    "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\n",
+    "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\nredis\n",
     "js/package.json": (
         '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
-        ' "nats": "*", "bullmq": "*", "cron": "*", "@nestjs/schedule": "*"}}'
+        ' "nats": "*", "bullmq": "*", "cron": "*", "@nestjs/schedule": "*", "ioredis": "*"}}'
     ),
-    "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\n',
+    "rb/Gemfile": 'gem "sidekiq"\ngem "rails"\ngem "redis"\n',
     "go/go.mod": (
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
         "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n"
-        "\tgithub.com/robfig/cron/v3 v3.0.1\n)\n"
+        "\tgithub.com/robfig/cron/v3 v3.0.1\n\tgithub.com/redis/go-redis/v9 v9.5.1\n)\n"
     ),
     "cs/app.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n',
     "java/pom.xml": (
@@ -198,6 +199,12 @@ STARTS["java/App.java"] += (
     '@Schedules({' + SC + 'cron = "', SC + "fixedRate = 1, timeUnit = TimeUnit.",
 )
 STARTS["kt/App.kt"] += (SC + 'cron = "', SC + 'fixedDelayString = "\\${', SC + "fixedRate = ")
+# const val Kotlin (ТЗ §15 п. 18 Е1): объявления без конца, object и companion без закрытия,
+# чтение по имени объекта без имени константы.
+STARTS["kt/App.kt"] += (
+    'const val A = "', 'const val A: String = "', "object A {\n  const val B = ",
+    'class A {\n  companion object {\n    const val B = "', "System.getenv(A.",
+)
 # Адреса объектов литералами (ТЗ §15 п. 17 С2): литерал адреса без закрытия, хост и путь без
 # конца, сырые строки и шаблоны Kotlin. Разборщик смотрит только src/main.
 STARTS["java/src/main/java/A.java"] = (
@@ -262,6 +269,9 @@ GO_REQUESTS = {
     # аргументом не строкой собирает текст выражения (смежный дефект в отчёте части 5).
     "nested": "r := chi.NewRouter()\nr.Get(" + "(" * PAYLOAD,
     "commas": "r := chi.NewRouter()\nr.Get(" + "f(a, " * (PAYLOAD // 5),
+    # Два мегабайта «x.Get(» подряд (ТЗ §15 п. 18 П2): объектов маршрутизации в файле нет, в
+    # аргументе нет «"/», ни получатель, ни текст аргумента не ищутся (было около 5,6 с).
+    "gets": "x.Get(" * (PAYLOAD // 6),
 }
 
 
@@ -348,15 +358,70 @@ STARTS["js/migrations/1-a.ts"] = (
     "down(db) {",
 )
 
+# Каналы Redis pub/sub (ТЗ §15 п. 18 В1): литерал, условный оператор, константа, шаблон,
+# подписка без скобок у Ruby и Publish(ctx, у Go, незакрытые аргументы.
+RJS, RDG = "require('ioredis');\n", 'import "github.com/redis/go-redis/v9"\n'
+STARTS["py/app.py"] += (
+    "import redis\nredis.publish('", "import redis\nr = redis.Redis()\np = r.pubsub()\np.subscribe(",
+    "import redis\nredis.publish('a' if c else '", "import redis\nredis.psubscribe('",
+    "import redis\nredis.subscribe(**{'",
+)
+STARTS["js/app.js"] += (
+    RJS + "redis.publish('", RJS + "client.subscribe(", RJS + "redis.publish(c ? 'a' : '",
+    RJS + "redis.publish(A, ", RJS + "redis\n  .publish(", "export const A = `${",
+    RJS + "redis.subscribe('a', (",
+)
+STARTS["rb/app.rb"] += (
+    "redis.publish('", "redis.publish(", "redis.subscribe 'a', '", "redis.publish(c ? 'a' : '",
+    'redis.publish("#{', "Redis.current.subscribe('",
+)
+STARTS["go/main.go"] += (
+    RDG + 'rdb.Publish(ctx, "', RDG + "rdb.Subscribe(ctx, ", RDG + "rdb.PSubscribe(ctx, A, ",
+    RDG + 'const A = "a"\nrdb.Publish(ctx, A, ',
+)
+
+# GetRequiredValue и индексатор раздела .NET (ТЗ §15 п. 18 Р1): литерал, параметр типа,
+# переменная раздела и цепочка без закрытия.
+STARTS["cs/App.cs"] += (
+    'c.GetRequiredValue("', "c.GetRequiredValue<", "c.GetRequiredValue<int>(",
+    'var s = c.GetSection("A");\ns["', 'var s = c.GetSection("A");\ns[', 'c.GetSection("A")["',
+    'c.GetRequiredSection("A").GetRequiredValue("',
+)
+# Путь маршрута константой и app.get(Класс) NestJS (ТЗ §15 п. 18 К1): импорт по именам и
+# require без закрытия, шаблон константы, незакрытые аргументы.
+STARTS["js/app.js"] += (
+    "app.get(X", "app.get(X, {", "app.get(X, ", "import { A } from './a';\napp.get(A, ",
+    "import {", "import { A as ", "const { A } = require(", "export const A = `${B}/",
+    "export const A = '/a';\napp.get(A", "@Controller(A", "@Controller(A)\nclass C {\n  @Get(B",
+)
+
 CASES = [(name, start) for name, starts in STARTS.items() for start in starts]
 
 
-def _check(root: Path) -> None:
+def _took(root: Path, before: list[ParserSpec], spec: ParserSpec) -> float:
+    """Время разборщика spec с памятью пакетов и индексов (Files.memo) в том же состоянии, что
+    у первого прогона в _check: новые файлы, разборщики до него без счёта времени."""
     ctx, files = files_of(root)
-    for spec in registry.PARSERS:
-        if not spec.code:
-            continue
-        _found, took = timed(partial(spec.parse, files, ctx), time_limit())
+    for other in before:
+        other.parse(files, ctx)
+    started = time.process_time()
+    spec.parse(files, ctx)
+    return time.process_time() - started
+
+
+def _check(root: Path) -> None:
+    """Каждый разборщик кода в пределе времени. Прогон за пределом повторяется один раз, в
+    счёт идёт меньшее из двух (как helpers.timed), но повтор мерит тот же путь, что первый
+    прогон: память пакетов, прогретая первым прогоном того же разборщика, сбрасывается (ТЗ §15
+    п. 18 П3)."""
+    ctx, files = files_of(root)
+    code = [spec for spec in registry.PARSERS if spec.code]
+    for i, spec in enumerate(code):
+        started = time.process_time()
+        spec.parse(files, ctx)
+        took = time.process_time() - started
+        if took >= time_limit():
+            took = min(took, _took(root, code[:i], spec))
         assert took < time_limit(), f"{spec.name}: {took:.2f} с"
 
 
@@ -462,6 +527,17 @@ CLIKE = {
     "java/App.java:constants": 'static final String A = "x";\n' * (PAYLOAD // 28)
     + "System.getenv(A);\n" * 1000,
     "java/App.java:class-reads": "System.getenv(Env.A);\n" * 1999,
+    # Kotlin (Е1): тысячи const val и чтений по ним, object и companion сверх предела классов,
+    # одна константа на весь файл со знаком «$» в конце, чтения «Объект.ИМЯ» тысяч разных
+    # объектов. Строка из одних «$» здесь не берётся: её 0,5 с — маска Kotlin
+    # (codetext._mask_kotlin), а не константы.
+    "kt/App.kt:const-vals": 'const val A = "x"\n' * (PAYLOAD // 18) + "System.getenv(A)\n" * 1000,
+    "kt/App.kt:object-consts": "object O {\n" + '  const val A = "x"\n' * (PAYLOAD // 20) + "}\n"
+    + "System.getenv(O.A)\n",
+    "kt/App.kt:companions": 'class C {\n  companion object {\n    const val A = "x"\n  }\n}\n'
+    * (PAYLOAD // 60) + "System.getenv(C.A)\n",
+    "kt/App.kt:dollars": 'const val A = "' + "a" * (PAYLOAD - 40) + '$"\nSystem.getenv(A)\n',
+    "kt/App.kt:object-reads": "".join(f"System.getenv(O{i}.A)\n" for i in range(1999)),
     "java/App.java:static-imports": "import static a.b.C.*;\n" * (PAYLOAD // 23)
     + "System.getenv(A);\n" * 1000,
     "cs/App.cs:holes": '$"' + '{"a"' * (PAYLOAD // 4),
@@ -545,6 +621,10 @@ SPRING_VALUE.update({
     "java/App.java:listener-array": '@KafkaListener(topics = {"' + '", "' * (PAYLOAD // 4) + '"})\n',
     "java/App.java:templates": "kafkaTemplate.send(" * (PAYLOAD // 19),
     "java/App.java:template-name": "a" * PAYLOAD + 'Template.send("t");\n',
+    # Получатели без kafka в имени и объявления KafkaTemplate без конца (ТЗ §15 п. 18 П4).
+    "java/App.java:other-templates": 'xTemplate.send("t", v);\n' * (PAYLOAD // 24),
+    "java/App.java:template-types": "KafkaTemplate<a, " * (PAYLOAD // 17) + '\nt.send("t", v);\nxTemplate.send("t", v);\n',
+    "kt/App.kt:template-types": "t: KafkaTemplate<" * (PAYLOAD // 17) + '\nxTemplate.send("t", v)\n',
     "java/App.java:handlers": "f.subscribe(v -> g(v));\n" * (PAYLOAD // 24),
     "kt/App.kt:env-vars": 'val t = System.getenv("A") ?: "x"\n' * (PAYLOAD // 34),
     "kt/App.kt:var-spaces": 'val t = System.getenv("A")' + " " * (PAYLOAD - 40) + '?: "x"\n',

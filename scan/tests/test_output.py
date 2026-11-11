@@ -393,3 +393,117 @@ def test_stage_two_objects_from_dev_manifests(tmp_path: Path) -> None:
     assert families["containers"]["from_dev_manifests"] == 1
     assert families["databases"]["from_dev_manifests"] == 1
     assert texts.dev_objects_line(2) in _read(out, "summary.txt")
+
+
+def test_shared_code_files(tmp_path: Path) -> None:
+    """Параметры общего кода — файлы facts/shared/ по единицам кода без адреса владельца
+    (ТЗ §15 п. 18 О1). Единица — каталог ближайшего пакета языка записи (у файла настроек
+    Quarkus — пакет Java), без пакета — каталог первого уровня, файл в корне — root. Два
+    чтения одного имени в единице — одна запись, одно имя в двух единицах — две. Правило
+    владельца не меняется: записи без владельца, coverage считает их в unassigned."""
+    root = tree(tmp_path / "repo", {
+        "docker-compose.yml": (
+            "services:\n  api:\n    build: ./api\n  web:\n    build: ./web\n"
+        ),
+        "api/requirements.txt": "flask\n",
+        "api/app.py": 'import os\nA = os.getenv("API_ONLY", "1")\n',
+        # Код другого языка в каталоге контейнера Python: «нет контейнера на этом языке».
+        "api/static/package.json": '{"name": "ui"}\n',
+        "api/static/ui.ts": "export const x = process.env.API_UI;\n",
+        "web/package.json": '{"name": "web", "dependencies": {"express": "4"}}\n',
+        "web/index.js": "const p = process.env.WEB_PORT;\n",
+        "packages/lib/pyproject.toml": '[project]\nname = "lib"\n',
+        "packages/lib/src/util.py": (
+            'import os\nA = os.getenv("LIB_A")\nB = os.getenv("LIB_B", "5")\n'
+        ),
+        "packages/lib/src/deep/more.py": 'import os\nA = os.environ["LIB_A"]\n',
+        "modules/conf/pom.xml": (
+            "<project><artifactId>conf</artifactId><dependencies><dependency>"
+            "<artifactId>quarkus-core</artifactId></dependency></dependencies></project>\n"
+        ),
+        "modules/conf/src/main/resources/application.properties": "conf.name=x\n",
+        "modules/conf/src/main/java/org/x/Conf.java": (
+            'class Conf { String a = System.getenv("LIB_A"); }\n'
+        ),
+        ".env.example": "ROOT_FLAG=on\n",
+    })
+    out = tmp_path / "out"
+    result = run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
+    shared = sorted(p.name for p in (out / "facts" / "shared").iterdir())
+    assert shared == [
+        "api-static.config.yaml", "modules-conf.config.yaml", "packages-lib.config.yaml",
+        "root.config.yaml",
+    ]
+    text = _read(out, "facts/shared/packages-lib.config.yaml")
+    lines = text.splitlines()
+    # Адрес пуст, вторая строка просит его вписать, шапка сборщика в строках 3–5.
+    assert lines[:8] == [
+        "# archmap-node:",
+        f"# {texts.SHARED_FILE_ASK}",
+        f"# archmap-scan {__version__}", "# repo:", "# commit:",
+        f"# {texts.SHARED_FILE_REASON}: {texts.REASON_SHARED_LIB}",
+        f"# {texts.SHARED_FILE_FOLDER}: packages/lib/",
+        f"# {texts.shared_file_records(2)}",
+    ]
+    assert yaml.safe_load(text) == {"config": [
+        {"name": "LIB_A", "required": True},
+        {"name": "LIB_B", "type": "int", "default": "5"},
+    ]}
+    assert yaml.safe_load(_read(out, "facts/shared/modules-conf.config.yaml")) == {"config": [
+        {"name": "LIB_A"}, {"name": "conf.name", "type": "string", "default": "x"},
+    ]}
+    assert yaml.safe_load(_read(out, "facts/shared/root.config.yaml")) == {"config": [
+        {"name": "ROOT_FLAG", "type": "bool", "default": "on"},
+    ]}
+    other = _read(out, "facts/shared/api-static.config.yaml")
+    assert f"# {texts.SHARED_FILE_REASON}: {texts.REASON_OTHER_LANGUAGE}\n" in other
+    assert yaml.safe_load(other) == {"config": [{"name": "API_UI"}]}
+    evidence = yaml.safe_load(_read(out, "agent/evidence.yaml"))
+    assert evidence["shared/packages-lib.config.yaml/LIB_A"] == [
+        "packages/lib/src/deep/more.py:2", "packages/lib/src/util.py:2",
+    ]
+    assert evidence["shared/modules-conf.config.yaml/LIB_A"] == [
+        "modules/conf/src/main/java/org/x/Conf.java:1",
+    ]
+    hints = yaml.safe_load(_read(out, "agent/hints.yaml"))["unassigned"]
+    assert [h for h in hints if h["kind"] == "config"] == []
+    files = {h["name"]: (h["reason"], h["source"], h["folder"], h["records"])
+             for h in hints if h["kind"] == "shared_file"}
+    assert files == {
+        "facts/shared/api-static.config.yaml": (
+            texts.REASON_OTHER_LANGUAGE, "api/static/ui.ts:1", "api/static/", 1,
+        ),
+        "facts/shared/modules-conf.config.yaml": (
+            texts.REASON_SHARED_LIB, "modules/conf/src/main/java/org/x/Conf.java:1",
+            "modules/conf/", 2,
+        ),
+        "facts/shared/packages-lib.config.yaml": (
+            texts.REASON_SHARED_LIB, "packages/lib/src/deep/more.py:2", "packages/lib/", 2,
+        ),
+        "facts/shared/root.config.yaml": (texts.REASON_SHARED_LIB, ".env.example:1", "./", 1),
+    }
+    config = yaml.safe_load(_read(out, "coverage.yaml"))["families"]["config"]
+    assert config["unassigned"] == 6 and config["shared_files"] == 4
+    assert result.summary.count(texts.shared_files_line(6, 4)) == 1
+    assert texts.shared_files_line(6, 4) == (
+        "Параметров общего кода: 6 записей в 4 файлах facts/shared/, владельца впишите в шапку."
+    )
+    assert "Параметров конфигурации без владельца" not in result.summary
+    assert texts.shared_files_line(1, 1).startswith("Параметров общего кода: 1 запись в 1 файле ")
+
+
+def test_shared_files_only_keep_config_how_to(tmp_path: Path) -> None:
+    """У контейнеров параметров нет, а файлы facts/shared/ есть (Envoy, Plausible): блок о
+    параметрах в «Как импортировать» остаётся, файлы подаются, когда в них вписан адрес."""
+    root = tree(tmp_path / "repo", {
+        "docker-compose.yml": "services:\n  api:\n    build: ./api\n  web:\n    build: ./web\n",
+        "api/Dockerfile": "FROM python:3.12\n",
+        "web/Dockerfile": "FROM python:3.12\n",
+        "lib/pyproject.toml": '[project]\nname = "lib"\n',
+        "lib/x.py": 'import os\nA = os.getenv("ONLY_SHARED")\n',
+    })
+    result = run(Options(path=str(root), out=str(tmp_path / "out"), use_git=False))
+    config = yaml.safe_load(_read(tmp_path / "out", "coverage.yaml"))["families"]["config"]
+    assert "found" not in config and config["unassigned"] == 1 and config["shared_files"] == 1
+    assert "\n".join(texts.HOW_TO_IMPORT_CONFIG) in result.summary
+    assert texts.shared_files_line(1, 1) in result.summary

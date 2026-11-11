@@ -161,6 +161,7 @@ archmap-scan/
     <контейнер>.config.yaml       # archmap-node: Система / контейнер  ·  config: […]
     <база>.tables.yaml            # archmap-node: Система / база      ·  tables: […]
     <брокер>.channels.yaml        # archmap-node: Система / брокер    ·  channels: […]
+    shared/<единица>.config.yaml  # archmap-node: (пусто)             ·  config: […] общего кода
   agent/
     entrypoints.yaml       точки входа по контейнерам: маршруты, воркеры, расписания, потребители
     evidence.yaml          основания каждой записи schema и facts: список «файл:строка»
@@ -181,7 +182,8 @@ archmap-scan/
   broker`) по разделу 6.1. Компонентов, внешних систем (SaaS) и людей сборщик не создаёт.
 - У каждого объекта: `name` как в манифесте дословно; `technology` по словарю (раздел 6.5);
   `role` из короткого словаря: «сервис», «фронтенд», «воркер», «БД», «кэш», «брокер», «прокси»,
-  «хранилище», «планировщик»; `status: existing`; `description` пустое (ключ не пишется).
+  «хранилище», «планировщик», «брокер и кэш» (брокер Redis со свидетельством кэша у связанного
+  контейнера, ч. 6, В2); `status: existing`; `description` пустое (ключ не пишется).
 - `source`: `repo` из адреса origin (как есть, нормализует ArchMap), `path` по каталогу кода
   контейнера (контекст сборки compose, каталог Dockerfile, каталог сервиса в монорепо), `host`
   по имени сервиса compose или k8s Service. Правила: `repo`+`path` ставятся только тем
@@ -211,7 +213,8 @@ archmap-scan/
 `kind`, остальное только из кода), `config` (`name`, `type`, `required`, `default`,
 `description` пустое). Адрес владельца первой строкой `# archmap-node: <Система> / <объект>`
 именами из `schema.yaml`. Записи без владельца в `facts/` не пишутся, а идут в `hints.yaml`
-(раздел 7). Значения с «: » внутри в двойных кавычках, как требуют промпты.
+(раздел 7); исключение — параметры общего кода: они лежат в `facts/shared/` с пустым адресом
+(раздел 7, ч. 6, О1). Значения с «: » внутри в двойных кавычках, как требуют промпты.
 
 ### 5.3 `agent/`
 
@@ -262,7 +265,7 @@ archmap-scan/
 | Семья | Стек | Что ищет (только литералы) |
 |---|---|---|
 | маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
-| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
+| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`, префикс членом строкового `enum` репозитория `@Controller(Имя.Член)`, ч. 4, К4); путь именем константы `app.get(METRICS_PATH, h)`, `@Controller(PREFIX)`, `@Get(PATH)`: `export const ИМЯ = 'литерал'` или шаблон с константами того же файла, в файле, затем импортированное имя в пакете или единственное в репозитории; `app.get(Класс)` NestJS без обработчика не маршрут (ч. 6, К1) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
 | | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле; `имя + "/p"` на известном маршрутизаторе — путь литерала с `prefix_unresolved`, `"/a" + "/b"` — путь целиком, методы `.Methods(http.MethodGet)` (ч. 4, К5); запрос клиента не маршрут: `http.Get(url)`, `http.Post`, `http.Head` и глагол с одним аргументом без цепочки за скобкой (`api.Get(url)`), а построитель go-restful `ws.GET("/p").To(h)` маршрут (ч. 5, П4) | регулярные выражения |
 | | Ruby: Rails (`config/routes.rb` и `config/routes/*.rb` пакета с rails или railties): `get`/`post`/`put`/`patch`/`delete 'путь'` и `:действие`, `match` с `via:`, `root`, `resources`/`resource` (стандартные операции, `only:`, `except:`, `path:`, `param:`), `member`/`collection` и `on:`, вложенные ресурсы под `/имя/:имя_id`, `namespace` и `scope` (префикс), `concern`/`concerns`, `draw(:имя)` — файл `config/routes/имя.rb` на месте вызова (ч. 4, К1); необязательная группа в круглых скобках в пути не пишется, `devise_for` по модулям `devise` модели (`app/models/<имя>.rb`, `path:`, `path_names:`, `skip:`, `only:`, `sign_out_via:`), `shallow: true` и блок `shallow do` (ч. 5, П6) | построчно по маске Ruby, стек блоков `do` … `end`; `mount` и путь с подстановкой `#{…}` в hints; модуль devise без известного набора и модель без `devise` в hints, провайдеры omniauth не раскрываются (`/имя/auth/:provider`) |
 | | .NET: ASP.NET Core (`*.csproj` с `Sdk="Microsoft.NET.Sdk.Web"`, `Microsoft.AspNetCore.*` или `<FrameworkReference Include="Microsoft.AspNetCore.App" />`, ч. 5, П5): `app.MapGet("/p"`, `MapPost`, `MapPut`, `MapDelete`, `MapPatch`, `MapMethods("/p", new[] { "GET" })`, `MapHealthChecks("/p")` как GET, группа `var g = app.MapGroup("/v1")` в одном файле; контроллеры (`[ApiController]` или наследник `Controller`/`ControllerBase`): `[Route("api/[controller]")]` класса и `[HttpGet("x")]`, `[Route("x")]` метода, `[controller]` и `[action]` (ч. 4, К2); маршрут по соглашению по шаблону того же проекта: `MapDefaultControllerRoute()` (`{controller=Home}/{action=Index}/{id?}`), `MapControllerRoute` с `pattern:` или вторым литералом, первый шаблон без `{area` (ч. 5, П5) | по маске C#; группа или `[Route]` не литералом и путь `$"…{x}…"` в hints; `{controller}` и `{action}` шаблона подставляются, `{x?}` отбрасывается; шаблона нет или он не литерал — `/Контроллер/действие` с `prefix_unresolved: true` |
@@ -270,13 +273,13 @@ archmap-scan/
 | | Java и Kotlin: Spring MVC и WebFlux (пакет с артефактом `spring-boot*`, у Gradle плагин `org.springframework.boot`; ч. 5б, К1): класс с `@RestController` или `@Controller`, префикс `@RequestMapping("/x")`, `value =`, `path =`, массив `{"/a", "/b"}` (Kotlin `[…]`) по маршруту на элемент; методы `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, `@PatchMapping`, `@RequestMapping(method = {RequestMethod.GET, …})`, без `method` ANY; префикс приложения `server.servlet.context-path` или `spring.webflux.base-path` из `application.yml`/`.properties` модуля | по маске Java и Kotlin одним проходом по парным скобкам; интерфейсы (`@FeignClient`) не читаются; ведущая косая добавляется, `{id:regex}` пишется `{id}`; константа класса раскрывается, выражение и шаблон Kotlin с `$` в hints; префикс приложения с `${` — `prefix_unresolved: true` |
 | | Java и Kotlin: JAX-RS (пакет с `jakarta.ws.rs-api`, `javax.ws.rs-api`, `jboss-jaxrs-api_*`, `resteasy-*`, `quarkus-resteasy*`, `quarkus-rest*` или `jersey-*`; ч. 5б, К2): корневой ресурс — класс с `@Path("/x")`, до которого не доходит локатор; метод с `@GET`, `@POST`, `@PUT`, `@DELETE`, `@PATCH`, `@HEAD`, `@OPTIONS` и `@Path("y")` → `/x/y`; локатор (метод с `@Path` без глагола) — маршруты возвращаемого класса под своим путём, цепочка до восьми локаторов; методы базового класса наследуются; префикс `quarkus.http.root-path` и `@ApplicationPath` приложения, где работает модуль | по маске Java и Kotlin; интерфейсы (клиентские прокси) не читаются; `@Path` класса подресурса не применяется; класс подресурса по файлу, импорту, пакету, модулю или единственный в репозитории; Object, интерфейс, класс вне кода, имя в нескольких пакетах, путь выражением в hints; `{name: regex}` пишется `{name}` |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре; поле без атрибута в структуре с `#[derive(Envconfig)]` — тоже, обязательно, если не `Option<T>`, ч. 5, Р3), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
-| | .NET: `appsettings.json` в каталоге проекта (рядом с `*.csproj`; не `appsettings.<Среда>.json` и не каталог тестов): ключ с вложением `A:B:C`, значение дефолтом как написано (массив одной строкой, `null` без дефолта), JSON с комментариями `//`, `/* */` и висячими запятыми; в коде C# `GetValue<T>("A:B")` и `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` → `ConnectionStrings:x`, раздел `GetSection("A")` или `GetRequiredSection("A")` с `.Get<T>()`, `.Bind(obj)` (тип `obj` по объявлению в файле), аргументом `Configure<T>(раздел)` или `AddOptions<T>().Bind(раздел)`, `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по публичным свойствам с `set` или `init` класса `T` того же проекта (дефолт из инициализатора-литерала, `required` — обязателен); имя раздела литералом, константой или `nameof(T)`, переменная раздела ставит его перед ключом (ч. 5, Р1) | тип у файла по значению (`string`, `int`, `float`, `bool`, `array`), у кода по `T` и типу свойства; запись файла и чтение того же ключа — один параметр: дефолт из файла, тип из кода; файл больше 1 МБ или глубже 50 уровней непрочитан, класса нет — параметр `A` с типом `T` как написан, имя раздела выражением в hints |
+| | .NET: `appsettings.json` в каталоге проекта (рядом с `*.csproj`; не `appsettings.<Среда>.json` и не каталог тестов): ключ с вложением `A:B:C`, значение дефолтом как написано (массив одной строкой, `null` без дефолта), JSON с комментариями `//`, `/* */` и висячими запятыми; в коде C# `GetValue<T>("A:B")` и `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` → `ConnectionStrings:x`, раздел `GetSection("A")` или `GetRequiredSection("A")` с `.Get<T>()`, `.Bind(obj)` (тип `obj` по объявлению в файле), аргументом `Configure<T>(раздел)` или `AddOptions<T>().Bind(раздел)`, `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по публичным свойствам с `set` или `init` класса `T` того же проекта (дефолт из инициализатора-литерала, `required` — обязателен); имя раздела литералом, константой или `nameof(T)`, переменная раздела ставит его перед ключом (ч. 5, Р1); `GetRequiredValue("X")` и `GetRequiredValue<T>("X")` → обязательный `X` (тип по `T`, иначе `string`), индексатор раздела `s["Y"]` и `GetSection("S")["Y"]` → `S:Y` (ч. 6, Р1) | тип у файла по значению (`string`, `int`, `float`, `bool`, `array`), у кода по `T` и типу свойства; запись файла и чтение того же ключа — один параметр: дефолт из файла, тип из кода; файл больше 1 МБ или глубже 50 уровней непрочитан, класса нет — параметр `A` с типом `T` как написан, имя раздела выражением в hints |
 | | hjson: `config/defaults.hjson` или `config/default.hjson` рядом с манифестом сборки пакета (`config.hjson` и другие имена не читаются; у Lemmy `config/defaults.hjson` рядом с `Cargo.toml`): ключ с вложением через точку (`database.pool_size`), значение дефолтом как написано (строка без кавычек, число, `true`/`false`; массив одной строкой; `null` без дефолта); комментарии `#`, `//`, `/* */`, ключи и строки без кавычек, `'''` многострочные, запятые необязательны (ч. 5, Р2) | тип по значению (`string`, `int`, `float`, `bool`, `array`); файл больше 1 МБ, глубже 50 уровней или больше 5000 ключей непрочитан с подсказкой в `unparsed`, ошибка синтаксиса — подсказка без записей |
 | | Java и Kotlin: файлы настроек Spring Boot и Quarkus (пакет с артефактом `spring-boot*` или `quarkus-*`; ч. 5б, Е1): `src/main/resources/application.yml`, `application.yaml`, `application.properties`, `bootstrap.*` модуля (не `application-<профиль>.yml`, не `application.<профиль>.properties` и не каталог тестов); ключ через точку (`spring.application.name`), значение дефолтом как написано (список одной строкой); документ YAML после `---` или `.properties` после `#---` с `spring.config.activate.on-profile` или `spring.profiles` и ключ Quarkus `%профиль.` параметров не дают; подстановка `${X:d}` в значении — параметр `X` с дефолтом `d`, `${X}` — обязательный `X` | тип по значению (`string`, `int`, `float`, `bool`, `duration`, `array`); `.properties` по правилам `java.util.Properties` (комментарии `#` и `!`, разделитель `=`, `:` или пробел, продолжение `\`, экранирование `\uXXXX`); адрес или секрет в дефолте подстановки дефолтом не пишется, и у ключа с ней тоже; свойства JVM (`file.separator`, `user.home`) — переменные среды; `.properties` больше 1 МБ, YAML больше предела `yamlload` или больше 500 разделителей документов, больше 5000 ключей непрочитан с подсказкой в `unparsed`, ошибка YAML — подсказка без записей |
 | | Java и Kotlin: Spring в коде (пакет с артефактом `spring-boot*`; ч. 5б, Е2): `@Value("${key}")` и `@Value("${key:default}")` над полем, свойством, параметром конструктора или метода и над сеттером; `@ConfigurationProperties(prefix = "p")` (`value =`, первый аргумент) над классом, record или data class: `p.<свойство>` в kebab-case по компонентам record, параметрам первичного конструктора Kotlin, полям с сеттером `setИмя` (или под `@Data`/`@Setter` Lombok) и свойствам `var` тела Kotlin, тип того же файла раскрывается на один уровень | тип по объявленному типу (`int`, `bool`, `float`, `duration`, `string`, `array`), у `@Value` только для значения из одной подстановки целиком; дефолт из подстановки, литерала инициализатора или `@DefaultValue`; `@Value` без дефолта обязательный; выражение SpEL `#{x}` и значение без `${` не параметр, склейка и префикс выражением в hints; `@ConfigurationProperties` над методом `@Bean` не читается |
-| | Kotlin и `Optional` Java: окружение (ч. 5б, Е3): `.kt` пакетов Gradle с плагином Kotlin, `System.getenv("X")`, `System.getenv().getOrDefault("X", "d")`, дефолт из элвиса `?: "d"` той же инструкции; Java `Optional.ofNullable(System.getenv("X"))` с `.orElse("d")`, `.orElseGet(() -> "d")`, `.orElseThrow(f)` | Kotlin: без элвиса и без `?.` обязательный, `?: throw` и `?: error(x)` обязательный, выражение или шаблон с `$` в элвисе — дефолт без значения; тип по `.toInt()`, `.toLong()`, `.toBoolean()`, `.toDouble()` (и `OrNull`) за вызовом или за скобкой вокруг элвиса, иначе по дефолту; имя `const val` в hints. Java: `.orElseThrow` — обязательный, тип по обёртке снаружи `Optional` |
-| каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
-| | Java и Kotlin: Kafka (пакет с `kafka-clients` или `spring-kafka`; ч. 5б, В1): потребление `subscribe(List.of("t"))`, `Arrays.asList`, `Collections.singletonList`, `Set.of`, Kotlin `listOf`, `setOf` (с получателем и без, как в блоке `apply`), `@KafkaListener(topics = "t")` и массивом `{"a", "b"}`, Kotlin `["a"]`; публикация `new ProducerRecord<>("t", v)`, Kotlin `ProducerRecord("t", v)`, `kafkaTemplate.send("t", v)` | топик литералом, константой класса Java (`clike`) или переменной файла с дефолтом окружения (`System.getenv("X") ?: "t"`, `Optional.ofNullable(System.getenv("X")).orElse("t")`: имя дефолтом); иначе `hints.dynamic_names`, обработчик реактивного потока (`subscribe(v -> f(v))`, `::`) подсказки не даёт; брокер по клиенту Kafka; Java и Kotlin уходят из `unsupported` каналов только у пакетов с Kafka; больше 2000 записей и подсказок в файле — файл непрочитан |
+| | Kotlin и `Optional` Java: окружение (ч. 5б, Е3): `.kt` пакетов Gradle с плагином Kotlin, `System.getenv("X")`, `System.getenv().getOrDefault("X", "d")`, дефолт из элвиса `?: "d"` той же инструкции; Java `Optional.ofNullable(System.getenv("X"))` с `.orElse("d")`, `.orElseGet(() -> "d")`, `.orElseThrow(f)` | Kotlin: без элвиса и без `?.` обязательный, `?: throw` и `?: error(x)` обязательный, выражение или шаблон с `$` в элвисе — дефолт без значения; тип по `.toInt()`, `.toLong()`, `.toBoolean()`, `.toDouble()` (и `OrNull`) за вызовом или за скобкой вокруг элвиса, иначе по дефолту; имя `const val` с литералом без `$` раскрывается (ч. 6, Е1), прочее имя в hints. Java: `.orElseThrow` — обязательный, тип по обёртке снаружи `Optional` |
+| каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4); Redis pub/sub на Python, Node.js, Ruby и Go (`publish("ch", …)` → публикация, `subscribe("ch", …)`, `psubscribe` → потребление; получатель клиент Redis по имени, подключению или фабрике; условный оператор с двумя литералами → две записи; шаблон подписки → подсказка) → `kind: channel` брокера Redis, кэш Redis становится брокером только по записи с владельцем-контейнером (ч. 6, В1) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
+| | Java и Kotlin: Kafka (пакет с `kafka-clients` или `spring-kafka`; ч. 5б, В1): потребление `subscribe(List.of("t"))`, `Arrays.asList`, `Collections.singletonList`, `Set.of`, Kotlin `listOf`, `setOf` (с получателем и без, как в блоке `apply`), `@KafkaListener(topics = "t")` и массивом `{"a", "b"}`, Kotlin `["a"]`; публикация `new ProducerRecord<>("t", v)`, Kotlin `ProducerRecord("t", v)`, `kafkaTemplate.send("t", v)` (получатель с `kafka` в имени или типа `KafkaTemplate` в файле; `sendDefault` топика не называет; ч. 6, П4) | топик литералом, константой класса Java (`clike`) или переменной файла с дефолтом окружения (`System.getenv("X") ?: "t"`, `Optional.ofNullable(System.getenv("X")).orElse("t")`: имя дефолтом); иначе `hints.dynamic_names`, обработчик реактивного потока (`subscribe(v -> f(v))`, `::`) подсказки не даёт; брокер по клиенту Kafka; Java и Kotlin уходят из `unsupported` каналов только у пакетов с Kafka; больше 2000 записей и подсказок в файле — файл непрочитан |
 | связи из файлов настроек Spring (ч. 5б, С1) | файлы настроек модуля (Е1), все документы: `uri` маршрутов Spring Cloud Gateway (`spring.cloud.gateway.routes`, `.server.webflux.routes`, `.mvc.routes`, `.server.webmvc.routes`, у `.properties` `routes[N].uri`), `spring.config.import` с `configserver:`, `spring.cloud.config.uri`, `eureka.client.serviceUrl.defaultZone` | связь контейнер-владелец файла → объект по хосту или имени (`lb://x`, `http(s)://x[:порт]`), технология HTTP; подстановка раскрывается дефолтом, без дефолта — подсказка; хост не объект — подсказка, как у прокси; `localhost` и IP не связь |
 | | Java и Kotlin: адреса объектов литералами в коде (ч. 5б, С2) | строковый литерал в `src/main` пакета Java или Kotlin, который весь адрес `http://<хост>/путь`, `https://<хост>` или `lb://<хост>`, хост без точек и порта → связь контейнер-владелец файла → объект с таким хостом или именем, технология HTTP; хост не объект, `localhost`, хост с точкой или портом, шаблон Kotlin с `$`, комментарии и каталоги тестов — ни связи, ни подсказки; больше 2000 адресов в файле — файл непрочитан. Для других языков правило не действует |
 | воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`, `add_periodic_task` и обёртка над ним в файлах того же каталога, ч. 4, Л1), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), sidekiq-scheduler (`:scheduler: :schedule:` или `:schedule:` в `config/sidekiq*.yml`: `every`, `cron`, `interval`, `at`, `in`, задача `class`; контейнер, который запускает sidekiq; ч. 2, В3), sidekiq-cron (`config/schedule.yml`, `config/schedule.yaml`, `config/sidekiq_cron.yml`: запись верхнего уровня с `class` и `cron` или `every`, без sidekiq-cron в Gemfile только с `cron` и `class`; тот же владелец; ч. 5, П2), `node-cron`/`schedule`-литералы не ищутся; потребители `consumers` — каналы потребления из кода (классы Sidekiq, `new Worker` BullMQ, реестр `KAFKA_CONSUMERS` по объекту процесса) | имя, расписание как написано (вставки ERB остаются текстом, у списка первый элемент), задача; у потребителя канал, вид, брокер, основание |
@@ -290,8 +293,8 @@ archmap-scan/
 | Источник | Разбор |
 |---|---|
 | SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
-| Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
-| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
+| Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key` (переименование таблицы или колонки переносит ссылки других таблиц, ч. 6, М1); порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
+| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id` (переименования модели, поля и таблицы переносят ссылки; модель `django.contrib` без миграций в репозитории — настоящей таблицей: `contenttypes.ContentType` → `django_content_type.id`, `sessions.Session` → `django_session.session_key`, `admin.LogEntry` → `django_admin_log`, `sites.Site` → `django_site`, ч. 6, М1); порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
 | Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается; ``sql.raw(`SQL`)`` в цикле `for (const { a, b } of СПИСОК)` или `for (const [a, b] of СПИСОК)` по массиву-литералу верхнего уровня того же файла читается для каждого элемента со значениями вместо `${a}` и `${b}`, переименование таблицы или колонки переносит ссылки на неё (ч. 5, М1) |
 | Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
@@ -306,7 +309,7 @@ Liquibase (снят владельцем), Helm `templates/`, маршруты L
 tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue и другие; robfig/cron, clokwerk, пакеты cron и @nestjs/schedule читаются с части 4, Л2–Л4, sidekiq-cron с части 5, П2),
 ключи viper (Spring `@Value` и `@ConfigurationProperties` читаются с части 5б, Е2, окружение Kotlin с Е3), исходящие HTTP-вызовы в коде, компоненты,
 внешние SaaS и люди, описания и подписи со смыслом, поля сообщений каналов, содержимое OpenAPI
-(кроме операций как маршрутов владельца, ч. 3, З3), Redis/SQS/Pub/Sub как каналы, «мёртвый код»
+(кроме операций как маршрутов владельца, ч. 3, З3), SQS и Pub/Sub как каналы (Redis pub/sub читается с части 6, В1), «мёртвый код»
 и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
 
 ### 6.5 Словари (стартовые, пополняются по находкам, один модуль `vocab.py`)
@@ -314,14 +317,21 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
 - Образ → вид и технология: `postgres`→database «PostgreSQL», `mysql`→database «MySQL»,
   `mariadb`→«MariaDB», `mongo`→«MongoDB», `clickhouse`→«ClickHouse», `elasticsearch`→
   «Elasticsearch», `opensearch`→«OpenSearch», `redis`/`valkey`→database «Redis» (роль «кэш»;
-  становится broker «Redis», если на него указывает `CELERY_BROKER_URL`/`BROKER_URL`/`RQ_*`),
+  становится broker «Redis», если на него указывает `CELERY_BROKER_URL`/`BROKER_URL`/`RQ_*`
+  или в него публикует либо из него читает по коду pub/sub контейнер-владелец, ч. 6, В1;
+  брокер Redis с кэшем Rails, Django, Laravel или Node.js у связанного контейнера получает роль
+  «брокер и кэш», ч. 6, В2),
   `memcached`→database «Memcached» (роль «кэш»), `minio`→database «MinIO» (роль «хранилище»),
   `rabbitmq`→broker «RabbitMQ», `kafka`/`cp-kafka`/`bitnami/kafka`→broker «Kafka»,
   `redpanda`→broker «Redpanda», `nats`→broker «NATS», `pulsar`→broker «Pulsar»,
   `zookeeper`→service «ZooKeeper» (роль «сервис»), `nginx`/`traefik`/`haproxy`/`envoy`→service
   (роль «прокси»), `mailhog`/`mailpit` → service. Неизвестный образ без `build` → service,
-  `technology` = имя образа без тега. Слово словаря ищется и среди частей имени через дефис
-  и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`, `docker-redis-cluster`), кроме
+  `technology` = имя образа без тега. У сервиса без языка пакета и образа compose технологию
+  даёт образ итоговой стадии Dockerfile: вид сервиса из этого словаря (Envoy, nginx) или
+  программа `grafana`→«Grafana», `prometheus`→«Prometheus», `airflow`→«Airflow»; базовые образы
+  ОС и подстановки `${ИМЯ}` технологии не дают (ч. 6, Т1). Слово словаря ищется и среди
+  частей имени через дефис и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`,
+  `docker-redis-cluster`), кроме
   имён со словом программы вокруг базы (`client`, `exporter`, `ui`, `meta`…) и с двумя
   технологиями (§15 п. 14 И3).
 - Базовый образ Dockerfile и манифест сборки → `technology`: «Python», «Node.js», «Go»,
@@ -342,6 +352,24 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   контейнеров: один неявный контейнер с именем корня (по манифесту сборки или каталогу), в
   coverage пометка «контейнер определён по репозиторию, не по манифесту». Файл вне каталогов
   всех контейнеров (общая библиотека) → записи в `hints.unassigned` с причиной «общий код».
+  Форма выдачи параметров общего кода (ч. 6, О1; решение владельца 2026-11-10: правило
+  владельца не меняется): записи с причинами «общий код: файл вне каталогов кода всех
+  контейнеров» и «общий код: нет контейнера на этом языке» ложатся готовыми файлами
+  `facts/shared/<единица>.config.yaml`, по файлу на единицу кода (каталог ближайшего пакета
+  языка записи по манифесту сборки, у файлов настроек по их стеку, у примера окружения пакет
+  его каталога; без пакета каталог первого уровня, корень репозитория `root`). Формат и
+  слияние одинаковых имён как у файла контейнера, одно имя в двух единицах — две записи.
+  Первая строка `# archmap-node:` пустая, вторая просит вписать адрес контейнера, который
+  выполняет этот код, затем шапка сборщика, причина, каталог кода и число записей. ArchMap
+  такой файл без адреса не ввозит: разбор адреса (`backend/app/data_import.NODE_HEADER`)
+  берёт текстом адреса следующую строку, и `facts_import.resolve_owner` отвечает «<файл>:
+  объект «# Впишите в первую строку адрес контейнера, который выполняет этот код, и подайте
+  файл как остальные.» не найден; контейнеры проекта: …» и при окне объекта, и без него. В
+  `hints.unassigned` на файл одна запись `kind: shared_file` (путь, причина, первое
+  основание, `folder`, `records`), основания в `agent/evidence.yaml` под `shared/<файл>/<имя>`,
+  в `coverage.yaml` у семьи config `unassigned` — число записей, как прежде, и `shared_files`.
+  Маршруты без владельца файлами не выдаются (маршруты не ввозятся), каналы и таблицы без
+  владельца-контейнера не бывают: их владелец брокер и база.
   Единственный контейнер со своим каталогом кода владеет и кодом вне своего каталога (контейнеры
   на одних образах единственность не нарушают: Sentry с devservices), если язык файла
   совпадает с языком контейнера или язык контейнера не определён (находка фазы 1б на Sentry:
@@ -2447,3 +2475,344 @@ unread: {too_large: 3, binary: 0}
      подсказок в файле — файл непрочитан. В корпусе `@Scheduled` нет: Petclinic расписаний
      `unsupported: [Java]` → `empty` (все пакеты со Spring Boot), Keycloak (Quarkus, без
      Spring Boot) `unsupported: [Java]` тот же, остальные без изменений.
+18. **Решения исполнителя части 6** (2026-11-10, ветка feat/scan-6, сборщик 0.8.0 без выпуска;
+   записи общего кода файлами фактов, каналы Redis pub/sub и роль «брокер и кэш», хвосты частей
+   5 и 5б; владелец может отменить, числа перемера в конце пункта).
+   - О1 (решение исполнителя): правило владельца (§7, правило 1) не менялось, менялась форма
+     выдачи (`shared.py`). Единица кода — каталог ближайшего вверх манифеста сборки языка записи
+     (язык по расширению файла; у `application.yml` и `.properties` Java или Kotlin, у
+     `appsettings.json` .NET; исходники Java и Kotlin одного модуля — одна единица); у файла без
+     языка (пример окружения, `defaults.hjson`) — пакет его собственного каталога, иначе каталог
+     первого уровня: так `docker/.env.example` Supabase идёт в `docker.config.yaml`, а не в
+     корневой пакет монорепозитория. Вторая строка шапки — просьба вписать адрес: разбор адреса
+     ArchMap захватывает следующую строку (`\s*` после двоеточия проходит перевод строки), и
+     отказ цитирует именно её; шапка сборщика стоит в строках 3–5, где её ищет
+     `scan_origin` (первые пять строк). Сверено вызовом `parse_config_file` и `resolve_owner`
+     бэкенда (только чтение): с окном объекта и без него ответ один, «facts/shared/x.config.yaml:
+     объект «# Впишите в первую строку адрес контейнера, который выполняет этот код, и подайте
+     файл как остальные.» не найден; контейнеры проекта: …», файл не ввозится. Примеры
+     окружения вне каталогов контейнеров (`assemble._params`) идут в тот же файл единицы и
+     сливаются с чтениями кода так же, как у контейнера (сначала пример, потом код). Причина
+     «код программы из cmd/<имя>/» (Argo CD) осталась подсказкой: у неё владелец назван, но не
+     описан в манифестах. Сверх брифа: блок «Параметры конфигурации» раздела «Как
+     импортировать» сводки показывается и при одних файлах `facts/shared/` (Envoy, Plausible:
+     у контейнеров параметров нет). Отклонение от ожидания «число записей равно прежнему числу
+     подсказок»: прежняя подсказка была одна на имя и причину (у кода, первое место) или одна на
+     строку примера окружения, а запись — одна на имя в единице. Поэтому одно имя в двух
+     единицах даёт две записи (как у двух контейнеров), а одно имя в нескольких примерах
+     окружения одной единицы — одну. Потерянных нет (каждая прежняя подсказка, имя и её место,
+     найдена в основаниях записи), повторов внутри файла нет. По корпусу: совпало у Mastodon 1,
+     immich 1, Sentry 12, OpenTelemetry Demo 1, Plausible 2, Nomad 4, Envoy 13 (три файла);
+     больше у Keycloak 79 → 80 (`quarkus.package.main-class` в `quarkus/runtime` и
+     `quarkus/server`; восемь файлов, `quarkus-runtime.config.yaml` 60 записей, а не 54: к 52
+     ключам и двум подстановкам `application.properties` добавились шесть чтений Java модуля,
+     `quarkus-server.config.yaml` 5), Kubernetes 40 → 41 (`DISABLE_HTTP2` в корневом модуле,
+     `cmd/kubelet/app/server.go:1086`, и в `staging/src/k8s.io/apimachinery`), Airflow 7 → 9 (две
+     переменные `AIRFLOW__LOGGING__*` в `go-sdk` и `ts-sdk`), PostHog 193 → 215 в 19 файлах
+     (15 имён в нескольких пакетах, `NODE_ENV` в семи), n8n 229 → 243 в 26 файлах (15 имён в
+     нескольких пакетах, четыре имени из трёх примеров окружения корня слились), Supabase 188 →
+     195 в 11 файлах (девять имён в нескольких пакетах, 11 имён двух примеров окружения одного
+     пакета слились). Бриф называл у PostHog «крейты `rust/`»: по клону эти записи из `nodejs/`
+     (65), `packages/agent/` (50), `products/desktop/` (38), `cli/` и других пакетов Node.js и
+     Rust в каталоге корневого контейнера Python.
+   - В1 (решение исполнителя): каналы Redis pub/sub читает `parsers/redispubsub.py` (клиент
+     `Redis`, `kind: channel`). Получатель вызова клиент Redis по имени (`redis` в имени, `rdb`),
+     по подключению Redis в файле (`client`, `pubsub`, `publisher`, `subscriber`) или, у Python,
+     по значению фабрики или метода клиента (`redis.Redis()`, `get_client()` из `posthog.redis`,
+     `r.pubsub()`, `RedisHook(…).get_conn()`); имя из импорта модуля репозитория клиентом не
+     считается (PostHog `products/wizard/backend/facade/api.py:101` `pubsub.subscribe(team_id, …)`,
+     `pubsub` там модуль). Ruby `pipeline.publish` (параметр блока `redis.pipelined`) не читается:
+     по имени это не клиент Redis (Mastodon `batched_remove_status_service.rb:87–97`,
+     `application_extension.rb:44`, `user.rb:343`, восемь вызовов). Брокер канала выбирается как у
+     остальных клиентов (адрес в окружении владельцев файла, единственный брокер Redis), а при
+     отсутствии брокера Redis единственный объект Redis любой формы; кэш становится брокером только
+     по записи с владельцем-контейнером (`codefacts._owned_switch`, до раздачи каналов, поэтому
+     порядок записей не влияет), запись без владельца к кэшу остаётся подсказкой с объектом.
+     Несколько объектов Redis без брокера среди них дают новую причину «несколько объектов Redis,
+     в какой из них идёт канал, по коду не определить», а не «несколько брокеров этого вида»:
+     брокеров там нет. Дешёвый отбор файла до разбора (вызов `.publish`/`.subscribe` и слово
+     redis или rdb в тексте) прогон байт в байт не меняет. По корпусу против прогона после О1:
+     Mastodon `facts/redis.channels.yaml` 7 → 13 каналов (`timeline:public`,
+     `timeline:public:media` литералами и четыре из условного оператора
+     `@status.local? ? 'timeline:public:local' : 'timeline:public:remote'`,
+     `fan_out_on_write_service.rb:143–148`, `remove_status_service.rb:139–149`), связей не
+     прибавилось: владелец `app/services/` по действующему правилу не определим (web и sidekiq
+     оба с ролью «сервис»), это 12 подсказок `edge` с объектом `redis`; 21 подсказка о
+     выражении (18 подстановок `"timeline:#{…}"` в `app/services/`, `app/lib/`, `app/models/`,
+     `app/workers/`, две переменные `timeline_id` и `@timeline_id`, одна
+     `redisNamespaced(channel)` в `streaming/index.js:329`). Argo CD: `new-revoked-token`
+     (`util/session/state.go:82`, `:153`) две подсказки «несколько объектов Redis»
+     (`argocd-redis` и `argocd-redis-ha-server`, оба «кэш»), две подсказки о выражении `key`
+     (`util/cache/redis.go:165`, `:182`), объекты без изменений. PostHog: сверх ожидания брифа
+     две записи литералами `reload-action` и `drop-action`
+     (`products/cdp/backend/models/hook.py:37`, `:46`, `get_client()` из `posthog.redis`) в
+     `redis7`, связи `web → redis7` «публикует» с этими каналами вытеснили «использует» той же
+     пары (`docker-compose.hobby.yml:230`); 11 подсказок о выражении (`plugin_server_api.py:27`,
+     `nodejs/src/common/utils/pubsub.ts:63`, `:71`, `products/wizard/backend/logic/sessions/pubsub.py:59`,
+     `:103`, `:105`, `runs/pubsub.py:24`, `:35`, `lazy_computation_executor.py:1577`,
+     `computation_notifications.py:29`, `:39`). n8n: восемь подсказок о выражении в четырёх
+     файлах (`scaling/pubsub/publisher.service.ts`, `subscriber.service.ts`,
+     `engine-v2/response-channel/redis-execution-response-receiver.ts` и `redis-execution-response-sender.ts`), объекта
+     Redis нет, записей нет. Airflow: три подсказки о выражении в `providers/redis/` (`self.channel`,
+     `self.channels`), записей нет. У AWX, Loki, Supabase и Nomad в покрытии каналов появился
+     разборщик `redis-pubsub` (стек есть, вызовов нет), статусы те же. Вердикты шести угловых без
+     регрессий (у Mastodon кандидат `[channels] timeline:public` «нет» → «есть», у PostHog
+     «заменена связью с каналом: web -> redis7»), слои Sentry пройдены. Индекс экспортов
+     `nodeconst` проходит весь код Node.js, и пропуск кода разработки в нём сначала записывался
+     разборщику, который спросил константу первым (`skipped.dev_code` каналов PostHog 24 → 115,
+     n8n 0 → 30); после правки пропуск сохраняется и восстанавливается, как у `nest._enums`, и
+     числа вернулись к прежним.
+   - В2 (решение исполнителя): свидетельства кэша собирает `parsers/cachestore.py` (семьи нет,
+     записей нет), роль ставит `cacherole.py` после раздачи каналов, когда связи уже
+     окончательные. Владельцы свидетельства — контейнеры его файла (`owners.file_owners`, у
+     `production.rb` Mastodon это web и sidekiq: оба связаны с одним `redis`). Файлы разработки и
+     тестов (`walk.is_dev_path`) не свидетельство: у Mastodon `development.rb:29` и у Forem
+     `development.rb:36` тоже `:redis_cache_store`, но это кэш разработки. Из файла берётся
+     первое свидетельство: у PostHog основание `posthog/settings/data_stores.py:733` (строка
+     `"BACKEND": "django_redis.cache.RedisCache"` в `CACHES`; бриф называл `:729`, строку
+     `CACHES = {`), у Forem `production.rb:79` (условная замена на `LocalRedisCacheStore.new` в
+     `:85` той же формы не имеет). Строка свидетельства идёт в основания объекта, разборщик в
+     покрытие брокеров не добавляется. Подсказка о нескольких Redis: раздел `unassigned`,
+     `kind: cache`, имя то, что названо (`:redis_cache_store`, имя пакета), список `objects`. По
+     корпусу: роль «брокер и кэш» у Mastodon `redis` (`config/environments/production.rb:58`),
+     Forem `redis` (`config/environments/production.rb:79`), PostHog `redis7` (web и остальные
+     контейнеры Python связаны только с `redis7`, `valkey` связан с `plugins` на Node.js);
+     immich `redis` остаётся «брокер» (свидетельств нет), у Monica `CACHE_STORE=database`, Argo
+     CD, Online Boutique, otel-demo без изменений, подсказок о двух Redis в корпусе нет. Судья у
+     Mastodon пишет «wrong-kind «redis»: изменилось role» справкой, регрессией не считает.
+   - К1 (решение исполнителя): константы ищет `nodeconst.py` (тот же модуль, что у В1). За
+     пределами файла имя ищется, только если файл его импортирует по имени (`import { A }`,
+     `import { A as B }`, `const { A } = require(…)`): имя без объявления и без импорта — переменная
+     или параметр (n8n `healthPath`, `readinessPath` из объекта настроек), иначе поиск по имени
+     в репозитории приписал бы им чужие экспорты. Шаблон константы раскрывается на одну
+     вложенность: `${A}/x`, где `A` сам шаблон с подстановкой, остаётся подсказкой. Значение не
+     путь (без «/» в начале) не маршрут, как у литерала. `app.get('env')` с одним строковым
+     аргументом у Express по-прежнему ни маршрут, ни подсказка: путь не начинается с «/», это
+     чтение настройки Express. Приложение NestJS — пакет файла с `@nestjs/core` или
+     `NestFactory`, `INestApplication` в файле; `app.get(X)` без обработчика среди аргументов
+     (только `X` или `X` и объект настроек) там пропускается молча, у чистого Express
+     `app.get(переменная)` остаётся подсказкой. По корпусу: immich подсказок маршрутов 7 → 0
+     (`AppRepository` в `server/src/workers/api.ts:23`, `maintenance.ts:20`, `microservices.ts:21`,
+     `ConfigRepository` в `app.common.ts:40`, `websocket.adapter.ts:14`, `microservices.ts:20`,
+     `ssr` в `app.common.ts:86`), маршрутов по-прежнему 318. n8n подсказок именем 13 → 8, всех
+     подсказок о выражении 30 → 25: `GET /metrics` (`prometheus.service.ts:129`, константа
+     `metrics/prometheus/constant.ts:1`) и четыре маршрута `engine-control-plane-server.ts:106`,
+     `:120`, `:128`, `:136` (`/internal/status-callback`, `/internal/credentials/resolve`,
+     `/internal/data-tables/call`, `/internal/sub-workflows/resolve` из `engine-v2.constants.ts`).
+     Владельца у них нет по действующему правилу (`packages/cli/` вне каталогов кода
+     контейнеров n8n), поэтому это пять новых подсказок «общий код» (21 → 26), а не записи; бриф
+     ждал владельца у `prometheus.service.ts`. Остались подсказками `assetPath`, `authEndpoint`,
+     `healthPath` (два), `path`, `readinessPath` (два), `typeFile`. В корпусе нет
+     `@Controller(ИМЯ)` и `@Get(ИМЯ)` с константой: эта ветка проверена фикстурой.
+   - Р1 (решение исполнителя): `GetRequiredValue` читается только вызовом через точку,
+     объявление расширения `GetRequiredValue(this IConfiguration configuration, string name)`
+     (eShop `src/eShop.ServiceDefaults/ConfigurationExtensions.cs:5`) не чтение; его тело
+     `configuration[name] ?? throw` остаётся подсказкой об имени выражением, как и было.
+     Индексатор раздела ищется по именам переменных разделов файла и по концу вызова
+     `GetSection(…)`, а не по любому `имя[`: иначе файлы с тысячами обращений к массивам
+     отвергались бы пределом совпадений. Тип у индексатора по обёртке разбора (`int.Parse`),
+     дефолт и «?? throw» как у индексатора конфигурации; `GetRequiredSection("S").GetChildren()`
+     параметров не даёт (ключи известны только при запуске). По клону eShop: `GetRequiredValue`
+     девять мест, из них восемь вызовов (`IdentityUrl`, `CallBackUrl` в `src/WebApp/Extensions/
+     Extensions.cs:60`, `:61` и `src/WebhookClient/Extensions/Extensions.cs:29`, `:30`;
+     `Identity:Url`, `Identity:Audience` в `AuthenticationExtensions.cs:35`, `:36` через
+     `identitySection` из `:22`; `Identity:Url` в `OpenApiOptionsExtensions.cs:169`;
+     `OpenApi:Document:Title` и `OpenApi:Document:Description` в `OpenApi.Extensions.cs:77`
+     через `openApi` из `:51`) и одно объявление; `GetRequiredSection` два места, оба
+     `.GetChildren()`; 19 индексаторов, все на `IConfiguration` (`configuration[…]`,
+     `builder.Configuration[…]`) и читались и раньше, индексаторов раздела нет. После слияния
+     с `appsettings.json` новых имён два (`IdentityUrl`, `CallBackUrl`, оба `required: true`),
+     параметров 45 → 47; у `Identity:Url`, `Identity:Audience` и `OpenApi:Document:*` прибавились
+     основания, `required` у них не ставится: в `appsettings.json` есть значение.
+   - Т1 (решение исполнителя): Grafana, Prometheus и Airflow не добавлены в `vocab.IMAGES`, бриф
+     считал их там. Вид по образу из `IMAGES` решает больше, чем технологию: зависимость чарта
+     Helm с таким именем становится объектом (`helm.py`, в том числе по части имени
+     `kube-prometheus-stack`), сервис compose на таком образе перестаёт искать свой каталог кода
+     по имени (`assemble._named_candidate`) и получает роль из словаря мимо команды. Поэтому
+     программы лежат в отдельной таблице `vocab.PROGRAM_IMAGES` (имя образа целиком: `grafana`,
+     `grafana-oss`, `grafana-enterprise`, `prometheus`, `airflow`), её читает только
+     `vocab.stage_technology` вместе с видами сервиса из `IMAGES`; базы и брокеры итоговой
+     стадии технологию сервиса не дают (их вид, как и раньше, решает `_classify`). Технологии
+     таблицы входят в стеки (`vocab.is_stack`), как Envoy и nginx. Роль не меняется: бриф
+     называл только технологию, у frontend-proxy и image-provider роль «сервис», а не «прокси».
+     Сервис compose на образе `grafana/grafana` по-прежнему получает технологией имя образа
+     (`grafana` у immich, otel-demo и Loki), а сервис со своим Dockerfile на том же образе
+     «Grafana»: одинаковое написание требует решения владельца. Ссылка на стадию берёт образ
+     стадии, как и язык (`FROM serve` после `FROM nginx-unprivileged AS serve`), основание — строка
+     последнего `FROM` (`Dockerfile.final_loc`). По корпусу (46 сервисов без технологии в
+     дымовом прогоне и семи угловых): Petclinic `grafana-server` «Grafana» и
+     `prometheus-server` «Prometheus» (`docker/grafana/Dockerfile:1`, `docker/prometheus/
+     Dockerfile:1`), otel-demo `frontend-proxy` «Envoy» (`src/frontend-proxy/Dockerfile:4`) и
+     `image-provider` «nginx» (`src/image-provider/Dockerfile:4`), Airflow `executors`
+     «Airflow» (`providers/amazon/src/airflow/providers/amazon/aws/executors/Dockerfile:19`);
+     в стеках Petclinic прибавились Grafana и Prometheus, otel-demo Envoy и nginx, Airflow
+     Airflow. Остались без технологии 41: базовый образ ОС или чужая основа у семи (otel-demo
+     `currency` alpine, Keycloak `container` ubi9-micro, Airflow `pgbouncer` alpine, Loki
+     `docker-driver` alpine, Kubernetes `mounter` ubuntu:xenial, PostHog `agent` alpine, n8n
+     `node-pc` на собственной основе `n8nio/base`), подстановка образа у восьми (n8n `n8n`,
+     `n8n-base`, `runners`; Kubernetes `addon-manager`, `pause`, `server-image`; Envoy `envoy`;
+     PostHog `dagster-ml`), без Dockerfile у 26 (AWX 13, PostHog 9, n8n `sandbox-api`,
+     `sandbox-certs`, `sandbox-runner-1` и otel-demo `telemetry-docs`: его Dockerfile с nginx в
+     итоговой стадии лежит в `src/telemetry-docs/`, а каталог исключён соглашением по слову
+     `docs`).
+   - Е1 (решение исполнителя): константа Kotlin `const val ИМЯ = "литерал"` (тип `String` после
+     имени допустим) раскрывается в `clike.Repo`, как `static final String` у Java: имя без точки
+     в том же файле (верхний уровень, `object`, `companion object`), `Объект.ИМЯ` среди констант
+     `object` с этим именем или `companion object` класса с этим именем (у именованного companion
+     и по его имени) в том же файле и в файлах Kotlin того же каталога; затем, как у Java, в файле
+     с именем объекта, если он в репозитории один, и там тоже только константа этого объекта.
+     Тело `object` и companion определяет `jvm.Outline`; файл сверх его пределов скобок и классов
+     раскрывает только имена без точки. Значение с `$` (шаблон) и литерал, за которым выражение
+     (`"a" + B`), константой не считаются; одно имя дважды в файле без точки неоднозначно, как у
+     Java. Свой `Repo` для Kotlin получили и разборщики маршрутов Spring и JAX-RS, топиков Kafka,
+     расписаний `@Scheduled` и `@Value` (`jvm.Repos`): раньше они передавали константы только
+     файлам Java. По корпусу подсказок Kotlin было две, обе Airflow: `Logger.kt:132`
+     `System.getenv(LOGGING_LEVEL_ENV)` (`private const val` в `object Log`, `:130`) и `:133`
+     `System.getenv(NamespaceLevels.ENV_VAR)` (`object NamespaceLevels`, `:61`). Теперь это
+     записи `AIRFLOW__LOGGING__LOGGING_LEVEL` и `AIRFLOW__LOGGING__NAMESPACE_LEVELS` с местом
+     объявления в основаниях; владельца у `java-sdk/sdk/` нет (контейнера на этом языке нет),
+     поэтому по О1 они легли в `facts/shared/java-sdk-sdk.config.yaml`: подсказок о выражении
+     38 → 36, записей общего кода 9 → 11 в 3 → 4 файлах, `java-env` в разборщиках семьи config.
+     `required: true` у обеих ставит прежнее правило Е3 части 5б (за `getenv` нет элвиса, элвис
+     стоит за вызовом `Level.parse`), это правило не менялось. otel-demo без изменений
+     (`const val groupID` в `src/fraud-detection/src/main/kotlin/frauddetection/main.kt:27`
+     в чтениях не участвует).
+   - М1 (решение исполнителя, отклонение от брифа): у Django ссылки моделей и раньше считались
+     по состоянию в конце цепочки (`_model_tables`), так что `RenameModel` (и для ссылок из
+     других приложений), `RenameField` и `AlterModelTable` их переносили; `Schema.refer` нужен
+     только таблицам `RunSQL` (свой `sqlddl.Schema` у приложения), им перенос добавлен. У
+     Alembic ссылки писались мимо `Schema.refer`, и `rename_table` с `new_column_name` их не
+     трогали: теперь `sa.ForeignKey` в `create_table` и `add_column`, `ForeignKeyConstraint` и
+     `create_foreign_key` идут через `refer`, `alter_column(new_column_name=)` зовёт
+     `rename_column_refs`. Словарь `vocab.DJANGO_CONTRIB_TABLES` (приложение и модель →
+     таблица и первичный ключ) применяется, только если модели цели нет в состоянии; у
+     `sessions.Session` ключ `session_key`, а не `id`; `auth.User` уже звался `auth_user`.
+     ArchMap ссылку без таблицы принимает (`backend/app/data_import.py`: связь колонок не
+     ставится, в отчёт идёт предупреждение «цель ссылки не найдена» на каждую такую ссылку).
+     Ожидания брифа PostHog 4 → 1 и awx «0 внутренних» не достигнуты: внутренние ссылки без цели
+     у них не от переименований. PostHog `alerts_platform_platformalertconfiguration` (три
+     ссылки: `products/alerts_platform/backend/migrations/0016_platformalertdeliverypath.py:46`,
+     `0018_alert_destination.py:89`, `0020_delivery_hold.py:62`): модель перенесена из
+     приложения `alerts` в `alerts_platform` только в состоянии Django
+     (`0001_initial.py:236` `SeparateDatabaseAndState(database_operations=database_operations,
+     state_operations=state_operations)`, списки заданы атрибутами класса), а сборщик читает
+     только `database_operations`; модели `alerts_platform.PlatformAlertConfiguration` в
+     состоянии нет, и ссылка получает имя по умолчанию. awx `main_workflowjob`,
+     `main_workflowjobnode`, `main_workflowjobtemplatenode`: их `CreateModel`
+     (`awx/main/migrations/0004_squashed_v310_release.py:92`, `:108`, `:142`) стоят в
+     `operations = _squashed.operations(SQUASHED_30) + [...]` (`:23`), это выражение, а не список,
+     и вся миграция считается пропущенной. Обе причины вне пункта, в остаток. По корпусу М1
+     меняет только имена ссылок на `django.contrib`: PostHog `posthog_taggeditem.content_type_id`
+     `contenttypes_contenttype.id` → `django_content_type.id`; awx `contenttypes_contenttype.id` →
+     `django_content_type.id` у трёх колонок и `sessions_session.id` →
+     `django_session.session_key` у `main_usersessionmembership.session_id`; ссылок без цели
+     PostHog 4 (внешних 1, `django_content_type`), awx 42 (внешних 39: `auth_user` 35,
+     `django_content_type` 3, `django_session` 1, внутренних 3); Sentry 0; Airflow без изменений
+     (в `tables` три таблицы, цепочка оборвана на `ee86eed19e24`, 14 файлов `versions/` с
+     `rename_table` или `new_column_name` правило не видят). Враждебный вход переименований
+     (отдельным коммитом после блока П, тесты `test_hostile_renames_are_fast`): у Django 900
+     приложений с `RunSQL` и цепочка из 1000 `RenameModel` 0,19 с (до части 6 0,17 с), у
+     Alembic 500 внешних ключей и 3000 ревизий с `rename_table` и `alter_column` 0,33 с (0,24 с),
+     предел 0,7 с; перенос ссылок `sqlddl` ограничен `MAX_REF_UPDATES`, как раньше. Перебор
+     всех полей всех моделей на каждое `RenameModel` был и до части 6: 3000 полей и 1500
+     переименований 0,71 с (0,77 с теперь), в тест не взят.
+   - П1 (решение исполнителя): вдвое быстрее разбор плотного YAML без потери точности строк не
+     получается. Профиль 256 КБ плотного YAML (кластеры Envoy в стиле потока, сервисы compose,
+     документы k8s, задачи sidekiq-cron): около четырёх пятых времени занимают сканер и разборщик
+     чистой Python-части PyYAML (на каждый токен разборщик несколько раз зовёт `check_token`,
+     тот `need_more_tokens`, на 256 КБ полмиллиона вызовов), около десятой части сборка узлов с
+     метками строк и столько же построение `LineDict` и `LineList`; проверка вложенности
+     потока и размера около 1 %. Сделано то, что не меняет ни значения, ни строк:
+     `need_more_tokens` и `stale_possible_simple_keys` переписаны в `_Loader` с тем же ответом
+     (пустой словарь простых ключей сразу, ближайший ключ одним проходом), сверка с кодом
+     PyYAML на блоках, потоке, нескольких документах, якорях, слиянии, сложном ключе, ключе
+     длиннее 1024 знаков и ошибке сканера в `tests/test_yamlload.py`. Числа (процессорное время,
+     минимум из пяти, до → после): кластеры Envoy 0,98 → 0,89 с, конечные точки Envoy 0,91 →
+     0,82 с, compose 0,73 → 0,64 с, k8s 1,01 → 0,91 с, sidekiq-cron 0,70 → 0,62 с (около 10 %).
+     Вдвое быстрее можно было бы только своим разборщиком YAML вместо PyYAML (риск для якорей,
+     слияний `<<`, неявных типов и номеров строк) или расширением libyaml, которого нет в
+     собранном файле (`python3 -I -S` системные пакеты не видит, поведение у пользователя и у
+     разработчика должно быть одно). Корпус после пункта байт в байт с прогоном до него.
+   - Гейт (решение исполнителя за пределами брифа): строки `test_appsettings_hostile` части 5б
+     (`objects-in-array`, `same-key`) роняли хук пять раз за фазу (0,71–0,84 с при пределе
+     0,7 с; поодиночке 0,50–0,58 с, своп хоста занят целиком). По правилу брифа «при повторном
+     падении ищи причину в коде» причина найдена в `parsers/appsettings.py`: на каждую лексему
+     два совпадения (пропуск и лексема) и вызов `char`. Теперь пропуск с блочными комментариями и
+     лексема идут одним совпадением (`_LEX`), а пара «ключ: строка или прочее» с разделителем и
+     элемент массива с разделителем одним совпадением на пару (`_PAIR`, `_ITEM`); вложенное
+     значение и ошибка идут по лексемам с того же места. Пропуск взят в опережающую проверку со
+     ссылкой на неё (атомарная группа для Python 3.10), за неудачей возврата в пропуск нет.
+     Числа (минимум из пяти, процессорное время `read`, до → после): `objects-in-array` 0,51 →
+     0,27 с, `same-key` 0,54 → 0,28 с, `array-items` 0,37 → 0,13 с, `keys` 0,27 → 0,15 с; новые
+     строки матрицы (комментарий в каждой паре и элементе, длинное прочее, блочный без конца) не
+     дольше 0,21 с. Результат тот же: сверка старого и нового `read` на 160 тысячах
+     сгенерированных и испорченных документов с комментариями и на 36 файлах клонов без
+     расхождений, тест `test_appsettings_fast_path_as_tokens` сверяет частый путь с разбором по
+     лексемам, корпус после блока П байт в байт.
+   - П2 (решение исполнителя): два мегабайта `x.Get(` шли долго из-за трёх вещей на каждый
+     вызов: поиск получателя (`codetext.receiver`), три вызова `_known` и сборка текста первого
+     аргумента (`_first_arg`, 80 знаков на вызов). Теперь известность получателя считается один
+     раз на вызов; вызов с аргументом не строкой у неизвестного получателя и без «"/» в первых
+     80 знаках аргумента пропускается без сборки текста (текст аргумента — начало исходного
+     текста не длиннее этого окна, без «"/» в окне его нет и в тексте); в файле без объектов
+     маршрутизации и без «http» перед точкой тот же вызов пропускается до поиска получателя.
+     Числа (`gohttp.parse`, процессорное время, минимум из трёх, до → после): строка матрицы
+     `gets` 3,85 → 0,24 с (у судьи было около 5,6 с), предел 1 с. Строка с известным
+     получателем (`r := chi.NewRouter()` и два мегабайта `r.Get(`) осталась около 4,5 с: на
+     каждый вызов пишется подсказка (333 тысячи подсказок), это вывод, а не поиск, в матрицу
+     она не взята; тот же поток `x.Get(` в файле с объектом маршрутизации около 0,6 с.
+     Записи и подсказки `gohttp.parse` старого и нового кода на всех 22 клонах совпадают
+     (Argo CD, Loki, Nomad, Kubernetes, Microservices Demo и PostHog с маршрутами Go).
+   - П3 (решение исполнителя): в пяти тестах (`test_compose.py`: адреса Envoy и разбор compose,
+     hjson в `test_config_code.py`, `test_command_scripts.py`, `test_routes_rails.py`) повтор
+     `timed` теперь по пределу проверки (0,7 от `time_limit()`), как у `appsettings` в части 5б:
+     прогон между 0,7 и 1 с больше не проходит без повтора. В `_check` `test_code_hostile.py`
+     повтор, если первый прогон вышел за предел, мерит тот же путь, что первый: новые файлы
+     (`files_of`), разборщики кода до него прогоняются без счёта времени, и `Files.memo`
+     оказывается в том же состоянии, что перед первым прогоном. Простой сброс `files.memo` к
+     снимку не годится: часть памяти дополняется на месте (`jvm-settings`, ленивые поля индекса
+     констант `nodeconst.Index`). Числа (процессорное время разборщика, три прогона подряд:
+     первый прогон, прежний повтор по прогретой памяти, новый повтор): `js/app.js`
+     `@Controller(A)\nclass C {\n  @Get(B` у `nest` 0,074 / 0,013 / 0,107, 0,046 / 0,015 /
+     0,069, 0,046 / 0,010 / 0,045 с (прежний повтор мерил в 3–5 раз меньше первого прогона из-за
+     готовых перечислений `nest-enums`); `cs/App.cs` `$"{configuration["` у `dotnet-env` 0,52 /
+     0,51 / 0,54, 0,67 / 0,53 / 0,57, 0,57 / 0,51 / 0,64 с и `cs/App.cs` `[ApiController]` у
+     `aspnet` 0,12 / 0,12 / 0,12, 0,12 / 0,16 / 0,12, 0,18 / 0,15 / 0,12 с (память там не
+     сказывается, разница в шуме хоста). По всем 443 строкам матрицы заметная разница первого
+     прогона и прогретого повтора только у `nest`.
+   - П4 (решение исполнителя): `kafkaTemplate.sendDefault(data)` больше не запись (первый
+     аргумент у него данные, топик задан в шаблоне); `<x>Template.send("t", …)` даёт топик, только
+     если имя получателя содержит `kafka` без учёта регистра или получатель объявлен в файле
+     типом `KafkaTemplate` (Java: поле, параметр или переменная `KafkaTemplate<K, V> имя`,
+     параметры типа до двух уровней; Kotlin `имя: KafkaTemplate<K, V>`). Список объявлений
+     собирается один раз на файл и только при вызове шаблона без `kafka` в имени.
+     `rabbitTemplate.send` и `jmsTemplate.send` топиками не становятся, `otherTemplate.send` без
+     объявления тоже. Фикстура `fixtures/kafka-templates/` и тест `test_template_receivers`;
+     тест `test_names` (Е1) получил получатель `kafkaTemplate` вместо безымянного `template`.
+     Матрица враждебного кода: 83 тысячи `xTemplate.send` и 117 тысяч объявлений
+     `KafkaTemplate<` без конца (Java и Kotlin) не дольше 0,65 с. В коде Java и Kotlin всех 22
+     клонов вызовов `*Template.send` нет, корпус без изменений.
+   - П5 (решение исполнителя): `appsettings.json` с ошибкой синтаксиса даёт подсказку `unparsed`
+     на файл с причиной «файл настроек appsettings.json не разбирается»
+     (`texts.REASON_BAD_APPSETTINGS`), записей из файла по-прежнему нет. Файл больше 1 МБ и
+     вложенность глубже 50 уровней остались только непрочитанными (`files.refuse`, в
+     `coverage.yaml`), без подсказки: пункт называет только ошибку синтаксиса, а hjson даёт
+     подсказку во всех трёх случаях (вопрос владельцу в отчёте). Фикстура
+     `fixtures/dotnet-bad-settings/` (пропущенная запятая в одном проекте, второй проект
+     читается как прежде) и тест `test_appsettings_bad_syntax`. Все 12 файлов `appsettings.json`
+     клонов разбираются, корпус без изменений.
+   - Перемер части 6 (исполнитель, после каждой группы блоков против базы судьи judge9; итоговый
+     файл sha256 7f929a1c с HEAD 1a91cd7a): шесть вердиктов без регрессий во всех группах (6a
+     после О1, 6b после В1 и В2, 6c после К1 и Р1, 6d после Т1, Е1 и М1, 6e после блока П);
+     Sentry: `layers-check` пройден, core 24/30/52 с точностью 0,92/0,97/1,00; статусы покрытия и
+     формы объектов как набор те же; все 22 клона чистые. Вывод 6e с выводом 6d байт в байт:
+     блок П, правка гейта и тесты М1 вывод не меняют. Время против стенда 0.7.0 (минимум из трёх
+     по процессорному времени, eShop из восьми, память по `%M`): Mastodon 2,24 → 2,64 с (+18 %),
+     Lemmy 1,35 → 1,26 с, immich 1,99 → 1,77 с, eShop 0,88 → 0,87 с, Argo CD 3,25 → 3,03 с,
+     PostHog 43,9 → 47,7 с (+9 %), Keycloak 2,95 → 3,15 с, Petclinic 0,85 → 0,81 с, n8n 8,35 →
+     9,71 с (+16 %); память не больше +1 МБ. Прирост у Mastodon, PostHog и n8n в новых
+     разборщиках: каналы Redis pub/sub читают файлы кода всех четырёх языков заново (PostHog
+     4,15 с, n8n 0,90 с, Mastodon 0,19 с процессорного времени самого разборщика), роль кэша
+     0,03–0,30 с, у n8n ещё индекс экспортов констант Node; запуск файла на пустом каталоге
+     0,72 → 0,76 с (модулей больше, байткода в файле нет). Сокращать время ценой качества не
+     нужно (решение владельца 2026-11-09). Ждёт проверки судьёй.

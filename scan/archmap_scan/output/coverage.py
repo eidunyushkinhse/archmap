@@ -39,6 +39,10 @@ class FamilyStat:
     # Найдено, но не записано в файлы: владелец не определён, записи в hints.unassigned.
     # В found они не входят: сводка считает найденным только записанное (ТЗ §7).
     unassigned: int = 0
+    # Из них записи общего кода в файлах facts/shared/ и число этих файлов (ТЗ §15 п. 18 О1):
+    # в coverage.yaml пишется только число файлов.
+    shared_file_records: int = 0
+    shared_files: int = 0
     # Записи кода из служебных каталогов и конфигов инструментов и переменные ОС, ушедшие
     # в подсказки (ТЗ §13.1): число записей для строки пояснений сводки. В coverage.yaml
     # не пишется: там skipped.tooling — число файлов.
@@ -78,6 +82,8 @@ class FamilyStat:
             out["dropped"] = self.dropped
         if self.unassigned:
             out["unassigned"] = self.unassigned
+        if self.shared_files:
+            out["shared_files"] = self.shared_files
         if self.dynamic_names:
             out["dynamic_names"] = self.dynamic_names
         if self.from_dev_manifests:

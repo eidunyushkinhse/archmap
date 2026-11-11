@@ -11,7 +11,7 @@ import yaml
 from archmap_scan.model import Table
 from archmap_scan.parsers import alembic
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, timed, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Col = tuple[str, str | None, bool, bool | None, str | None]
 
@@ -187,6 +187,47 @@ def test_unknown_table_and_odd_calls(tmp_path: Path) -> None:
     assert ts.skipped == 6
 
 
+def test_renames_move_references(tmp_path: Path) -> None:
+    """rename_table и alter_column с new_column_name переносят ссылки других таблиц (ТЗ §15
+    п. 18 М1), как ALTER TABLE … RENAME у SQL: ссылка sa.ForeignKey в create_table и
+    add_column, ForeignKeyConstraint и create_foreign_key. Переименование в batch_alter_table
+    тоже. В корпусе Airflow 14 файлов versions/ с rename_table или new_column_name, но цепочка
+    оборвана (ee86eed19e24), таблиц в выводе три; правило проверено здесь."""
+    head = '"""r"""\nimport sqlalchemy as sa\nfrom alembic import op\n\n'
+    tree(tmp_path, {
+        "db/env.py": "",
+        "db/versions/1_init.py": head + (
+            'revision = "a"\ndown_revision = None\n\n\ndef upgrade():\n'
+            '    op.create_table("users", sa.Column("id", sa.Integer(), primary_key=True))\n'
+            '    op.create_table("orders", sa.Column("id", sa.Integer(), primary_key=True),\n'
+            '                    sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id")))\n'
+            '    op.create_table("notes", sa.Column("author_id", sa.Integer()),\n'
+            '                    sa.ForeignKeyConstraint(["author_id"], ["users.id"]))\n'
+            '    op.add_column("orders", sa.Column("buyer_id", sa.Integer(), sa.ForeignKey("users.id")))\n'
+            '    op.create_table("tags", sa.Column("owner_id", sa.Integer()))\n'
+            '    op.create_foreign_key("fk", "tags", "users", ["owner_id"], ["id"])\n'
+            '    op.create_table("logs", sa.Column("order_id", sa.Integer(), sa.ForeignKey("orders.id")))\n'
+        ),
+        "db/versions/2_rename.py": head + (
+            'revision = "b"\ndown_revision = "a"\n\n\ndef upgrade():\n'
+            '    op.rename_table("users", "accounts")\n'
+            '    op.alter_column("accounts", "id", new_column_name="account_id")\n'
+            '    with op.batch_alter_table("orders") as batch_op:\n'
+            '        batch_op.alter_column("id", new_column_name="order_id")\n'
+        ),
+    })
+    tables = _tables(tmp_path)
+    refs = {
+        f"{t}.{c.name}": c.references for t, table in tables.items() for c in table.columns
+        if c.references
+    }
+    assert refs == {
+        "orders.user_id": "accounts.account_id", "orders.buyer_id": "accounts.account_id",
+        "notes.author_id": "accounts.account_id", "tags.owner_id": "accounts.account_id",
+        "logs.order_id": "orders.order_id",
+    }
+
+
 def test_hostile_input_is_fast(tmp_path: Path) -> None:
     # Глубокая вложенность, длинная цепочка ревизий и строка на 2 МБ.
     files: dict[str, str | bytes] = {"m/env.py": "", "m/versions/deep.py": "x = " + "(" * 200_000}
@@ -201,4 +242,31 @@ def test_hostile_input_is_fast(tmp_path: Path) -> None:
     ctx, found_files = files_of(tmp_path)
     found, took = timed(partial(alembic.parse, found_files, ctx), 1.0)
     assert took < 1.0
+    assert found.table_sets[0].error is None
+
+
+def test_hostile_renames_are_fast(tmp_path: Path) -> None:
+    """Переименования на враждебном входе (ТЗ §15 п. 18 М1): 500 внешних ключей на таблицу и
+    цепочка из 3000 ревизий с rename_table и alter_column(new_column_name=)."""
+    first = (
+        "revision = 'r0'\ndown_revision = None\ndef upgrade():\n"
+        "    op.create_table('t0', sa.Column('id', sa.Integer(), primary_key=True))\n"
+        + "".join(
+            f"    op.create_table('u{k}', sa.Column('r', sa.Integer(), sa.ForeignKey('t0.id')))\n"
+            for k in range(500)
+        )
+    )
+    files: dict[str, str | bytes] = {"m/env.py": "", "m/versions/r00000.py": first}
+    for i in range(1, 3000):
+        files[f"m/versions/r{i:05d}.py"] = (
+            f"revision = 'r{i}'\ndown_revision = 'r{i - 1}'\ndef upgrade():\n"
+            f"    op.rename_table('t{i - 1}', 't{i}')\n"
+            f"    op.alter_column('t{i}', 'id', new_column_name='id')\n"
+        )
+    tree(tmp_path, files)
+    ctx, found_files = files_of(tmp_path)
+    # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+    limit = 0.7 * time_limit()
+    found, took = timed(partial(alembic.parse, found_files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
     assert found.table_sets[0].error is None

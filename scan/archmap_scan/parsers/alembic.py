@@ -6,6 +6,8 @@
 rename_table, alter_column, create_foreign_key, create_primary_key, batch_alter_table и
 op.execute с DDL в строке (её разбирает SQL-разборщик). Остальные вызовы op, которые
 меняют колонки непонятным образом или стоят в условиях и циклах, считаются пропущенными.
+Ссылки колонок пишутся через sqlddl.Schema.refer: rename_table и alter_column с
+new_column_name переносят ссылки других таблиц на новое имя, как у SQL (ТЗ §15 п. 18 М1).
 """
 
 from __future__ import annotations
@@ -133,12 +135,14 @@ def _create_table(call: ast.Call, state: _State, loc: Loc) -> bool:
         else:
             constraints.append(arg)
     state.schema.create(table, loc)
+    for col in table.columns:
+        state.schema.refer(col, col.references)
     for con in constraints:
-        _constraint(con, table)
+        _constraint(con, table, state.schema)
     return True
 
 
-def _constraint(call: ast.Call, table: Table) -> None:
+def _constraint(call: ast.Call, table: Table, schema: sqlddl.Schema) -> None:
     kind = pyast.last_name(call)
     if kind == "PrimaryKeyConstraint":
         for arg in call.args:
@@ -152,10 +156,12 @@ def _constraint(call: ast.Call, table: Table) -> None:
             for here, there in zip(local, remote, strict=False):
                 col = table.column(str(here))
                 if col is not None and isinstance(there, str):
-                    col.references = there
+                    schema.refer(col, there)
 
 
-def _alter_column(table: Table, call: ast.Call, args: list[ast.expr], loc: Loc) -> bool:
+def _alter_column(
+    table: Table, call: ast.Call, args: list[ast.expr], loc: Loc, schema: sqlddl.Schema,
+) -> bool:
     name = pyast.value(args[0]) if args else None
     col = next((c for c in table.columns if c.name == name), None)
     kw = pyast.kwargs(call)
@@ -163,6 +169,7 @@ def _alter_column(table: Table, call: ast.Call, args: list[ast.expr], loc: Loc) 
         return isinstance(name, str)
     new_name = pyast.value(kw.get("new_column_name"))
     if isinstance(new_name, str):
+        schema.rename_column_refs(table.name, col.name, new_name)
         col.name = new_name
     nullable = pyast.value(kw.get("nullable"), default="keep")
     if nullable is True or nullable is False:
@@ -173,7 +180,10 @@ def _alter_column(table: Table, call: ast.Call, args: list[ast.expr], loc: Loc) 
     return True
 
 
-def _table_op(op: str, call: ast.Call, args: list[ast.expr], table: Table, loc: Loc) -> bool:
+def _table_op(
+    op: str, call: ast.Call, args: list[ast.expr], table: Table, loc: Loc,
+    schema: sqlddl.Schema,
+) -> bool:
     """Действие над таблицей: add_column, drop_column, alter_column и ключи. args — без
     имени таблицы и имени ограничения."""
     if op == "add_column":
@@ -182,6 +192,7 @@ def _table_op(op: str, call: ast.Call, args: list[ast.expr], table: Table, loc: 
             return False
         if table.column(col.name) is None:
             table.columns.append(col)
+            schema.refer(col, col.references)
         table.locs.append(loc)
         return True
     if op == "drop_column":
@@ -192,7 +203,7 @@ def _table_op(op: str, call: ast.Call, args: list[ast.expr], table: Table, loc: 
         table.locs.append(loc)
         return True
     if op == "alter_column":
-        return _alter_column(table, call, args, loc)
+        return _alter_column(table, call, args, loc, schema)
     if op == "create_foreign_key":
         # (referent, local_cols, remote_cols)
         referent = pyast.value(args[0]) if args else None
@@ -204,7 +215,7 @@ def _table_op(op: str, call: ast.Call, args: list[ast.expr], table: Table, loc: 
         for here, there in zip(local, remote, strict=False):
             col = table.column(str(here))
             if col is not None:
-                col.references = f"{referent}.{there}"
+                schema.refer(col, f"{referent}.{there}")
         return True
     if op == "create_primary_key":
         cols = pyast.value(args[0], None) if args else None
@@ -251,7 +262,7 @@ def _on_table(
     if table is None:
         # Таблица создана не этой цепочкой: действие понятно, применять некуда.
         return True
-    return _table_op(op, call, rest, table, loc)
+    return _table_op(op, call, rest, table, loc, state.schema)
 
 
 def _op_call(

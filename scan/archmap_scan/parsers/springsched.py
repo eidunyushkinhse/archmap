@@ -18,7 +18,7 @@ from __future__ import annotations
 import bisect
 import re
 
-from archmap_scan import clike, codebase, codetext, jvm, jvmconf, texts
+from archmap_scan import clike, codetext, jvm, jvmconf, texts
 from archmap_scan.context import Context
 from archmap_scan.model import CodeSchedule, Findings, Loc, schedule_hint
 from archmap_scan.walk import Files
@@ -110,10 +110,9 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not jvm.stack_present(files, ctx, STACK):
         return found
     found.applied.add(NAME)
-    repo = clike.Repo(files, ctx, codebase.JAVA, codetext.JAVA)
+    repos = jvm.Repos(files, ctx)
     for rel, code, language in jvm.sources(files, ctx, STACK, _NEEDLES):
-        if language == codebase.JAVA:
-            repo.note(rel, code)
+        repo = repos.note(rel, code, language)
         part = Findings()
         try:
             hits = jvm.annotation_hits(code, _NAMES)
@@ -136,10 +135,7 @@ def parse(files: Files, ctx: Context) -> Findings:
                 task = _method_name(outline, member)
                 if task is None:
                     continue
-                _schedule(
-                    code, outline, repo if language == codebase.JAVA else None, rel, ann, task,
-                    part,
-                )
+                _schedule(code, outline, repo, rel, ann, task, part)
                 if len(part.schedules) + len(part.hints) > clike.MAX_READS:
                     raise jvm.TooMany
         except jvm.TooMany:

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from archmap_scan import clike, codebase, codetext, jvm, jvmconf, texts
+from archmap_scan import clike, codetext, jvm, jvmconf, texts
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Loc, Route, route_hint
 from archmap_scan.walk import Files
@@ -220,11 +220,10 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not jvm.stack_present(files, ctx, STACK):
         return found
     found.applied.add(NAME)
-    repo = clike.Repo(files, ctx, codebase.JAVA, codetext.JAVA)
+    repos = jvm.Repos(files, ctx)
     contexts: dict[str, tuple[str, bool]] = {}
     for rel, code, language in jvm.sources(files, ctx, STACK, _NEEDLES):
-        if language == codebase.JAVA:
-            repo.note(rel, code)
+        repo = repos.note(rel, code, language)
         part = Findings()
         try:
             hits = jvm.annotation_hits(code, _NAMES)
@@ -234,8 +233,7 @@ def parse(files: Files, ctx: Context) -> Findings:
             prefix, unresolved = _context(files, ctx, module, contexts)
             outline = jvm.Outline.of(code)
             f = _File(
-                files, rel, code, outline, repo if language == codebase.JAVA else None, part,
-                prefix, unresolved,
+                files, rel, code, outline, repo, part, prefix, unresolved,
             )
             _parse_file(f, hits)
         except jvm.TooMany:

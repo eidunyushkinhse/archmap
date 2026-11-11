@@ -253,7 +253,7 @@ def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["channels"]["status"] == "empty"
     assert families["channels"]["parsers"] == [
-        "celery", "kafka", "kafka-jvm", "rabbitmq", "nats", "bullmq", "sidekiq",
+        "celery", "kafka", "kafka-jvm", "rabbitmq", "nats", "bullmq", "redis-pubsub", "sidekiq",
     ]
     assert families["http_routes"]["status"] == "empty"
 

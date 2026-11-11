@@ -27,6 +27,7 @@ def test_express_and_koa_fixture() -> None:
         ("GET", "/:id", True, "Express", "src/users.js:4"),
         ("GET", "/api/items", False, "Koa", "koa/app.ts:7"),
         ("GET", "/books", False, "Express", "src/server.js:14"),
+        ("GET", "/dyn", False, "Express", "src/server.js:22"),
         ("GET", "/health", False, "Express", "src/server.js:12"),
         ("GET", "/orders/", False, "Express", "src/server.js:8"),
         ("GET", "/plain", False, "Express", "src/server.js:35"),
@@ -40,9 +41,9 @@ def test_express_traps() -> None:
     found = express.parse(files, ctx)
     # Ни строка в комментарии, ни вызов HTTP-клиента маршрутом не стали.
     assert not any("commented" in r.path or "external" in r.path for r in found.routes)
+    # Константа файла PATH = '/dyn' раскрыта (ТЗ §15 п. 18 К1), подсказки о ней нет.
     assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
-        ("PATH", "src/server.js:22"), ("`/tmpl/${name}`", "src/server.js:23"),
-        ("'/files/' + dir", "src/server.js:33"),
+        ("`/tmpl/${name}`", "src/server.js:23"), ("'/files/' + dir", "src/server.js:33"),
     ]
     # Склейка «'/files/' + dir»: путь собран из частей (ТЗ §15 п. 10 А), маршрута нет.
     assert found.hints[-1].data["reason"] == texts.REASON_JOINED_NAME
@@ -55,13 +56,49 @@ def test_nest_fixture() -> None:
         ("GET", "/api/cats", False, "NestJS", "src/cats.controller.ts:5"),
         ("GET", "/api/cats/:id", False, "NestJS", "src/cats.controller.ts:10"),
         ("GET", "/api/health", False, "NestJS", "src/health.controller.ts:7"),
+        ("GET", "/api/ready", False, "NestJS", "src/health.controller.ts:12"),
         ("POST", "/api/cats", False, "NestJS", "src/cats.controller.ts:15"),
         ("PUT", "/api/dogs/:id", False, "NestJS", "src/cats.controller.ts:25"),
     ]
     ctx, files = files_of(FIXTURES / "nest")
-    hints = nest.parse(files, ctx).hints
-    assert [(h.data["name"], h.data["source"]) for h in hints] == [
-        ("ROUTE", "src/health.controller.ts:12"),
+    # @Get(ROUTE) с константой файла ROUTE = 'ready' раскрыт (ТЗ §15 п. 18 К1).
+    assert nest.parse(files, ctx).hints == []
+
+
+def test_route_constants() -> None:
+    """Путь именем константы (ТЗ §15 п. 18 К1): импорт из файла пакета (n8n
+    `prometheus.service.ts:129` app.get(METRICS_PATH) → '/metrics'), шаблон с константой того
+    же файла (`${CONTROL_PLANE_PREFIX}/status-callback`), импорт под псевдонимом и «as const»,
+    единственное экспортированное значение в репозитории; в двух чужих пакетах разные
+    значения — подсказка «константа объявлена в нескольких файлах». Подсказки остаются:
+    шаблон с шаблоном, имя без импорта (healthPath из объекта настроек), чтение настройки
+    переменной у чистого Express. app.get('env') — настройка Express, ни маршрута, ни
+    подсказки. У приложения NestJS app.get(Класс), app.get(Класс, { strict: false }) и
+    app.get(ssr) без обработчика — зависимость из контейнера, тоже ни того ни другого
+    (immich `server/src/workers/api.ts:23` app.get(AppRepository)). @Controller(USERS_PREFIX)
+    и @Get(ME_PATH) раскрываются импортом; @Get(MISSING) — подсказка."""
+    root = FIXTURES / "node-route-consts"
+    assert _routes(express, root) == [
+        ("GET", "/healthz", False, "Express", "core/src/main.ts:10"),
+        ("GET", "/metrics", False, "Express", "api/src/metrics/prometheus.service.ts:5"),
+        ("POST", "/internal/credentials/resolve", False, "Express", "api/src/engine/control-plane.ts:11"),
+        ("POST", "/internal/status-callback", False, "Express", "api/src/engine/control-plane.ts:10"),
+    ]
+    ctx, files = files_of(root)
+    hints = [(h.data["name"], h.data["reason"], h.data["source"]) for h in express.parse(files, ctx).hints]
+    dynamic = texts.REASON_DYNAMIC_ROUTE
+    assert hints == [
+        ("NESTED_PATH", dynamic, "api/src/engine/control-plane.ts:12"),
+        ("SHARED_PATH", texts.REASON_CONST_AMBIGUOUS, "api/src/engine/control-plane.ts:13"),
+        ("healthPath", dynamic, "api/src/metrics/prometheus.service.ts:7"),
+        ("setting", dynamic, "api/src/metrics/prometheus.service.ts:9"),
+        ("ConfigRepository", dynamic, "edge/src/server.ts:4"),
+        ("PORT_SETTING", dynamic, "edge/src/server.ts:5"),
+    ]
+    assert _routes(nest, root) == [("GET", "/users/me", False, "NestJS", "core/src/app.ts:10")]
+    ctx, files = files_of(root)
+    assert [(h.data["name"], h.data["source"]) for h in nest.parse(files, ctx).hints] == [
+        ("MISSING", "core/src/app.ts:15"),
     ]
 
 

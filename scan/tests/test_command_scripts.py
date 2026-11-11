@@ -162,7 +162,9 @@ def test_hostile_script(tmp_path: Path, kind: str) -> None:
     listing = list_files(ctx)
     files = Files(ctx.root, listing.files, listing.docs)
     findings, _errors = registry.collect(files, ctx)
-    _none, took = timed(partial(scripts.attach, findings, files), time_limit())
-    assert took < time_limit() * 0.7, f"{kind}: {took:.2f} с"
+    # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+    limit = time_limit() * 0.7
+    _none, took = timed(partial(scripts.attach, findings, files), limit)
+    assert took < limit, f"{kind}: {took:.2f} с"
     assert all(len(u.script_commands) <= scripts.MAX_UNIT_COMMANDS for u in findings.units)
 

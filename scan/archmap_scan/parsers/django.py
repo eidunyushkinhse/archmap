@@ -4,7 +4,11 @@
 вне репозитория не учитываются; squash-миграция с replaces заменяет перечисленные);
 цикл или ссылка на неизвестную миграцию известного приложения — ошибка семьи. Состояние
 моделей ведётся по операциям; таблица — db_table или app_label + "_" + имя модели в нижнем
-регистре; внешний ключ даёт колонку <поле>_id со ссылкой на таблицу.ключ цели. RunPython —
+регистре; внешний ключ даёт колонку <поле>_id со ссылкой на таблицу.ключ цели (ссылки
+считаются по состоянию в конце цепочки, поэтому RenameModel, RenameField и AlterModelTable
+переносят их сами; у таблиц RunSQL перенос делает sqlddl.Schema, ТЗ §15 п. 18 М1). Цель из
+django.contrib без миграций в репозитории — настоящая таблица по vocab.DJANGO_CONTRIB_TABLES
+(contenttypes.ContentType → django_content_type). RunPython —
 миграция данных: структуры не меняет и считается отдельно (data_migrations), а не
 пропуском. RunSQL с литеральным SQL разбирает SQL-разборщик (таблицы, созданные им,
 добавляются к таблицам приложения); RunSQL без литерала и незнакомые операции считаются
@@ -17,7 +21,7 @@ import ast
 import heapq
 from dataclasses import dataclass, field
 
-from archmap_scan import dialect, paths, pyast, sqlddl, texts
+from archmap_scan import dialect, paths, pyast, sqlddl, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.model import Column, Findings, Loc, Table, TableSet, unparsed_hint
 from archmap_scan.walk import Files
@@ -141,9 +145,23 @@ class _State:
     user_model: tuple[str, str]
     models: dict[tuple[str, str], _Model] = field(default_factory=dict)
     stats: dict[str, _AppStats] = field(default_factory=dict)
+    # Приложения с таблицами из RunSQL: только их ссылки переносит переименование модели.
+    sql_apps: set[str] = field(default_factory=set)
 
     def app_stats(self, app: str) -> _AppStats:
         return self.stats.setdefault(app, _AppStats())
+
+    def rename_table(self, old: str, new: str) -> None:
+        """Таблица модели сменила имя: ссылки таблиц RunSQL всех приложений переносятся
+        (sqlddl.Schema.rename_refs, ТЗ §15 п. 18 М1). Ссылки моделей считаются по состоянию
+        в конце и переносятся сами."""
+        for app in self.sql_apps:
+            self.stats[app].sql.rename_refs(old, new)
+
+    def rename_column(self, table: str, old: str, new: str) -> None:
+        """Колонка таблицы модели сменила имя: ссылки таблиц RunSQL «table.old» → «table.new»."""
+        for app in self.sql_apps:
+            self.stats[app].sql.rename_column_refs(table, old, new)
 
 
 def is_migration(rel: str) -> bool:
@@ -289,9 +307,11 @@ def _rename_model(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
     model = state.models.pop((app, old.lower()), None)
     if model is None:
         return True
+    before = model.table
     model.name = new
     model.locs.append(loc)
     state.models[(app, new.lower())] = model
+    state.rename_table(before, model.table)
     for other in state.models.values():
         for f in other.fields:
             if f.target == (app, old.lower()):
@@ -310,11 +330,13 @@ def _field_op(kind: str, call: ast.Call, app: str, state: _State, loc: Loc) -> b
         if old is None or new is None:
             return False
         target = model.get(old) if model else None
-        if target is not None:
+        if model is not None and target is not None:
+            before = target.column
             if not target.explicit_column:
                 target.column = f"{new}_id" if target.column == f"{old}_id" else new
             target.name = new
             target.locs.append(loc)
+            state.rename_column(model.table, before, target.column)
         return True
     name = _str_arg(call, "name", 1)
     if name is None:
@@ -374,8 +396,10 @@ def _operation(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
         if table is _Unknown:
             return False
         if model is not None:
+            before = model.table
             model.db_table = table if isinstance(table, str) else None
             model.locs.append(loc)
+            state.rename_table(before, model.table)
         return True
     if kind in ("AddField", "RemoveField", "AlterField", "RenameField"):
         return _field_op(kind, call, app, state, loc)
@@ -415,6 +439,7 @@ def _run_sql(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
             return False
         sql.append((text, item.lineno))
     schema = state.app_stats(app).sql
+    state.sql_apps.add(app)
     for text, line in sql:
         sqlddl.apply_text(text, loc.path, schema, line_offset=line - 1)
     return True
@@ -565,7 +590,7 @@ def _label(files: Files, app_dir: str) -> str:
     return paths.name(app_dir) or "app"
 
 
-def _settings_files(files: Files) -> list[str]:
+def settings_files(files: Files) -> list[str]:
     """Файлы настроек Django: каталог или имя со словом settings, каталог conf."""
     out = []
     for rel in files.paths:
@@ -581,7 +606,7 @@ def _engine(files: Files) -> tuple[str, Loc] | None:
     """Диалект базы по DATABASES[…]["ENGINE"] в настройках (ТЗ §7, пункт 3). SQLite уступает
     другим движкам: обычно это настройки разработки и тестов."""
     found: list[tuple[str, Loc]] = []
-    for rel in _settings_files(files):
+    for rel in settings_files(files):
         text = files.read(rel)
         if text is None or "ENGINE" not in text:
             continue
@@ -599,7 +624,7 @@ def _sqlite_overridden(files: Files, loc: Loc) -> bool:
     AWX: awx/settings/defaults.py:24 задаёт sqlite3, а production_defaults.py сбрасывает
     DATABASES = {}, боевая база PostgreSQL задаётся при запуске."""
     folder = paths.parent(loc.path)
-    for rel in _settings_files(files):
+    for rel in settings_files(files):
         if rel == loc.path or paths.parent(rel) != folder:
             continue
         text = files.read(rel)
@@ -616,7 +641,7 @@ def _sqlite_overridden(files: Files, loc: Loc) -> bool:
 
 def _user_model(files: Files) -> tuple[str, str]:
     """AUTH_USER_MODEL из файлов настроек (каталог или имя со словом settings, каталог conf)."""
-    for rel in _settings_files(files):
+    for rel in settings_files(files):
         text = files.read(rel)
         if text is None or "AUTH_USER_MODEL" not in text:
             continue
@@ -649,8 +674,15 @@ def _model_tables(state: _State, app: str) -> list[Table]:
             if f.target is not None:
                 target = state.models.get(f.target)
                 pk = next((x for x in target.fields if x.pk), None) if target else None
-                table_name = target.table if target else f"{f.target[0]}_{f.target[1]}"
-                ref = f"{table_name}.{pk.column if pk else 'id'}"
+                if target is not None:
+                    ref = f"{target.table}.{pk.column if pk else 'id'}"
+                else:
+                    # Модель вне репозитория: у django.contrib настоящее имя таблицы по
+                    # словарю (ТЗ §15 п. 18 М1), у прочих имя по умолчанию.
+                    table_name, key = vocab.DJANGO_CONTRIB_TABLES.get(
+                        f.target, (f"{f.target[0]}_{f.target[1]}", "id"),
+                    )
+                    ref = f"{table_name}.{key}"
                 col_type = _FK_TYPE.get(pk.type or "", pk.type) if pk else None
             table.columns.append(Column(
                 name=f.column, type=col_type, pk=f.pk, required=f.required, references=ref,

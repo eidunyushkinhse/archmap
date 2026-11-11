@@ -11,7 +11,7 @@ import yaml
 from archmap_scan.model import Table
 from archmap_scan.parsers import django
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, timed, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Col = tuple[str, str | None, bool, bool | None, str | None]
 
@@ -202,6 +202,60 @@ def test_user_model_default_and_hybrid_key(tmp_path: Path) -> None:
     ]
 
 
+def test_renames_and_contrib_tables(tmp_path: Path) -> None:
+    """Переименования и таблицы django.contrib (ТЗ §15 п. 18 М1). Ссылки моделей считаются по
+    состоянию в конце цепочки, поэтому RenameModel, RenameField и AlterModelTable их и так
+    переносят (у другого приложения тоже); таблицы из RunSQL получают перенос через
+    sqlddl.Schema.rename_refs и rename_column_refs. Модели django.contrib без миграций в
+    репозитории пишутся настоящим именем таблицы: в awx `main_rbac_roles.content_type_id`
+    (awx/main/migrations/0001_initial.py:1234 to='contenttypes.ContentType') и
+    `main_usersessionmembership.session_id` (0024_v330_create_user_session_membership.py:23
+    to='sessions.Session'), в PostHog `posthog_taggeditem.content_type_id`
+    (posthog/migrations/1363_taggeditem_generic_columns.py:23). Ловушка: auth.Group без
+    словаря остаётся именем по умолчанию auth_group, оно и настоящее."""
+    tree(tmp_path, {
+        "shop/migrations/0001_init.py": _migration("[]", (
+            'migrations.CreateModel(name="Customer", fields=['
+            '("id", models.AutoField(primary_key=True))]),'
+            'migrations.RunSQL("CREATE TABLE audit (customer_id integer REFERENCES shop_customer(id))"),'
+        )),
+        "shop/migrations/0002_rename.py": _migration('[("shop", "0001_init")]', (
+            'migrations.RenameModel(old_name="Customer", new_name="Client"),'
+            'migrations.RenameField(model_name="client", old_name="id", new_name="uid"),'
+        )),
+        "shop/migrations/0003_table.py": _migration('[("shop", "0002_rename")]', (
+            'migrations.AlterModelTable(name="client", table="clients"),'
+        )),
+        "billing/migrations/0001_init.py": _migration('[("shop", "0001_init")]', (
+            'migrations.CreateModel(name="Invoice", fields=['
+            '("id", models.AutoField(primary_key=True)),'
+            '("customer", models.ForeignKey(on_delete=models.CASCADE, to="shop.Customer")),'
+            '("ctype", models.ForeignKey(on_delete=models.CASCADE, to="contenttypes.ContentType")),'
+            '("session", models.OneToOneField(on_delete=models.CASCADE, to="sessions.Session")),'
+            '("entry", models.ForeignKey(on_delete=models.CASCADE, to="admin.LogEntry")),'
+            '("site", models.ForeignKey(on_delete=models.CASCADE, to="sites.Site")),'
+            '("owner", models.ForeignKey(on_delete=models.CASCADE, to=settings.AUTH_USER_MODEL)),'
+            '("group", models.ForeignKey(on_delete=models.CASCADE, to="auth.Group")),'
+            "])"
+        )),
+    })
+    sets = _sets(tmp_path)
+    refs = {
+        f"{t}.{c.name}": c.references for tables in sets.values() for t, table in tables.items()
+        for c in table.columns if c.references
+    }
+    assert refs == {
+        "audit.customer_id": "clients.uid",
+        "billing_invoice.customer_id": "clients.uid",
+        "billing_invoice.ctype_id": "django_content_type.id",
+        "billing_invoice.session_id": "django_session.session_key",
+        "billing_invoice.entry_id": "django_admin_log.id",
+        "billing_invoice.site_id": "django_site.id",
+        "billing_invoice.owner_id": "auth_user.id",
+        "billing_invoice.group_id": "auth_group.id",
+    }
+
+
 def test_not_django_and_odd_operations(tmp_path: Path) -> None:
     tree(tmp_path, {
         "tools/migrations/001_steps.py": "STEPS = ['create table x']\n",
@@ -243,3 +297,28 @@ def test_hostile_input_is_fast(tmp_path: Path) -> None:
     found, took = timed(partial(django.parse, found_files, ctx), 1.0)
     assert took < 1.0
     assert found.table_sets == []
+
+
+def test_hostile_renames_are_fast(tmp_path: Path) -> None:
+    """Переименования на враждебном входе (ТЗ §15 п. 18 М1): 900 приложений с RunSQL и
+    цепочка из 1000 RenameModel, каждое переносит ссылки таблиц RunSQL всех приложений."""
+    files: dict[str, str | bytes] = {"requirements.txt": "django\n"}
+    for i in range(900):
+        files[f"s{i}/migrations/0001_sql.py"] = _migration(
+            "[]", f'migrations.RunSQL("CREATE TABLE t{i} (id int, r int REFERENCES a_m0 (id))")',
+        )
+    files["a/migrations/0000_init.py"] = _migration(
+        "[]", "migrations.CreateModel(name='M0', fields=[('id', models.AutoField(primary_key=True))])",
+    )
+    for i in range(1, 1000):
+        before = "0000_init" if i == 1 else f"{i - 1:04d}_r"
+        files[f"a/migrations/{i:04d}_r.py"] = _migration(
+            f'[("a", "{before}")]', f"migrations.RenameModel(old_name='M{i - 1}', new_name='M{i}')",
+        )
+    tree(tmp_path, files)
+    ctx, found_files = files_of(tmp_path)
+    # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+    limit = 0.7 * time_limit()
+    found, took = timed(partial(django.parse, found_files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
+    assert len(found.table_sets) == 901

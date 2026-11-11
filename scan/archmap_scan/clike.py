@@ -10,18 +10,28 @@
 («static final String X = "…";», «const string X = "…";») в том же файле, в файле класса
 по «Класс.ИМЯ» (файл с именем класса в репозитории один или выбран импортом Java) или по
 статическому импорту Java. Иначе — подсказка о динамическом имени.
+
+У Kotlin (ТЗ §15 п. 18 Е1) константа — «const val ИМЯ = "…"» (тип String после имени
+допустим) с литералом без «$»: имя без точки ищется в том же файле (верхний уровень, object,
+companion object), «Объект.ИМЯ» — среди констант object с этим именем или companion object
+класса с этим именем в том же файле и в файлах Kotlin того же каталога (тот же пакет), затем,
+как у Java, в файле с именем объекта, если он в репозитории один.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING
 
 from archmap_scan import codebase, codetext, paths, texts
 from archmap_scan.codetext import SP
 from archmap_scan.context import Context
 from archmap_scan.model import CodeParam, Findings, Hint, Loc
 from archmap_scan.walk import Files, package_start
+
+if TYPE_CHECKING:
+    from archmap_scan.jvm import Outline
 
 _ID = r"[A-Za-z_][A-Za-z0-9_]{0,99}"
 # Аргумент чтения сразу за «(» или «[»: строковый литерал (у C# и дословный @"…") или имя
@@ -34,6 +44,12 @@ _NAME = re.compile(rf"{_ID}(?:[ \t]*\.[ \t]*{_ID}){{0,4}}")
 # Объявление строковой константы: «String ИМЯ = "…";» (модификатор проверяется по строке).
 _DECL = re.compile(rf"\b(?:String|string)[ \t]+({_ID})[ \t]*=[ \t]*(\"[ ]*\")[ \t]*;")
 _MODIFIER = re.compile(r"\b(?:final|const|readonly)\b")
+# Константа Kotlin: «const val ИМЯ = "…"» или «const val ИМЯ: String = "…"»; за литералом
+# конец объявления (проверяется отдельно: «;», перевод строки, «}» или конец файла).
+_KT_DECL = re.compile(
+    rf"\bconst[ \t]+val[ \t]+({_ID})[ \t]*(?::[ \t]*String[ \t]*)?=[ \t]*(\"[ ]*\")"
+)
+_KT_EXTS = (".kt", ".kts")
 # Импорт Java: «import a.b.Класс;» и «import static a.b.Класс.ИМЯ;» (или «.*»).
 _IMPORT = re.compile(
     rf"^[ \t]*import[ \t]+(static[ \t]+)?({_ID}(?:\.{_ID}){{0,30}})(\.\*)?[ \t]*;", re.MULTILINE,
@@ -159,6 +175,7 @@ class Repo:
         self.lang = lang
         self.language = language
         self._by_stem: dict[str, list[str]] | None = None
+        self._kt_dirs: dict[str, list[str]] | None = None
         self._consts: dict[str, dict[str, tuple[str, Loc] | None]] = {}
         self._imports: dict[str, list[tuple[bool, str, bool]]] = {}
         self._resolved: dict[tuple[str, str], tuple[str, Loc] | None] = {}
@@ -173,7 +190,8 @@ class Repo:
         if rel in self._consts:
             return
         text = self.files.read(rel, keep=False)
-        code = codetext.load(self.files, rel, text, self.lang) if text is not None else None
+        lang = codetext.KOTLIN if rel.endswith(_KT_EXTS) else self.lang
+        code = codetext.load(self.files, rel, text, lang) if text is not None else None
         self._consts[rel] = _constants(rel, code) if code is not None else {}
         self._imports[rel] = _imports(code) if code is not None else []
 
@@ -186,6 +204,31 @@ class Repo:
                     name = paths.name(rel)
                     self._by_stem.setdefault(name[:name.rfind(".")], []).append(rel)
         return self._by_stem
+
+    def _kotlin_package(self, rel: str) -> list[str]:
+        """Файлы Kotlin каталога файла rel (тот же пакет), сам rel первым."""
+        if self._kt_dirs is None:
+            self._kt_dirs = {}
+            for path in self.files.paths:
+                if path.endswith(_KT_EXTS) and codebase.is_code_file(path, codebase.KOTLIN):
+                    self._kt_dirs.setdefault(paths.parent(path), []).append(path)
+        same = self._kt_dirs.get(paths.parent(rel), [])
+        return [rel, *(p for p in same if p != rel)]
+
+    def _kotlin_member(self, rel: str, scope: str, name: str) -> tuple[str, Loc] | None:
+        """«Объект.ИМЯ» Kotlin: константа object или companion object scope в том же
+        пакете; одно имя с разными значениями в двух файлах — None."""
+        key = f"{scope}.{name}"
+        hits: list[tuple[str, Loc] | None] = []
+        for path in self._kotlin_package(rel):
+            self._load(path)
+            consts = self._consts[path]
+            if key in consts:
+                hits.append(consts[key])
+        values = {h[0] if h is not None else None for h in hits}
+        if len(values) != 1 or None in values:
+            return None
+        return min((h for h in hits if h is not None), key=lambda h: h[1])
 
     def _class_file(self, rel: str, cls: str) -> str | None:
         """Файл класса cls для файла rel: единственный в репозитории, выбранный импортом
@@ -220,7 +263,15 @@ class Repo:
     def _resolve(self, rel: str, ident: str) -> tuple[str, Loc] | None:
         parts = [p.strip() for p in ident.split(".")]
         if len(parts) >= 2:
-            return self._in(self._class_file(rel, parts[-2]), parts[-1])
+            if rel.endswith(_KT_EXTS):
+                hit = self._kotlin_member(rel, parts[-2], parts[-1])
+                if hit is not None:
+                    return hit
+            target = self._class_file(rel, parts[-2])
+            if target is not None and target.endswith(_KT_EXTS):
+                # Файл Kotlin с именем объекта: константа именно этого object или companion.
+                return self._in(target, f"{parts[-2]}.{parts[-1]}")
+            return self._in(target, parts[-1])
         name = parts[0]
         hit = self._in(rel, name)
         if hit is not None:
@@ -249,7 +300,87 @@ def _constants(rel: str, code: codetext.Code) -> dict[str, tuple[str, Loc] | Non
         name = m.group(1)
         value = (code.text[m.start(2) + 1:m.end(2) - 1], Loc(rel, code.line(m.start())))
         out[name] = None if name in out else value
+    if code.lang == codetext.KOTLIN and "const" in mask:
+        _kotlin_constants(rel, code, out)
     return out
+
+
+def _kotlin_constants(
+    rel: str, code: codetext.Code, out: dict[str, tuple[str, Loc] | None],
+) -> None:
+    """Константы Kotlin файла (ТЗ §15 п. 18 Е1): по имени и по «Объект.ИМЯ» у констант в
+    теле object и companion object (у companion — имя класса и имя самого companion, если
+    оно есть). Значение с «$» (шаблон) и литерал, за которым выражение, не константа. Одно
+    имя дважды — None, как у Java."""
+    from archmap_scan import jvm  # jvm сам импортирует clike
+
+    mask = code.mask
+    found: list[tuple[str, int, tuple[str, Loc]]] = []
+    for m in _KT_DECL.finditer(mask):
+        if len(found) >= MAX_READS:
+            break
+        i = m.end()
+        while i < len(mask) and mask[i] in " \t":
+            i += 1
+        if i < len(mask) and mask[i] not in ";\r\n}":
+            continue
+        text = code.text[m.start(2) + 1:m.end(2) - 1]
+        if "$" in text:
+            continue
+        found.append((m.group(1), m.start(), (text, Loc(rel, code.line(m.start())))))
+    if not found:
+        return
+    for name, _at, hit in found:
+        out[name] = None if name in out else hit
+    try:
+        outline = jvm.Outline.of(code)
+    except jvm.TooMany:
+        return
+    scopes = _kotlin_scopes(outline, [at for _, at, _ in found])
+    for name, at, hit in found:
+        for scope in scopes.get(at, ()):
+            key = f"{scope}.{name}"
+            out[key] = None if key in out else hit
+
+
+def _kotlin_scopes(outline: Outline, positions: list[int]) -> dict[int, tuple[str, ...]]:
+    """Позиция константы → имена, через которые к ней обращаются «Имя.ИМЯ»: object, в теле
+    которого она лежит, или класс companion object (и имя companion, если оно задано)."""
+    mask = outline.code.mask
+    out: dict[int, tuple[str, ...]] = {}
+    companions: dict[int, int] = {}
+    for pos, opener in outline.enclosing(positions).items():
+        if opener < 0:
+            continue
+        decl = outline.by_body.get(opener)
+        if decl is not None and decl.kind == "object":
+            out[pos] = (decl.name,)
+            if _companion_before(mask, decl.at):
+                companions[pos] = opener
+        elif decl is None and _companion_header(mask, opener):
+            companions[pos] = opener
+    owners = outline.owners(companions.values()) if companions else {}
+    for pos, opener in companions.items():
+        cls = owners.get(opener)
+        if cls is not None and cls.kind != "object":
+            out[pos] = (*out.get(pos, ()), cls.name)
+    return out
+
+
+def _companion_before(mask: str, at: int) -> bool:
+    """Перед словом object на позиции at стоит слово companion."""
+    end = skip_back(mask, at)
+    start = end - len("companion")
+    return start >= 0 and mask[start:end] == "companion" and (
+        start == 0 or not (mask[start - 1].isalnum() or mask[start - 1] == "_")
+    )
+
+
+def _companion_header(mask: str, brace: int) -> bool:
+    """Скобка brace открывает тело безымянного «companion object {»."""
+    end = skip_back(mask, brace)
+    start = end - len("object")
+    return start >= 0 and mask[start:end] == "object" and _companion_before(mask, start)
 
 
 def imports(code: codetext.Code) -> list[tuple[bool, str, bool]]:

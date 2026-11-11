@@ -422,8 +422,10 @@ def test_envoy_hostile_is_fast(tmp_path: Path) -> None:
     )
     for item in (cluster, endpoint):
         docs = load_all("static_resources:\n  clusters:\n" + item * (budget // len(item)))
-        got, took = timed(partial(lambda d: list(proxyconf.envoy_addresses(d)), docs), time_limit())
-        assert took < 0.7 * time_limit(), f"{took:.2f} с"
+        # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+        limit = 0.7 * time_limit()
+        got, took = timed(partial(lambda d: list(proxyconf.envoy_addresses(d)), docs), limit)
+        assert took < limit, f"{took:.2f} с"
         assert len(got) == budget // len(item)
     compose_text = "services:\n  proxy:\n    build: ./p\n  a:\n    image: shop/a\n"
     big = tree(tmp_path / "big", {
@@ -443,6 +445,7 @@ def test_envoy_hostile_is_fast(tmp_path: Path) -> None:
             "p/Dockerfile": "FROM envoyproxy/envoy:v1.30\n" + text,
         })
         ctx, files = files_of(root)
-        found, took = timed(partial(compose.parse, files, ctx), time_limit())
-        assert took < 0.7 * time_limit(), f"{kind}: {took:.2f} с"
+        limit = 0.7 * time_limit()
+        found, took = timed(partial(compose.parse, files, ctx), limit)
+        assert took < limit, f"{kind}: {took:.2f} с"
         assert len(found.hints) <= 200

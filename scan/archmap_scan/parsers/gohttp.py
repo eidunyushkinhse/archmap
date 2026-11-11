@@ -329,7 +329,10 @@ def _concat(f: _File, arg: int) -> tuple[str, int, bool] | None:
     return "".join(parts), end, lead
 
 
-def _first_arg(code: codetext.Code, start: int, limit: int = 80) -> tuple[str, bool]:
+_ARG_CHARS = 80  # сколько знаков первого аргумента смотрится (_first_arg)
+
+
+def _first_arg(code: codetext.Code, start: int, limit: int = _ARG_CHARS) -> tuple[str, bool]:
     """Текст первого аргумента с позиции start (как codetext.expression) и признак, что он
     последний и за скобкой вызова нет цепочки (вызов без обработчика, П4). Не видно в limit
     знаков — признака нет."""
@@ -351,17 +354,17 @@ def _first_arg(code: codetext.Code, start: int, limit: int = 80) -> tuple[str, b
 
 
 def _not_string(
-    f: _File, found: Findings, recv: str, at: int, arg: int, method: str, handler: bool,
+    f: _File, found: Findings, known: bool, arg: int, method: str, handler: bool,
 ) -> None:
     """Путь не строкой. Подсказка — только если это точно маршрут: получатель — известный
-    объект маршрутизации или в выражении есть путь («toPath("/api…")»); иначе это
-    Get(ctx, key) хранилища или кэша. handler — вызову нужен обработчик (глагол): с одним
-    аргументом это запрос клиента, подсказки нет (П4)."""
+    объект маршрутизации (known, _known) или в выражении есть путь («toPath("/api…")»);
+    иначе это Get(ctx, key) хранилища или кэша. handler — вызову нужен обработчик (глагол): с
+    одним аргументом это запрос клиента, подсказки нет (П4)."""
     mask = f.code.mask
     ch = mask[arg:arg + 1]
     if ch and (ch.isalpha() or ch == "_") and not mask.startswith("func", arg):
         text, last = _first_arg(f.code, arg)
-        if not (_known(f, recv, at) or '"/' in text):
+        if not (known or '"/' in text):
             return
         if handler and last:
             return
@@ -378,10 +381,10 @@ def _dynamic(
     ))
 
 
-def _wrapped(f: _File, recv: str, at: int, arg: int) -> tuple[int, int, int] | None:
-    """Путь в обёртке toPath("/p") на известном объекте маршрутизации: позиции литерала
-    в маске и конец обёртки; иначе None."""
-    if not _known(f, recv, at):
+def _wrapped(f: _File, known: bool, arg: int) -> tuple[int, int, int] | None:
+    """Путь в обёртке toPath("/p") на известном объекте маршрутизации (known, _known):
+    позиции литерала в маске и конец обёртки; иначе None."""
+    if not known:
         return None
     w = _WRAPPED.match(f.code.mask, arg)
     if w is None:
@@ -389,10 +392,35 @@ def _wrapped(f: _File, recv: str, at: int, arg: int) -> tuple[int, int, int] | N
     return w.start(1), w.end(1), w.end()
 
 
+def _after_http(mask: str, dot: int) -> bool:
+    """Перед точкой вызова (через пробелы) кончается «http»: получатель (codetext.receiver)
+    может быть «http»; иначе точно не он."""
+    i = dot
+    while i > 0 and mask[i - 1] in " \t":
+        i -= 1
+    return mask.endswith("http", 0, i)
+
+
+def _no_path_arg(code: codetext.Code, arg: int) -> bool:
+    """В тексте первого аргумента нет «"/». Текст аргумента (_first_arg) — начало исходного
+    текста с arg не длиннее _ARG_CHARS: без «"/» в этом окне его нет и в тексте."""
+    return '"/' not in code.text[arg:arg + _ARG_CHARS]
+
+
 def _scan(f: _File, found: Findings) -> None:
     _structure(f)
     code, mask = f.code, f.code.mask
+    # Объектов маршрутизации в файле нет: из известных получателей (_known) остаётся «http».
+    only_http = not (f.roots or f.groups or f.scopes)
     for m in _CALL.finditer(mask):
+        if (
+            only_http and m.group(2) is None and _no_path_arg(code, m.end())
+            and not _after_http(mask, m.start())
+        ):
+            # Получатель неизвестен, путь не строкой и без «"/» в аргументе: ни склейки, ни
+            # обёртки, ни подсказки (_not_string), и получатель искать не нужно. Два
+            # мегабайта «x.Get(» шли около 5,6 с (ТЗ §15 п. 18 П2).
+            continue
         recv = code.receiver(m.start())
         if recv is None or recv in _CLIENTS:
             continue
@@ -406,12 +434,16 @@ def _scan(f: _File, found: Findings) -> None:
         wrapped = None
         concat = None
         if m.group(2) is None:
+            # Известный ли получатель, считается один раз на вызов (ТЗ §15 п. 18 П2).
+            known = _known(f, recv, m.start())
+            if not known and _no_path_arg(code, arg):
+                continue  # то же для файла с объектами маршрутизации (П2)
             # «baseUrl + "/x"» на известном объекте маршрутизации (К5).
-            concat = _concat(f, arg) if _known(f, recv, m.start()) else None
+            concat = _concat(f, arg) if known else None
             if concat is None:
-                wrapped = _wrapped(f, recv, m.start(), arg)
+                wrapped = _wrapped(f, known, arg)
                 if wrapped is None:
-                    _not_string(f, found, recv, m.start(), arg, _METHODS[verb], handler)
+                    _not_string(f, found, known, arg, _METHODS[verb], handler)
                     continue
                 start, end, after = wrapped
         else:

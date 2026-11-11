@@ -77,12 +77,13 @@ def _notes(cov: Coverage) -> list[str]:
     config = cov.families["config"]
     if config.shared_records:
         lines.append("  " + texts.shared_params_line(config.holders, config.shared_records))
-    # Найденное без владельца в «Найдено» не входит: оно названо здесь отдельной строкой.
-    lines += [
-        "  " + texts.unassigned_line(fam, stat.unassigned)
-        for fam, stat in cov.families.items()
-        if stat.unassigned
-    ]
+    # Найденное без владельца в «Найдено» не входит: оно названо здесь отдельной строкой;
+    # параметры общего кода — строкой о файлах facts/shared/ (ТЗ §15 п. 18 О1).
+    for fam, stat in cov.families.items():
+        if stat.shared_files:
+            lines.append("  " + texts.shared_files_line(stat.shared_file_records, stat.shared_files))
+        if stat.unassigned > stat.shared_file_records:
+            lines.append("  " + texts.unassigned_line(fam, stat.unassigned - stat.shared_file_records))
     # Записи служебных каталогов и переменные ОС не факты, но и не пропадают (ТЗ §13.1).
     tooling = sum(stat.tooling for stat in cov.families.values())
     if tooling:
@@ -128,7 +129,9 @@ def _how_to(cov: Coverage) -> list[str]:
         ("config", texts.HOW_TO_IMPORT_CONFIG),
         ("channels", texts.HOW_TO_IMPORT_CHANNELS),
     ):
-        if cov.families[fam].found:
+        # Файлы общего кода (facts/shared/) подаются так же, когда в них вписан адрес
+        # владельца (ТЗ §15 п. 18 О1): блок нужен и без записей у контейнеров.
+        if cov.families[fam].found or cov.families[fam].shared_files:
             lines += block
             facts = True
     if facts:

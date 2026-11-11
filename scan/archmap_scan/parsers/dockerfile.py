@@ -125,6 +125,7 @@ def parse_text(rel: str, text: str) -> Dockerfile | None:
     images: list[str] = []
     stages: dict[str, str] = {}
     from_line = 0
+    final_line = 0
     cmd: tuple[int, str] | None = None
     entry: tuple[int, str] | None = None
     context = False
@@ -143,6 +144,7 @@ def parse_text(rel: str, text: str) -> Dockerfile | None:
                 stages[args[2].lower()] = image
             if not from_line:
                 from_line = no
+            final_line = no
         elif op == "CMD":
             cmd = (no, _exec_form(rest))
         elif op == "ENTRYPOINT":
@@ -164,6 +166,7 @@ def parse_text(rel: str, text: str) -> Dockerfile | None:
         command=command,
         command_loc=Loc(rel, command_line) if command else None,
         copies_context=context,
+        final_loc=Loc(rel, final_line),
     )
 
 

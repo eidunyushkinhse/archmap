@@ -121,6 +121,8 @@ class Dockerfile:
     copies_context: bool = False
     # Простые команды скриптов репозитория, которые запускает CMD (ТЗ §15 п. 16 П1).
     script_commands: list[str] = field(default_factory=list)
+    # Строка последнего FROM: итоговая стадия, основание технологии по образу (ТЗ §15 п. 18 Т1).
+    final_loc: Loc | None = None
 
 
 @dataclass
@@ -181,6 +183,17 @@ class ServedRef:
     name: str
     loc: Loc
     importers: tuple[str, ...] | None = ()
+
+
+@dataclass
+class CacheUse:
+    """Свидетельство кэша на Redis в настройках (ТЗ §15 п. 18 В2): Rails cache_store, Django
+    CACHES, Laravel CACHE_STORE и пакет кэша Node.js. marker — что названо (:redis_cache_store,
+    django_redis.cache.RedisCache, CACHE_STORE=redis, cache-manager-redis-yet)."""
+
+    marker: str
+    loc: Loc
+    parser: str
 
 
 @dataclass
@@ -376,6 +389,8 @@ class Findings:
     go_programs: set[str] = field(default_factory=set)
     # Код, который называет файл OpenAPI литералом (ТЗ §15 п. 15 Н1): владелец файла по нему.
     served: list[ServedRef] = field(default_factory=list)
+    # Свидетельства кэша на Redis (ТЗ §15 п. 18 В2): роль «брокер и кэш» у брокера Redis.
+    caches: list[CacheUse] = field(default_factory=list)
     # Стек по маркеру сборки в корне (vocab.STACK_BAZEL, STACK_CMAKE; ТЗ §15 п. 12 С12).
     root_stack: str | None = None
 
@@ -407,4 +422,5 @@ class Findings:
                 self.build_unsupported.append(stack)
         self.go_programs |= other.go_programs
         self.served.extend(other.served)
+        self.caches.extend(other.caches)
         self.root_stack = self.root_stack or other.root_stack

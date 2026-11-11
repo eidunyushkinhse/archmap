@@ -294,6 +294,26 @@ def test_appsettings_reader() -> None:
     assert appsettings.read('{"a": ' + "[" * 49 + "]" * 49 + "}")[0][2] == "[" * 49 + "]" * 49
 
 
+def test_appsettings_fast_path_as_tokens() -> None:
+    """Пара «ключ: значение» и элемент массива одним совпадением дают то же, что разбор по
+    лексемам: блочный комментарий у каждого знака уводит весь разбор на общий путь (гейт
+    части 6, ТЗ §15 п. 18)."""
+    text = (
+        '{"a": 1, "b": [1, "x", {"c": null, "d": true}], "e": {"f": "g\\"h", "i": -2.5e3},\n'
+        ' "j": [], "k": {}, "l": [[1, 2], {"m": [3]}], "n": "o",}'
+    )
+    slow = "".join(f"/**/{ch}/**/" if ch in "{}[]:," else ch for ch in text)
+    assert appsettings.read(slow) == appsettings.read(text) == [
+        ("a", 1, "1", "int"),
+        ("b", 1, '[1, "x", {"c": null, "d": true}]', "array"),
+        ("e:f", 1, 'g"h', "string"),
+        ("e:i", 1, "-2.5e3", "float"),
+        ("j", 2, "[]", "array"),
+        ("l", 2, '[[1, 2], {"m": [3]}]', "array"),
+        ("n", 2, "o", "string"),
+    ]
+
+
 # Враждебный appsettings.json вплотную к пределу 1 МБ (ТЗ §15 п. 16 Р1): тысячи ключей,
 # вложенность, длинные и незакрытые строки, комментарии без конца, длинные массивы.
 _NEAR = 990_000
@@ -310,6 +330,12 @@ APPSETTINGS_HOSTILE = {
     "open-comments": "{" + "/*" * (_NEAR // 2),
     "line-comments": "{\n" + "//\n" * (_NEAR // 3) + "}",
     "objects-in-array": '{"a": [' + '{"b": 1},' * (_NEAR // 9) + "]}",
+    # Блочный комментарий в каждой паре и в каждом элементе: частый путь одним совпадением не
+    # подходит и разбор идёт по лексемам (гейт части 6); длинное прочее без разделителя.
+    "pairs-with-comments": "{" + '"a": /**/1,' * (_NEAR // 11) + "}",
+    "items-with-comments": '{"a": [' + "1/**/," * (_NEAR // 6) + "]}",
+    "long-atom": '{"a": ' + "1" * _NEAR + "/",
+    "open-block": "{/*" + "*x" * (_NEAR // 2),
 }
 
 
@@ -329,7 +355,8 @@ def test_appsettings_hostile(tmp_path: Path, kind: str) -> None:
 
 def test_appsettings_limits(tmp_path: Path) -> None:
     """Файл больше 1 МБ и вложенность глубже 50 — файл непрочитан; ошибка синтаксиса —
-    файл пропущен без записей."""
+    файл без записей и подсказка unparsed с причиной (ТЗ §15 п. 18 П5, как у hjson; раньше
+    молчание)."""
     tree(tmp_path, {
         "A/A.csproj": "<Project></Project>\n", "A/appsettings.json": '{"a": "' + "x" * 1_000_001 + '"}',
         "B/B.csproj": "<Project></Project>\n", "B/appsettings.json": '{"a": ' * 60 + "1" + "}" * 60,
@@ -342,6 +369,9 @@ def test_appsettings_limits(tmp_path: Path) -> None:
     found = appsettings.parse(files, ctx)
     assert [p.name for p in found.code_params] == ["d"]
     assert sorted(files.too_large) == ["A/appsettings.json", "B/appsettings.json"]
+    assert [(h.section, h.data["name"], h.data["reason"]) for h in found.hints] == [
+        ("unparsed", "C/appsettings.json", texts.REASON_BAD_APPSETTINGS),
+    ]
 
 
 def test_dotnet_binder() -> None:
@@ -381,6 +411,33 @@ def test_dotnet_binder() -> None:
         f"{opts}/EventBusOptions.cs:6", f"{opts}/SectionNames.cs:5",
     ]
     assert extra["Catalog:Timeout"] == [f"{opts}/Settings.cs:7"]
+
+
+def test_dotnet_required_and_section_indexer() -> None:
+    """GetRequiredValue и индексатор раздела (ТЗ §15 п. 18 Р1, eShop
+    `src/WebApp/Extensions/Extensions.cs:60` configuration.GetRequiredValue("IdentityUrl"),
+    `src/eShop.ServiceDefaults/AuthenticationExtensions.cs:35` identitySection.GetRequiredValue("Url")):
+    обязательный параметр, тип по T или строка; раздел переменной и цепочкой GetSection(…) и
+    GetRequiredSection(…) ставится перед ключом; индексатор раздела с дефолтом после «??», с
+    обёрткой int.Parse и с «?? throw». Ловушки: объявление метода GetRequiredValue(this
+    IConfiguration …), GetRequiredSection(…).GetChildren(), запись s["Y"] = …, индексатор
+    обычного массива, строка в комментарии; имя выражением и переменной — подсказки."""
+    at = "src/Web/Program.cs"
+    assert _params(dotnetenv, FIXTURES / "dotnet-required") == [
+        ("Identity:Audience", None, False, True, "string", f"{at}:5"),
+        ("Identity:Authority", None, False, None, None, f"{at}:6"),
+        ("Identity:Strict", None, False, True, None, f"{at}:8"),
+        ("Identity:Timeout", "30", True, None, "int", f"{at}:7"),
+        ("IdentityUrl", None, False, True, "string", f"{at}:2"),
+        ("OpenApi:Document:Title", None, False, True, "string", f"{at}:9"),
+        ("Port", None, False, True, "int", f"{at}:3"),
+        ("Service:Name", None, False, None, None, f"{at}:10"),
+    ]
+    dynamic = texts.REASON_DYNAMIC_PARAM
+    assert sorted(_hints(dotnetenv, FIXTURES / "dotnet-required")) == [
+        ('$"{prefix}:Url"', dynamic, f"{at}:14"), ("key", dynamic, f"{at}:13"),
+        ("name", dynamic, "src/Web/ConfigurationExtensions.cs:4"),
+    ]
 
 
 def test_dotnet_appsettings_merge() -> None:
@@ -490,8 +547,10 @@ def test_hjson_hostile(tmp_path: Path, kind: str) -> None:
     text, outcome = HJSON_HOSTILE[kind]
     tree(tmp_path, {"Cargo.toml": '[package]\nname = "x"\n', "config/defaults.hjson": text})
     ctx, files = files_of(tmp_path)
-    found, took = timed(partial(hjson.parse, files, ctx), time_limit())
-    assert took < time_limit() * 0.7, f"{took:.2f} с"
+    # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+    limit = time_limit() * 0.7
+    found, took = timed(partial(hjson.parse, files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
     assert bool(files.too_large) == (outcome == "refused")
     assert bool(found.code_params) == (outcome == "ok")
     reasons = [h.data["reason"] for h in found.hints]
@@ -530,15 +589,107 @@ def test_java_getenv() -> None:
     ]
 
 
+def test_kotlin_const_val(tmp_path: Path) -> None:
+    """const val Kotlin раскрывается как static final String у Java (ТЗ §15 п. 18 Е1).
+    Найдено в Airflow: java-sdk/sdk/src/main/kotlin/org/apache/airflow/sdk/execution/
+    Logger.kt:132 System.getenv(LOGGING_LEVEL_ENV) (private const val в object Log, :130) и
+    :133 System.getenv(NamespaceLevels.ENV_VAR) (object NamespaceLevels того же файла, :61).
+    Ещё companion object класса по имени без точки и по «Класс.ИМЯ» из другого файла пакета,
+    companion с именем, object другого пакета в файле со своим именем (как класс Java).
+    Ловушки: шаблон с «$» и склейка — не константа; одно имя в двух object файла без точки
+    неоднозначно, с точкой различимо; object другого пакета в файле с другим именем не
+    ищется; объявление в комментарии не в счёт."""
+    tree(tmp_path, {
+        "k/build.gradle.kts": 'plugins { kotlin("jvm") }\n',
+        "k/src/main/kotlin/app/Log.kt": (
+            "package app\n"
+            "\n"
+            "internal object NamespaceLevels {\n"
+            '  const val ENV_VAR = "APP_NAMESPACE_LEVELS"\n'
+            "}\n"
+            "object Log {\n"
+            '  private const val LEVEL_ENV = "APP_LOG_LEVEL"\n'
+            "  val level = System.getenv(LEVEL_ENV)\n"
+            "  val named = System.getenv(NamespaceLevels.ENV_VAR)\n"
+            "}\n"
+            "class Server(val name: String) {\n"
+            "  companion object {\n"
+            '    const val PORT_ENV: String = "APP_PORT"\n'
+            "  }\n"
+            "  val port = System.getenv(PORT_ENV)\n"
+            "}\n"
+            "class Client {\n"
+            '  companion object Names { const val URL_ENV = "APP_URL" }\n'
+            "}\n"
+            'object A { const val ENV = "A_ENV" }\n'
+            'object B { const val ENV = "B_ENV" }\n'
+            '// const val GHOST = "IN_COMMENT"\n'
+        ),
+        "k/src/main/kotlin/app/Main.kt": (
+            "package app\n"
+            "\n"
+            'const val SUFFIX = "S"\n'
+            'const val TEMPLATE = "APP_$SUFFIX"\n'
+            'const val JOINED = "APP_" + SUFFIX\n'
+            "fun main() {\n"
+            "  System.getenv(Server.PORT_ENV)\n"
+            "  System.getenv(Client.URL_ENV)\n"
+            "  System.getenv(Client.Names.URL_ENV)\n"
+            "  System.getenv(A.ENV)\n"
+            "  System.getenv(B.ENV)\n"
+            "  System.getenv(TEMPLATE)\n"
+            "  System.getenv(JOINED)\n"
+            "  System.getenv(Other.NAME)\n"
+            "  System.getenv(GHOST)\n"
+            "  System.getenv(Hidden.NAME)\n"
+            "}\n"
+        ),
+        "k/src/main/kotlin/other/Other.kt": (
+            'package other\n\nobject Other { const val NAME = "OTHER_NAME" }\n'
+            'object Else { const val SECRET = "ELSE_SECRET" }\n'
+        ),
+        "k/src/main/kotlin/other/Names.kt": (
+            'package other\n\nobject Hidden { const val NAME = "HIDDEN_NAME" }\n'
+        ),
+        "k/src/main/kotlin/app/Uses.kt": "package app\n\nfun f() = System.getenv(ENV)\n",
+    })
+    log, main = "k/src/main/kotlin/app/Log.kt", "k/src/main/kotlin/app/Main.kt"
+    assert [(r[0], r[5]) for r in _params(javaenv, tmp_path)] == [
+        ("APP_LOG_LEVEL", f"{log}:8"),
+        ("APP_NAMESPACE_LEVELS", f"{log}:9"),
+        ("APP_PORT", f"{log}:15"),
+        ("APP_PORT", f"{main}:7"),
+        ("APP_URL", f"{main}:8"),
+        ("APP_URL", f"{main}:9"),
+        ("A_ENV", f"{main}:10"),
+        ("B_ENV", f"{main}:11"),
+        ("OTHER_NAME", f"{main}:14"),
+    ]
+    assert _hints(javaenv, tmp_path) == [
+        ("ENV", texts.REASON_DYNAMIC_PARAM, "k/src/main/kotlin/app/Uses.kt:3"),
+        ("GHOST", texts.REASON_DYNAMIC_PARAM, f"{main}:15"),
+        ("Hidden.NAME", texts.REASON_DYNAMIC_PARAM, f"{main}:16"),
+        ("JOINED", texts.REASON_DYNAMIC_PARAM, f"{main}:13"),
+        ("TEMPLATE", texts.REASON_DYNAMIC_PARAM, f"{main}:12"),
+    ]
+    ctx, files = files_of(tmp_path)
+    found = javaenv.parse(files, ctx)
+    level = next(p for p in found.code_params if p.name == "APP_LOG_LEVEL")
+    assert [str(loc) for loc in level.extra_locs] == [f"{log}:7"]
+    named = next(p for p in found.code_params if p.name == "APP_NAMESPACE_LEVELS")
+    assert [str(loc) for loc in named.extra_locs] == [f"{log}:4"]
+
+
 def test_kotlin_env_and_java_optional() -> None:
     """Окружение в Kotlin и Optional в Java (ТЗ §15 п. 17 Е3). Найдено в OpenTelemetry Demo:
     src/fraud-detection/src/main/kotlin/frauddetection/main.kt:26 System.getenv("KAFKA_TOPIC")
     ?: "orders" и :50 System.getenv("KAFKA_ADDR") без дефолта; src/ad/src/main/java/oteldemo/
     AdService.java:100 Optional.ofNullable(System.getenv("AD_PORT")).orElseThrow(…) и :106
     Integer.parseInt(Optional.ofNullable(System.getenv("AD_PROMETHEUS_PORT")).orElse("9465")).
-    Ловушки: System.getProperty, комментарии (и вложенные Kotlin), строка; const val именем —
-    подсказка; шаблон Kotlin и выражение в элвисе — дефолт есть, но не пишется; между Optional
-    и orElse другой вызов (map) — дефолта нет."""
+    Ловушки: System.getProperty, комментарии (и вложенные Kotlin), строка; шаблон Kotlin и
+    выражение в элвисе — дефолт есть, но не пишется; между Optional и orElse другой вызов
+    (map) — дефолта нет. С части 6 (ТЗ §15 п. 18 Е1) const val именем раскрывается
+    (FRAUD_NAME с местом объявления), раньше это была подсказка."""
     root = FIXTURES / "jvm-env"
     kt, ad = "fraud/src/main/kotlin/fraud/main.kt", "ad/src/main/java/shop/ad/AdService.java"
     assert _params(javaenv, root) == [
@@ -555,6 +706,7 @@ def test_kotlin_env_and_java_optional() -> None:
         ("FRAUD_LEVEL", None, False, None, None, f"{kt}:13"),
         ("FRAUD_MAP", "m", True, None, "string", f"{kt}:21"),
         ("FRAUD_MODE", None, True, None, None, f"{kt}:16"),
+        ("FRAUD_NAME", None, False, True, None, f"{kt}:20"),
         # Элвис на следующей строке той же инструкции.
         ("FRAUD_NEXT", "n", True, None, "string", f"{kt}:18"),
         ("FRAUD_PORT", "8080", True, None, "int", f"{kt}:10"),
@@ -565,7 +717,7 @@ def test_kotlin_env_and_java_optional() -> None:
         ("KAFKA_ADDR", None, False, True, None, f"{kt}:9"),
         ("KAFKA_TOPIC", "orders", True, None, "string", f"{kt}:4"),
     ]
-    assert _hints(javaenv, root) == [("NAME_ENV", texts.REASON_DYNAMIC_PARAM, f"{kt}:20")]
+    assert _hints(javaenv, root) == []
     model = model_of(root)
     addr = model.params["fraud"]["KAFKA_ADDR"]
     assert addr.parsers == {"compose", "java-env"} and addr.required is True
@@ -646,9 +798,18 @@ def test_merge_with_manifest_params(tmp_path: Path) -> None:
     # Где-то читается с дефолтом: параметр не обязательный.
     assert params["MAYBE"].required is None
     assert sorted(params["LOG_LEVEL"].parsers) == ["compose", "python-env"]
-    assert [h for h in model.hints["unassigned"] if h["kind"] == "config"] == [{
-        "kind": "config", "name": "SHARED_ONLY", "reason": texts.REASON_SHARED_LIB,
-        "source": "lib/shared.py:2",
+    # Общий код: два чтения одного имени — одна запись в файле единицы lib/ (пакет
+    # lib/requirements.txt), все места в основаниях (ТЗ §15 п. 18 О1).
+    assert [h for h in model.hints["unassigned"] if h["kind"] == "config"] == []
+    shared = model.shared["lib"]
+    assert shared.path == "facts/shared/lib.config.yaml"
+    assert sorted(str(loc) for loc in shared.params["SHARED_ONLY"].locs) == [
+        "lib/shared.py:2", "lib/shared.py:3",
+    ]
+    assert [h for h in model.hints["unassigned"] if h["kind"] == "shared_file"] == [{
+        "kind": "shared_file", "name": "facts/shared/lib.config.yaml",
+        "reason": texts.REASON_SHARED_LIB, "source": "lib/shared.py:2", "folder": "lib/",
+        "records": 1,
     }]
 
 
@@ -661,9 +822,13 @@ def test_owner_of_other_language_does_not_take_file() -> None:
     assert languages == {"web": "Ruby", "sidekiq": "Ruby", "streaming": "Node.js"}
     assert {k: sorted(v) for k, v in model.params.items()} == {"streaming": ["STREAMING_PORT"]}
     hints = [(h["name"], h["reason"], h["source"]) for h in model.hints["unassigned"]]
+    # Запись другого языка — в файле общего кода единицы корневого package.json (как у
+    # Mastodon), файл называется root (ТЗ §15 п. 18 О1).
     assert hints == [
-        ("NODE_ENV", texts.REASON_OTHER_LANGUAGE, "app/javascript/environment.ts:2"),
+        ("facts/shared/root.config.yaml", texts.REASON_OTHER_LANGUAGE,
+         "app/javascript/environment.ts:2"),
     ]
+    assert list(model.shared[""].params) == ["NODE_ENV"]
 
 
 _GO_MAIN = 'package main\n\nimport "os"\n\nfunc main() {\n\t_ = os.Getenv("%s")\n}\n'
@@ -761,3 +926,19 @@ def test_go_named_reads_limit(tmp_path: Path) -> None:
     assert sum(1 for p in found.code_params if p.name == "APP_PORT") == limit
     assert not [h for h in found.hints if str(h.data["source"]).startswith("over.go")]
     assert files.too_large == {"over.go"}
+
+
+def test_appsettings_bad_syntax() -> None:
+    """appsettings.json с ошибкой синтаксиса (пропущена запятая): записей нет, в unparsed
+    подсказка на файл с причиной (ТЗ §15 п. 18 П5, как у hjson; раньше молчание); среди
+    непрочитанных по пределам его нет, соседний проект читается как прежде."""
+    ctx, files = files_of(FIXTURES / "dotnet-bad-settings")
+    found = appsettings.parse(files, ctx)
+    assert [(p.name, str(p.loc), p.default) for p in found.code_params] == [
+        ("Queue:Name", "Worker/appsettings.json:3", "orders"),
+    ]
+    assert [(h.section, h.data) for h in found.hints] == [("unparsed", {
+        "kind": "file", "name": "Api/appsettings.json", "reason": texts.REASON_BAD_APPSETTINGS,
+        "source": "Api/appsettings.json",
+    })]
+    assert not files.too_large

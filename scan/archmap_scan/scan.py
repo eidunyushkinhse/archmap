@@ -60,7 +60,7 @@ def run(opts: Options) -> Result:
     outdir.write(out, "agent/entrypoints.yaml", agent.render_entrypoints(model, ctx))
     written = {
         **facts.tables_files(model, ctx), **facts.config_files(model, ctx),
-        **facts.channels_files(model, ctx),
+        **facts.channels_files(model, ctx), **facts.shared_files(model, ctx),
     }
     for rel, body in written.items():
         outdir.write(out, rel, body)

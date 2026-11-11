@@ -37,6 +37,24 @@ def test_image_language() -> None:
     assert vocab.image_language("nginx") is None
 
 
+def test_stage_technology() -> None:
+    """Технология по образу итоговой стадии Dockerfile (ТЗ §15 п. 18 Т1): вид сервиса из
+    IMAGES или программа из PROGRAM_IMAGES. Ловушки: базы и брокеры, ОС и языки,
+    подстановка и имя стадии технологии сервиса не дают; Grafana и Prometheus в IMAGES не
+    попали, вид по образу у сервиса compose и зависимости Helm они не меняют."""
+    assert vocab.stage_technology("envoyproxy/envoy:v1.40.2@sha256:8de9") == "Envoy"
+    assert vocab.stage_technology("docker.io/nginxinc/nginx-unprivileged:1.29-alpine") == "nginx"
+    assert vocab.stage_technology("grafana/grafana:11.4.0") == "Grafana"
+    assert vocab.stage_technology("prom/prometheus:v3.1.0") == "Prometheus"
+    assert vocab.stage_technology("apache/airflow:latest") == "Airflow"
+    for image in ("postgres:16", "alpine:3.24", "ubuntu:xenial", "python:3.12",
+                  "registry.access.redhat.com/ubi9-micro", "${BASE_IMAGE}", "builder",
+                  "grafana/grafana-agent", "prom/node-exporter"):
+        assert vocab.stage_technology(image) is None, image
+    assert vocab.image_kind("grafana/grafana") is None
+    assert vocab.is_stack("Grafana") and vocab.is_stack("Envoy")
+
+
 def test_frameworks_and_clients() -> None:
     deps = ("fastapi", "starlette", "kafka-python", "psycopg2-binary")
     assert vocab.find_framework(deps, vocab.SERVER_FRAMEWORKS) == "FastAPI"

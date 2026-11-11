@@ -1,0 +1,1 @@
+<project><artifactId>a</artifactId><dependencies><dependency><artifactId>spring-kafka</artifactId></dependency></dependencies></project>

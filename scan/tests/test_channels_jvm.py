@@ -138,8 +138,8 @@ def test_without_kafka_not_read(tmp_path: Path) -> None:
 
 def test_names(tmp_path: Path) -> None:
     """Константа другого класса Java раскрывается (clike), переменная с разными дефолтами
-    неоднозначна (подсказка), Kotlin const val не раскрывается (подсказка), spring-kafka по
-    строке Gradle тоже стек."""
+    неоднозначна (подсказка), spring-kafka по строке Gradle тоже стек. Kotlin const val с
+    части 6 раскрывается (ТЗ §15 п. 18 Е1), раньше это была подсказка."""
     tree(tmp_path, {
         "a/pom.xml": KAFKA_POM,
         "a/src/main/java/Topics.java": 'class Topics { static final String ORDERS = "orders"; }\n',
@@ -155,15 +155,14 @@ def test_names(tmp_path: Path) -> None:
             'plugins { kotlin("jvm") }\n'
             'dependencies { implementation("org.springframework.kafka:spring-kafka:3.2.0") }\n'
         ),
-        "k/src/main/kotlin/K.kt": 'const val T = "kt"\nfun f() { template.send(T, "v") }\n',
+        "k/src/main/kotlin/K.kt": 'const val T = "kt"\nfun f() { kafkaTemplate.send(T, "v") }\n',
     })
     ctx, files = files_of(tmp_path)
     found = kafkajvm.parse(files, ctx)
     assert [(c.name, str(c.loc)) for c in found.channels] == [
-        ("orders", "a/src/main/java/A.java:2"),
+        ("orders", "a/src/main/java/A.java:2"), ("kt", "k/src/main/kotlin/K.kt:2"),
     ]
     assert sorted((h.data["name"], h.data["source"]) for h in found.hints) == [
-        ("T", "k/src/main/kotlin/K.kt:2"),
         ("t", "a/src/main/java/A.java:5"),
     ]
 
@@ -199,3 +198,20 @@ def test_trim_same_as_strip() -> None:
             lo + len(seg) - len(seg.lstrip(" \t\r\n")), hi - (len(seg) - len(seg.rstrip(" \t\r\n"))),
         )
         assert jvm._trim(mask, lo, hi) == want
+
+
+def test_template_receivers() -> None:
+    """<x>Template.send("t", …) читается, только если получатель назван с kafka (без учёта
+    регистра) или объявлен в файле типом KafkaTemplate (Java: поле, параметр или переменная,
+    Kotlin: «имя: KafkaTemplate<…>»); rabbitTemplate.send и jmsTemplate.send топиками не
+    становятся, kafkaTemplate.sendDefault(data) топика не называет: первый аргумент данные,
+    записи нет (ТЗ §15 п. 18 П4). В корпусе вызовов *Template.send в коде Java и Kotlin нет."""
+    root = FIXTURES / "kafka-templates"
+    assert [(loc, name) for loc, name, _direction, _client in _channels(root)] == [
+        ("a/src/main/java/shop/A.java:6", "declared"),
+        ("a/src/main/java/shop/A.java:7", "named"),
+        ("a/src/main/java/shop/A.java:8", "named-too"),
+        ("k/src/main/kotlin/shop/K.kt:4", "kotlin-declared"),
+    ]
+    ctx, files = files_of(root)
+    assert kafkajvm.parse(files, ctx).hints == []

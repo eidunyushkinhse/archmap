@@ -701,6 +701,14 @@ def _classify(
         obj.language = language
     if obj.technology is None:
         obj.technology = vocab.technology(language, server or front)
+    if obj.technology is None and obj.dockerfile is not None:
+        # Без языка пакета и образа compose технологию даёт образ итоговой стадии (ТЗ §15
+        # п. 18 Т1): envoyproxy/envoy у frontend-proxy OpenTelemetry Demo, grafana/grafana у
+        # grafana-server Petclinic. Основание — строка последнего FROM.
+        final = vocab.stage_technology(obj.dockerfile.images[-1])
+        if final is not None:
+            obj.technology = final
+            obj.locs.add(obj.dockerfile.final_loc or obj.dockerfile.from_loc)
     for p in pkgs:
         obj.locs.add(p.name_loc or Loc(p.path, 1))
     if obj.role is None:
@@ -1631,10 +1639,9 @@ def _params(
             if vocab.is_os_variable(var.name):
                 model.os_vars.setdefault(var.name, set()).add(var.loc)
                 continue
-            model.hint("unassigned", {
-                "kind": "config", "name": var.name, "reason": texts.REASON_SHARED_LIB,
-                "source": str(var.loc),
-            })
+            # Пример окружения вне каталогов кода контейнеров — общий код: его переменные
+            # ложатся в файл facts/shared/ своей единицы кода (codefacts._params, ТЗ §15 п. 18 О1).
+            model.shared_env.append(var)
 
 
 def _clients(model: Model, findings: Findings) -> None:

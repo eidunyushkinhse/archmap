@@ -20,6 +20,8 @@ ROLE_WORKER = "воркер"
 ROLE_DB = "БД"
 ROLE_CACHE = "кэш"
 ROLE_BROKER = "брокер"
+# Брокер Redis, который служит и кэшем контейнера (ТЗ §15 п. 18 В2).
+ROLE_BROKER_CACHE = "брокер и кэш"
 ROLE_PROXY = "прокси"
 ROLE_STORAGE = "хранилище"
 ROLE_SCHEDULER = "планировщик"
@@ -28,7 +30,7 @@ ROLE_SCHEDULER = "планировщик"
 ROLE_TASK = "задача"
 ROLES = frozenset({
     ROLE_SERVICE, ROLE_FRONTEND, ROLE_WORKER, ROLE_DB, ROLE_CACHE, ROLE_BROKER, ROLE_PROXY,
-    ROLE_STORAGE, ROLE_SCHEDULER, ROLE_TASK,
+    ROLE_STORAGE, ROLE_SCHEDULER, ROLE_TASK, ROLE_BROKER_CACHE,
 })
 
 
@@ -251,6 +253,18 @@ def init_task_name(name: str) -> bool:
     )
 
 
+# Модели приложений django.contrib, миграций которых в репозитории нет (ТЗ §15 п. 18 М1):
+# (приложение, модель в нижнем регистре) → (таблица, первичный ключ). Имя по умолчанию
+# «<приложение>_<модель>» у них не настоящее: contenttypes.ContentType живёт в
+# django_content_type (Meta.db_table в Django), ключ сессии — session_key.
+DJANGO_CONTRIB_TABLES: dict[tuple[str, str], tuple[str, str]] = {
+    ("auth", "user"): ("auth_user", "id"),
+    ("contenttypes", "contenttype"): ("django_content_type", "id"),
+    ("sessions", "session"): ("django_session", "session_key"),
+    ("admin", "logentry"): ("django_admin_log", "id"),
+    ("sites", "site"): ("django_site", "id"),
+}
+
 # Реляционные базы: им принадлежат миграции (ТЗ §7).
 RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
 
@@ -341,6 +355,27 @@ def image_language(image: str) -> str | None:
         if name.startswith(prefix):
             return lang
     return None
+
+
+# Образы программ, которые технологию дают только итоговой стадией Dockerfile (ТЗ §15 п. 18
+# Т1): в IMAGES их нет, потому что вид по образу там решает и другое (объекты зависимостей
+# чарта Helm, поиск каталога кода сервиса compose по имени), а сервис compose на таком
+# образе и так получает технологией имя образа. Сравнивается имя образа целиком.
+PROGRAM_IMAGES: dict[str, str] = {
+    "grafana": "Grafana", "grafana-oss": "Grafana", "grafana-enterprise": "Grafana",
+    "prometheus": "Prometheus", "airflow": "Airflow",
+}
+
+
+def stage_technology(image: str) -> str | None:
+    """Технология по образу итоговой стадии Dockerfile (ТЗ §15 п. 18 Т1): вид сервиса из
+    IMAGES (envoyproxy/envoy → Envoy, nginx-unprivileged → nginx) или программа из
+    PROGRAM_IMAGES (grafana/grafana → Grafana). Базовые образы ОС и языков (alpine, ubuntu,
+    python), подстановки (${BASE_IMAGE}) и образы баз и брокеров технологии сервиса не дают."""
+    kind = image_kind(image)
+    if kind is not None:
+        return kind.technology if kind.shape == _SERVICE else None
+    return PROGRAM_IMAGES.get(image_name(image))
 
 
 # Манифест сборки → язык.
@@ -773,7 +808,8 @@ LANGUAGES = frozenset({
 _STACK_NAMES = frozenset({
     *LANGUAGES,
     *(name for _, name in SERVER_FRAMEWORKS), *(name for _, name in FRONTEND_FRAMEWORKS),
-    *(kind.technology for kind in IMAGES.values()), *(kind for _, kind in CLIENTS),
+    *(kind.technology for kind in IMAGES.values()), *PROGRAM_IMAGES.values(),
+    *(kind for _, kind in CLIENTS),
     dialect.POSTGRESQL, dialect.MYSQL, dialect.MARIADB, dialect.SQLITE, dialect.ORACLE,
     dialect.SQLSERVER,
 })
