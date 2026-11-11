@@ -24,6 +24,7 @@ from archmap_scan.walk import (
     TOOL_CONFIG,
     TOOLING_DIR,
     Files,
+    is_dev_code,
     tooling_kind,
 )
 
@@ -110,22 +111,56 @@ def is_code_file(rel: str, language: str) -> bool:
     return not any(seg in CODE_SKIP_DIRS for seg in rel.split("/")[:-1])
 
 
+# Кандидат в файлы кода языка: (файл, зависимости пакетов-владельцев, код для разработки).
+_Candidate = tuple[str, tuple[str, ...], bool]
+
+
+def _candidates(files: Files, ctx: Context, language: str) -> list[_Candidate]:
+    """Файлы кода языка с пакетом-владельцем по обходу один раз на язык (ТЗ §15 п. 19 П9):
+    разборщиков яруса кода десятки, и каждый раньше заново проверял расширение, искал пакет
+    вверх по дереву и смотрел каталоги для разработки у всех файлов обхода. Зависимости —
+    один кортеж на список пакетов-владельцев (файлы одного пакета делят его). Тексты файлов
+    здесь не держатся."""
+    key = "code-candidates:" + language
+    memo = files.memo.get(key)
+    if memo is None:
+        out: list[_Candidate] = []
+        deps: dict[int, tuple[str, ...]] = {}
+        for rel in files.paths:
+            if not is_code_file(rel, language):
+                continue
+            pkgs = owner_packages(files, ctx, rel, language)
+            if not pkgs:
+                continue
+            shared = deps.get(id(pkgs))
+            if shared is None:
+                shared = deps[id(pkgs)] = tuple(d for p in pkgs for d in p.deps)
+            out.append((rel, shared, is_dev_code(rel)))
+        memo = files.memo[key] = out
+    return cast(list[_Candidate], memo)
+
+
 def code_files(
     files: Files, ctx: Context, language: str, wanted: frozenset[str] | None = None,
 ) -> list[str]:
     """Файлы кода языка, ближайший пакет которых на нужном стеке (wanted — зависимости,
     хотя бы одна из которых нужна; None — любой пакет этого языка). Код в каталогах для
     разработки сюда не попадает, а пропуск считается в покрытии (ТЗ §4): это одно место
-    отбора для всех разборщиков яруса кода."""
+    отбора для всех разборщиков яруса кода. Кандидаты по языку считаются один раз
+    (_candidates), отбор по wanted и пропуск кода для разработки (files.skip_dev_code, его
+    множество идемпотентно) идут на каждом вызове: покрытие и приём nodeconst._export_files
+    видят то же, что раньше."""
     out: list[str] = []
-    for rel in files.paths:
-        if not is_code_file(rel, language):
+    matched: dict[int, bool] = {}
+    for rel, deps, dev in _candidates(files, ctx, language):
+        ok = matched.get(id(deps))
+        if ok is None:
+            ok = matched[id(deps)] = _matches(deps, wanted)
+        if not ok:
             continue
-        pkgs = owner_packages(files, ctx, rel, language)
-        if not pkgs or not _matches((d for p in pkgs for d in p.deps), wanted):
+        if dev and files.skip_dev_code(rel):
             continue
-        if not files.skip_dev_code(rel):
-            out.append(rel)
+        out.append(rel)
     return out
 
 
