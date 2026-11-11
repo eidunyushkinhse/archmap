@@ -699,7 +699,9 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `spring-kafka`): потребление `subscribe(List.of("t"))`, `Arrays.asList`,
     `Collections.singletonList`, Kotlin `listOf` и `setOf`, `@KafkaListener(topics = "t")` и
     массивом; публикация `new ProducerRecord<>("t", v)`, Kotlin `ProducerRecord("t", v)`,
-    `kafkaTemplate.send("t", v)`. Имя литералом, константой класса Java или переменной файла с
+    `kafkaTemplate.send("t", v)` (получатель с `kafka` в имени или объявленный в файле типом
+    `KafkaTemplate`; `sendDefault(data)` топика не называет, П4). Имя литералом, константой
+    класса Java или переменной файла с
     дефолтом окружения (`System.getenv("X") ?: "t"`, `Optional.ofNullable(...).orElse("t")`:
     имя дефолтом), иначе подсказка о динамическом имени; обработчик реактивного потока
     (`subscribe(v -> f(v))`) не топик. Брокер по клиенту Kafka, `kind: topic`. Java и Kotlin
@@ -783,6 +785,11 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     получателя и без «"/» в первых 80 знаках аргумента пропускается без сборки текста аргумента,
     в файле без объектов маршрутизации и без поиска получателя; известность получателя
     считается один раз на вызов; записи и подсказки те же (П2).
+  - шаблон отправки Spring (`parsers/kafkajvm.py`): `<x>Template.send("t", …)` даёт топик, только
+    если получатель назван с `kafka` (без учёта регистра) или объявлен в файле типом
+    `KafkaTemplate` (Java: поле, параметр или переменная `KafkaTemplate<K, V> имя`, Kotlin
+    `имя: KafkaTemplate<K, V>`); `rabbitTemplate.send` и `jmsTemplate.send` не топики,
+    `sendDefault(data)` топика не называет (первый аргумент данные) и записи не даёт (П4).
   - тесты времени: в пяти тестах (`test_compose.py` Envoy и compose, hjson в
     `test_config_code.py`, `test_command_scripts.py`, `test_routes_rails.py`) повтор `timed` идёт
     по тому же пределу, что проверяется; повтор в `_check` матрицы враждебного кода мерит путь

@@ -621,6 +621,10 @@ SPRING_VALUE.update({
     "java/App.java:listener-array": '@KafkaListener(topics = {"' + '", "' * (PAYLOAD // 4) + '"})\n',
     "java/App.java:templates": "kafkaTemplate.send(" * (PAYLOAD // 19),
     "java/App.java:template-name": "a" * PAYLOAD + 'Template.send("t");\n',
+    # Получатели без kafka в имени и объявления KafkaTemplate без конца (ТЗ §15 п. 18 П4).
+    "java/App.java:other-templates": 'xTemplate.send("t", v);\n' * (PAYLOAD // 24),
+    "java/App.java:template-types": "KafkaTemplate<a, " * (PAYLOAD // 17) + '\nt.send("t", v);\nxTemplate.send("t", v);\n',
+    "kt/App.kt:template-types": "t: KafkaTemplate<" * (PAYLOAD // 17) + '\nxTemplate.send("t", v)\n',
     "java/App.java:handlers": "f.subscribe(v -> g(v));\n" * (PAYLOAD // 24),
     "kt/App.kt:env-vars": 'val t = System.getenv("A") ?: "x"\n' * (PAYLOAD // 34),
     "kt/App.kt:var-spaces": 'val t = System.getenv("A")' + " " * (PAYLOAD - 40) + '?: "x"\n',

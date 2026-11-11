@@ -155,7 +155,7 @@ def test_names(tmp_path: Path) -> None:
             'plugins { kotlin("jvm") }\n'
             'dependencies { implementation("org.springframework.kafka:spring-kafka:3.2.0") }\n'
         ),
-        "k/src/main/kotlin/K.kt": 'const val T = "kt"\nfun f() { template.send(T, "v") }\n',
+        "k/src/main/kotlin/K.kt": 'const val T = "kt"\nfun f() { kafkaTemplate.send(T, "v") }\n',
     })
     ctx, files = files_of(tmp_path)
     found = kafkajvm.parse(files, ctx)
@@ -198,3 +198,20 @@ def test_trim_same_as_strip() -> None:
             lo + len(seg) - len(seg.lstrip(" \t\r\n")), hi - (len(seg) - len(seg.rstrip(" \t\r\n"))),
         )
         assert jvm._trim(mask, lo, hi) == want
+
+
+def test_template_receivers() -> None:
+    """<x>Template.send("t", …) читается, только если получатель назван с kafka (без учёта
+    регистра) или объявлен в файле типом KafkaTemplate (Java: поле, параметр или переменная,
+    Kotlin: «имя: KafkaTemplate<…>»); rabbitTemplate.send и jmsTemplate.send топиками не
+    становятся, kafkaTemplate.sendDefault(data) топика не называет: первый аргумент данные,
+    записи нет (ТЗ §15 п. 18 П4). В корпусе вызовов *Template.send в коде Java и Kotlin нет."""
+    root = FIXTURES / "kafka-templates"
+    assert [(loc, name) for loc, name, _direction, _client in _channels(root)] == [
+        ("a/src/main/java/shop/A.java:6", "declared"),
+        ("a/src/main/java/shop/A.java:7", "named"),
+        ("a/src/main/java/shop/A.java:8", "named-too"),
+        ("k/src/main/kotlin/shop/K.kt:4", "kotlin-declared"),
+    ]
+    ctx, files = files_of(root)
+    assert kafkajvm.parse(files, ctx).hints == []

@@ -4,7 +4,10 @@
 List.of, Arrays.asList, Collections.singletonList, Set.of, Kotlin listOf, setOf,
 mutableListOf (с получателем «consumer.» и без, как в блоке apply Kotlin) и @KafkaListener(topics
 = "t") (массив {"a", "b"}, Kotlin ["a"], arrayOf); публикация: new ProducerRecord<>("t", …),
-Kotlin ProducerRecord("t", …) и <получатель>Template.send("t", …). Имя топика литералом,
+Kotlin ProducerRecord("t", …) и <получатель>Template.send("t", …), если получатель назван с
+kafka (без учёта регистра) или объявлен в файле типом KafkaTemplate (ТЗ §15 п. 18 П4:
+rabbitTemplate.send и jmsTemplate.send не топики; sendDefault(data) топика не называет,
+первый аргумент у него данные). Имя топика литералом,
 строковой константой (clike.Repo, Java) или переменной файла, значение которой задано
 System.getenv("X") ?: "t" (Kotlin) или Optional.ofNullable(System.getenv("X")).orElse("t")
 (Java): дефолт как имя (по образцу get_from_env(…, default="t") части 2). Иначе подсказка о
@@ -33,7 +36,14 @@ _LIST = re.compile(
     rf"{SP}(?:<[^<>()]{{0,200}}>)?{SP}\("
 )
 _RECORD = re.compile(rf"(?<![\w$.])ProducerRecord{SP}(?:<[^()]{{0,200}}>)?{SP}\(")
-_TEMPLATE_SEND = re.compile(rf"(?<![\w$])\w{{0,100}}[Tt]emplate{SP}\.{SP}send(?:Default)?{SP}\(")
+_TEMPLATE_SEND = re.compile(rf"(?<![\w$])(\w{{0,100}}[Tt]emplate){SP}\.{SP}send{SP}\(")
+# Объявление получателя типом KafkaTemplate: Java «KafkaTemplate<K, V> имя» (поле, параметр,
+# переменная; параметры типа до двух уровней, «<String, List<X>>»), Kotlin «имя: KafkaTemplate<K, V>».
+_JAVA_TEMPLATE = re.compile(
+    rf"(?<![\w$.])KafkaTemplate{SP}(?:<(?:[^<>;{{}}()]|<[^<>;{{}}()]{{0,200}}>){{0,200}}>)?"
+    rf"[ \t\r\n]+({_ID})"
+)
+_KT_TEMPLATE = re.compile(rf"(?<![\w$])({_ID})[ \t]*:{SP}KafkaTemplate(?![\w$])")
 _LISTENER = frozenset({"KafkaListener"})
 _TOPIC_LABELS = frozenset({"topics"})
 # Переменная файла с дефолтом окружения: Kotlin «val t: String = System.getenv("X") ?: "d"»,
@@ -71,6 +81,17 @@ class _File:
         self.found = found
         self.count = 0
         self.variables = _variables(code)
+        self._templates: set[str] | None = None
+
+    def kafka_template(self, name: str) -> bool:
+        """Получатель send — шаблон Kafka: kafka в имени или объявлен типом KafkaTemplate."""
+        if "kafka" in name.lower():
+            return True
+        if self._templates is None:
+            mask = self.code.mask
+            self._templates = {m.group(1) for m in _JAVA_TEMPLATE.finditer(mask)}
+            self._templates |= {m.group(1) for m in _KT_TEMPLATE.finditer(mask)}
+        return name in self._templates
 
     def _counted(self) -> None:
         # Записи и подсказки файла вместе: больше clike.MAX_READS — файл непрочитан.
@@ -156,6 +177,8 @@ def _records(f: _File) -> None:
     mask = f.code.mask
     for pattern in (_RECORD, _TEMPLATE_SEND):
         for m in pattern.finditer(mask):
+            if pattern is _TEMPLATE_SEND and not f.kafka_template(m.group(1)):
+                continue
             args = _args(f, m.end() - 1)
             if args and args[0].label is None:
                 f.topic(args[0].start, args[0].end, "publish", m.start())
