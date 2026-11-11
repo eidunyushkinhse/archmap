@@ -257,13 +257,17 @@ def parse(files: Files, ctx: Context) -> Findings:
         text = files.read(rel)
         if text is None:
             continue
+        # Предел размера и вложенности: файл непрочитан и подсказка с причиной, как у hjson
+        # (ТЗ §15 п. 19 П6, решение владельца; раньше только непрочитанный файл).
         if len(text.encode("utf-8", "replace")) > MAX_BYTES:
             files.refuse(rel)
+            found.hints.append(unparsed_hint(rel, texts.REASON_BAD_APPSETTINGS))
             continue
         try:
             entries = read(text)
         except TooDeep:
             files.refuse(rel)
+            found.hints.append(unparsed_hint(rel, texts.REASON_BAD_APPSETTINGS))
             continue
         except BadJson:
             # Ошибка синтаксиса: подсказка, а не молчание (ТЗ §15 п. 18 П5, как у hjson).

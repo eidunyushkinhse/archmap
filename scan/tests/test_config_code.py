@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import shutil
 from functools import partial
 from pathlib import Path
 
 import pytest
+import yaml
 
 from archmap_scan import clike, registry, stats, texts
 from archmap_scan.parsers import (
@@ -19,6 +21,7 @@ from archmap_scan.parsers import (
     pyenv,
     rustenv,
 )
+from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Row = tuple[str, str | None, bool, bool | None, str | None, str]
@@ -354,9 +357,9 @@ def test_appsettings_hostile(tmp_path: Path, kind: str) -> None:
 
 
 def test_appsettings_limits(tmp_path: Path) -> None:
-    """Файл больше 1 МБ и вложенность глубже 50 — файл непрочитан; ошибка синтаксиса —
-    файл без записей и подсказка unparsed с причиной (ТЗ §15 п. 18 П5, как у hjson; раньше
-    молчание)."""
+    """Файл больше 1 МБ и вложенность глубже 50 — файл непрочитан и подсказка unparsed с
+    причиной (ТЗ §15 п. 19 П6, как у hjson); ошибка синтаксиса — файл без записей и та же
+    подсказка (ТЗ §15 п. 18 П5; раньше молчание)."""
     tree(tmp_path, {
         "A/A.csproj": "<Project></Project>\n", "A/appsettings.json": '{"a": "' + "x" * 1_000_001 + '"}',
         "B/B.csproj": "<Project></Project>\n", "B/appsettings.json": '{"a": ' * 60 + "1" + "}" * 60,
@@ -370,7 +373,40 @@ def test_appsettings_limits(tmp_path: Path) -> None:
     assert [p.name for p in found.code_params] == ["d"]
     assert sorted(files.too_large) == ["A/appsettings.json", "B/appsettings.json"]
     assert [(h.section, h.data["name"], h.data["reason"]) for h in found.hints] == [
+        ("unparsed", "A/appsettings.json", texts.REASON_BAD_APPSETTINGS),
+        ("unparsed", "B/appsettings.json", texts.REASON_BAD_APPSETTINGS),
         ("unparsed", "C/appsettings.json", texts.REASON_BAD_APPSETTINGS),
+    ]
+
+
+def test_appsettings_limits_fixture(tmp_path: Path) -> None:
+    """Оба предела у фикстуры dotnet-settings-limits (ТЗ §15 п. 19 П6): Deep/appsettings.json
+    вложен на 51 уровень, а файл больше 1 МБ добавляется копии фикстуры при запуске (такой
+    файл в репозиторий не кладётся). Оба непрочитаны, у каждого подсказка unparsed с
+    причиной, соседний проект Api читается как прежде; в выводе подсказка с тем же текстом."""
+    root = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "dotnet-settings-limits", root)
+    tree(root, {
+        "Big/Big.csproj": '<Project Sdk="Microsoft.NET.Sdk.Worker"></Project>\n',
+        "Big/appsettings.json": '{"a": "' + "x" * appsettings.MAX_BYTES + '"}\n',
+    })
+    ctx, files = files_of(root)
+    found = appsettings.parse(files, ctx)
+    assert [(p.name, str(p.loc), p.default) for p in found.code_params] == [
+        ("Queue:Name", "Api/appsettings.json:2", "orders"),
+    ]
+    assert sorted(files.too_large) == ["Big/appsettings.json", "Deep/appsettings.json"]
+    assert [(h.section, h.data) for h in found.hints] == [
+        ("unparsed", {"kind": "file", "name": rel, "reason": texts.REASON_BAD_APPSETTINGS,
+                      "source": rel})
+        for rel in ("Big/appsettings.json", "Deep/appsettings.json")
+    ]
+    out = tmp_path / "out"
+    run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
+    hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
+    assert [(h["name"], h["reason"]) for h in hints["unparsed"]] == [
+        ("Big/appsettings.json", texts.REASON_BAD_APPSETTINGS),
+        ("Deep/appsettings.json", texts.REASON_BAD_APPSETTINGS),
     ]
 
 
