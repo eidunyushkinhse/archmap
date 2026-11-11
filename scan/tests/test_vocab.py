@@ -55,6 +55,47 @@ def test_stage_technology() -> None:
     assert vocab.is_stack("Grafana") and vocab.is_stack("Envoy")
 
 
+def test_image_technology_one_spelling() -> None:
+    """Технология по образу у сервиса compose, Helm, k8s и задачи (ТЗ §15 п. 19 Т2): вид из
+    IMAGES как в словаре, программа по имени образа или по организации и имени, иначе имя
+    образа строчными, как раньше. Ловушки: строчное написание программы (etcd, flagd), имена
+    app, node и ui без организации из словаря, программа вокруг базы (postgres-meta)."""
+    assert vocab.image_technology("grafana/grafana:11.4.0") == "Grafana"
+    assert vocab.image_technology("quay.io/prometheus/alertmanager:v0.24.0") == "Alertmanager"
+    assert vocab.image_technology("otel/opentelemetry-collector-contrib:0.142.0") == (
+        "OpenTelemetry Collector"
+    )
+    assert vocab.image_technology("temporalio/ui:2.47.2") == "Temporal"
+    assert vocab.image_technology("docker.io/temporalio/admin-tools:1.26") == "Temporal"
+    assert vocab.image_technology("jaegertracing/all-in-one:1.76.0") == "Jaeger"
+    assert vocab.image_technology("timberio/vector:0.53.0-alpine") == "Vector"
+    assert vocab.image_technology("nginx:1.27") == "nginx"
+    assert vocab.image_technology("envoyproxy/envoy:v1.40") == "Envoy"
+    assert vocab.image_technology("vectorized/redpanda:v23.2") == "Redpanda"
+    for image, tech in (
+        ("quay.io/coreos/etcd:v3.6.8", "etcd"), ("ghcr.io/open-feature/flagd:v0.12", "flagd"),
+        ("calico/node:v3.29.0", "node"), ("sail-8.3/app", "app"), ("example/ui:1.0", "ui"),
+        ("supabase/postgres-meta:v0.84", "postgres-meta"), ("jaegertracing/example-hotrod", "example-hotrod"),
+    ):
+        assert vocab.image_technology(image) == tech, image
+    # Итоговая стадия Dockerfile даёт то же написание (Т1), ОС и базы технологии не дают.
+    assert vocab.stage_technology("grafana/loki:3.7") == "Loki"
+    assert vocab.stage_technology("temporalio/ui:2.47") == "Temporal"
+    assert vocab.stage_technology("quay.io/coreos/etcd:v3.6") is None
+    assert vocab.program("grafana/grafana") == "Grafana" and vocab.program("example/ui") is None
+
+
+
+def test_stage_role() -> None:
+    """Роль по образу итоговой стадии (ТЗ §15 п. 19 Т3): «прокси» только у видов сервиса с этой
+    ролью в IMAGES; программы, ОС, базы и языки роли не дают."""
+    for image in ("envoyproxy/envoy:v1.40", "nginxinc/nginx-unprivileged:1.29", "traefik:v3",
+                  "haproxy:3.0"):
+        assert vocab.stage_role(image) == "прокси", image
+    for image in ("grafana/grafana", "redis:7", "alpine", "python:3.12", "mailhog/mailhog"):
+        assert vocab.stage_role(image) is None, image
+
+
 def test_frameworks_and_clients() -> None:
     deps = ("fastapi", "starlette", "kafka-python", "psycopg2-binary")
     assert vocab.find_framework(deps, vocab.SERVER_FRAMEWORKS) == "FastAPI"

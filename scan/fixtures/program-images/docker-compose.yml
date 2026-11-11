@@ -1,0 +1,31 @@
+# Программы по образу одним написанием (ТЗ §15 п. 19 Т2): у сервиса compose, k8s и у
+# итоговой стадии своего Dockerfile одно и то же («Grafana», а не «grafana»).
+services:
+  dashboards:
+    image: grafana/grafana:11.4.0
+  metrics:
+    image: prom/prometheus:v3.1.0
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.142.0
+  temporal:
+    image: temporalio/auto-setup:1.26.2
+  temporal-ui:
+    image: temporalio/ui:2.47.2
+  tracing:
+    image: jaegertracing/all-in-one:1.76.0
+  search:
+    image: ghcr.io/searxng/searxng:latest
+  gateway:
+    image: nginx:1.27
+  # Свой Dockerfile на образе grafana: технология и стек по последнему FROM (Т1).
+  grafana-own:
+    build: ./grafana
+  # Ловушки: программа со строчным написанием и имена, по которым программу не узнать.
+  etcd:
+    image: quay.io/coreos/etcd:v3.6.8
+  calico-node:
+    image: calico/node:v3.29.0
+  laravel:
+    image: monica/app:5.0
+  other-ui:
+    image: example/ui:1.0

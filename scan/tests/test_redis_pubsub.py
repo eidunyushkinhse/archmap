@@ -178,3 +178,32 @@ def test_receiver_traps(tmp_path: Path) -> None:
     assert [(h[0], h[2]) for h in hints] == [
         ("self.channels", "py/sensor.py:4"), ("this.commandChannel", "js/bus.ts:2"),
     ]
+
+
+def test_client_blocks_and_pipelines() -> None:
+    """Клиент, который вернул конвейер или транзакция (ТЗ §15 п. 19 В3). Ruby: параметр блока
+    pipelined, multi и with на клиенте (и вложенного блока на таком параметре), параметр метода
+    того же файла, который зовут из блока с этим параметром, вместе с if, модификатором if и
+    блоком each внутри метода. Node.js: имя, которому присвоен .pipeline() или .multi()
+    клиента (и через await). Python: pipe = r.pipeline(), with r.pipeline() as tx и async with
+    (with до В3 клиента не давал). Ловушки: pipeline.publish после конца блока, метод с тем же
+    параметром, который из блока не зовут, транзакция ActiveRecord, with на пуле не Redis,
+    конвейер чужого объекта у Node.js, with open() у Python."""
+    rows, hints = _parse(FIXTURES / "redis-blocks")
+    assert rows == [
+        ("orders:piped", "channel", "publish", "api/app.py:8"),
+        ("orders:with", "channel", "publish", "api/app.py:10"),
+        ("orders:async", "channel", "publish", "api/app.py:15"),
+        ("timeline:pool", "channel", "publish", "feed/app/timeline.rb:11"),
+        ("timeline:multi", "channel", "publish", "feed/app/timeline.rb:13"),
+        ("timeline:nested", "channel", "publish", "feed/app/timeline.rb:16"),
+        ("timeline:public", "channel", "publish", "feed/app/timeline.rb:25"),
+        ("timeline:local", "channel", "publish", "feed/app/timeline.rb:27"),
+        ("timeline:remote", "channel", "publish", "feed/app/timeline.rb:27"),
+        ("timeline:local:only", "channel", "publish", "feed/app/timeline.rb:32"),
+        ("jobs:done", "channel", "publish", "jobs/src/jobs.js:7"),
+        ("jobs:tx", "channel", "publish", "jobs/src/jobs.js:9"),
+    ]
+    assert hints == [
+        ('"timeline:hashtag:#{tag}"', texts.REASON_DYNAMIC_CHANNEL, "feed/app/timeline.rb:30"),
+    ]

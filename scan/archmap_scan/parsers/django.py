@@ -12,7 +12,12 @@ django.contrib без миграций в репозитории — насто�
 миграция данных: структуры не меняет и считается отдельно (data_migrations), а не
 пропуском. RunSQL с литеральным SQL разбирает SQL-разборщик (таблицы, созданные им,
 добавляются к таблицам приложения); RunSQL без литерала и незнакомые операции считаются
-пропущенными. Ничего не исполняется и не импортируется: только ast и литералы.
+пропущенными. SeparateDatabaseAndState: state_operations меняют состояние моделей, как
+обычные операции, а из database_operations берутся только RunSQL и RunPython; без
+state_operations database_operations идут в состояние, как раньше (ТЗ §15 п. 19 М2). Список
+операций именем (operations = ops, database_operations=database_operations) раскрывается по
+атрибуту класса Migration или присваиванию списка на уровне модуля. Ничего не исполняется и не
+импортируется: только ast и литералы.
 """
 
 from __future__ import annotations
@@ -123,6 +128,8 @@ class _Migration:
     replaces: list[tuple[str, str]]
     operations: ast.expr | None
     line: int
+    # Списки операций по имени: атрибуты класса Migration поверх присваиваний модуля (М2).
+    names: dict[str, ast.expr] = field(default_factory=dict)
 
 
 @dataclass
@@ -141,9 +148,65 @@ class _AppStats:
 
 
 @dataclass
+class _Group:
+    """Поля со ссылкой на одну модель; key — её (приложение, модель) сейчас."""
+
+    key: tuple[str, str]
+    fields: dict[int, _Field] = field(default_factory=dict)
+
+
+class _Refs:
+    """Поля со ссылкой по цели (ТЗ §15 п. 19 П8): RenameModel переносит одну группу, а не
+    перебирает поля всех моделей. Группа нового имени, если она уже есть, сливается с
+    переименованной меньшая в большую, поэтому поле переходит из группы в группу не больше
+    log2(число полей) раз. Цель у самих полей (_Field.target) ставит settle в конце цепочки:
+    до него её читает только индекс."""
+
+    def __init__(self) -> None:
+        self.groups: dict[tuple[str, str], _Group] = {}
+        self.of: dict[int, _Group] = {}
+
+    def add(self, f: _Field) -> None:
+        if f.target is None:
+            return
+        group = self.groups.get(f.target)
+        if group is None:
+            group = self.groups[f.target] = _Group(f.target)
+        group.fields[id(f)] = f
+        self.of[id(f)] = group
+
+    def drop(self, f: _Field) -> None:
+        group = self.of.pop(id(f), None)
+        if group is not None:
+            group.fields.pop(id(f), None)
+
+    def move(self, old: tuple[str, str], new: tuple[str, str]) -> None:
+        group = self.groups.pop(old, None)
+        if group is None:
+            return
+        other = self.groups.get(new)
+        if other is None:
+            group.key = new
+            self.groups[new] = group
+            return
+        small, big = (group, other) if len(group.fields) <= len(other.fields) else (other, group)
+        big.fields.update(small.fields)
+        for key in small.fields:
+            self.of[key] = big
+        big.key = new
+        self.groups[new] = big
+
+    def settle(self) -> None:
+        for group in self.groups.values():
+            for f in group.fields.values():
+                f.target = group.key
+
+
+@dataclass
 class _State:
     user_model: tuple[str, str]
     models: dict[tuple[str, str], _Model] = field(default_factory=dict)
+    refs: _Refs = field(default_factory=_Refs)
     stats: dict[str, _AppStats] = field(default_factory=dict)
     # Приложения с таблицами из RunSQL: только их ссылки переносит переименование модели.
     sql_apps: set[str] = field(default_factory=set)
@@ -295,6 +358,11 @@ def _create_model(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
         managed=options.get("managed") is not False,
         fields=_fields(_arg(call, "fields", 1), app, name, state, loc.path), locs=[loc],
     )
+    replaced = state.models.get((app, name.lower()))
+    for f in replaced.fields if replaced is not None else ():
+        state.refs.drop(f)
+    for f in model.fields:
+        state.refs.add(f)
     state.models[(app, name.lower())] = model
     return True
 
@@ -312,10 +380,8 @@ def _rename_model(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
     model.locs.append(loc)
     state.models[(app, new.lower())] = model
     state.rename_table(before, model.table)
-    for other in state.models.values():
-        for f in other.fields:
-            if f.target == (app, old.lower()):
-                f.target = (app, new.lower())
+    # Ссылки на модель переносит индекс одной группой (П8), не перебор полей всех моделей.
+    state.refs.move((app, old.lower()), (app, new.lower()))
     return True
 
 
@@ -343,6 +409,9 @@ def _field_op(kind: str, call: ast.Call, app: str, state: _State, loc: Loc) -> b
         return False
     if kind == "RemoveField":
         if model is not None:
+            for f in model.fields:
+                if f.name == name:
+                    state.refs.drop(f)
             model.fields = [f for f in model.fields if f.name != name]
         return True
     node = _arg(call, "field", 2)
@@ -355,22 +424,31 @@ def _field_op(kind: str, call: ast.Call, app: str, state: _State, loc: Loc) -> b
     if kind == "AddField":
         if made is not None and old_field is None:
             model.fields.append(made)
+            state.refs.add(made)
         return True
     # AlterField: новое определение на месте старого.
     if old_field is not None:
         index = model.fields.index(old_field)
+        state.refs.drop(old_field)
         if made is None:
             del model.fields[index]
         else:
             made.locs = old_field.locs + [loc]
             model.fields[index] = made
+            state.refs.add(made)
     elif made is not None:
         model.fields.append(made)
+        state.refs.add(made)
     return True
 
 
-def _operation(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
-    """Одна операция; False — не понята (считается пропущенной)."""
+def _operation(
+    call: ast.Call, app: str, state: _State, loc: Loc, names: dict[str, ast.expr],
+    state_only: bool,
+) -> bool:
+    """Одна операция; False — не понята (считается пропущенной). names — списки операций
+    миграции по имени (_Migration.names); state_only — операция из state_operations: она
+    меняет состояние моделей, но в базе ничего не удаляет (М2)."""
     kind = pyast.last_name(call) or ""
     if kind in _NOOP:
         return True
@@ -382,7 +460,11 @@ def _operation(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
         if name is None:
             return False
         gone = state.models.pop((app, name.lower()), None)
-        if gone is not None and gone.managed:
+        for f in gone.fields if gone is not None else ():
+            state.refs.drop(f)
+        # Из state_operations модель уходит только из состояния, DROP TABLE в базе нет:
+        # модель переехала в другое приложение с тем же db_table или таблицу оставили (М2).
+        if gone is not None and gone.managed and not state_only:
             state.app_stats(app).dropped += 1
         return True
     if kind == "RenameModel":
@@ -416,11 +498,49 @@ def _operation(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
     if kind.endswith("RunSQL"):
         return _run_sql(call, app, state, loc)
     if kind == "SeparateDatabaseAndState":
-        # База меняется только database_operations; state_operations — модель Django.
-        ops = _arg(call, "database_operations", 0)
-        _apply(ops, app, state, loc.path)
+        # state_operations — состояние моделей Django, и база после миграции ему равна по
+        # замыслу разработчика (ТЗ §15 п. 19 М2): у PostHog модели alerts переезжают в
+        # alerts_platform только в состоянии, с тем же db_table. Из database_operations
+        # берутся RunSQL (схема SQL приложения) и RunPython (миграции данных), прочее там
+        # описывает то же изменение, что уже в состоянии. Без state_operations
+        # database_operations идут в состояние, как раньше.
+        db_ops = _named(_arg(call, "database_operations", 0), names)
+        state_ops = _named(_arg(call, "state_operations", 1), names)
+        if state_ops is None:
+            _apply(db_ops, app, state, loc.path, names)
+            return True
+        _apply(state_ops, app, state, loc.path, names, state_only=True)
+        _apply_database(db_ops, app, state, loc.path)
         return True
     return False
+
+
+def _named(node: ast.expr | None, names: dict[str, ast.expr]) -> ast.expr | None:
+    """Список операций именем — его значение (атрибут класса или присваивание модуля,
+    _Migration.names), если это литерал списка; иначе выражение как есть (М2)."""
+    if isinstance(node, ast.Name):
+        value = names.get(node.id)
+        if isinstance(value, (ast.List, ast.Tuple)):
+            return value
+    return node
+
+
+def _apply_database(ops: ast.expr | None, app: str, state: _State, path: str) -> None:
+    """database_operations при state_operations (М2): RunSQL и RunPython, остальные операции
+    пропускаются без счётчика. Не список (выражение) — пропуск «operations», как у _apply."""
+    if ops is None:
+        return
+    if not isinstance(ops, (ast.List, ast.Tuple)):
+        state.app_stats(app).skip(Loc(path, ops.lineno), "operations")
+        return
+    for item in ops.elts:
+        if not isinstance(item, ast.Call):
+            continue
+        kind = pyast.last_name(item) or ""
+        if kind.endswith(("RunSQL", "RunPython")):
+            loc = Loc(path, item.lineno)
+            if not _operation(item, app, state, loc, {}, False):
+                state.app_stats(app).skip(loc, kind)
 
 
 def _run_sql(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
@@ -445,7 +565,12 @@ def _run_sql(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
     return True
 
 
-def _apply(ops: ast.expr | None, app: str, state: _State, path: str) -> None:
+def _apply(
+    ops: ast.expr | None, app: str, state: _State, path: str,
+    names: dict[str, ast.expr] | None = None, state_only: bool = False,
+) -> None:
+    names = names if names is not None else {}
+    ops = _named(ops, names)
     if ops is None:
         return
     if not isinstance(ops, (ast.List, ast.Tuple)):
@@ -456,7 +581,7 @@ def _apply(ops: ast.expr | None, app: str, state: _State, path: str) -> None:
         if not isinstance(item, ast.Call):
             state.app_stats(app).skip(loc, "operations")
             continue
-        if not _operation(item, app, state, loc):
+        if not _operation(item, app, state, loc, names, state_only):
             state.app_stats(app).skip(loc, pyast.last_name(item) or "operation")
 
 
@@ -472,6 +597,16 @@ def _pairs(node: ast.expr | None, state: _State) -> list[tuple[str, str]]:
         if isinstance(pair, list) and len(pair) == 2 and all(isinstance(x, str) for x in pair):
             out.append((pair[0], pair[1]))
     return out
+
+
+def _assigned(stmt: ast.stmt) -> list[tuple[str, ast.expr]]:
+    """Имена, которым инструкция присваивает значение: a = b = [...] и a: list = [...]."""
+    if isinstance(stmt, ast.Assign):
+        return [(t.id, stmt.value) for t in stmt.targets if isinstance(t, ast.Name)]
+    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) \
+            and stmt.value is not None:
+        return [(stmt.target.id, stmt.value)]
+    return []
 
 
 def _migration(rel: str, app: str, tree: ast.Module, state: _State) -> _Migration | None:
@@ -490,12 +625,22 @@ def _migration(rel: str, app: str, tree: ast.Module, state: _State) -> _Migratio
             attrs[stmt.target.id] = stmt.value
     if "operations" not in attrs and "dependencies" not in attrs:
         return None
+    # Списки операций по имени (М2): последнее присваивание модуля до класса, атрибуты класса
+    # поверх него (имя в теле класса видит сначала атрибут класса). Присваивание не списка
+    # имя забывает: его значение не литерал.
+    names: dict[str, ast.expr] = {}
+    for stmt in tree.body:
+        if stmt is cls:
+            break
+        for name, value in _assigned(stmt):
+            names[name] = value
+    names.update(attrs)
     return _Migration(
         app=app, name=paths.name(rel)[:-3], path=rel,
         deps=_pairs(attrs.get("dependencies"), state),
         run_before=_pairs(attrs.get("run_before"), state),
         replaces=_pairs(attrs.get("replaces"), state),
-        operations=attrs.get("operations"), line=cls.lineno,
+        operations=attrs.get("operations"), line=cls.lineno, names=names,
     )
 
 
@@ -724,7 +869,8 @@ def parse(files: Files, ctx: Context) -> Findings:
         found.table_sets.append(TableSet(parser=NAME, dir=common, error=error))
         return found
     for m in ordered:
-        _apply(m.operations, m.app, state, m.path)
+        _apply(m.operations, m.app, state, m.path, m.names)
+    state.refs.settle()
     engine = _engine(files)
     default = (
         engine is not None and engine[0] == dialect.SQLITE and _sqlite_overridden(files, engine[1])

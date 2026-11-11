@@ -43,6 +43,15 @@ CANDIDATES: dict[str, tuple[str, str]] = {
     "alembic/env.py": ("", ""),
     "alembic/versions/a.py": ("revision = 'a'\ndown_revision = None\ndef upgrade():\n    op.execute('", "')\n"),
     "app/migrations/0001_init.py": ("class Migration:\n    operations = ['", "']\n"),
+    # SeparateDatabaseAndState и список операций именем (ТЗ §15 п. 19 М2).
+    "app/migrations/0002_state.py": (
+        "class Migration:\n    operations = [migrations.SeparateDatabaseAndState("
+        "state_operations=[", "])]\n",
+    ),
+    "app/migrations/0003_named.py": (
+        "OPS = ['", "']\nclass Migration:\n    operations = [migrations.SeparateDatabaseAndState("
+        "database_operations=OPS, state_operations=OPS)]\n",
+    ),
     "api/openapi.yaml": ("openapi: 3.0.0\npaths:\n  /p: ", "\n"),
     "ops/crontab": ("* * * * * ", "\n"),
     # Схема Rails, патч kustomize, NetworkPolicy и конфигурация прокси (ТЗ §15 п. 14).

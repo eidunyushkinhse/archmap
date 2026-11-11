@@ -597,7 +597,9 @@ def django_broken(migration: str, parent: str) -> str:
 REASON_OPENAPI_TOO_LARGE = "файл больше предела разбора YAML, операции не посчитаны"
 REASON_BAD_OPENAPI = "файл OpenAPI не разбирается"
 REASON_BAD_HJSON = "файл настроек hjson не разбирается или превышает пределы разбора"
-REASON_BAD_APPSETTINGS = "файл настроек appsettings.json не разбирается"
+REASON_BAD_APPSETTINGS = (
+    "файл настроек appsettings.json не разбирается или превышает пределы разбора"
+)
 REASON_BAD_SETTINGS = "файл настроек Spring Boot или Quarkus не разбирается или превышает пределы разбора"
 REASON_OPENAPI_REFS = "пути заданы ссылками, которые не удалось развернуть, операции не посчитаны"
 REASON_OPENAPI_FILE = "спецификацию сборщик не импортирует, её добавляют в разделе «OpenAPI» объекта"

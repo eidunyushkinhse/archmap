@@ -1,0 +1,15 @@
+# Роль «прокси» по образу итоговой стадии своего Dockerfile (ТЗ §15 п. 19 Т3).
+services:
+  # Envoy в последнем FROM: технология и роль по словарю образов, как у образа compose.
+  edge:
+    build: ./edge
+  # nginx-unprivileged с дайджестом: тоже прокси.
+  images:
+    build: ./images
+  # Ловушка: роль по команде старше роли по образу.
+  jobs:
+    build: ./jobs
+    command: ["sh", "-c", "exec queue worker"]
+  # Ловушка: программа не прокси (Grafana), роль по умолчанию.
+  stats:
+    build: ./stats

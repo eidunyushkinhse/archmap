@@ -40,7 +40,7 @@ import re
 from bisect import bisect_left
 from dataclasses import dataclass, field
 
-from archmap_scan import codebase, codetext, gocode, paths, texts
+from archmap_scan import clike, codebase, codetext, gocode, paths, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Loc, Route, route_hint
@@ -135,6 +135,8 @@ class _File:
     starts: list[int] = field(default_factory=list)  # начала тел funcs по порядку
     pending: list[_Pending] = field(default_factory=list)
     closures: dict[int, tuple[int, int] | None] = field(default_factory=dict)
+    # Подсказок маршрутов из файла; больше clike.MAX_READS — файл непрочитан (ТЗ §15 п. 19 П7).
+    dynamic: int = 0
 
 
 def _assigned(mask: str, pos: int) -> str | None:
@@ -375,6 +377,9 @@ def _dynamic(
     f: _File, found: Findings, start: int, reason: str = texts.REASON_DYNAMIC_ROUTE,
     method: str | None = None, name: str | None = None,
 ) -> None:
+    f.dynamic += 1
+    if f.dynamic > clike.MAX_READS:
+        return
     found.hints.append(route_hint(
         f.code.expression(start) if name is None else name, reason,
         Loc(f.rel, f.code.line(start)), method,
@@ -413,6 +418,8 @@ def _scan(f: _File, found: Findings) -> None:
     # Объектов маршрутизации в файле нет: из известных получателей (_known) остаётся «http».
     only_http = not (f.roots or f.groups or f.scopes)
     for m in _CALL.finditer(mask):
+        if f.dynamic > clike.MAX_READS:
+            return  # файл непрочитан (П7), дальше не разбирается
         if (
             only_http and m.group(2) is None and _no_path_arg(code, m.end())
             and not _after_http(mask, m.start())
@@ -577,7 +584,15 @@ def parse(files: Files, ctx: Context) -> Findings:
         code = codetext.load(files, rel, text, codetext.GO)
         if code is not None:
             f = _File(code, rel, framework)
-            _scan(f, found)
+            local = Findings()
+            _scan(f, local)
+            if f.dynamic > clike.MAX_READS:
+                # Подсказок больше предела: файл непрочитан, его маршруты и подсказки не
+                # выдаются и во второй проход пакета он не идёт, как у clike.matches (П7).
+                files.refuse(rel)
+                continue
+            found.routes.extend(local.routes)
+            found.hints.extend(local.hints)
             open_dirs.setdefault(folder, []).append(f)
     for done in sorted(open_dirs):
         _package(open_dirs[done], found)

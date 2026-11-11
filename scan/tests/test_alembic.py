@@ -108,6 +108,36 @@ def test_cycle_and_broken_chain(tmp_path: Path) -> None:
     )
 
 
+def test_revision_named_like_test_keeps_chain(tmp_path: Path) -> None:
+    """Ревизия с именем теста в цепочке (ТЗ §15 п. 19 А1, Airflow
+    0147_3_4_0_add_commit_allows_update_to_connection_test.py): обход её не исключает, цепочка
+    не рвётся, таблицы следующих ревизий собраны."""
+    head = "from alembic import op\nimport sqlalchemy as sa\n"
+    tree(tmp_path, {
+        "core/migrations/env.py": "",
+        "core/migrations/versions/0001_init.py": (
+            head + "revision = 'a1'\ndown_revision = None\n\n\ndef upgrade():\n"
+            "    op.create_table('connection', sa.Column('id', sa.Integer(), primary_key=True))\n"
+        ),
+        "core/migrations/versions/0002_add_commit_test.py": (
+            head + "revision = 'b2'\ndown_revision = 'a1'\n\n\ndef upgrade():\n"
+            "    with op.batch_alter_table('connection') as batch_op:\n"
+            "        batch_op.add_column(sa.Column('allows_update', sa.Boolean()))\n"
+        ),
+        "core/migrations/versions/0003_test_request.py": (
+            head + "revision = 'c3'\ndown_revision = 'b2'\n\n\ndef upgrade():\n"
+            "    op.create_table('connection_test', sa.Column('id', sa.Integer()))\n"
+            "    op.rename_table('connection_test', 'connection_test_request')\n"
+        ),
+    })
+    ctx, files = files_of(tmp_path)
+    [ts] = alembic.parse(files, ctx).table_sets
+    assert ts.error is None and ts.dir == "core/migrations"
+    tables = {t.name: t for t in ts.tables}
+    assert sorted(tables) == ["connection", "connection_test_request"]
+    assert [c.name for c in tables["connection"].columns] == ["id", "allows_update"]
+
+
 def _type(src: str) -> str | None:
     node = ast.parse(src, mode="eval").body
     return alembic.render_type(node)

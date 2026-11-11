@@ -125,8 +125,11 @@ bullshit-proof эталоны). Обсуждение с владельцем 202
 - Исключение по соглашению (всегда, независимо от git): сегменты пути `test`, `tests`,
   `__tests__`, `testing`, `spec`, `specs`, `testdata`, `fixtures`, `mocks`, `__mocks__`, `e2e`,
   `docs`, `doc`, `examples`, `example`, `samples`, `benchmarks`; имена файлов `test_*.py`,
-  `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`, `conftest.py`; compose-файлы с сегментом
-  `test|ci|e2e` в имени. Исключённое перечисляется в отчёте по каталогам с числом файлов.
+  `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`, `conftest.py` (кроме файлов миграций: имя с
+  цифрой в начале в каталоге `migrations` любой глубины или `db/migrate` и любой `.py` прямо в
+  `versions/` рядом с `env.py`; ревизия Alembic с именем теста не тест, ч. 7, А1); compose-файлы
+  с сегментом `test|ci|e2e` в имени. Исключённое перечисляется в отчёте по каталогам с числом
+  файлов.
 - Манифесты для разработки (находка фазы 1а на Grafana, `devenv/`): compose, Dockerfile,
   supervisor, systemd и k8s в пути с сегментом `dev`, `devenv`, `development`, `local`, `hack`,
   `contrib`, `sandbox`, `demo`, `playground`, `.devcontainer`, `vagrant`, `ci`, `test` (или с
@@ -250,7 +253,7 @@ archmap-scan/
 | Источник | Что берёт | Куда кладёт |
 |---|---|---|
 | `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов; у сервиса с образом прокси (nginx, HAProxy, Caddy, Traefik, Envoy) файлы томов из репозитория и многострочные значения `environment`: `upstream { server }` и `proxy_pass` nginx, `reverse_proxy` Caddy, `server` в `backend`/`listen` HAProxy дают связи прокси → объект с этим `host`, технология HTTP (ч. 3, Ж3); сервис с образом из переменной или своим тегом — прокси и по базовому образу последней стадии своего Dockerfile, конфигурация берётся и из `COPY`/`ADD` последней стадии внутри контекста сборки (Envoy `*.yaml`, nginx `*.conf`, `Caddyfile`, `haproxy.cfg`), Envoy — адреса кластеров `static_resources.clusters[]` (`load_assignment` и `hosts`) с подстановками `${VAR}` из окружения единицы и закоммиченного `.env` (ч. 5, С1) |
-| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology`, `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
+| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT`; `ARG X` с `cargo build --bin $X` при Cargo.toml с `[workspace]` в том же каталоге → член workspace с `src/main.rs` (ч. 3, И1) | `technology` (у сервиса без языка по образу итоговой стадии тем же написанием, что у образа compose, ч. 6, Т1, ч. 7, Т2; образ прокси nginx, Envoy, Traefik или HAProxy там даёт и роль «прокси» вместо роли по умолчанию, тем же словарём, что у образа compose, ч. 7, Т3), `source.path`, команда для `entrypoints`; контейнер на бинарный крейт (имя из `[package] name`, каталог крейта, Rust), склейка по имени с сервисом compose или k8s |
 | `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`); каталог Procfile — каталог кода процессов, если рядом нет контейнера со своей сборкой: тогда код у контейнера сборки, а процесс даёт воркеры, расписания и связи (§15 п. 13 Д10) |
 | supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
 | systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
@@ -273,12 +276,12 @@ archmap-scan/
 | | Java и Kotlin: Spring MVC и WebFlux (пакет с артефактом `spring-boot*`, у Gradle плагин `org.springframework.boot`; ч. 5б, К1): класс с `@RestController` или `@Controller`, префикс `@RequestMapping("/x")`, `value =`, `path =`, массив `{"/a", "/b"}` (Kotlin `[…]`) по маршруту на элемент; методы `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, `@PatchMapping`, `@RequestMapping(method = {RequestMethod.GET, …})`, без `method` ANY; префикс приложения `server.servlet.context-path` или `spring.webflux.base-path` из `application.yml`/`.properties` модуля | по маске Java и Kotlin одним проходом по парным скобкам; интерфейсы (`@FeignClient`) не читаются; ведущая косая добавляется, `{id:regex}` пишется `{id}`; константа класса раскрывается, выражение и шаблон Kotlin с `$` в hints; префикс приложения с `${` — `prefix_unresolved: true` |
 | | Java и Kotlin: JAX-RS (пакет с `jakarta.ws.rs-api`, `javax.ws.rs-api`, `jboss-jaxrs-api_*`, `resteasy-*`, `quarkus-resteasy*`, `quarkus-rest*` или `jersey-*`; ч. 5б, К2): корневой ресурс — класс с `@Path("/x")`, до которого не доходит локатор; метод с `@GET`, `@POST`, `@PUT`, `@DELETE`, `@PATCH`, `@HEAD`, `@OPTIONS` и `@Path("y")` → `/x/y`; локатор (метод с `@Path` без глагола) — маршруты возвращаемого класса под своим путём, цепочка до восьми локаторов; методы базового класса наследуются; префикс `quarkus.http.root-path` и `@ApplicationPath` приложения, где работает модуль | по маске Java и Kotlin; интерфейсы (клиентские прокси) не читаются; `@Path` класса подресурса не применяется; класс подресурса по файлу, импорту, пакету, модулю или единственный в репозитории; Object, интерфейс, класс вне кода, имя в нескольких пакетах, путь выражением в hints; `{name: regex}` пишется `{name}` |
 | параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`, обёртки репозитория, читающие окружение по первому параметру (`get_from_env("X", d, type_cast=int)`), имя строковой константой модуля (ч. 3, Е2); Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке), ключи схемы zod, применённой к окружению (`EnvSchema.safeParse(process.env)`, схема своего или импортированного модуля; тип по валидатору, `.default(литерал)`, перечень `z.enum` в описании; ч. 3, Е3); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"`, обёртки репозитория, у которых строковый параметр уходит в `os.Getenv`/`os.LookupEnv`/`viper.BindEnv` (`env.StringFromEnv("X", "d")`, `mustMapEnv(&v, "X")`), и имя строковой константой пакета (`common.EnvGnuPGHome`; ч. 3, Е1); C# (`*.csproj`): `Configuration["X"]` и `configuration["X"]` (ключ `A:B` как написан), `Environment.GetEnvironmentVariable("X")`, дефолт литералом после `??`, `?? throw` — required; Java (`pom.xml`, `build.gradle`): `System.getenv("X")`, `System.getenv().get("X")`, дефолт из `getOrDefault("X", "d")`; у обоих тип по обёртке разбора (`Integer.parseInt`, `bool.TryParse`) и имя строковой константой (`static final`/`const`) того же файла, файла класса или статического импорта (ч. 3, Е4); Rust (`Cargo.toml`): `#[envconfig(from = "X", default = "v")]` (без `from` — имя поля в верхнем регистре; поле без атрибута в структуре с `#[derive(Envconfig)]` — тоже, обязательно, если не `Option<T>`, ч. 5, Р3), clap `#[arg(env = "X", default_value_t = …)]`, тип по типу поля, `std::env::var("X")`, `env::var_os("X")` с дефолтом из `.unwrap_or("v")`; `env!`/`option_env!` — переменная времени сборки в hints (ч. 3, И2) | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
-| | .NET: `appsettings.json` в каталоге проекта (рядом с `*.csproj`; не `appsettings.<Среда>.json` и не каталог тестов): ключ с вложением `A:B:C`, значение дефолтом как написано (массив одной строкой, `null` без дефолта), JSON с комментариями `//`, `/* */` и висячими запятыми; в коде C# `GetValue<T>("A:B")` и `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` → `ConnectionStrings:x`, раздел `GetSection("A")` или `GetRequiredSection("A")` с `.Get<T>()`, `.Bind(obj)` (тип `obj` по объявлению в файле), аргументом `Configure<T>(раздел)` или `AddOptions<T>().Bind(раздел)`, `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по публичным свойствам с `set` или `init` класса `T` того же проекта (дефолт из инициализатора-литерала, `required` — обязателен); имя раздела литералом, константой или `nameof(T)`, переменная раздела ставит его перед ключом (ч. 5, Р1); `GetRequiredValue("X")` и `GetRequiredValue<T>("X")` → обязательный `X` (тип по `T`, иначе `string`), индексатор раздела `s["Y"]` и `GetSection("S")["Y"]` → `S:Y` (ч. 6, Р1) | тип у файла по значению (`string`, `int`, `float`, `bool`, `array`), у кода по `T` и типу свойства; запись файла и чтение того же ключа — один параметр: дефолт из файла, тип из кода; файл больше 1 МБ или глубже 50 уровней непрочитан, класса нет — параметр `A` с типом `T` как написан, имя раздела выражением в hints |
+| | .NET: `appsettings.json` в каталоге проекта (рядом с `*.csproj`; не `appsettings.<Среда>.json` и не каталог тестов): ключ с вложением `A:B:C`, значение дефолтом как написано (массив одной строкой, `null` без дефолта), JSON с комментариями `//`, `/* */` и висячими запятыми; в коде C# `GetValue<T>("A:B")` и `GetValue<T>("A:B", дефолт)`, `GetConnectionString("x")` → `ConnectionStrings:x`, раздел `GetSection("A")` или `GetRequiredSection("A")` с `.Get<T>()`, `.Bind(obj)` (тип `obj` по объявлению в файле), аргументом `Configure<T>(раздел)` или `AddOptions<T>().Bind(раздел)`, `AddOptions<T>().BindConfiguration("A")` → `A:Свойство` по публичным свойствам с `set` или `init` класса `T` того же проекта (дефолт из инициализатора-литерала, `required` — обязателен); имя раздела литералом, константой или `nameof(T)`, переменная раздела ставит его перед ключом (ч. 5, Р1); `GetRequiredValue("X")` и `GetRequiredValue<T>("X")` → обязательный `X` (тип по `T`, иначе `string`), индексатор раздела `s["Y"]` и `GetSection("S")["Y"]` → `S:Y` (ч. 6, Р1) | тип у файла по значению (`string`, `int`, `float`, `bool`, `array`), у кода по `T` и типу свойства; запись файла и чтение того же ключа — один параметр: дефолт из файла, тип из кода; файл больше 1 МБ или глубже 50 уровней непрочитан и даёт подсказку `unparsed` с причиной, как ошибка синтаксиса (ч. 7, П6), класса нет — параметр `A` с типом `T` как написан, имя раздела выражением в hints |
 | | hjson: `config/defaults.hjson` или `config/default.hjson` рядом с манифестом сборки пакета (`config.hjson` и другие имена не читаются; у Lemmy `config/defaults.hjson` рядом с `Cargo.toml`): ключ с вложением через точку (`database.pool_size`), значение дефолтом как написано (строка без кавычек, число, `true`/`false`; массив одной строкой; `null` без дефолта); комментарии `#`, `//`, `/* */`, ключи и строки без кавычек, `'''` многострочные, запятые необязательны (ч. 5, Р2) | тип по значению (`string`, `int`, `float`, `bool`, `array`); файл больше 1 МБ, глубже 50 уровней или больше 5000 ключей непрочитан с подсказкой в `unparsed`, ошибка синтаксиса — подсказка без записей |
 | | Java и Kotlin: файлы настроек Spring Boot и Quarkus (пакет с артефактом `spring-boot*` или `quarkus-*`; ч. 5б, Е1): `src/main/resources/application.yml`, `application.yaml`, `application.properties`, `bootstrap.*` модуля (не `application-<профиль>.yml`, не `application.<профиль>.properties` и не каталог тестов); ключ через точку (`spring.application.name`), значение дефолтом как написано (список одной строкой); документ YAML после `---` или `.properties` после `#---` с `spring.config.activate.on-profile` или `spring.profiles` и ключ Quarkus `%профиль.` параметров не дают; подстановка `${X:d}` в значении — параметр `X` с дефолтом `d`, `${X}` — обязательный `X` | тип по значению (`string`, `int`, `float`, `bool`, `duration`, `array`); `.properties` по правилам `java.util.Properties` (комментарии `#` и `!`, разделитель `=`, `:` или пробел, продолжение `\`, экранирование `\uXXXX`); адрес или секрет в дефолте подстановки дефолтом не пишется, и у ключа с ней тоже; свойства JVM (`file.separator`, `user.home`) — переменные среды; `.properties` больше 1 МБ, YAML больше предела `yamlload` или больше 500 разделителей документов, больше 5000 ключей непрочитан с подсказкой в `unparsed`, ошибка YAML — подсказка без записей |
 | | Java и Kotlin: Spring в коде (пакет с артефактом `spring-boot*`; ч. 5б, Е2): `@Value("${key}")` и `@Value("${key:default}")` над полем, свойством, параметром конструктора или метода и над сеттером; `@ConfigurationProperties(prefix = "p")` (`value =`, первый аргумент) над классом, record или data class: `p.<свойство>` в kebab-case по компонентам record, параметрам первичного конструктора Kotlin, полям с сеттером `setИмя` (или под `@Data`/`@Setter` Lombok) и свойствам `var` тела Kotlin, тип того же файла раскрывается на один уровень | тип по объявленному типу (`int`, `bool`, `float`, `duration`, `string`, `array`), у `@Value` только для значения из одной подстановки целиком; дефолт из подстановки, литерала инициализатора или `@DefaultValue`; `@Value` без дефолта обязательный; выражение SpEL `#{x}` и значение без `${` не параметр, склейка и префикс выражением в hints; `@ConfigurationProperties` над методом `@Bean` не читается |
 | | Kotlin и `Optional` Java: окружение (ч. 5б, Е3): `.kt` пакетов Gradle с плагином Kotlin, `System.getenv("X")`, `System.getenv().getOrDefault("X", "d")`, дефолт из элвиса `?: "d"` той же инструкции; Java `Optional.ofNullable(System.getenv("X"))` с `.orElse("d")`, `.orElseGet(() -> "d")`, `.orElseThrow(f)` | Kotlin: без элвиса и без `?.` обязательный, `?: throw` и `?: error(x)` обязательный, выражение или шаблон с `$` в элвисе — дефолт без значения; тип по `.toInt()`, `.toLong()`, `.toBoolean()`, `.toDouble()` (и `OrNull`) за вызовом или за скобкой вокруг элвиса, иначе по дефолту; имя `const val` с литералом без `$` раскрывается (ч. 6, Е1), прочее имя в hints. Java: `.orElseThrow` — обязательный, тип по обёртке снаружи `Optional` |
-| каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4); Redis pub/sub на Python, Node.js, Ruby и Go (`publish("ch", …)` → публикация, `subscribe("ch", …)`, `psubscribe` → потребление; получатель клиент Redis по имени, подключению или фабрике; условный оператор с двумя литералами → две записи; шаблон подписки → подсказка) → `kind: channel` брокера Redis, кэш Redis становится брокером только по записи с владельцем-контейнером (ч. 6, В1) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
+| каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject`; модуль-реестр констант по последнему слову имени файла `topics`/`queues`/`subjects` (`ИМЯ = "t"`, f-строка, `get_from_env(…, default="t")`; TypeScript `export const ИМЯ = 't'` в пакетах с kafkajs), голое `ИМЯ` в вызове клиента раскрывается по импорту (ч. 2, В1); BullMQ и Bull на Node.js (`new Queue('q')`, `@InjectQueue('q')` → публикация, `new Worker('q')`, `@Processor('q')` → потребление, `BullModule.registerQueue({ name: 'q' })` → объявление; `enum` с последним словом имени `queue`/`queues` или концом `QueueName(s)` → очереди без направления, `QueueName.X` раскрывается) → `kind: queue` брокера Redis (ч. 2, В2); Sidekiq на Ruby (`:queues:` в `config/sidekiq*.yml` → объявление, класс с `include Sidekiq::Worker`/`Sidekiq::Job` или наследник такого класса → потребление очереди `sidekiq_options queue:`, без неё `default`; владелец — контейнер, команда которого запускает sidekiq) → `kind: queue` брокера Redis (ч. 2, В3); реестр консьюмеров Kafka: словарь уровня модуля с последним словом имени `consumers` и ключом `topic` в значениях (`KAFKA_CONSUMERS = {"имя": {"topic": Topic.X, "dlq_topic": …}}`) → потребление `topic` и других ключей со словом topic, публикация `dlq_topic` и `stale_topic` процессом по ключу, объект процесса только из манифестов (ч. 2, В4); Redis pub/sub на Python, Node.js, Ruby и Go (`publish("ch", …)` → публикация, `subscribe("ch", …)`, `psubscribe` → потребление; получатель клиент Redis по имени, подключению или фабрике, а ещё параметр блока `pipelined`, `multi` или `with` на клиенте Ruby (`redis.pipelined do \|pipeline\|`) в этом блоке и параметр метода того же файла на той же позиции, если метод зовут из такого блока с этим параметром, имя, которому присвоен `.pipeline()` или `.multi()` клиента Node.js, и `with r.pipeline() as pipe` Python (ч. 7, В3); условный оператор с двумя литералами → две записи; шаблон подписки → подсказка) → `kind: channel` брокера Redis, кэш Redis становится брокером только по записи с владельцем-контейнером (ч. 6, В1) | имя дословно (у f-строки и шаблона литеральная часть); направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
 | | Java и Kotlin: Kafka (пакет с `kafka-clients` или `spring-kafka`; ч. 5б, В1): потребление `subscribe(List.of("t"))`, `Arrays.asList`, `Collections.singletonList`, `Set.of`, Kotlin `listOf`, `setOf` (с получателем и без, как в блоке `apply`), `@KafkaListener(topics = "t")` и массивом `{"a", "b"}`, Kotlin `["a"]`; публикация `new ProducerRecord<>("t", v)`, Kotlin `ProducerRecord("t", v)`, `kafkaTemplate.send("t", v)` (получатель с `kafka` в имени или типа `KafkaTemplate` в файле; `sendDefault` топика не называет; ч. 6, П4) | топик литералом, константой класса Java (`clike`) или переменной файла с дефолтом окружения (`System.getenv("X") ?: "t"`, `Optional.ofNullable(System.getenv("X")).orElse("t")`: имя дефолтом); иначе `hints.dynamic_names`, обработчик реактивного потока (`subscribe(v -> f(v))`, `::`) подсказки не даёт; брокер по клиенту Kafka; Java и Kotlin уходят из `unsupported` каналов только у пакетов с Kafka; больше 2000 записей и подсказок в файле — файл непрочитан |
 | связи из файлов настроек Spring (ч. 5б, С1) | файлы настроек модуля (Е1), все документы: `uri` маршрутов Spring Cloud Gateway (`spring.cloud.gateway.routes`, `.server.webflux.routes`, `.mvc.routes`, `.server.webmvc.routes`, у `.properties` `routes[N].uri`), `spring.config.import` с `configserver:`, `spring.cloud.config.uri`, `eureka.client.serviceUrl.defaultZone` | связь контейнер-владелец файла → объект по хосту или имени (`lb://x`, `http(s)://x[:порт]`), технология HTTP; подстановка раскрывается дефолтом, без дефолта — подсказка; хост не объект — подсказка, как у прокси; `localhost` и IP не связь |
 | | Java и Kotlin: адреса объектов литералами в коде (ч. 5б, С2) | строковый литерал в `src/main` пакета Java или Kotlin, который весь адрес `http://<хост>/путь`, `https://<хост>` или `lb://<хост>`, хост без точек и порта → связь контейнер-владелец файла → объект с таким хостом или именем, технология HTTP; хост не объект, `localhost`, хост с точкой или портом, шаблон Kotlin с `$`, комментарии и каталоги тестов — ни связи, ни подсказки; больше 2000 адресов в файле — файл непрочитан. Для других языков правило не действует |
@@ -294,7 +297,7 @@ archmap-scan/
 |---|---|
 | SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `CREATE TABLE имя AS SELECT …` (колонки по псевдонимам `AS имя` и именам колонок списка без типа, «*» и выражение без имени — подсказка; ч. 3, З2), `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
 | Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key` (переименование таблицы или колонки переносит ссылки других таблиц, ч. 6, М1); порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
-| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id` (переименования модели, поля и таблицы переносят ссылки; модель `django.contrib` без миграций в репозитории — настоящей таблицей: `contenttypes.ContentType` → `django_content_type.id`, `sessions.Session` → `django_session.session_key`, `admin.LogEntry` → `django_admin_log`, `sites.Site` → `django_site`, ч. 6, М1); порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
+| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id` (переименования модели, поля и таблицы переносят ссылки; модель `django.contrib` без миграций в репозитории — настоящей таблицей: `contenttypes.ContentType` → `django_content_type.id`, `sessions.Session` → `django_session.session_key`, `admin.LogEntry` → `django_admin_log`, `sites.Site` → `django_site`, ч. 6, М1); порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик); `SeparateDatabaseAndState`: `state_operations` меняют состояние моделей как обычные операции, из `database_operations` читаются только `RunSQL` и `RunPython`, без `state_operations` `database_operations` идут в состояние; `DeleteModel` из `state_operations` удалением таблицы не считается; список операций именем раскрывается по атрибуту класса `Migration` или последнему присваиванию списка на уровне модуля до класса, выражение остаётся пропуском «operations» (ч. 7, М2) |
 | Kysely и другие шаблоны `sql` в миграциях Node.js: `.ts`/`.js` в каталоге `migrations` любой глубины (ч. 3, З2) | шаблоны ``sql`…` ``, ``sql<Тип>`…` `` и ``sql.raw(`…`)`` вне тела функции `down` — текстом SQL в разбор DDL выше, файлы по имени с числами по значению, набор — каталог; читаются только CREATE, ALTER, DROP, RENAME; вставка `${…}` — заглушка: на месте имени таблицы или колонки в `hints.dynamic_names`, в типе колонки — текстом вставки; диалект по драйверу package.json (`pg`, `postgres` — PostgreSQL, `mysql2` — MySQL, `better-sqlite3` — SQLite), иначе по типам; построитель схемы (`db.schema.createTable`) не читается; ``sql.raw(`SQL`)`` в цикле `for (const { a, b } of СПИСОК)` или `for (const [a, b] of СПИСОК)` по массиву-литералу верхнего уровня того же файла читается для каждого элемента со значениями вместо `${a}` и `${b}`, переименование таблицы или колонки переносит ссылки на неё (ч. 5, М1) |
 | Rails: `db/schema.rb` в любом каталоге (ч. 3, З1) | построчно, без исполнения Ruby: `create_table "т", id:, primary_key: do \|t\|` … `end`, `t.тип "к", null: false` (тип как написан), `t.references`/`t.belongs_to "x"` → `x_id` (`polymorphic: true` — ещё `x_type`), `t.timestamps` → `created_at`, `updated_at`, `add_foreign_key "из", "в", column:, primary_key:`; индексы, ограничения, `create_view` с heredoc, типы, функции и триггеры пропускаются, `enable_extension`/`create_schema` в `hints.unassigned`, прочее — пропуск со счётчиком; диалект по драйверу в Gemfile (`pg`, `mysql2`, `trilogy`, `sqlite3`); при `db/structure.sql` рядом читается только он; `db/migrate/` не читается |
 
@@ -326,10 +329,18 @@ tokio-cron-scheduler, whenever, rufus-scheduler, Clockwork, GoodJob, Solid Queue
   `redpanda`→broker «Redpanda», `nats`→broker «NATS», `pulsar`→broker «Pulsar»,
   `zookeeper`→service «ZooKeeper» (роль «сервис»), `nginx`/`traefik`/`haproxy`/`envoy`→service
   (роль «прокси»), `mailhog`/`mailpit` → service. Неизвестный образ без `build` → service,
-  `technology` = имя образа без тега. У сервиса без языка пакета и образа compose технологию
-  даёт образ итоговой стадии Dockerfile: вид сервиса из этого словаря (Envoy, nginx) или
-  программа `grafana`→«Grafana», `prometheus`→«Prometheus», `airflow`→«Airflow»; базовые образы
-  ОС и подстановки `${ИМЯ}` технологии не дают (ч. 6, Т1). Слово словаря ищется и среди
+  `technology` = имя образа без тега, а программа из словаря программ (`vocab.PROGRAM_IMAGES` по
+  имени образа, `vocab.PROGRAM_PATHS` по организации и имени) своим написанием: `grafana` →
+  «Grafana», `prometheus` → «Prometheus», `loki` → «Loki», `opentelemetry-collector-contrib` →
+  «OpenTelemetry Collector», `temporalio/ui` → «Temporal» и другие; то же у Helm, k8s и задачи
+  по образу, у задачи на образе базы или брокера вид словаря («Redpanda»); программы со строчным
+  написанием (`etcd`, `flagd`, `imgproxy`) и имена без программы (`app`, `node`, `ui`) остаются
+  именем образа (ч. 7, Т2). У сервиса без языка пакета и образа compose технологию
+  даёт образ итоговой стадии Dockerfile тем же написанием: вид сервиса из этого словаря (Envoy,
+  nginx) или программа из словаря программ; базовые образы ОС и подстановки `${ИМЯ}` технологии
+  не дают (ч. 6, Т1); вид сервиса с ролью «прокси» даёт эту роль, если иначе была бы роль по
+  умолчанию (ч. 7, Т3). Программа стеком (`coverage.stacks`) считается, только если её дал образ
+  итоговой стадии своего Dockerfile: у сервиса на чужом образе это написание имени образа. Слово словаря ищется и среди
   частей имени через дефис и подчёркивание (`clickhouse-posthog`, `timescaledb-ha`,
   `docker-redis-cluster`), кроме
   имён со словом программы вокруг базы (`client`, `exporter`, `ui`, `meta`…) и с двумя
@@ -2816,3 +2827,227 @@ unread: {too_large: 3, binary: 0}
      0,03–0,30 с, у n8n ещё индекс экспортов констант Node; запуск файла на пустом каталоге
      0,72 → 0,76 с (модулей больше, байткода в файле нет). Сокращать время ценой качества не
      нужно (решение владельца 2026-11-09). Ждёт проверки судьёй.
+19. **Решения исполнителя части 7** (2026-11-11, ветка feat/scan-7, сборщик 0.9.0 без выпуска;
+   миграция с именем теста, написание технологии и роль «прокси» по образу,
+   `SeparateDatabaseAndState`, блоки Redis в Ruby, пределы и время; владелец может отменить,
+   числа перемера в конце пункта).
+   - А1 (решение исполнителя, отклонение от буквы брифа): правило имени файла не применяется к
+     файлу миграции, а не к любому файлу каталога миграций. Файл миграции — имя с цифрой в
+     начале в каталоге `migrations` любой глубины или в `db/migrate` (номер ревизии Django,
+     Rails, ClickHouse) и любой `.py` прямо в `versions/`, рядом с которым лежит `env.py` (имя
+     ревизии Alembic бывает шестнадцатеричным; каталоги с `env.py` считает
+     `walk.alembic_roots` по всему перечню до исключений). Бриф считал файл миграции с именем
+     теста единственным в корпусе, а по правилу «сегмент `migrations`» их шесть: кроме Airflow,
+     две миграции ClickHouse PostHog с номером (`posthog/clickhouse/migrations/0097_session_replay_events_v2_test.py`,
+     `0110_log_entries_v2_test.py`) и четыре теста Jest (`frontend/src/scenes/notebooks/Notebook/migrations/migrate.test.ts`,
+     `convertMarkdownTablesInContent.test.ts` у PostHog, `packages/@n8n/db/src/migrations/migration-helpers.test.ts`,
+     `migration-registry.test.ts` у n8n). Тесты Jest остаются исключёнными: это тесты, и код
+     тестов разборщики не читают; миграции ClickHouse читаются (класса `Migration` у них нет,
+     Django их не берёт, записей они не дают), у PostHog в покрытии `*_test.py` 54 → 52, других
+     изменений вывода нет. Каталоги по соглашению проверяются раньше имени, как прежде. По
+     клону Airflow: в цепочке ядра 157 ревизий, обрыва нет; `tables` `error` → `covered`, таблиц
+     3 → 73 (70 ядра и 3 провайдера edge3), набор 70 таблиц ядра совпал с независимым счётом
+     по клону (ast, `create_table`, `drop_table` и `rename_table` в `upgrade()` по цепочке),
+     `dropped` 6 (из девяти `drop_table` в `upgrade()` три стоят в условии или с именем не
+     литералом), `skipped.alembic_operations` 24 → 115, подсказка обрыва ушла, появились три
+     подсказки-примера пропущенных инструкций ядра
+     (`0002_2_7_0_add_custom_operator_name_column.py:46` `batch_op.add_column` в `batch_alter_table(TABLE_NAME)` с именем переменной,
+     `0003_2_7_0_add_include_deferred_column_to_pool.py:46` `op.execute` с f-строкой,
+     `0004_2_8_0_add_clear_number_to_dag_run.py:44` условие). В `upgrade()` 22
+     переименования (4 `rename_table`, 18 `new_column_name`), из них два `rename_table`
+     переменными в цикле не применяются (`0041_3_0_0_rename_dataset_as_asset.py:169` по списку
+     `table_name_mappings`, `0142_3_4_0_unify_task_attempt_ownership.py:199`): поэтому таблицы
+     `dataset*` остаются под старыми именами, а две ссылки `asset.id`
+     (`asset_state_store.asset_id`, `task_inlet_asset_reference.asset_id`) без цели; цикл по
+     списку-литералу модуля в остаток.
+   - Т2 (решение исполнителя): технология по образу у сервиса compose, Helm и k8s
+     (`assemble._classify`) и у задачи по образу (`assemble._tasks`) идёт через
+     `vocab.image_technology`, у итоговой стадии Dockerfile через `vocab.stage_technology`; обе
+     берут программу из одного словаря (`vocab.program`: `PROGRAM_IMAGES` по имени образа
+     целиком и `PROGRAM_PATHS` по организации и имени для `temporalio/auto-setup`,
+     `temporalio/admin-tools`, `temporalio/ui` и `jaegertracing/all-in-one`). Вид из `IMAGES`
+     пишется как в словаре и у задачи на образе базы или брокера («Redpanda», а не
+     «redpanda»; в корпусе задач нет). Ловушка брифа про стеки: `vocab.is_stack` знает все
+     программы словаря, и сервис compose на `grafana/grafana` со своим «Grafana» добавил бы
+     Grafana и Prometheus в `coverage.stacks` immich, Loki и otel-demo. Поэтому `stats.stacks`
+     считает программу стеком, только если у объекта есть свой Dockerfile (так она стала
+     стеком в Т1 части 6), а у сервиса на чужом образе это по-прежнему написание имени образа,
+     как раньше «grafana»; стеки корпуса не изменились. Во всём выводе корпуса против прогона
+     после А1 изменились 31 строка `technology` в `schema.yaml` и больше ничего (сверка
+     построчным `diff -r` всех 22 выводов); роли, формы и связи прежние, шесть вердиктов без
+     регрессий, слои Sentry пройдены. Таблица «репозиторий, объект, было, стало»:
+     Online Boutique `opentelemetrycollector` opentelemetry-collector-contrib → OpenTelemetry
+     Collector; immich `immich-grafana` grafana → Grafana, `immich-prometheus` prometheus →
+     Prometheus; Argo CD `argocd-dex-server` dex → Dex; PostHog `objectstorage` и `seaweedfs`
+     seaweedfs → SeaweedFS, `proxy` caddy → Caddy, `temporal` auto-setup → Temporal,
+     `temporal-admin-tools` admin-tools → Temporal, `temporal-ui` ui → Temporal; Petclinic
+     `tracing-server` zipkin → Zipkin; otel-demo `grafana` grafana → Grafana, `jaeger` jaeger →
+     Jaeger, `otel-collector` opentelemetry-collector-contrib → OpenTelemetry Collector,
+     `prometheus` prometheus → Prometheus; AWX `conjur` conjur → Conjur, `hashivault` vault →
+     Vault; Loki `alertmanager` alertmanager → Alertmanager, `grafana` и `nginx` (сервис на
+     образе grafana) grafana → Grafana, `loki-monolithic` и `loki-monolithic-compactor` loki →
+     Loki, `prometheus` prometheus → Prometheus, `promtail` promtail → Promtail; Supabase
+     `analytics` logflare → Logflare, `auth` gotrue → GoTrue, `rest` postgrest → PostgREST,
+     `supavisor` supavisor → Supavisor, `vector` vector → Vector; Monica `meilisearch`
+     meilisearch → Meilisearch; n8n `searxng` searxng → SearXNG. Без изменений остались
+     программы со строчным написанием и имена без программы: PostHog `etcd` и
+     `personhog-etcd-init` etcd, otel-demo `flagd`, Supabase `imgproxy`, имена образов без записи
+     в словаре (Supabase `realtime`, `storage-api`, `postgres-meta`, `edge-runtime`, `rustfs`, Loki
+     `memcached-exporter`, `k8s-sidecar`, otel-demo `firepit`,
+     `opentelemetry-collector-ebpf-profiler`, Monica `app` трижды, Kubernetes `node` и другие).
+     Т1 даёт то же написание: Petclinic `grafana-server` «Grafana» и `prometheus-server`
+     «Prometheus», otel-demo `frontend-proxy` «Envoy» и `image-provider` «nginx», Airflow
+     `executors` «Airflow» без изменений.
+   - Т3 (решение исполнителя): роль по итоговой стадии Dockerfile даёт `vocab.stage_role` (вид
+     сервиса из `IMAGES` с ролью «прокси»: nginx, Envoy, Traefik, HAProxy; нового списка нет),
+     и только когда технология взята из этой стадии (Т1) и роль иначе была бы «сервис» по
+     умолчанию: явная роль манифеста, роль по команде и «фронтенд» старше. Основание то же,
+     строка последнего `FROM`, оно уже стоит в основаниях объекта от Т1. По корпусу против
+     прогона после Т2: роль «сервис» → «прокси» у otel-demo `frontend-proxy`
+     (`src/frontend-proxy/Dockerfile:4` `FROM envoyproxy/envoy`) и `image-provider`
+     (`src/image-provider/Dockerfile:4` `FROM docker.io/nginxinc/nginx-unprivileged`), больше в
+     выводе ничего не изменилось; Lemmy `proxy`, Loki `gateway`, Supabase `api-gw` и Argo CD
+     `argocd-redis-ha-haproxy` и так «прокси» по образу compose.
+   - М2 (решения исполнителя): `state_operations` применяются к состоянию моделей теми же
+     правилами, что обычные операции; из `database_operations` при них читаются только `RunSQL`
+     (схема SQL приложения) и `RunPython` (счётчик миграций данных), прочее там пропускается без
+     счётчика и подсказки; без `state_operations` `database_operations` идут в состояние, как
+     раньше. Решение сверх брифа: `DeleteModel` из `state_operations` в `dropped` не идёт (DROP
+     TABLE в базе нет: модель переехала в другое приложение с тем же `db_table` или таблицу
+     оставили до следующего выпуска). У PostHog таких `DeleteModel` 210, почти все переезды
+     моделей из `posthog` в `products/*`; со счётом `dropped` вырос бы на сотни таблиц, которые
+     в базе есть. Имя списка операций: атрибут тела класса `Migration` (любой строки тела, как
+     уже собирает `_migration`) старше присваивания модуля, у модуля берётся последнее
+     присваивание до класса, присваивание не списка имя забывает; выражение и генератор списка
+     остаются подсказкой «operations». По корпусу против прогона после Т3 изменились только
+     PostHog и awx. PostHog: таблиц 1036 → 1033 (`coverage` found 1037 → 1034), пропусков
+     `django_operations` 375 → 331, `dropped` 1 без изменений. Исчезли 11 таблиц, у каждой
+     `DeleteModel` в `state_operations` без пересоздания в другом приложении:
+     `ee_dashboardprivilege` (`ee/migrations/0066_remove_dashboardprivilege.py:17`),
+     `posthog_persistedfolder` (`posthog/migrations/1349_delete_persistedfolder_from_state.py:13`),
+     `posthog_userproductlist` (`1398_remove_userproductlist_state.py:25`),
+     `posthog_datawarehousemodelpath` (`0897_migrate_data_warehouse_models.py:229`),
+     `posthog_task_loop`, `posthog_task_loop_trigger`, `posthog_task_loop_fire`
+     (`products/tasks/backend/migrations/0139_remove_loop_models.py:18`–`:20`),
+     `posthog_agent_peer_message` (`0141_remove_agent_peer_message.py:13`),
+     `posthog_dashboard_saved_view`
+     (`products/dashboards/backend/migrations/0022_remove_dashboardsavedview_from_state.py:11`),
+     `replay_vision_replayscannerpromptsuggestion`
+     (`products/replay_vision/backend/migrations/0106_remove_prompt_suggestions.py:18`),
+     `today_dailybriefing` (`products/today/backend/migrations/0003_delete_dailybriefing.py:16`);
+     комментарии у части из них говорят, что таблица пока остаётся в базе (`1349:11`, `0139:14`).
+     Появились 8 таблиц `products/warehouse_sources_queue`: `CreateModel` с `db_table` в
+     `state_operations`, а сами таблицы создаёт `RunPython` (`sourcebatch`, `sourcebatchstatus`
+     `0001_initial.py:116`, `:180`; `sourcegrouplease` `0004_source_group_lease.py:34`;
+     `queuejob`, `queuejobstatus`, `queuejoblease` `0011_generic_job_tables.py:133`, `:185`,
+     `:218`; `queueschedulerstate`, `queueschedulerdecision` `0012_scheduler_state.py:60`, `:89`).
+     Колонки изменились у 14 общих таблиц: `alerts_platform*` получили колонки модели и цель
+     `configuration_id` (`alerts_platformalertconfiguration.id`), `django_session` теперь из
+     `CreateModel` с `db_table` (`posthog/session/migrations/0001_initial.py:15`) с поздними
+     `AddField`, а не из `RunSQL`, `RemoveField` в состоянии убрал `posthog_canvas.context`,
+     `posthog_organization.is_hipaa`, `slack_app_slacksettings.ai_preferences`, `RenameField`
+     дал `wizard_wizarddetectedtool.alternative_to` вместо `competes_with`. Ссылок без цели 4 →
+     2, а не 1: три ссылки `alerts_platform` нашли цель, `posthog_taggeditem.content_type_id`
+     (`django_content_type`, внешняя) осталась, и появилась `posthog_task.loop_id` →
+     `tasks_loop.id`: модель `Loop` ушла из состояния (`0139:20`), а поле `task.loop` убирает
+     помощник проекта `untrack_field` (`0138_untrack_task_loop.py:16`), его сборщик не
+     раскрывает (подсказка с этим местом есть), в остаток. Подсказок «operations» 2 → 1, а не
+     0: две со списками именем ушли, появилась `products/event_definitions/backend/migrations/`
+     `0014_drop_taxonomy_project_id_fk_idx.py:33` (генератор списка в `state_operations`). awx:
+     внутренние ссылки без цели 3 остались, их причина не `SeparateDatabaseAndState`, а
+     выражение `_squashed.operations(SQUASHED_30) + [...]` (`0004_squashed_v310_release.py:23`),
+     внешних 39 как есть; подсказок «operations» 3, а не 2: все три выражения (`0003:34`,
+     `0004:23`, `0005:15`); единственное изменение вывода: колонка
+     `main_unifiedjob.result_stdout_text` исчезла (`0017_v330_move_deprecated_stdout.py:23`,
+     `RemoveField` только в состоянии, хотя комментарий там говорит, что колонка остаётся и её
+     читает неуправляемая модель `UnifiedJobDeprecatedStdout`), вопрос владельцу. `RunSQL` в
+     `database_operations` у awx `0206_jobhostsummary_host_id_idx.py:12` читается, как раньше.
+     Sentry 311 таблиц, `dropped` 12, ссылок без цели 0, без изменений; вердикты и слои Sentry
+     без изменений.
+   - В3 (решения исполнителя): у Ruby границы блоков считает один проход по маске со стеком
+     (`redispubsub._rb_spans`: ключевое слово блока в начале инструкции и после присваивания,
+     `do` и `end` словом, фигурные скобки; `do` цикла `while`, `until`, `for` на той же строке и
+     метод без `end` блока не открывают). Параметр блока `pipelined`, `multi` или `with`, если
+     получатель блока клиент Redis (или параметр-клиент внешнего блока), в теле блока сам
+     клиент. Решение сверх брифа: в Mastodon публикации `batched_remove_status_service.rb:87`–`:97`
+     стоят не в блоке, а в методе `unpush_from_public_timelines(status, pipeline)` (`:82`), его
+     зовут из блока `redis.pipelined do |pipeline|` (`:57`, `:59`); поэтому параметр метода того же
+     файла на той же позиции, что имя-клиент в вызове без получателя внутри блока, тоже клиент в
+     теле метода (один уровень, без цепочек методов). Вызовы методов внутри блоков-клиентов ищет
+     второй проход по отрезкам этих блоков (каждый знак один раз). Пределы враждебного входа:
+     2000 вызовов `pipelined`, `multi` и `with` на файл, 2000 вызовов методов с клиентом, 10 000
+     методов; сверх них новые клиенты не заводятся, файл не отказывается (публикации считает
+     прежний предел `_MAX_CALLS`). Node.js: имя слева от `=` перед `.pipeline()` или `.multi()`
+     клиента (и через `await`) клиент во всём файле. Python: `pipe = r.pipeline()` клиентом уже
+     был, а `with r.pipeline() as pipe` не был (переменная `with` не присваивание `ast.Assign`);
+     теперь элемент `with` и `async with` считается тем же присваиванием, тест показывает оба.
+     По корпусу против прогона после М2 изменился только Mastodon: каналов те же 13, у шести
+     литералов добавились основания `batched_remove_status_service.rb:87`, `:88` (два),
+     `:91`, `:92` (два) в `agent/evidence.yaml`, подсказок «имя канала задано выражением» 21 →
+     25 (`:96`, `:97`, `application_extension.rb:44`, `user.rb:343`). Отклонение от ожидания
+     брифа «связи без изменений»: связей найдено те же 11, но подсказок «файл в каталоге
+     нескольких контейнеров, владелец не определим» 12 → 18, по одной на каждую новую запись
+     `batched_remove_status_service.rb` (каталог `app/` общий у web и sidekiq, так же, как у
+     `fan_out_on_write_service.rb:143` и раньше). Forem (`client.pipelined` у
+     `lib/active_support/cache/local_redis_cache_store.rb:127`: получатель `client` у Ruby не
+     клиент Redis по имени), PostHog, n8n и остальные без изменений; вердикты и слои Sentry без
+     изменений. Время враждебного входа одного разборщика `redis-pubsub` на 2 МБ: открытия
+     блоков подряд 0,40 с, тысячи методов 0,41 с, скобки 0,30 с, вызовы с клиентом 0,25 с.
+   - П6 (решение владельца 2026-11-11, вопрос 3): `appsettings.json` больше `MAX_BYTES` (1 МБ)
+     или глубже `MAX_DEPTH` (50) по-прежнему непрочитан (`files.refuse`), и теперь у него, как у
+     hjson, подсказка `unparsed` на файл; текст причины `texts.REASON_BAD_APPSETTINGS` общий
+     для пределов и ошибки синтаксиса: «файл настроек appsettings.json не разбирается или
+     превышает пределы разбора». Фикстура `dotnet-settings-limits` (51 уровень вложенности и
+     обычный проект рядом); файл больше 1 МБ тест добавляет к копии фикстуры при запуске, в
+     репозиторий такой файл не кладётся. По корпусу ни один `appsettings.json` пределов не
+     достигает, вывод байт в байт (кроме текста подсказки синтаксиса, которой в корпусе нет).
+   - П7 (решение владельца 2026-11-11, вопрос 4): у маршрутов Go подсказок `_dynamic` из одного
+     файла больше `clike.MAX_READS` (2000) — файл непрочитан (`files.refuse`), его маршруты и
+     подсказки не выдаются и во второй проход пакета он не идёт, как у `clike.matches`. Счёт
+     ведёт `_File.dynamic`, разбор файла останавливается на первой подсказке сверх предела.
+     Строка матрицы `test_go_route_hints_limit` на готовом `GO_REQUESTS["calls"]` (`r.Post(u, h)`
+     на известном `chi.NewRouter()`, 30 000 вызовов): было 30 000 подсказок за 0,26 с, стало 0
+     подсказок и файл непрочитан за 0,03 с; граница проверена тестом `test_hint_limit_per_file`
+     (ровно 2000 выдаются, 2001 — файл непрочитан, соседний файл пакета читается). Максимум
+     подсказок маршрутов Go на файл в корпусе 21 (Kubernetes `pkg/kubelet/server/server.go`;
+     бриф называл 10), вывод не меняется.
+   - П8 (решение владельца 2026-11-11, вопрос 5; устройство индекса — решение исполнителя):
+     поля со ссылкой держит индекс состояния по цели (`django._Refs`: группа полей на модель),
+     `RenameModel` переносит одну группу вместо перебора полей всех моделей. Простой словарь
+     «цель → поля» строку брифа не ускоряет: в ней каждое переименование переносит все 3000
+     полей; поэтому группа переименовывается целиком, а при встрече с группой нового имени
+     сливается меньшая в большую (поле меняет группу не больше log2 раз), цель самим полям
+     ставит `settle` в конце цепочки. Индекс обновляют `CreateModel` (и замена модели того же
+     имени), `AddField`, `AlterField`, `RemoveField`, `DeleteModel`; `RenameField` цель поля не
+     меняет, индексу там делать нечего. Строка матрицы `test_hostile_renames_many_fields`
+     (30 моделей по 100 полей со ссылкой на `a.M0`, цепочка 1500 `RenameModel`): 0,75 с → 0,25 с
+     процессорного времени при пределе `0.7 * time_limit()`; `test_hostile_renames_are_fast`
+     0,19 с без изменений. Sentry, PostHog, awx и Airflow сборкой с П8 против прогона после В3
+     байт в байт.
+   - П9 (исполнитель по брифу): `codebase.code_files` берёт кандидатов языка из `files.memo`
+     (`codebase._candidates`, ключ `code-candidates:<язык>`): файл кода с пакетом-владельцем,
+     зависимости его пакетов (один кортеж на список пакетов, файлы пакета его делят) и признак
+     кода для разработки считаются один раз на язык; отбор по `wanted` идёт на каждом вызове, а
+     совпадение зависимостей считается один раз на список пакетов за вызов; пропуск кода для
+     разработки (`files.skip_dev_code`) тоже на каждом вызове, поэтому `coverage.yaml` и приём
+     `nodeconst._export_files` (сброс и возврат `dev_code`) видят прежнее. Тексты и маски не
+     кэшируются (замечание qa §18.1 п. 8 про маски отложено). Профиль n8n по процессорному
+     времени (`cProfile` с `time.process_time`, сборка с П8 против сборки с П9, по два
+     прогона): `code_files` 66–67 % всего времени под профилем (46–47 с из 70 с, из них
+     `_matches` 37–38 с на 148 389 вызовах) → 6–9 % (1,6–2,4 с из 25–26 с, `_matches` 1607
+     вызовов). Процессорное время без профиля, минимум из трёх поочерёдно: n8n 10,22 → 5,73 с
+     (−44 %), PostHog 47,95 → 37,18 с (−22 %), Keycloak 3,39 → 3,04 с (−10 %), Kubernetes 4,90
+     → 4,60 с (−6 %); память та же (43–44, 460, 33, 36 МБ); вывод всех четырёх сборками до и
+     после байт в байт.
+   - Перемер части 7 (исполнитель, после каждой группы против базы судьи judge10; итоговый
+     файл sha256 31eadc75 с HEAD 0ba7291f): шесть вердиктов без регрессий во всех пяти группах
+     (7a после А1, 7b после Т2 и Т3, 7c после М2, 7d после В3, 7e после блока П), слои Sentry
+     пройдены, узлы, связи и каналы 24/30/52 без изменений; блок П (7e) против 7d байт в байт
+     по всем 22 выводам, включая `coverage.yaml`; множество статусов покрытия прежнее; 22 клона
+     чисты, рабочее дерево git одно. Против judge10 изменились только Airflow (А1), PostHog
+     (А1 `*_test.py` 54 → 52, М2), Mastodon (В3), awx (М2, колонка в фактах), строки
+     `technology` (Т2) и две роли otel-demo (Т3). Процессорное время против стендовой 0.8.0
+     (sha256 7f929a1c), поочерёдно, минимум из трёх (eShop из восьми): Mastodon 2,38 → 1,98 с,
+     Lemmy 1,33 → 1,40, immich 1,76 → 1,82, eShop 0,90 → 0,97, Argo CD 3,08 → 2,87, PostHog
+     47,26 → 36,80, Keycloak 3,20 → 2,83, Petclinic 0,88 → 0,83, n8n 10,00 → 6,04, Airflow
+     6,76 → 6,01; память по `%M` та же в пределах 2 МБ, кроме PostHog 447 → 460 МБ.

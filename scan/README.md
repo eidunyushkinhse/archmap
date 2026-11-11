@@ -27,7 +27,7 @@
 `kind: shared_file` с причиной, каталогом кода и числом записей, основания записей лежат в
 `agent/evidence.yaml` под ключами `shared/<файл>/<имя>`.
 
-Версия: 0.8.0 (`archmap_scan/__init__.py`; номер пишется в шапку каждого файла
+Версия: 0.9.0 (`archmap_scan/__init__.py`; номер пишется в шапку каждого файла
 вывода и в `coverage.yaml`).
 
 ## Окружение
@@ -122,7 +122,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   сборка → вывод».
 - `context.py` — корень, область, адрес origin и коммит; единственная внешняя команда —
   git из перечня `GIT_COMMANDS`. `walk.py` — обход, соглашения, `.archmapignore`, пределы
-  чтения файлов.
+  чтения файлов; правило имени файла (`*_test.py` и другие) к файлам миграций не применяется
+  (`walk.migration_file`).
 - `parsers/*.py` — по модулю на источник, функция `parse(files, ctx) -> Findings`;
   `registry.py` — реестр разборщиков по семьям, по нему же считается покрытие. `compose.py`
   читает и YAML не с именем compose, если он compose по содержимому (ТЗ §13.3). Когда
@@ -733,7 +734,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     redis-py, aioredis; по ast), Node.js (ioredis, redis), Ruby (redis, redis-client) и Go
     (go-redis, `Publish(ctx, канал, …)`); получатель клиент Redis по имени (`redis` в имени,
     `rdb`), по подключению Redis в файле (`client`, `pubsub`, `publisher`, `subscriber`) или по
-    фабрике (`redis.Redis()`, `get_client()` модуля Redis, `r.pubsub()`). Имя: литерал,
+    фабрике (`redis.Redis()`, `get_client()` модуля Redis, `r.pubsub()`), а ещё то, что вернул
+    конвейер или транзакция клиента (В3, правила части 7). Имя: литерал,
     константа файла, импортированного модуля Python, пакета Go (`gocode.string_constants`) и
     Node.js по пакету и репозиторию (`nodeconst.py`); условный оператор с двумя литералами даёт
     две записи с одним основанием; подстановка, переменная и вызов дают подсказку о выражении,
@@ -800,3 +802,49 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     по тому же пределу, что проверяется; повтор в `_check` матрицы враждебного кода мерит путь
     первого прогона (новые файлы, разборщики до него без счёта времени), а не память пакетов,
     прогретую первым прогоном того же разборщика (П3).
+- Правила части 7 (фаза 7, ТЗ §15 п. 19, по строке на пункт):
+  - файл миграции с именем теста не исключается (`walk.migration_file`): имя с цифрой в начале в
+    каталоге `migrations` любой глубины или `db/migrate` и любой `.py` прямо в `versions/` рядом
+    с `env.py` (`walk.alembic_roots`); тесты Jest в каталоге миграций, `conftest.py` и каталоги
+    по соглашению исключаются, как раньше. У Airflow ревизия
+    `0147_3_4_0_add_commit_allows_update_to_connection_test.py` больше не рвёт цепочку (А1).
+  - технология по образу одним написанием (`vocab.image_technology`, `vocab.stage_technology`,
+    `vocab.program`): у сервиса compose, Helm, k8s, задачи по образу и итоговой стадии своего
+    Dockerfile вид из `IMAGES` как в словаре («nginx», «Envoy»), программа из словаря программ
+    своим написанием, остальное именем образа строчными. Словарь программ по имени образа
+    (`PROGRAM_IMAGES`): Grafana (`grafana`, `grafana-oss`, `grafana-enterprise`), Prometheus,
+    Airflow, Loki, Promtail, Alertmanager, Jaeger, Zipkin, Vault, Conjur, Vector, Meilisearch,
+    SearXNG, Caddy, Dex, PostgREST, GoTrue, Logflare, Supavisor, SeaweedFS, OpenTelemetry
+    Collector (`opentelemetry-collector`, `opentelemetry-collector-contrib`); по организации и
+    имени (`PROGRAM_PATHS`): Temporal (`temporalio/auto-setup`, `temporalio/admin-tools`,
+    `temporalio/ui`), Jaeger (`jaegertracing/all-in-one`). Программы со строчным написанием
+    (`etcd`, `flagd`, `imgproxy`) и имена `app`, `node`, `ui` без организации в словарь не входят.
+    Программа стеком считается, только если её дал образ итоговой стадии своего Dockerfile (Т2).
+  - роль «прокси» по итоговой стадии своего Dockerfile (`vocab.stage_role`): если технология взята
+    из последнего `FROM` и это вид сервиса с ролью «прокси» в `IMAGES` (nginx, Envoy, Traefik,
+    HAProxy), роль «прокси» ставится вместо роли по умолчанию; явная роль, роль по команде и
+    «фронтенд» старше (Т3).
+  - `SeparateDatabaseAndState` Django: `state_operations` меняют состояние моделей, как обычные
+    операции, из `database_operations` читаются только `RunSQL` и `RunPython`; без
+    `state_operations` `database_operations` идут в состояние, как раньше. `DeleteModel` из
+    `state_operations` удалением таблицы (`dropped`) не считается. Список операций именем
+    (`operations = OPS`, `database_operations=database_operations`) раскрывается по атрибуту
+    класса `Migration` или последнему присваиванию списка модуля до класса; выражение и
+    генератор списка остаются подсказкой «operations» (М2).
+  - клиент Redis из конвейера и транзакции: у Ruby параметр блока `pipelined`, `multi` или
+    `with` на клиенте (`redis.pipelined do |pipeline|`) в теле блока и параметр метода того же
+    файла на той же позиции, если метод зовут из такого блока с этим параметром
+    (`redispubsub._rb_spans`, стек блоков одним проходом по маске); у Node.js имя, которому
+    присвоен `.pipeline()` или `.multi()` клиента; у Python `with r.pipeline() as pipe` (В3).
+  - `appsettings.json` больше 1 МБ или глубже 50 уровней непрочитан и даёт подсказку
+    `unparsed`, как ошибка синтаксиса и как hjson; причина «файл настроек appsettings.json не
+    разбирается или превышает пределы разбора» (`texts.REASON_BAD_APPSETTINGS`, П6; строка
+    части 6 про пределы без подсказки этим заменена).
+  - маршруты Go: больше `clike.MAX_READS` (2000) подсказок из одного файла — файл непрочитан, его
+    маршруты и подсказки не выдаются, как у `clike.matches` (`gohttp._File.dynamic`, П7).
+  - `RenameModel` Django переносит ссылки одной группой полей по цели (`django._Refs`, группы
+    сливаются меньшая в большую), а не перебором полей всех моделей; вывод тот же (П8).
+  - кандидаты в файлы кода языка (`codebase._candidates`: файл, зависимости пакетов, код для
+    разработки) считаются один раз на запуск и лежат в `files.memo`; `code_files` на каждом
+    вызове только отбирает по зависимостям и записывает пропуск кода для разработки; вывод тот
+    же, n8n быстрее на 44 %, PostHog на 22 % (П9).

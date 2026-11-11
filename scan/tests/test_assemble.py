@@ -515,12 +515,13 @@ def test_task_on_database_or_broker_image() -> None:
     depends_on в подсказках (ТЗ §15 п. 10 А8: personhog-tables-ready и kafka-init PostHog
     стали базой и брокером). Сервер с restart: on-failure и реплика остаются как были. С
     части 2 (Д7) задача с признаком (restart «no», слово задачи в имени) объектом не
-    становится вовсе: tables-ready в hints.unassigned, связей к ней нет."""
+    становится вовсе: tables-ready в hints.unassigned, связей к ней нет. Технология задачи
+    по образу пишется как в словаре образов (ТЗ §15 п. 19 Т2): «Redpanda», а не «redpanda»."""
     model = model_of(FIXTURES / "compose-task")
     kinds = {o.name: (o.shape, o.role, o.technology) for o in model.objects}
     assert kinds == {
         "api": ("service", "сервис", "Python"),
-        "topics": ("service", "задача", "redpanda"),
+        "topics": ("service", "задача", "Redpanda"),
         "db": ("database", "БД", "PostgreSQL"),
         "replica": ("database", "БД", "PostgreSQL"),
         "kafka": ("broker", "брокер", "Redpanda"),
@@ -695,7 +696,7 @@ def test_code_dir_by_service_or_image_name() -> None:
     переменной, а код лежит в src/<сервис>/: все получили Node.js корневого package.json.
     Ловушки: сервис web при web/ и src/web/ берёт ближайший к корню; worker без совпадений
     с корневым контекстом остаётся в корне; tracing-server на образе openzipkin/zipkin
-    каталога не получает. (С5б) docker/Dockerfile Petclinic с ARG ARTIFACT_NAME собирает
+    каталога не получает (технология «Zipkin» по словарю программ, ТЗ §15 п. 19 Т2). (С5б) docker/Dockerfile Petclinic с ARG ARTIFACT_NAME собирает
     образы всех сервисов и объектом «Ярмарка» не становится: подсказка «общий Dockerfile
     сборки»."""
     model = model_of(FIXTURES / "code-by-name")
@@ -703,7 +704,7 @@ def test_code_dir_by_service_or_image_name() -> None:
     assert kinds == {
         "admin-server": ("spring-petclinic-admin-server", "Java + Spring Boot"),
         "vets": ("spring-petclinic-vets-service", "Java + Spring Boot"),
-        "tracing-server": (None, "zipkin"),
+        "tracing-server": (None, "Zipkin"),
         "cart": ("src/cart/src", ".NET"),
         "fraud": ("src/fraud", "Kotlin"),
         "web": ("web", "Node.js + React"),
@@ -802,12 +803,43 @@ def test_stacks_and_known_language_status() -> None:
     (spring-petclinic-admin-server, zipkin), как и у Loki (alertmanager), Kubernetes
     (cpvpa-amd64) и Supabase (logflare); channels и http_routes были unknown с пустыми
     parsers, хотя язык Java известен. Здесь язык billing назван только базовым образом
-    Dockerfile, pom.xml нет. Имя образа остаётся технологией объекта tracing."""
+    Dockerfile, pom.xml нет. Образ остаётся технологией объекта tracing (написание программы
+    по словарю, «Zipkin», ТЗ §15 п. 19 Т2), но стеком не считается: своего Dockerfile нет."""
     model, stacks, status, unsupported = _families(FIXTURES / "java-image")
-    assert {o.name: o.technology for o in model.objects} == {"billing": "Java", "tracing": "zipkin"}
+    assert {o.name: o.technology for o in model.objects} == {"billing": "Java", "tracing": "Zipkin"}
     assert stacks == ["Java"]
     for fam in ("channels", "http_routes"):
         assert status[fam] == "unsupported" and unsupported[fam] == ["Java"]
+
+
+def test_program_images_one_spelling() -> None:
+    """Технология по образу одним написанием (ТЗ §15 п. 19 Т2): сервис compose на
+    grafana/grafana и свой Dockerfile на том же образе — оба «Grafana» (immich
+    immich-grafana и Petclinic grafana-server писались «grafana» и «Grafana»); программы по
+    организации и имени (temporalio/ui, jaegertracing/all-in-one), Deployment k8s на
+    grafana/loki. Роли и формы прежние. Программа на чужом образе стеком не считается, как
+    раньше имя образа; со своим Dockerfile считается (Т1). Ловушки: etcd строчными, calico/node,
+    sail-8.3/app и example/ui остаются именами образа."""
+    model, stacks, _status, _unsupported = _families(FIXTURES / "program-images")
+    kinds = {o.name: (o.shape, o.role, o.technology) for o in model.objects}
+    assert kinds == {
+        "dashboards": ("service", "сервис", "Grafana"),
+        "metrics": ("service", "сервис", "Prometheus"),
+        "collector": ("service", "сервис", "OpenTelemetry Collector"),
+        "temporal": ("service", "сервис", "Temporal"),
+        "temporal-ui": ("service", "сервис", "Temporal"),
+        "tracing": ("service", "сервис", "Jaeger"),
+        "search": ("service", "сервис", "SearXNG"),
+        "gateway": ("service", "прокси", "nginx"),
+        "grafana-own": ("service", "сервис", "Grafana"),
+        "etcd": ("service", "сервис", "etcd"),
+        "calico-node": ("service", "сервис", "node"),
+        "laravel": ("service", "сервис", "app"),
+        "other-ui": ("service", "сервис", "ui"),
+        "logs": ("service", "сервис", "Loki"),
+    }
+    assert "Grafana" in stacks and "nginx" in stacks
+    assert not {"Prometheus", "Temporal", "Loki", "OpenTelemetry Collector"} & set(stacks)
 
 
 def _dockerfile_hints(model: Model) -> dict[str, list[tuple[str, str | None, str]]]:

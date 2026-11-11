@@ -342,10 +342,50 @@ def package_start(parts: Sequence[str]) -> int:
     return len(parts)
 
 
-def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
+# Файлы миграций (ТЗ §15 п. 19 А1): правило соглашения по имени файла к ним не применяется.
+# У Airflow ревизия Alembic 0147_3_4_0_add_commit_allows_update_to_connection_test.py лежит в
+# migrations/versions/ и по «*_test.py» исключалась, а цепочка down_revision без неё рвалась на
+# следующей ревизии. Файл миграции — имя с цифрой в начале в каталоге migrations любой глубины
+# (Django, Alembic, ClickHouse) или db/migrate (Rails) и любой файл .py прямо в versions/
+# рядом с env.py (имя ревизии Alembic бывает шестнадцатеричным). Тесты Jest в каталоге
+# миграций (migrate.test.ts, migration-helpers.test.ts) имени с цифрой не имеют и исключаются,
+# как раньше; каталоги по соглашению (tests/, fixtures/) проверяются раньше имени.
+_MIGRATION_DIR = "migrations"
+_RAILS_MIGRATE = ("db", "migrate")
+_ALEMBIC_VERSIONS = "versions"
+
+
+def alembic_roots(paths_in_scope: Iterable[str]) -> frozenset[str]:
+    """Каталоги с env.py среди путей области (кандидаты наборов Alembic для migration_file)."""
+    return frozenset(
+        rel.rpartition("/")[0] for rel in paths_in_scope
+        if rel == "env.py" or rel.endswith("/env.py")
+    )
+
+
+def migration_file(parts: Sequence[str], alembic: frozenset[str] = frozenset()) -> bool:
+    """Путь (сегменты от области обхода) — файл миграции: правило имени к нему не применяется."""
+    name = parts[-1]
+    dirs = [seg.lower() for seg in parts[:-1]]
+    if name[:1].isdigit() and (
+        _MIGRATION_DIR in dirs
+        or any(tuple(dirs[i:i + 2]) == _RAILS_MIGRATE for i in range(len(dirs) - 1))
+    ):
+        return True
+    return (
+        len(dirs) > 0 and dirs[-1] == _ALEMBIC_VERSIONS and name.endswith(".py")
+        and "/".join(parts[:-2]) in alembic
+    )
+
+
+def convention_rule(
+    rel_in_scope: str, alembic: frozenset[str] = frozenset(),
+) -> tuple[str, bool] | None:
     """Почему путь исключён по соглашению. Первое — что писать в отчёт: каталог («tests/»),
     шаблон имени или путь compose-файла для тестов и CI; второе — это путь от области обхода
-    (тогда к нему добавляется путь области). None — путь не исключается."""
+    (тогда к нему добавляется путь области). None — путь не исключается. alembic — каталоги
+    с env.py от области обхода (alembic_roots): ревизии в их versions/ правилу имени не
+    подлежат."""
     parts = rel_in_scope.split("/")
     for i, seg in enumerate(parts[:min(len(parts) - 1, package_start(parts))]):
         if _convention_dir(seg):
@@ -354,7 +394,7 @@ def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     if is_compose_name(name) and name_tokens(name) & _COMPOSE_TEST_TOKENS:
         return rel_in_scope, True
     rule = _name_rule(name)
-    if rule is not None:
+    if rule is not None and not migration_file(parts, alembic):
         return rule, False
     return None
 
@@ -580,6 +620,7 @@ def list_files(
     docs: list[str] = []
     counts: Counter[tuple[str, str]] = Counter()
     prefix = ctx.scope + "/" if ctx.scope else ""
+    alembic = alembic_roots(rel[len(prefix):] for rel in raw if rel.startswith(prefix))
     for rel in raw:
         if prefix and not rel.startswith(prefix):
             continue
@@ -599,7 +640,7 @@ def list_files(
         if dep is not None and not any(p.hits(rel) for p in inc):
             counts[(prefix + dep, "dependencies")] += 1
             continue
-        rule = convention_rule(rel[len(prefix):])
+        rule = convention_rule(rel[len(prefix):], alembic)
         if rule is not None and not any(p.hits(rel) for p in inc):
             # Каталог и compose-файл отчитываются от корня, шаблон имени — как есть.
             shown, scoped = rule
