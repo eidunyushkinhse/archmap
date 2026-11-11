@@ -11,7 +11,7 @@ import yaml
 from archmap_scan.model import Table
 from archmap_scan.parsers import django
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, timed, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Col = tuple[str, str | None, bool, bool | None, str | None]
 
@@ -297,3 +297,28 @@ def test_hostile_input_is_fast(tmp_path: Path) -> None:
     found, took = timed(partial(django.parse, found_files, ctx), 1.0)
     assert took < 1.0
     assert found.table_sets == []
+
+
+def test_hostile_renames_are_fast(tmp_path: Path) -> None:
+    """Переименования на враждебном входе (ТЗ §15 п. 18 М1): 900 приложений с RunSQL и
+    цепочка из 1000 RenameModel, каждое переносит ссылки таблиц RunSQL всех приложений."""
+    files: dict[str, str | bytes] = {"requirements.txt": "django\n"}
+    for i in range(900):
+        files[f"s{i}/migrations/0001_sql.py"] = _migration(
+            "[]", f'migrations.RunSQL("CREATE TABLE t{i} (id int, r int REFERENCES a_m0 (id))")',
+        )
+    files["a/migrations/0000_init.py"] = _migration(
+        "[]", "migrations.CreateModel(name='M0', fields=[('id', models.AutoField(primary_key=True))])",
+    )
+    for i in range(1, 1000):
+        before = "0000_init" if i == 1 else f"{i - 1:04d}_r"
+        files[f"a/migrations/{i:04d}_r.py"] = _migration(
+            f'[("a", "{before}")]', f"migrations.RenameModel(old_name='M{i - 1}', new_name='M{i}')",
+        )
+    tree(tmp_path, files)
+    ctx, found_files = files_of(tmp_path)
+    # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+    limit = 0.7 * time_limit()
+    found, took = timed(partial(django.parse, found_files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
+    assert len(found.table_sets) == 901

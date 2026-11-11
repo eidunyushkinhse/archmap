@@ -11,7 +11,7 @@ import yaml
 from archmap_scan.model import Table
 from archmap_scan.parsers import alembic
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of, timed, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, timed, tree
 
 Col = tuple[str, str | None, bool, bool | None, str | None]
 
@@ -242,4 +242,31 @@ def test_hostile_input_is_fast(tmp_path: Path) -> None:
     ctx, found_files = files_of(tmp_path)
     found, took = timed(partial(alembic.parse, found_files, ctx), 1.0)
     assert took < 1.0
+    assert found.table_sets[0].error is None
+
+
+def test_hostile_renames_are_fast(tmp_path: Path) -> None:
+    """Переименования на враждебном входе (ТЗ §15 п. 18 М1): 500 внешних ключей на таблицу и
+    цепочка из 3000 ревизий с rename_table и alter_column(new_column_name=)."""
+    first = (
+        "revision = 'r0'\ndown_revision = None\ndef upgrade():\n"
+        "    op.create_table('t0', sa.Column('id', sa.Integer(), primary_key=True))\n"
+        + "".join(
+            f"    op.create_table('u{k}', sa.Column('r', sa.Integer(), sa.ForeignKey('t0.id')))\n"
+            for k in range(500)
+        )
+    )
+    files: dict[str, str | bytes] = {"m/env.py": "", "m/versions/r00000.py": first}
+    for i in range(1, 3000):
+        files[f"m/versions/r{i:05d}.py"] = (
+            f"revision = 'r{i}'\ndown_revision = 'r{i - 1}'\ndef upgrade():\n"
+            f"    op.rename_table('t{i - 1}', 't{i}')\n"
+            f"    op.alter_column('t{i}', 'id', new_column_name='id')\n"
+        )
+    tree(tmp_path, files)
+    ctx, found_files = files_of(tmp_path)
+    # Повтор в timed по тому же пределу, что проверяется (ТЗ §15 п. 18 П3).
+    limit = 0.7 * time_limit()
+    found, took = timed(partial(alembic.parse, found_files, ctx), limit)
+    assert took < limit, f"{took:.2f} с"
     assert found.table_sets[0].error is None
