@@ -659,6 +659,61 @@ def test_шаг_сборщика_первым_и_пункт_чек_листа(de
     assert "17. Каждый контейнер, база данных и брокер из archmap-scan/schema.yaml" in вывод
 
 
+def test_общий_код_отдаётся_контейнеру_который_его_выполняет():
+    """Решение владельца 2026-11-10: правило владельца в сборщике не меняется, записи общего
+    кода агент отдаёт контейнеру, который этот код выполняет, а файлы facts/shared/ подаёт с
+    адресом в первой строке, как просит их шапка (scan texts.SHARED_FILE_ASK). Без сборщика
+    фразы нет: нет ни hints.yaml, ни файлов фактов."""
+    for depth in (2, 3):
+        p = build_import_prompt("Ярмарка", depth=depth, scan_url=SCAN_URL)
+        assert (
+            "Записи archmap-scan/agent/hints.yaml с причиной «общий код» (файл вне каталогов "
+            "кода всех контейнеров или нет контейнера на этом языке) отдай контейнеру, который "
+            "этот код выполняет: маршруты и каналы в его компоненты и связи.\n" in p
+        )
+        assert (
+            "Параметры общего кода лежат в archmap-scan/facts/shared/*.yaml без адреса "
+            "владельца, поэтому впиши в первую строку адрес контейнера, который выполняет "
+            "этот код, и подай эти файлы как остальные файлы фактов." in p
+        )
+        assert "общий код" not in build_import_prompt("Ярмарка", depth=depth)
+
+
+@pytest.mark.parametrize("scan_url", [None, SCAN_URL])
+def test_тёзка_системы_остаётся_со_своим_именем(scan_url):
+    """Находка замера 2026-11-01: контейнер, названный как система (sentry в Sentry),
+    строитель переименовывал. Ввоз тёзку принимает и различает путём; источник имени —
+    скелет сборщика, а без него имя программы в коде и манифестах."""
+    p = build_import_prompt("Ярмарка", scan_url=scan_url)
+    именование = p.split("## Правила именования", 1)[1].split("## Поле source", 1)[0]
+    assert (
+        "Если это имя совпадает с именем системы без учёта регистра (контейнер sentry в системе "
+        "Sentry), оставь его как есть. ArchMap различает такие объекты по пути от корня "
+        "(«Sentry / sentry»), поэтому переименовывать контейнер и придумывать ему другое имя "
+        "не нужно." in именование
+    )
+    assert ("archmap-scan/schema.yaml" in именование) == (scan_url is not None)
+    assert "так, как программа названа в коде и манифестах: образ, сервис compose, бинарник." in (
+        именование
+    )
+
+
+def test_тёзка_системы_принимается_ввозом():
+    """Правило промпта говорит правду: контейнер с именем системы в любом регистре ввоз
+    принимает, связи до него доходят путём от корня."""
+    for имя in ("sentry", "Sentry"):
+        документ = (
+            "nodes:\n- name: Sentry\n  element: system\n  children:\n"
+            f"  - name: {имя}\n  - name: postgres\n    shape: database\n"
+            f"edges:\n- {{from: Sentry / {имя}, to: postgres}}\n"
+        )
+        parsed, errors = parse_import(документ)
+        assert errors == [] and parsed is not None, имя
+        (связь,) = parsed.edges
+        assert parsed.nodes[связь.source_idx].name == имя
+        assert parsed.nodes[связь.source_idx].parent_idx == 0
+
+
 def test_компоненты_в_шаге_сборщика_только_при_слое_3():
     p3 = build_import_prompt("X", depth=3, scan_url=SCAN_URL)
     p2 = build_import_prompt("X", depth=2, scan_url=SCAN_URL)
