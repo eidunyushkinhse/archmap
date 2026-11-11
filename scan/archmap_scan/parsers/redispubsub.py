@@ -9,8 +9,12 @@ redisSubscribeClient, storage.redis, Redis.current) или rdb; client, pubsub, 
 subscriber — в файле, который подключает Redis (пакет клиента, у Python и Node.js ещё модуль
 репозитория с именем redis: from posthog.redis import get_client); у Python ещё значение,
 полученное от такого подключения или от метода клиента (r = redis.Redis(), get_client(),
-p = r.pubsub(), pipe = r.pipeline(), RedisHook(…).get_conn()). Так publish других библиотек
-(SNS, Pub/Sub, свои классы) каналами не становится.
+p = r.pubsub(), pipe = r.pipeline(), with r.pipeline() as pipe, RedisHook(…).get_conn()). Так
+publish других библиотек (SNS, Pub/Sub, свои классы) каналами не становится. Клиент и то, что
+вернул конвейер или транзакция клиента (ТЗ §15 п. 19 В3): у Ruby параметр блока pipelined,
+multi и with на клиенте (redis.pipelined do |pipeline|) внутри блока и параметр метода того же
+файла на той же позиции, если метод зовут из такого блока с этим параметром; у Node.js имя,
+которому в файле присвоен результат .pipeline() или .multi() клиента.
 
 Имя канала: литерал; константа файла (у Python и импортированного модуля, у Go пакета), у
 Node.js ещё константа пакета или репозитория (nodeconst); условный оператор с двумя литералами (a ? 'x' : 'y',
@@ -24,7 +28,9 @@ x if c else y) — две записи с одним основанием. По�
 from __future__ import annotations
 
 import ast
+import heapq
 import re
+from collections import Counter
 from collections.abc import Callable, Iterator
 
 from archmap_scan import (
@@ -157,6 +163,12 @@ class _Py:
                 assigns.append((node.targets, node.value))
             elif isinstance(node, ast.AnnAssign) and node.value is not None:
                 assigns.append(([node.target], node.value))
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                # with r.pipeline() as pipe: значение контекста — то же присваивание (В3).
+                assigns.extend(
+                    ([item.optional_vars], item.context_expr)
+                    for item in node.items if item.optional_vars is not None
+                )
             elif (
                 isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr in _PY_VERBS
@@ -360,9 +372,60 @@ def _js_imports_redis(code: codetext.Code) -> bool:
     return False
 
 
+_JS_PIPE = re.compile(r"\.[ \t]*(?:pipeline|multi)[ \t]*\(")
+
+
+def _js_assigned(mask: str, start: int) -> str | None:
+    """Имя слева от «=» перед выражением, которое начинается в start (через пробелы и await):
+    «const pipeline = this.redis.pipeline()» → pipeline. Цепочка получателя (this.redis)
+    проходится назад; всё в пределах _MAX_BACK знаков."""
+    i = start - 1
+    stop = max(-1, start - _MAX_BACK)
+    while i > stop and (mask[i].isalnum() or mask[i] in "_$."):
+        i -= 1
+    while i > stop and mask[i] in " \t":
+        i -= 1
+    if i - 4 > stop and mask.startswith("await", i - 4) and not (
+        i - 5 > stop and (mask[i - 5].isalnum() or mask[i - 5] in "_$")
+    ):
+        i -= 5
+        while i > stop and mask[i] in " \t":
+            i -= 1
+    if i <= stop or mask[i] != "=" or (i > 0 and mask[i - 1] in "=!<>+-*/%&|^?"):
+        return None
+    found = _back_ident(mask, i, "_$")
+    return found[0] if found is not None else None
+
+
+def _js_pipes(mask: str, client: Callable[[str], bool]) -> frozenset[str]:
+    """Имена, которым в файле присвоен результат .pipeline() или .multi() клиента Redis
+    (ТЗ §15 п. 19 В3): const pipeline = redis.pipeline()."""
+    out: set[str] = set()
+    for m in _JS_PIPE.finditer(mask):
+        recv = _back_ident(mask, m.start(), "_$")
+        if recv is None or not client(recv[0]):
+            continue
+        name = _js_assigned(mask, recv[1])
+        if name is not None:
+            out.add(name)
+    return frozenset(out)
+
+
 def _js(files: Files, ctx: Context, rel: str, code: codetext.Code, out: _Out) -> None:
     mask = code.mask
     imported: bool | None = None
+    pipes: frozenset[str] | None = None
+
+    def client(name: str) -> bool:
+        nonlocal imported
+        low = name.lower()
+        if "redis" in low or low == "rdb":
+            return True
+        if low not in _CLIENT_NAMES:
+            return False
+        if imported is None:
+            imported = _js_imports_redis(code)
+        return imported
 
     def constant(name: str) -> tuple[str | None, str]:
         found = nodeconst.index(files, ctx).lookup(rel, name, code)
@@ -374,13 +437,10 @@ def _js(files: Files, ctx: Context, rel: str, code: codetext.Code, out: _Out) ->
         recv = _back_ident(mask, m.start(), "_$")
         if recv is None:
             continue
-        low = recv[0].lower()
-        if "redis" not in low and low != "rdb":
-            if low not in _CLIENT_NAMES:
-                continue
-            if imported is None:
-                imported = _js_imports_redis(code)
-            if not imported:
+        if not client(recv[0]):
+            if pipes is None:
+                pipes = _js_pipes(mask, client) if _JS_PIPE.search(mask) else frozenset()
+            if recv[0] not in pipes:
                 continue
         if not out.call():
             return
@@ -452,23 +512,237 @@ def _rb_args(mask: str, start: int, paren: bool) -> list[tuple[int, int]] | None
     return out
 
 
-def _ruby(code: codetext.Code, out: _Out) -> None:
-    mask = code.mask
-    for m in _RB_CALL.finditer(mask):
+# Глаголы получателя-клиента, чей блок отдаёт клиента параметром: redis.pipelined do |p|,
+# redis.multi { |m| }, Redis.current.with do |conn|.
+_RB_OWNER = re.compile(r"\.(?:pipelined|multi|with)(?![\w?!])")
+_RB_BLOCK_HINT = (".pipelined", ".multi", ".with")
+# Один проход по маске: ключевое слово блока в начале инструкции (и после присваивания
+# «x = if»), do и end словом (не метод .end и не символ :end), фигурные скобки блоков и
+# хешей. Знак перед словом проверяется после его первой буквы: так проверка не идёт на
+# каждой позиции файла.
+_RB_SCAN = re.compile(
+    r"^[ \t]*(?:[@$]{0,2}[A-Za-z_][\w.]{0,199}[ \t]*(?:\|\||&&)?=(?![=~>])[ \t]*)?"
+    r"(?P<kw>if|unless|while|until|case|begin|for|def|class|module)(?![\w?!:])"
+    r"|(?P<end>e(?<![\w.:@$?!]e)nd)(?![\w?!:])|(?P<do>d(?<![\w.:@$?!]d)o)(?![\w?!:])"
+    r"|(?P<lb>\{)|(?P<rb>\})",
+    re.MULTILINE,
+)
+# Вызов метода без получателя «имя(» (внутри блоков-клиентов, второй проход).
+_RB_FUNCALL = re.compile(r"[a-z_](?<![\w.:@$][a-z_])\w{0,199}[?!]?\(")
+# Метод без end (Ruby 3): «def имя(…) = выражение», «def имя = выражение». Сеттер
+# «def имя=(v)» (знак = сразу за именем) — обычный метод до end.
+_RB_ENDLESS = re.compile(
+    r"[ \t]*def[ \t]+[\w.]{1,200}[?!]?(?:\([^)\n]{0,500}\)[ \t]*|[ \t]+)=(?![=~>])"
+)
+_RB_DEF = re.compile(
+    r"[ \t]*def[ \t]+(?:self\.)?([A-Za-z_]\w{0,199}[?!]?)[ \t]*(?:\(([^)\n]{0,500})\)|([^\n;]{0,500}))"
+)
+_RB_PARAMS = re.compile(r"[ \t]*\|([^|\n]{0,200})\|")
+_RB_DO = re.compile(r"[ \t]*(?:do(?![\w?!:])|\{)")
+# Пределы враждебного входа: блоков-клиентов, вызовов методов с клиентом и методов файла.
+_MAX_BLOCKS = 2000
+_MAX_METHODS = 10_000
+_NO_NAMES: frozenset[str] = frozenset()
+
+
+def _rb_names(text: str) -> frozenset[str]:
+    """Имена параметров блока: |a, b| → {a, b}; именованные (k:) и вложенные не берутся."""
+    out = []
+    for part in text.split(","):
+        name = part.strip().lstrip("*&").split("=", 1)[0].strip()
+        if name and not name.endswith(":") and _RB_IDENT.fullmatch(name):
+            out.append(name)
+    return frozenset(out)
+
+
+def _rb_positional(text: str) -> list[str]:
+    """Позиционные параметры метода по порядку (именованные k: и блок &b пропускаются)."""
+    out = []
+    for part in text.split(","):
+        raw = part.strip()
+        if not raw or raw.startswith("&") or ":" in raw.split("=", 1)[0]:
+            continue
+        out.append(raw.lstrip("*").split("=", 1)[0].strip())
+    return out
+
+
+def _rb_client_chain(chain: str, names: Counter[str]) -> bool:
+    """Цепочка получателя — клиент Redis: слово redis или rdb, либо имя-клиент блока."""
+    low = chain.lower()
+    return "redis" in low or "rdb" in low.replace("@", "").split(".") or names[chain] > 0
+
+
+def _rb_owners(mask: str) -> dict[int, str]:
+    """Начало блока (do или «{») → цепочка получателя для вызовов pipelined, multi и with:
+    «redis.pipelined do», «Redis.current.with(pool) {». Не больше _MAX_BLOCKS вызовов."""
+    out: dict[int, str] = {}
+    for count, m in enumerate(_RB_OWNER.finditer(mask)):
+        if count >= _MAX_BLOCKS:
+            break
         chain = _rb_receiver(mask, m.start())
         if chain is None:
             continue
-        low = chain.lower()
-        if "redis" not in low and "rdb" not in low.replace("@", "").split("."):
+        at = m.end()
+        if mask.startswith("(", at):
+            spans = gocode.split_spans(mask, at + 1, _MAX_ARGS)
+            if spans is None:
+                continue
+            at = spans[1] + 1
+        opener = _RB_DO.match(mask, at)
+        if opener is not None:
+            out[opener.end() - (1 if mask[opener.end() - 1] == "{" else 2)] = chain
+    return out
+
+
+def _rb_def_name(mask: str, at: int) -> bool:
+    """«имя(» на позиции at — имя метода в строке def (def имя(, def self.имя(), а не вызов."""
+    if mask.startswith("self.", at - 5):
+        at -= 5
+    while at > 0 and mask[at - 1] in " \t":
+        at -= 1
+    return mask.endswith("def", 0, at) and (at == 3 or not (mask[at - 4].isalnum() or mask[at - 4] == "_"))
+
+
+def _rb_wanted(mask: str, blocks: list[tuple[int, int, frozenset[str]]]) -> dict[str, set[int]]:
+    """Вызовы методов без получателя внутри блоков-клиентов: имя метода → позиции
+    аргументов, где стоит имя-клиент открытого в этом месте блока. Отрезки блоков сливаются,
+    каждый знак файла просматривается один раз; не больше _MAX_CALLS вызовов."""
+    order = sorted(blocks, key=lambda b: (b[0], b[1]))
+    wanted: dict[str, set[int]] = {}
+    active: Counter[str] = Counter()
+    ends: list[tuple[int, int]] = []
+    nxt = 0
+    calls = 0
+    pos = 0
+    while nxt < len(order) or ends:
+        if not ends:
+            pos = max(pos, order[nxt][0])
+        # Граница отрезка: начало следующего блока или конец ближайшего открытого.
+        stop = min(order[nxt][0] if nxt < len(order) else len(mask), ends[0][0] if ends else len(mask))
+        if stop > pos and ends:
+            for m in _RB_FUNCALL.finditer(mask, pos, stop):
+                if calls >= _MAX_CALLS:
+                    return wanted
+                if _rb_def_name(mask, m.start()):
+                    continue
+                calls += 1
+                name = mask[m.start():m.end() - 1]
+                for index, (a, b) in enumerate(_args(mask, m.end()) or []):
+                    if active[mask[a:b].strip()] > 0:
+                        wanted.setdefault(name, set()).add(index)
+        pos = max(pos, stop)
+        while nxt < len(order) and order[nxt][0] <= pos:
+            heapq.heappush(ends, (order[nxt][1], nxt))
+            active.update(order[nxt][2])
+            nxt += 1
+        while ends and ends[0][0] <= pos:
+            _end, index = heapq.heappop(ends)
+            active.subtract(order[index][2])
+    return wanted
+
+
+def _rb_spans(code: codetext.Code) -> list[tuple[int, int, frozenset[str]]]:
+    """Отрезки файла, где имя — клиент Redis (ТЗ §15 п. 19 В3): тело блока pipelined, multi
+    или with у клиента (его параметры: redis.pipelined do |pipeline|) и тело метода того же
+    файла, которому параметр такого блока передан аргументом, с параметром на той же позиции
+    (Mastodon unpush_from_public_timelines(status, pipeline)). Один проход по маске со стеком
+    блоков (ключевые слова в начале инструкции, do и end, фигурные скобки), вызовы методов
+    внутри блоков-клиентов — проходом по их отрезкам (_rb_wanted)."""
+    mask = code.mask
+    owners = _rb_owners(mask)
+    # Открытые блоки: (начало, фигурная скобка, имена-клиенты, метод). Метод — начало слова
+    # def; имя и параметры разбираются в конце и только при вызовах с клиентом.
+    frames: list[tuple[int, bool, frozenset[str], bool]] = []
+    active: Counter[str] = Counter()  # имена-клиенты открытых блоков
+    blocks: list[tuple[int, int, frozenset[str]]] = []
+    methods: list[tuple[int, int]] = []
+    skip_do = -1  # do цикла while, until, for на этой строке блока не открывает
+
+    def close(frame: tuple[int, bool, frozenset[str], bool], at: int) -> None:
+        start, _brace, names, method = frame
+        if names:
+            active.subtract(names)
+            blocks.append((start, at, names))
+        if method and len(methods) < _MAX_METHODS:
+            methods.append((start, at))
+
+    for m in _RB_SCAN.finditer(mask):
+        kind = m.lastgroup
+        if kind == "end" or kind == "rb":
+            # end закрывает блок do и ключевого слова, «}» — фигурную скобку.
+            if frames and frames[-1][1] == (kind == "rb"):
+                frame = frames.pop()
+                if frame[2] or frame[3]:
+                    close(frame, m.start())
+            continue
+        if kind == "kw":
+            word = m.group("kw")
+            if word == "def":
+                line_end = mask.find("\n", m.end())
+                line_end = line_end if line_end != -1 else len(mask)
+                if mask.find("=", m.end(), line_end) != -1 \
+                        and _RB_ENDLESS.match(mask, m.start()) is not None:
+                    continue
+            elif word in ("while", "until", "for"):
+                line_end = mask.find("\n", m.end())
+                skip_do = line_end if line_end != -1 else len(mask)
+            frames.append((m.start("kw"), False, _NO_NAMES, word == "def"))
+            continue
+        at = m.start()
+        if kind == "do" and at < skip_do:
+            skip_do = -1
+            continue
+        names = _NO_NAMES
+        owner = owners.get(at)
+        if owner is not None and _rb_client_chain(owner, active):
+            bars = _RB_PARAMS.match(mask, m.end())
+            if bars is not None:
+                names = _rb_names(bars.group(1))
+                active.update(names)
+        frames.append((at, kind == "lb", names, False))
+    while frames:
+        close(frames.pop(), len(mask))
+    wanted = _rb_wanted(mask, blocks) if blocks and methods else {}
+    spans = list(blocks)
+    for start, stop in methods if wanted else ():
+        d = _RB_DEF.match(mask, start)
+        positions = wanted.get(d.group(1)) if d is not None else None
+        if d is None or not positions:
+            continue
+        positional = _rb_positional(d.group(2) or d.group(3) or "")
+        for index in sorted(positions):
+            if index < len(positional) and positional[index]:
+                spans.append((start, stop, frozenset({positional[index]})))
+    return sorted(spans, key=lambda s: (s[0], s[1]))
+
+
+def _ruby(code: codetext.Code, out: _Out) -> None:
+    mask = code.mask
+    # Блоки pipelined, multi и with ищутся, только если такие вызовы в файле есть.
+    spans = _rb_spans(code) if any(h in code.text for h in _RB_BLOCK_HINT) else []
+    names: Counter[str] = Counter()
+    ends: list[tuple[int, int]] = []  # (конец отрезка, номер) открытых отрезков
+    nxt = 0
+    for m in _RB_CALL.finditer(mask):
+        at = m.start()
+        while nxt < len(spans) and spans[nxt][0] <= at:
+            heapq.heappush(ends, (spans[nxt][1], nxt))
+            names.update(spans[nxt][2])
+            nxt += 1
+        while ends and ends[0][0] <= at:
+            _end, index = heapq.heappop(ends)
+            names.subtract(spans[index][2])
+        chain = _rb_receiver(mask, at)
+        if chain is None or not _rb_client_chain(chain, names):
             continue
         if not out.call():
             return
         verb = m.group(1)
-        spans = _rb_args(mask, m.end(), m.group(2) == "(")
-        if not spans:
+        spans_args = _rb_args(mask, m.end(), m.group(2) == "(")
+        if not spans_args:
             continue
-        _mask_args(code, spans if verb != "publish" else spans[:1], verb,
-                   code.line(m.start()), out, None)
+        _mask_args(code, spans_args if verb != "publish" else spans_args[:1], verb,
+                   code.line(at), out, None)
 
 
 # Go

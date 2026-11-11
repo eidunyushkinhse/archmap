@@ -734,7 +734,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     redis-py, aioredis; по ast), Node.js (ioredis, redis), Ruby (redis, redis-client) и Go
     (go-redis, `Publish(ctx, канал, …)`); получатель клиент Redis по имени (`redis` в имени,
     `rdb`), по подключению Redis в файле (`client`, `pubsub`, `publisher`, `subscriber`) или по
-    фабрике (`redis.Redis()`, `get_client()` модуля Redis, `r.pubsub()`). Имя: литерал,
+    фабрике (`redis.Redis()`, `get_client()` модуля Redis, `r.pubsub()`), а ещё то, что вернул
+    конвейер или транзакция клиента (В3, правила части 7). Имя: литерал,
     константа файла, импортированного модуля Python, пакета Go (`gocode.string_constants`) и
     Node.js по пакету и репозиторию (`nodeconst.py`); условный оператор с двумя литералами даёт
     две записи с одним основанием; подстановка, переменная и вызов дают подсказку о выражении,
@@ -830,3 +831,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     (`operations = OPS`, `database_operations=database_operations`) раскрывается по атрибуту
     класса `Migration` или последнему присваиванию списка модуля до класса; выражение и
     генератор списка остаются подсказкой «operations» (М2).
+  - клиент Redis из конвейера и транзакции: у Ruby параметр блока `pipelined`, `multi` или
+    `with` на клиенте (`redis.pipelined do |pipeline|`) в теле блока и параметр метода того же
+    файла на той же позиции, если метод зовут из такого блока с этим параметром
+    (`redispubsub._rb_spans`, стек блоков одним проходом по маске); у Node.js имя, которому
+    присвоен `.pipeline()` или `.multi()` клиента; у Python `with r.pipeline() as pipe` (В3).

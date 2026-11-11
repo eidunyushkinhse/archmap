@@ -380,6 +380,18 @@ STARTS["go/main.go"] += (
     RDG + 'const A = "a"\nrdb.Publish(ctx, A, ',
 )
 
+# Блоки клиента Redis у Ruby и конвейер Node.js (ТЗ §15 п. 19 В3): параметры блока и метода
+# без закрытия, вызов метода с параметром-клиентом без закрытия, присваивание конвейера.
+STARTS["rb/app.rb"] += (
+    "redis.pipelined do |", "redis.pipelined do |p|\n  p.publish('", "redis.multi { |m| m.publish(",
+    "Redis.current.with(", "redis.pipelined do |p|\n  f(a, ", "def f(a, p)\n  p.publish('",
+    "redis.pipelined do |p|\n  f(a, p)\nend\ndef f(a, p",
+)
+STARTS["js/app.js"] += (
+    RJS + "const p = redis.pipeline(", RJS + "const p = redis.pipeline();\np.publish('",
+    RJS + "p = await redis.multi();\np.publish(",
+)
+
 # GetRequiredValue и индексатор раздела .NET (ТЗ §15 п. 18 Р1): литерал, параметр типа,
 # переменная раздела и цепочка без закрытия.
 STARTS["cs/App.cs"] += (
@@ -912,6 +924,27 @@ def test_clike_config(tmp_path: Path, kind: str) -> None:
 @pytest.mark.parametrize("kind", sorted(JS_ZOD))
 def test_zod_schema(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "js/app.js": JS_ZOD[kind]}))
+
+
+# Блоки клиента Redis у Ruby целым файлом (ТЗ §15 п. 19 В3): открытия блоков подряд, вызовы
+# методов с параметром-клиентом сверх предела, тысячи методов, скобки без закрытия, end без
+# открытия и ключевые слова блоков. Один вызов publish в конце, чтобы файл читался.
+RB_TAIL = "\np.publish('x', 1)\n"
+RB_BLOCKS = {
+    "opens": "redis.pipelined do |p|\n" * (PAYLOAD // 23),
+    "calls": "redis.pipelined do |p|\n" + "f(a, p)\n" * (PAYLOAD // 8),
+    "defs": "redis.pipelined do |p|\n  f(a, p)\nend\n" + "def f(a, p)\nend\n" * (PAYLOAD // 16),
+    "braces": "redis.multi { |m| " * (PAYLOAD // 18),
+    "ends": "redis.pipelined do |p|\n" + "end\n" * (PAYLOAD // 4),
+    "keywords": "redis.pipelined do |p|\n" + "x = if a\n" * (PAYLOAD // 9),
+    "params": "redis.pipelined do |" + "a, " * (PAYLOAD // 3),
+    "nested-calls": "redis.pipelined do |p|\n" * 2000 + "f(a, p)\n" * (PAYLOAD // 8),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(RB_BLOCKS))
+def test_ruby_client_blocks(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "rb/app.rb": RB_BLOCKS[kind] + RB_TAIL}))
 
 
 @pytest.mark.parametrize("kind", sorted(GO_PACKAGE))
