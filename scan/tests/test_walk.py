@@ -69,6 +69,54 @@ def test_convention_rule_shapes() -> None:
     assert convention_rule("docker-compose.contest.yml") is None
 
 
+def test_migration_named_like_test_stays(tmp_path: Path) -> None:
+    """Файл миграции с именем теста не исключается (ТЗ §15 п. 19 А1): ревизия Alembic рядом с
+    env.py под любым именем, номерная миграция в migrations/ любой глубины и в db/migrate/.
+    Тесты рядом исключаются, как раньше: каталог tests/, имя без цифры в начале (Jest в
+    каталоге миграций), versions/ без env.py, conftest.py."""
+    tree(tmp_path, {
+        "core/migrations/env.py": "",
+        "core/migrations/versions/0147_add_connection_test.py": "",
+        "core/migrations/versions/ae10f_rename_test.py": "",
+        "alembic/env.py": "",
+        "alembic/versions/test_first.py": "",
+        "app/migrations/0002_field_test.py": "",
+        "posthog/clickhouse/migrations/0097_events_v2_test.py": "",
+        "db/migrate/20240101000000_create.test.rb": "",
+        "web/migrations/migrate.test.ts": "",
+        "web/migrations/conftest.py": "",
+        "other/versions/0001_x_test.py": "",
+        "app/migrations/tests/0001_test.py": "",
+        "tests/test_x.py": "",
+        "app/foo_test.py": "",
+        "app/0001_foo_test.py": "",
+    })
+    listing = list_files(ctx_of(tmp_path))
+    assert listing.files == (
+        "alembic/env.py",
+        "alembic/versions/test_first.py",
+        "app/migrations/0002_field_test.py",
+        "core/migrations/env.py",
+        "core/migrations/versions/0147_add_connection_test.py",
+        "core/migrations/versions/ae10f_rename_test.py",
+        "db/migrate/20240101000000_create.test.rb",
+        "posthog/clickhouse/migrations/0097_events_v2_test.py",
+    )
+    assert set(listing.excluded) == {
+        Excluded("app/migrations/tests/", 1, "convention"),
+        Excluded("tests/", 1, "convention"),
+        Excluded("*_test.py", 3, "convention"),
+        Excluded("*.test.*", 1, "convention"),
+        Excluded("conftest.py", 1, "convention"),
+    }
+    # Без каталогов env.py versions/ не Alembic, а имя ревизии без цифры не миграция.
+    assert convention_rule("core/migrations/versions/ae10f_rename_test.py") == ("*_test.py", False)
+    assert convention_rule(
+        "core/migrations/versions/ae10f_rename_test.py", frozenset({"core/migrations"}),
+    ) is None
+    assert convention_rule("core/migrations/versions/0147_add_connection_test.py") is None
+
+
 def test_archmapignore_and_options(tmp_path: Path) -> None:
     tree(tmp_path, {
         ".archmapignore": "# комментарий\n\nlegacy/\n/only-root.txt\n*.bak\na/**/z.txt\n!keep.txt\n",

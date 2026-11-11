@@ -125,8 +125,11 @@ bullshit-proof эталоны). Обсуждение с владельцем 202
 - Исключение по соглашению (всегда, независимо от git): сегменты пути `test`, `tests`,
   `__tests__`, `testing`, `spec`, `specs`, `testdata`, `fixtures`, `mocks`, `__mocks__`, `e2e`,
   `docs`, `doc`, `examples`, `example`, `samples`, `benchmarks`; имена файлов `test_*.py`,
-  `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`, `conftest.py`; compose-файлы с сегментом
-  `test|ci|e2e` в имени. Исключённое перечисляется в отчёте по каталогам с числом файлов.
+  `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`, `conftest.py` (кроме файлов миграций: имя с
+  цифрой в начале в каталоге `migrations` любой глубины или `db/migrate` и любой `.py` прямо в
+  `versions/` рядом с `env.py`; ревизия Alembic с именем теста не тест, ч. 7, А1); compose-файлы
+  с сегментом `test|ci|e2e` в имени. Исключённое перечисляется в отчёте по каталогам с числом
+  файлов.
 - Манифесты для разработки (находка фазы 1а на Grafana, `devenv/`): compose, Dockerfile,
   supervisor, systemd и k8s в пути с сегментом `dev`, `devenv`, `development`, `local`, `hack`,
   `contrib`, `sandbox`, `demo`, `playground`, `.devcontainer`, `vagrant`, `ci`, `test` (или с
@@ -2816,3 +2819,36 @@ unread: {too_large: 3, binary: 0}
      0,03–0,30 с, у n8n ещё индекс экспортов констант Node; запуск файла на пустом каталоге
      0,72 → 0,76 с (модулей больше, байткода в файле нет). Сокращать время ценой качества не
      нужно (решение владельца 2026-11-09). Ждёт проверки судьёй.
+19. **Решения исполнителя части 7** (2026-11-11, ветка feat/scan-7, сборщик 0.9.0 без выпуска;
+   миграция с именем теста, написание технологии и роль «прокси» по образу,
+   `SeparateDatabaseAndState`, блоки Redis в Ruby, пределы и время; владелец может отменить,
+   числа перемера в конце пункта).
+   - А1 (решение исполнителя, отклонение от буквы брифа): правило имени файла не применяется к
+     файлу миграции, а не к любому файлу каталога миграций. Файл миграции — имя с цифрой в
+     начале в каталоге `migrations` любой глубины или в `db/migrate` (номер ревизии Django,
+     Rails, ClickHouse) и любой `.py` прямо в `versions/`, рядом с которым лежит `env.py` (имя
+     ревизии Alembic бывает шестнадцатеричным; каталоги с `env.py` считает
+     `walk.alembic_roots` по всему перечню до исключений). Бриф считал файл миграции с именем
+     теста единственным в корпусе, а по правилу «сегмент `migrations`» их шесть: кроме Airflow,
+     две миграции ClickHouse PostHog с номером (`posthog/clickhouse/migrations/0097_session_replay_events_v2_test.py`,
+     `0110_log_entries_v2_test.py`) и четыре теста Jest (`frontend/src/scenes/notebooks/Notebook/migrations/migrate.test.ts`,
+     `convertMarkdownTablesInContent.test.ts` у PostHog, `packages/@n8n/db/src/migrations/migration-helpers.test.ts`,
+     `migration-registry.test.ts` у n8n). Тесты Jest остаются исключёнными: это тесты, и код
+     тестов разборщики не читают; миграции ClickHouse читаются (класса `Migration` у них нет,
+     Django их не берёт, записей они не дают), у PostHog в покрытии `*_test.py` 54 → 52, других
+     изменений вывода нет. Каталоги по соглашению проверяются раньше имени, как прежде. По
+     клону Airflow: в цепочке ядра 157 ревизий, обрыва нет; `tables` `error` → `covered`, таблиц
+     3 → 73 (70 ядра и 3 провайдера edge3), набор 70 таблиц ядра совпал с независимым счётом
+     по клону (ast, `create_table`, `drop_table` и `rename_table` в `upgrade()` по цепочке),
+     `dropped` 6 (из девяти `drop_table` в `upgrade()` три стоят в условии или с именем не
+     литералом), `skipped.alembic_operations` 24 → 115, подсказка обрыва ушла, появились три
+     подсказки-примера пропущенных инструкций ядра
+     (`0002_2_7_0_add_custom_operator_name_column.py:46` `batch_op.add_column` в `batch_alter_table(TABLE_NAME)` с именем переменной,
+     `0003_2_7_0_add_include_deferred_column_to_pool.py:46` `op.execute` с f-строкой,
+     `0004_2_8_0_add_clear_number_to_dag_run.py:44` условие). В `upgrade()` 22
+     переименования (4 `rename_table`, 18 `new_column_name`), из них два `rename_table`
+     переменными в цикле не применяются (`0041_3_0_0_rename_dataset_as_asset.py:169` по списку
+     `table_name_mappings`, `0142_3_4_0_unify_task_attempt_ownership.py:199`): поэтому таблицы
+     `dataset*` остаются под старыми именами, а две ссылки `asset.id`
+     (`asset_state_store.asset_id`, `task_inlet_asset_reference.asset_id`) без цели; цикл по
+     списку-литералу модуля в остаток.
