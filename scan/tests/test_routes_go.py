@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archmap_scan import codetext, texts
+from archmap_scan import clike, codetext, texts
 from archmap_scan.parsers import gohttp
 from tests.helpers import FIXTURES, files_of, tree
 
@@ -330,3 +330,24 @@ def test_prefix_variable(tmp_path: Path) -> None:
         ("a + b", texts.REASON_DYNAMIC_ROUTE, "main.go:9"),
         ('base + "/y"', texts.REASON_DYNAMIC_ROUTE, "main.go:10"),
     ]
+
+
+def test_hint_limit_per_file(tmp_path: Path) -> None:
+    """Предел подсказок маршрутов на файл (ТЗ §15 п. 19 П7): ровно clike.MAX_READS подсказок
+    выдаются, на одну больше — файл непрочитан, его маршруты и подсказки не выдаются (как у
+    clike.matches); соседний файл того же пакета читается как прежде."""
+    head = 'package x\nimport "github.com/go-chi/chi/v5"\nfunc f() {\n\tr := chi.NewRouter()\n'
+    body = "\tr.Post(u, h)\n"
+    tree(tmp_path, {
+        "go.mod": "module x\n\nrequire github.com/go-chi/chi/v5 v5.0.0\n",
+        "edge/a.go": head + body * clike.MAX_READS + '\tr.Get("/edge", h)\n}\n',
+        "over/a.go": head + body * (clike.MAX_READS + 1) + '\tr.Get("/over", h)\n}\n',
+        "over/b.go": head + '\tr.Get("/b", h)\n}\n',
+    })
+    ctx, files = files_of(tmp_path)
+    found = gohttp.parse(files, ctx)
+    assert sorted(r.path for r in found.routes) == ["/b", "/edge"]
+    sources = [str(h.data["source"]) for h in found.hints]
+    assert sum(1 for src in sources if src.startswith("edge/a.go")) == clike.MAX_READS
+    assert not [src for src in sources if src.startswith("over/")]
+    assert files.too_large == {"over/a.go"}

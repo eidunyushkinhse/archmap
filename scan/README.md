@@ -840,3 +840,5 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `unparsed`, как ошибка синтаксиса и как hjson; причина «файл настроек appsettings.json не
     разбирается или превышает пределы разбора» (`texts.REASON_BAD_APPSETTINGS`, П6; строка
     части 6 про пределы без подсказки этим заменена).
+  - маршруты Go: больше `clike.MAX_READS` (2000) подсказок из одного файла — файл непрочитан, его
+    маршруты и подсказки не выдаются, как у `clike.matches` (`gohttp._File.dynamic`, П7).

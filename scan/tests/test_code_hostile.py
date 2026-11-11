@@ -5,13 +5,15 @@
 from __future__ import annotations
 
 import time
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 from archmap_scan import registry
+from archmap_scan.parsers import gohttp
 from archmap_scan.registry import ParserSpec
-from tests.helpers import files_of, time_limit, tree
+from tests.helpers import files_of, time_limit, timed, tree
 
 PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
@@ -278,6 +280,19 @@ GO_REQUESTS = {
 @pytest.mark.parametrize("kind", sorted(GO_REQUESTS))
 def test_go_client_requests(tmp_path: Path, kind: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_REQUESTS[kind]}))
+
+
+def test_go_route_hints_limit(tmp_path: Path) -> None:
+    """Два мегабайта вызовов с путём не строкой на известном объекте маршрутизации (ТЗ §15
+    п. 19 П7): подсказок больше clike.MAX_READS, файл непрочитан и подсказок не даёт, время
+    в пределе."""
+    root = tree(tmp_path, {**MANIFESTS, "go/main.go": "package main\nfunc main() {\n" + GO_REQUESTS["calls"]})
+    ctx, files = files_of(root)
+    limit = 0.7 * time_limit()
+    found, took = timed(partial(gohttp.parse, files, ctx), limit)
+    assert not [h for h in found.hints if str(h.data["source"]).startswith("go/main.go")]
+    assert "go/main.go" in files.too_large
+    assert took < limit, f"{took:.2f} с"
 
 
 # Префикс NestJS членом перечисления (ТЗ §15 п. 15 К4).

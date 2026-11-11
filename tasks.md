@@ -410,7 +410,7 @@
         frontend-proxy и image-provider), М2 (SeparateDatabaseAndState: state_operations в
         состояние; PostHog таблиц 1036 → 1033, ссылок без цели 4 → 2), В3 (клиент Redis из
         блока pipelined у Ruby, конвейер Node.js, with у Python: Mastodon подсказок 21 → 25),
-        П6 (подсказка на пределах appsettings.json).
+        П6 (подсказка на пределах appsettings.json), П7 (предел подсказок маршрутов Go на файл).
 - [ ] (2026-10-27, решение пользователя) АНГЛИЙСКАЯ ДОКУМЕНТАЦИЯ docs.archmap.tech/en —
         ОТЛОЖЕНА: английская версия руководств лежит в репозитории archmap-docs
         (content/en, снята с прода DOCS_LANGS=ru с 2026-10-23) и по дельтам продукта
