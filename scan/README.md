@@ -776,3 +776,6 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     делают `RenameModel`, `RenameField` и `AlterModelTable`; цель из `django.contrib` без
     миграций в репозитории пишется настоящей таблицей (`vocab.DJANGO_CONTRIB_TABLES`:
     `django_content_type`, `django_session.session_key`, `django_admin_log`, `django_site`) (М1).
+  - чтение YAML (`yamlload._Loader`): `need_more_tokens` и `stale_possible_simple_keys` сканера
+    PyYAML 6.0.3 переписаны с тем же ответом и без лишних вызовов на пустом словаре простых
+    ключей; результат и номера строк те же (сверка с кодом PyYAML в `tests/test_yamlload.py`) (П1).

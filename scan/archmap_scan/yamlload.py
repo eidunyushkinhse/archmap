@@ -93,6 +93,40 @@ class _Loader(yaml.SafeLoader):  # type: ignore[misc]
         if self._merged > MAX_MERGED:
             raise _Limited
 
+    # Сканер PyYAML спрашивает need_more_tokens перед каждой проверкой токена (на 256 КБ
+    # плотного YAML полмиллиона раз), и каждый раз обходит словарь возможных простых ключей
+    # двумя вызовами (ТЗ §15 п. 18 П1). Здесь тот же ответ без лишних вызовов: пустой словарь
+    # проверяется сразу, ближайший ключ считается одним проходом. Код повторяет PyYAML 6.0.3
+    # (scanner.py: need_more_tokens, stale_possible_simple_keys); сверку с ним держит
+    # tests/test_yamlload.py.
+    def need_more_tokens(self) -> bool:
+        if self.done:
+            return False
+        if not self.tokens:
+            return True
+        keys = self.possible_simple_keys
+        if not keys:
+            return False
+        self.stale_possible_simple_keys()
+        if not keys:
+            return False
+        return bool(min(key.token_number for key in keys.values()) == self.tokens_taken)
+
+    def stale_possible_simple_keys(self) -> None:
+        keys = self.possible_simple_keys
+        if not keys:
+            return
+        line, index = self.line, self.index
+        for level in list(keys):
+            key = keys[level]
+            if key.line != line or index - key.index > 1024:
+                if key.required:
+                    raise yaml.scanner.ScannerError(
+                        "while scanning a simple key", key.mark,
+                        "could not find expected ':'", self.get_mark(),
+                    )
+                del keys[level]
+
 
 def _children(node: Any) -> list[Any]:
     if isinstance(node, yaml.SequenceNode):

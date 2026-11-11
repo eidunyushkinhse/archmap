@@ -84,3 +84,51 @@ def test_deep_nesting_and_bad_syntax() -> None:
             load("? [a, b]\n: c\n")
 
     assert timed(run, 1.0)[1] < 1.0
+
+
+def _dump(value: object) -> object:
+    """Значение с номерами строк для сверки двух загрузчиков."""
+    if isinstance(value, LineDict):
+        return ("map", value.line, [(_dump(k), value.line_of(k), _dump(v)) for k, v in value.items()])
+    if isinstance(value, LineList):
+        return ("seq", value.line, [(value.line_at(i), _dump(v)) for i, v in enumerate(value)])
+    return (type(value).__name__, value)
+
+
+def test_simple_keys_as_in_pyyaml() -> None:
+    """Ускоренные need_more_tokens и stale_possible_simple_keys (ТЗ §15 п. 18 П1) дают то же,
+    что код PyYAML: значения, номера строк ключей и элементов и ошибки. Документы: блоки,
+    поток, несколько документов, якоря и слияние, сложный ключ «?», ключ длиннее 1024 знаков,
+    ключ потока без «:» на другой строке (ошибка сканера)."""
+    import yaml as pyyaml
+
+    from archmap_scan import yamlload
+
+    class Plain(yamlload._Loader):
+        need_more_tokens = pyyaml.scanner.Scanner.need_more_tokens
+        stale_possible_simple_keys = pyyaml.scanner.Scanner.stale_possible_simple_keys
+
+    def both(text: str) -> tuple[object, object]:
+        out = []
+        for loader in (yamlload._Loader, Plain):
+            try:
+                out.append(_dump(list(pyyaml.load_all(text, Loader=loader))))
+            except pyyaml.YAMLError as exc:
+                out.append(("error", type(exc).__name__, str(exc)))
+        return out[0], out[1]
+
+    docs = [
+        "a: 1\nb:\n  - x\n  - {c: [1, 2, {d: e}], f: g}\nh: |\n  text\n",
+        "---\nkind: A\nmetadata: {name: a}\n---\nkind: B\nspec:\n  - name: b\n    port: 80\n",
+        "x: &x {a: 1, b: [2, 3]}\ny:\n  <<: *x\n  b: 4\n? [complex, key]\n: value\n",
+        "static_resources:\n  clusters:\n" + "    - hosts: [{socket_address: {address: '${B}'}}]\n" * 50,
+        "k" * 1100 + ": v\n",
+        "{a: 1,\n b: 2}\n",
+        "[a, b\nc: d\n",
+        "a: [b, {c\n  d}]\n",
+    ]
+    for text in docs:
+        new, old = both(text)
+        assert new == old, text[:40]
+    error = both("[a, b\nc: d\n")[0]
+    assert isinstance(error, tuple) and error[0] == "error"
