@@ -80,7 +80,9 @@ if (argv.includes("--skipcheck")) {
 const refTimes: Record<string, number> = refTimesFile
   ? (JSON.parse(readFileSync(refTimesFile, "utf8")) as Record<string, number>)
   : {};
-interface SceneStats { ms: number; evals: number; calls: number }
+// counters — все счётчики Z-роутера сцены (diag.__ARCHMAP_Z_STATS: пробы, отсев по правилам,
+// «было бы принято» при --skipcheck); в сверке с --ref-stats не участвуют
+interface SceneStats { ms: number; evals: number; calls: number; counters?: Record<string, number> }
 const refStats: Record<string, SceneStats> = refStatsFile
   ? (JSON.parse(readFileSync(refStatsFile, "utf8")) as Record<string, SceneStats>)
   : {};
@@ -123,7 +125,7 @@ for (const name of names) {
   for (const [k, v] of Object.entries(zStats)) statTotals[k] = (statTotals[k] ?? 0) + v;
   const evals = zStats.evals ?? 0, calls = zStats.calls ?? 0;
   times[name] = Math.round(ms);
-  statsOut[name] = { ms: Math.round(ms), evals, calls };
+  statsOut[name] = { ms: Math.round(ms), evals, calls, counters: zStats };
   sum += ms;
   evalSum += evals;
   callSum += calls;
