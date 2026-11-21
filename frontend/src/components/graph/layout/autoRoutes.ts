@@ -40,8 +40,9 @@ import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 import { assignPorts, type PortPair } from "./ports";
-import { zRoutes } from "./zRoutes";
+import { zRoutes, __zDebug, type ZRoutesResult } from "./zRoutes";
 import type { RouteBudget } from "./routeBudget";
+import { diag } from "./diag";
 
 const EPS = 0.5;
 
@@ -186,6 +187,40 @@ function countLabelCrossings(
   return n;
 }
 
+// Сверка входов повторного круга Z-роутера (perf, эпик render-scale). Числа — побитово:
+// -0 и 0, как и любые разные значения, — разные входы (промах безопасен, ложное попадание
+// нет). zRoutes читает у порта только сторону и точку.
+const sameNum = (a: number, b: number): boolean => (a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b);
+function samePortMaps(a: ReadonlyMap<string, PortPair>, b: ReadonlyMap<string, PortPair>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, p] of a) {
+    const q = b.get(id);
+    if (!q || p.s.side !== q.s.side || p.t.side !== q.t.side) return false;
+    if (!sameNum(p.s.point.x, q.s.point.x) || !sameNum(p.s.point.y, q.s.point.y)) return false;
+    if (!sameNum(p.t.point.x, q.t.point.x) || !sameNum(p.t.point.y, q.t.point.y)) return false;
+  }
+  return true;
+}
+function sameShareMaps(
+  a: ReadonlyMap<string, { s?: string; t?: string }>, b: ReadonlyMap<string, { s?: string; t?: string }>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, sh] of a) {
+    const o = b.get(id);
+    if (!o || o.s !== sh.s || o.t !== sh.t || ("s" in o) !== ("s" in sh) || ("t" in o) !== ("t" in sh)) return false;
+  }
+  return true;
+}
+// Полный текст результата zRoutes для самопроверки: карты — в порядке вставки, -0 и NaN
+// различимы.
+function zResultText(z: ZRoutesResult): string {
+  return JSON.stringify(z, (_k: string, v: unknown): unknown => {
+    if (v instanceof Map) return [...v.entries()];
+    if (typeof v === "number" && (Object.is(v, -0) || Number.isNaN(v))) return `#${String(Object.is(v, -0) ? "-0" : v)}`;
+    return v;
+  });
+}
+
 export interface AutoRoutesResult {
   routes: Map<string, EdgePoint[]>;                                   // groupId → ломаная (со стабами)
   handles: Map<string, { sourceHandle: string; targetHandle: string }>; // хэндлы центра выбранных сторон
@@ -317,7 +352,30 @@ export function buildAutoRoutes(params: {
   let keys = new Map<string, { s?: number; t?: number }>();
   let pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, labelBoxOf });
   let ports = pr.ports;
-  let z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
+  // ПОВТОРНЫЙ КРУГ С ТЕМИ ЖЕ ПОРТАМИ (perf, эпик render-scale). zRoutes — чистая функция
+  // своих входов (скрытого состояния между вызовами нет: кэши проб живут внутри вызова),
+  // а между кругами здесь меняются только порты и общие плечи: группы, тела, рамки и
+  // плашки те же. Круг, чьи порты и плечи совпали с одним из прошлых вызовов этого же
+  // buildAutoRoutes (качели ключей, разные ключи с одними портами), берёт готовый
+  // результат. Под отладочным следом повтор считается честно: след читают полигон и
+  // stage-table (число вызовов). Самопроверка (diag) пересчитывает и сверяет.
+  const zCalls: Array<{ ports: ReadonlyMap<string, PortPair>; shares: ReadonlyMap<string, { s?: string; t?: string }>; z: ZRoutesResult }> = [];
+  const zFor = (p: ReadonlyMap<string, PortPair>, sh: ReadonlyMap<string, { s?: string; t?: string }>): ZRoutesResult => {
+    const run = (): ZRoutesResult => zRoutes({ groups, ports: p, shares: sh, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
+    if (!__zDebug.on && !__zDebug.trace) {
+      const hit = zCalls.find((c) => samePortMaps(c.ports, p) && sameShareMaps(c.shares, sh));
+      if (hit) {
+        if (diag.__ARCHMAP_Z_SELFCHECK && zResultText(run()) !== zResultText(hit.z)) {
+          throw new Error("самопроверка кэша Z-роутера «повторный круг портов»: готовый результат разошёлся с честным расчётом");
+        }
+        return hit.z;
+      }
+    }
+    const z = run();
+    zCalls.push({ ports: p, shares: sh, z });
+    return z;
+  };
+  let z = zFor(ports, pr.shares);
   const sameKeys = (a: ReadonlyMap<string, { s?: number; t?: number }>, b: ReadonlyMap<string, { s?: number; t?: number }>): boolean => {
     if (a.size !== b.size) return false;
     for (const [id, k] of a) {
@@ -332,7 +390,7 @@ export function buildAutoRoutes(params: {
     keys = next;
     pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys, labelBoxOf });
     ports = pr.ports;
-    z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
+    z = zFor(ports, pr.shares);
   }
   const routes = new Map<string, EdgePoint[]>();
   const fixedIds = new Set<string>();

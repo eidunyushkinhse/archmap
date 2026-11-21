@@ -21,6 +21,11 @@ export interface ArchmapDiag {
   __archmapLayoutInflight?: number;
   __archmapLayoutRuns?: number;
   __archmapSizesVersion?: number;
+  // САМОПРОВЕРКА КЭШЕЙ Z-РОУТЕРА (эпик render-scale): каждое попадание в кэш (повторный
+  // круг портов в buildAutoRoutes, раздача компоненты, маршрут связи, пара маршрутов,
+  // слот подписи) дополнительно считается честно и сверяется; расхождение — исключение с
+  // названием кэша. Ставят corpus-check --selfcheck и тест zRoutesCache.
+  __ARCHMAP_Z_SELFCHECK?: boolean;
 }
 
 export const diag = globalThis as typeof globalThis & ArchmapDiag;

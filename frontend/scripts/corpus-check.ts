@@ -13,6 +13,9 @@
 //   --write <каталог>     сохранить дампы, отличающиеся от базовых (сравнение качества)
 //   --save-times <файл>   записать времена сцен (мс) — опорный замер «до»
 //   --ref-times <файл>    показать ускорение против опорного замера
+//   --selfcheck           самопроверка кэшей Z-роутера (diag.__ARCHMAP_Z_SELFCHECK): каждое
+//                         попадание в кэш дополнительно считается честно и сверяется,
+//                         расхождение — исключение с названием кэша (прогон медленнее)
 // Вход без базового дампа считается (время печатается), но не сверяется.
 // Код возврата 1 — есть отличия от базовых дампов.
 //
@@ -22,6 +25,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { computeViewLayout, type PipelineInput } from "../src/components/graph/layout/pipeline";
 import { __clearElkCacheForTests } from "../src/components/graph/layout/engine";
+import { diag } from "../src/components/graph/layout/diag";
 import { buildRouteDump, reviveInput } from "./lib/routeDump";
 
 const argv = process.argv.slice(2);
@@ -31,7 +35,7 @@ const flag = (name: string): string | undefined => {
 };
 const [inputsDir, baselineDir] = argv;
 if (!inputsDir || !baselineDir || inputsDir.startsWith("--") || baselineDir.startsWith("--")) {
-  console.error("использование: npm run corpus-check -- <каталог входов> <каталог базовых дампов> [--only a,b] [--skip a,b] [--write dir] [--save-times f] [--ref-times f]");
+  console.error("использование: npm run corpus-check -- <каталог входов> <каталог базовых дампов> [--only a,b] [--skip a,b] [--write dir] [--save-times f] [--ref-times f] [--selfcheck]");
   process.exit(2);
 }
 const list = (v: string | undefined): string[] => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : []);
@@ -40,6 +44,10 @@ const skip = list(flag("--skip"));
 const writeDir = flag("--write");
 const saveTimes = flag("--save-times");
 const refTimesFile = flag("--ref-times");
+if (argv.includes("--selfcheck")) {
+  diag.__ARCHMAP_Z_SELFCHECK = true;
+  console.log("самопроверка кэшей Z-роутера включена: времена не сравнимы с опорными");
+}
 const refTimes: Record<string, number> = refTimesFile
   ? (JSON.parse(readFileSync(refTimesFile, "utf8")) as Record<string, number>)
   : {};
