@@ -3,7 +3,7 @@
 // роли: тумблер «Редактировать/Готово» (только архитектор) переключает inline-правку.
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import { processesApi } from "../../api/processes";
 import type { FragmentKind, NodeStatus } from "../../types";
@@ -21,7 +21,8 @@ import { deriveActivations } from "./sequence/layout";
 import { detailToSeq } from "./sequence/fromDetail";
 import { BPT, BROKEN } from "./tokens";
 import { useProcessDetail } from "./useProcessDetail";
-import { useDiagramFit, type DiagramLayout } from "./useDiagramFit";
+import { useDiagramFit } from "./useDiagramFit";
+import { revealDelta } from "./reveal";
 import type { ProcessEditCtx } from "./editCtx";
 import { fragmentEdits } from "./fragmentEdits";
 import { messageEdits } from "./messageEdits";
@@ -95,12 +96,13 @@ export default function ProcessCanvas({
   const [view, setView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(view); }, [view]);
 
-  // Вписывание в окно — только в чтении (useDiagramFit): «Вписать» по умолчанию,
-  // «100%» — полный размер с прокруткой вбок. В правке масштаб всегда 100%.
+  // Вписывание в окно (useDiagramFit): подписи переносятся под ширину окна в обоих
+  // режимах; не влезло — в чтении масштаб, но не ниже 0,9, дальше прокрутка вбок. В
+  // правке масштаб всегда 1. Ширина окна — без панели шага: панель раскладку не меняет.
+  const bodyRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [fitPref, setFitPref] = useState(true);
-  const [layout, setLayout] = useState<DiagramLayout | null>(null);
-  const { fitWidth, scale, wider } = useDiagramFit(scrollRef, layout, !editing && fitPref, !editing);
+  const [diagramW, setDiagramW] = useState<number | null>(null);
+  const { fitWidth, scale } = useDiagramFit(bodyRef, scrollRef, diagramW, !editing);
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
@@ -222,6 +224,34 @@ export default function ProcessCanvas({
     document.addEventListener("keydown", onEsc);
     return () => document.removeEventListener("keydown", onEsc);
   }, [panelOpen, overlayOpen]);
+
+  // Выбранный шаг — в поле зрения: панель сужает окно прокрутки, и шаг у правого края
+  // уходил под неё. Кратчайшим путём по обеим осям и только само окно прокрутки
+  // (scrollIntoView прокрутил бы и предков). Видимая область — без полос прокрутки и
+  // без липкой полосы шапок; шаг — подпись и стрелка под ней. Срабатывает на выбор
+  // (открытие панели и смену шага); закрытие панели (null) прокрутку не трогает, вход
+  // «чинить» (undefined) центрирует шаг своим эффектом ниже.
+  const revealStep = useEffectEvent((mid: string) => {
+    const sc = scrollRef.current;
+    const label = sc?.querySelector(`[data-mid="${mid}"]`);
+    if (!sc || !label || sc.clientWidth === 0) return;
+    const box = sc.getBoundingClientRect();
+    const heads = sc.querySelector(".seq-heads")?.getBoundingClientRect().height ?? 0;
+    const x0 = box.left + sc.clientLeft;
+    const y0 = box.top + sc.clientTop;
+    const r = label.getBoundingClientRect();
+    // Стрелка шага может быть шире подписи (шаг через несколько колонок).
+    const a = sc.querySelector(`[data-arrow="${mid}"]`)?.getBoundingClientRect() ?? r;
+    const { dx, dy } = revealDelta(
+      { left: x0 + REVEAL_PAD, right: x0 + sc.clientWidth - REVEAL_PAD, top: y0 + heads + REVEAL_PAD / 2, bottom: y0 + sc.clientHeight - REVEAL_PAD },
+      { left: Math.min(r.left, a.left), right: Math.max(r.right, a.right), top: r.top, bottom: Math.max(r.bottom, a.bottom) },
+    );
+    if (dx) sc.scrollLeft += dx;
+    if (dy) sc.scrollTop += dy;
+  });
+  useLayoutEffect(() => {
+    if (pickedStep) revealStep(pickedStep);
+  }, [pickedStep]);
 
   // Вход «чинить»: сломанный шаг — в поле зрения (один раз, когда он нарисован).
   const fixScrolled = useRef(false);
@@ -545,14 +575,13 @@ export default function ProcessCanvas({
       hasStatus={hasStatus}
       view={view}
       onViewChange={setView}
-      fit={wider ? { on: fitPref, onChange: setFitPref } : null}
     />
   );
 
   return (
     <div style={canvasShell} className="bp ds">
       {toolbar}
-      <div className="proc-body">
+      <div className="proc-body" ref={bodyRef}>
       <div
         className="proc-scroll"
         ref={scrollRef}
@@ -593,7 +622,7 @@ export default function ProcessCanvas({
               // Переход на страницу объекта — не правка: доступен и в просмотре.
               onOpenNode={onOpenNode}
               fitWidth={fitWidth}
-              onLayout={setLayout}
+              onLayout={setDiagramW}
               selectedId={selectedMsg?.id ?? null}
               onMessageClick={(mid) => setPickedStep(mid)}
               onOpenDoc={openStepDoc}
@@ -643,6 +672,9 @@ export default function ProcessCanvas({
     </div>
   );
 }
+
+// Поле между выбранным шагом и краем окна прокрутки, когда шаг доводится до видимости.
+const REVEAL_PAD = 16;
 
 const canvasShell: CSSProperties = {
   flex: 1,

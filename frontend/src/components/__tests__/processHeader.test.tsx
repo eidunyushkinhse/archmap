@@ -28,7 +28,6 @@ function renderHead(over: Partial<Parameters<typeof ProcessToolbar>[0]> = {}) {
     hasStatus: false,
     view: "asis" as const,
     onViewChange: vi.fn(),
-    fit: null,
     ...over,
   };
   render(<ProcessToolbar {...props} />);
@@ -50,6 +49,8 @@ describe("шапка процесса", () => {
     expect(screen.getByRole("button", { name: "Редактировать" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Добавить участника" })).toBeNull();
+    // Переключателя масштаба нет: диаграмма сама переносит подписи под окно.
+    expect(screen.queryByRole("radiogroup")).toBeNull();
   });
 
   it("в правке: отмена, повтор, участник, фрагмент и «Готово»; «сохранено» нет", () => {

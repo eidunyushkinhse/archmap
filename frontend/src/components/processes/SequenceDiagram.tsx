@@ -6,7 +6,7 @@
 // шире предела — перенос по словам), у шага только номер и подпись, привязанная схема
 // логики — значок документа после подписи; шапки плоские, шрифт и серые — токены
 // нового языка (ui/tokens.css), цвета статусов и янтарь — processes/tokens.ts.
-import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import type { FragmentKind, NodeStatus } from "../../types";
@@ -16,7 +16,7 @@ import { C4Glyph, IcoArrowR, IcoBrokenLink, IcoClose, IcoDoc, IcoPlus, IcoSelf }
 import { legMeta } from "./legMeta";
 import { arrayMove, strongestStatus } from "./sequence/layout";
 import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
-import { computeColumns, computeSeqGeometry, fitLabelCap, LABEL_GAP } from "./sequence/geometry";
+import { computeSeqGeometry, fitLabelCap, LABEL_GAP } from "./sequence/geometry";
 import type { FragDragGesture, ReorderGesture, RowDragGesture } from "./sequence/geometry";
 import { useSizes } from "./sequence/useSizes";
 import { BPT, BROKEN, SQ, STATUS_LEG, withAlpha } from "./tokens";
@@ -100,13 +100,13 @@ interface Props {
   onSelectRange?: (fromRow: number, toRow: number) => void;
   // Клик по шапке фрагмента (kind+условие) — запрос на удаление фрагмента.
   onFragmentClick?: (id: string) => void;
-  // Вписывание в окно (режим чтения): наибольшая ширина холста. Предел ширины подписи
-  // опускается, пока диаграмма не уместится, — подписи переносятся ровно настолько,
-  // насколько нужно. Не задана — предел обычный (SQ.LABEL_MAX).
+  // Вписывание в окно (чтение и правка): наибольшая ширина холста при масштабе 1.
+  // Предел ширины подписи опускается, пока диаграмма не уместится, — подписи
+  // переносятся ровно настолько, насколько нужно. Не задана — предел обычный
+  // (SQ.LABEL_MAX).
   fitWidth?: number;
-  // Ширина холста после раскладки: сейчас и при обычном пределе подписи. По ней холст
-  // процесса считает масштаб и решает, показывать ли переключатель «Вписать / 100%».
-  onLayout?: (w: { width: number; fullWidth: number }) => void;
+  // Ширина холста после раскладки: по ней холст процесса считает масштаб чтения.
+  onLayout?: (width: number) => void;
   // Выбранный шаг (его панель открыта справа) — подпись подсвечена.
   selectedId?: string | null;
   // Клик по пустому месту диаграммы (не по шагу, шапке или ручке) — холст закрывает
@@ -190,31 +190,34 @@ export default function SequenceDiagram({
   // текста гуляет на проценты (кегль меняется, метрики глифов округляются), и замер
   // внутри масштаба замкнул бы петлю «ширина → масштаб → ширина». Снаружи ни одна из
   // ширин от геометрии и масштаба не зависит.
+  // Наименьшие ширины подписи и шапки (самое длинное слово) — по копиям шириной
+  // min-content: уже них предел не сжимает, слово не рвётся.
   const { bind: bindLabel, sizes: labelH } = useSizes("height", "mid", messages);
   const { bind: bindNatural, sizes: labelW } = useSizes("width", "mw", messages);
+  const { bind: bindLabelMin, sizes: labelMinW } = useSizes("width", "mn", messages);
   const { bind: bindHead, sizes: headW } = useSizes("width", "hw", participants);
+  const { bind: bindHeadMin, sizes: headMinW } = useSizes("width", "hm", participants);
 
-  // Предел ширины подписи: обычный либо подобранный под окно (вписывание в режиме
-  // чтения). Ширина при обычном пределе нужна холсту процесса — переключателю масштаба.
-  const fit = useMemo(() => {
-    const cols = { participants, messages, labelW, headW };
-    return {
-      cap: fitWidth != null ? fitLabelCap(cols, fitWidth) : SQ.LABEL_MAX,
-      fullWidth: computeColumns({ ...cols, labelCap: SQ.LABEL_MAX }).W,
-    };
-  }, [participants, messages, labelW, headW, fitWidth]);
+  // Предел ширины подписи: обычный либо подобранный под окно (вписывание).
+  const labelCap = useMemo(
+    () => (fitWidth != null
+      ? fitLabelCap({ participants, messages, labelW, labelMinW, headW, headMinW }, fitWidth)
+      : SQ.LABEL_MAX),
+    [participants, messages, labelW, labelMinW, headW, headMinW, fitWidth],
+  );
 
   // Геометрия — чистая функция данных, замеров подписей и живых жестов: мемо держит её
   // от пересчёта на событиях, которые раскладку не меняют (протяжка связи, наведение,
   // выделение диапазона), — раньше она считалась на каждом pointermove.
   const geo = useMemo(
     () => computeSeqGeometry({
-      participants, messages, fragments, labelW, headW, labelCap: fit.cap, labelH, reorder, rowDrag, fragDrag, ghost: !!ghost,
+      participants, messages, fragments, labelW, labelMinW, headW, headMinW, labelCap, labelH,
+      reorder, rowDrag, fragDrag, ghost: !!ghost,
     }),
-    [participants, messages, fragments, labelW, headW, fit.cap, labelH, reorder, rowDrag, fragDrag, ghost],
+    [participants, messages, fragments, labelW, labelMinW, headW, headMinW, labelCap, labelH, reorder, rowDrag, fragDrag, ghost],
   );
   const {
-    idx, pById, PX, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf, headWOf,
+    idx, pById, PX, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf, headWOf, labelCapOf,
     fragRows, fragBranches, rowY, rowFromY, shownRow, msgY, ghostY, W, H, fragBoxes,
   } = geo;
   // Крайние колонки: от них считаются полоса-призрак и рамка выделения диапазона.
@@ -223,8 +226,8 @@ export default function SequenceDiagram({
 
   // Ширина холста — наружу, до отрисовки: холст процесса ставит по ней масштаб, и
   // кадр в прежнем масштабе не мелькает.
-  const reportLayout = useEffectEvent((width: number, fullWidth: number) => onLayout?.({ width, fullWidth }));
-  useLayoutEffect(() => { reportLayout(W, fit.fullWidth); }, [W, fit.fullWidth]);
+  const reportLayout = useEffectEvent((width: number) => onLayout?.(width));
+  useLayoutEffect(() => { reportLayout(W); }, [W]);
 
   // Приглушение по виду схемы: участник со статусом вне вида гаснет (см. ТЗ статусов).
   // ⚠️ Гашение — ТОЛЬКО визуальный слой: управление оно не отбирает (на C4-холсте
@@ -438,16 +441,26 @@ export default function SequenceDiagram({
   // (labelBody; правишь одну — правь и другую, замер обязан видеть ровно нарисованное),
   // но текст — в CSS-псевдоэлементе (data-t): по ширине то же самое, а поиску по тексту
   // и чтению с экрана копии не видны.
+  // Хвост держится за последнее слово так же, как на холсте (labelBody): копия
+  // шириной min-content меряет по нему самое длинное неразрывное место подписи.
   function measureBody(m: SeqMessage): ReactNode {
+    const label = m.label ?? "";
+    const hasTail = !m.valid || m.doc != null;
+    const cut = hasTail ? label.lastIndexOf(" ") + 1 : label.length;
     return (
       <>
         <span className="seq-num">
           {m.valid ? <span className="seq-t" data-t={String(m.n)} /> : <IcoBrokenLink s={11} />}
         </span>
         <span className="seq-text">
-          <span className="seq-t" data-t={m.label ?? ""} />
-          {!m.valid && <span className="seq-broken seq-t" data-t={m.invalidReason === "leg_gone" ? "связь без ответа" : "связь удалена"} />}
-          {m.doc != null && <span className="seq-doc"><IcoDoc s={11} /></span>}
+          {cut > 0 && <span className="seq-t" data-t={label.slice(0, cut)} />}
+          {hasTail && (
+            <span className="seq-tail">
+              <span className="seq-t" data-t={label.slice(cut)} />
+              {!m.valid && <span className="seq-broken seq-t" data-t={m.invalidReason === "leg_gone" ? "связь без ответа" : "связь удалена"} />}
+              {m.doc != null && <span className="seq-doc"><IcoDoc s={11} /></span>}
+            </span>
+          )}
         </span>
       </>
     );
@@ -757,7 +770,7 @@ export default function SequenceDiagram({
             const loopH = 15;
             const d = `M ${x} ${y - loopH / 2} h ${loopW} v ${loopH} h ${-loopW}`;
             return (
-              <g key={m.id}>
+              <g key={m.id} data-arrow={m.id}>
                 <path
                   d={d}
                   fill="none"
@@ -778,8 +791,9 @@ export default function SequenceDiagram({
           const dir = xTo > xFrom ? 1 : -1;
           const x1 = xFrom + dir * (SQ.ACT_W / 2);
           const x2 = xTo - dir * (SQ.ACT_W / 2);
+          // data-arrow: по нему холст процесса доводит выбранный шаг до видимости целиком.
           return (
-            <g key={m.id}>
+            <g key={m.id} data-arrow={m.id}>
             <line
               x1={x1}
               y1={y}
@@ -813,7 +827,8 @@ export default function SequenceDiagram({
         // Помещается в предел — одной строкой без права переноса: под масштабом ширина
         // текста чуть другая, чем у замера, и лишний перенос был бы случайным.
         const natural = labelW[m.id];
-        const oneLine = natural === undefined || natural <= fit.cap;
+        const cap = labelCapOf(m.id);
+        const oneLine = natural === undefined || natural <= cap;
         return (
           <div
             key={"l" + m.id}
@@ -828,7 +843,7 @@ export default function SequenceDiagram({
               transform: isSelf ? undefined : "translateX(-50%)",
               // подпись висит над стрелкой: её низ — на LABEL_GAP выше линии
               top: msgY(m.r) - lhOf(m.id) - LABEL_GAP,
-              maxWidth: fit.cap,
+              maxWidth: cap,
               whiteSpace: oneLine ? "nowrap" : undefined,
               zIndex: 3,
               opacity: dimMsg(m) ? 0.12 : 1,
@@ -852,16 +867,32 @@ export default function SequenceDiagram({
       {createPortal(
         <div aria-hidden="true" className="seq-measure">
           {messages.map((m) => (
-            <div key={"w" + m.id} data-mw={m.id} ref={bindNatural} className="seq-label seq-label--measure">
-              {measureBody(m)}
-            </div>
+            <Fragment key={m.id}>
+              <div data-mw={m.id} ref={bindNatural} className="seq-label seq-label--measure">
+                {measureBody(m)}
+              </div>
+              <div data-mn={m.id} ref={bindLabelMin} className="seq-label seq-label--measure seq-measure-min">
+                {measureBody(m)}
+              </div>
+            </Fragment>
           ))}
-          {participants.map((p) => (
-            <div key={"h" + p.id} data-hw={p.id} ref={bindHead} className="seq-head-measure">
-              <span className="seq-head-glyph" />
-              <span className="seq-t" data-t={p.name} />
-            </div>
-          ))}
+          {participants.map((p) => {
+            // Над шапкой бывает пометка (статус, «привязать»): шапка не уже её.
+            const marked = p.nodeId === null || !!STATUS_META[statusOf(p.id)].badge;
+            const minWidth = marked ? SQ.HEAD_MARKED_MIN : undefined;
+            return (
+              <Fragment key={p.id}>
+                <div data-hw={p.id} ref={bindHead} className="seq-head-measure" style={{ minWidth }}>
+                  <span className="seq-head-glyph" />
+                  <span className="seq-t" data-t={p.name} />
+                </div>
+                <div data-hm={p.id} ref={bindHeadMin} className="seq-head-measure seq-measure-min">
+                  <span className="seq-head-glyph" />
+                  <span className="seq-t" data-t={p.name} />
+                </div>
+              </Fragment>
+            );
+          })}
         </div>,
         document.body,
       )}
@@ -878,6 +909,9 @@ export default function SequenceDiagram({
       <div ref={sentinelRef} style={{ position: "absolute", top: 0, left: 0, width: 1, height: 1, pointerEvents: "none" }} />
       <div
         data-seq-bg=""
+        // seq-heads: по высоте полосы холст процесса знает, сколько сверху закрыто
+        // шапками, когда доводит выбранный шаг до видимости.
+        className="seq-heads"
         style={{
           position: "sticky",
           top: 0,
@@ -1029,7 +1063,7 @@ export default function SequenceDiagram({
                   overflowWrap: "break-word",
                   // Имя, которое помещается в шапку, — одной строкой: под масштабом
                   // ширина текста чуть другая, чем у замера, и перенос был бы случайным.
-                  whiteSpace: (headW[p.id] ?? 0) <= SQ.HEAD_MAX ? "nowrap" : undefined,
+                  whiteSpace: (headW[p.id] ?? 0) <= headWOf(p.id) ? "nowrap" : undefined,
                 }}
               >
                 {p.name}

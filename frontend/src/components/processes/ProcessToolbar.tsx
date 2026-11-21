@@ -45,13 +45,11 @@ interface Props {
   hasStatus: boolean;
   view: SchemaView;
   onViewChange: (view: SchemaView) => void;
-  // Переключатель «Вписать / 100%»: только в чтении и только когда диаграмма шире окна.
-  fit: { on: boolean; onChange: (on: boolean) => void } | null;
 }
 
 export default function ProcessToolbar({
   name, scopeName, isArchitect, editing, onToggleEditing, onRename, danglingCount, onReattach,
-  fragSelect, onFragSelect, canFragment, onAddParticipant, history, hasStatus, view, onViewChange, fit,
+  fragSelect, onFragSelect, canFragment, onAddParticipant, history, hasStatus, view, onViewChange,
 }: Props) {
   const scopeHint = scopeName ? `Область: ${scopeName}` : undefined;
   return (
@@ -103,16 +101,6 @@ export default function ProcessToolbar({
           </>
         )}
         {hasStatus && <SchemaViewSeg view={view} onChange={onViewChange} />}
-        {fit && (
-          <div className="ds-tabs" role="radiogroup" aria-label="Масштаб">
-            <button type="button" role="radio" aria-checked={fit.on} className={"ds-tab" + (fit.on ? " is-active" : "")} onClick={() => fit.onChange(true)}>
-              Вписать
-            </button>
-            <button type="button" role="radio" aria-checked={!fit.on} className={"ds-tab" + (fit.on ? "" : " is-active")} onClick={() => fit.onChange(false)}>
-              100%
-            </button>
-          </div>
-        )}
         {isArchitect && (
           <button
             type="button"

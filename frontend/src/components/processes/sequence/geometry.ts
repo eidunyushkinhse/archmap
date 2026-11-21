@@ -46,11 +46,23 @@ export interface SeqColumnsInput {
   // Естественная ширина подписи шага в одну строку (номер, текст, значок схемы) по id
   // шага; нет — подпись считается пустой.
   labelW?: Record<string, number>;
-  // Ширина шапки участника по id участника; нет — наименьшая (SQ.HEAD_MIN).
+  // Наименьшая ширина подписи шага: самое длинное слово (с номером и хвостом из
+  // последнего слова, причины поломки и значка схемы). Уже неё подпись не сжимается —
+  // слово не рвётся. Нет — ограничения нет.
+  labelMinW?: Record<string, number>;
+  // Естественная ширина шапки участника по id участника; нет — наименьшая (SQ.HEAD_MIN).
   headW?: Record<string, number>;
+  // Наименьшая ширина шапки: самое длинное слово имени. Длинное имя переносится в две
+  // строки, но шапка не уже этого слова. Нет — ограничения нет.
+  headMinW?: Record<string, number>;
   // Предел ширины подписи: шире — переносится. По умолчанию SQ.LABEL_MAX.
   labelCap?: number;
 }
+
+// Запас к ширине самого длинного слова: под масштабом режима чтения ширина текста
+// чуть другая, чем у замера вне масштаба (кегль дробный, метрики глифов округляются),
+// и подпись точно по замеру рвала бы слово страховкой overflow-wrap.
+const wordFloor = (w: number | undefined): number => (w ? Math.ceil(w * 1.03) + 2 : 0);
 
 export interface SeqGeometryInput extends SeqColumnsInput {
   fragments: SeqFragment[];
@@ -70,13 +82,22 @@ export interface SeqGeometryInput extends SeqColumnsInput {
  * докладывает недостачу поровну в каждый. Узкие шаги идут первыми: их требование
  * точное, а широкий шаг часто уже накрыт промежутками, которые раздвинули они.
  */
-export function computeColumns({ participants, messages, labelW = {}, headW = {}, labelCap = SQ.LABEL_MAX }: SeqColumnsInput) {
+export function computeColumns({
+  participants, messages, labelW = {}, labelMinW = {}, headW = {}, headMinW = {}, labelCap = SQ.LABEL_MAX,
+}: SeqColumnsInput) {
   const n = participants.length;
   const idx: Record<string, number> = {};
   participants.forEach((p, k) => { idx[p.id] = k; });
-  const hw = (k: number) => Math.min(SQ.HEAD_MAX, Math.max(SQ.HEAD_MIN, headW[participants[k].id] ?? SQ.HEAD_MIN));
+  // Шапка: естественная ширина имени в пределах HEAD_MIN…HEAD_MAX; потолок раздвигает
+  // самое длинное слово (у копии-замера поля шире, чем у шапки, — запас уже в нём).
+  const hw = (k: number) => {
+    const id = participants[k].id;
+    return Math.min(Math.max(SQ.HEAD_MAX, headMinW[id] ?? 0), Math.max(SQ.HEAD_MIN, headW[id] ?? SQ.HEAD_MIN));
+  };
+  // Предел ширины подписи шага: общий, но не уже её самого длинного слова.
+  const capOf = (id: string) => Math.max(labelCap, wordFloor(labelMinW[id]));
   // Ширина подписи на холсте: естественная, но не шире предела (шире — перенос).
-  const lw = (id: string) => Math.min(labelCap, Math.max(0, labelW[id] ?? 0));
+  const lw = (id: string) => Math.min(capOf(id), Math.max(0, labelW[id] ?? 0));
 
   // Наименьший промежуток — шапки соседей не сходятся ближе HEAD_GAP.
   const gaps = Array.from({ length: Math.max(0, n - 1) }, (_, k) => (hw(k) + hw(k + 1)) / 2 + SQ.HEAD_GAP);
@@ -114,25 +135,47 @@ export function computeColumns({ participants, messages, labelW = {}, headW = {}
     if (k < n - 1) x += gaps[k];
   }
   const W = n ? xs[n - 1] + marginR : marginL + marginR;
-  return { idx, xs, gaps, W, lw, hw };
+  // Ширина подписи на холсте: предел, но не уже места, которое у неё уже есть. Промежуток
+  // часто раздвинут шапками или соседними шагами шире предела, и подпись, перенесённая
+  // по пределу, стояла бы узким столбцом посреди пустоты. Ширина холста от этого не
+  // меняется: место берётся только внутри уже разложенных промежутков.
+  const room = (m: SeqMessage): number => {
+    const ka = idx[m.from];
+    const kb = idx[m.to];
+    if (ka === undefined || kb === undefined) return 0;
+    if (ka === kb) return ka < n - 1 ? gaps[ka] - SQ.SELF_OFF - SQ.LABEL_SIDE / 2 : 0;
+    return Math.abs(xs[kb] - xs[ka]) - SQ.LABEL_SIDE;
+  };
+  const shownCap: Record<string, number> = {};
+  for (const m of messages) shownCap[m.id] = Math.max(capOf(m.id), Math.floor(room(m)));
+  const labelCapOf = (id: string): number => shownCap[id] ?? capOf(id);
+  return { idx, xs, gaps, W, lw, hw, labelCapOf };
 }
 
 /**
  * Предел ширины подписи для вписывания в окно: наибольший (до SQ.LABEL_MAX), при
  * котором холст не шире maxW. Подписи переносятся ровно настолько, насколько это
- * нужно, чтобы процесс уместился; не уместился и на SQ.LABEL_MIN — остаётся он.
+ * нужно, чтобы процесс уместился. Не уместился и на SQ.LABEL_MIN — берётся наибольший
+ * предел с той же наименьшей шириной: когда промежутки задают шапки, а не подписи,
+ * дальнейший перенос холст не сужает и только растит строки.
  */
 export function fitLabelCap(input: Omit<SeqColumnsInput, "labelCap">, maxW: number): number {
+  const widthAt = (cap: number) => computeColumns({ ...input, labelCap: cap }).W;
   for (let cap = SQ.LABEL_MAX; cap > SQ.LABEL_MIN; cap -= CAP_STEP) {
-    if (computeColumns({ ...input, labelCap: cap }).W <= maxW) return cap;
+    if (widthAt(cap) <= maxW) return cap;
   }
-  return SQ.LABEL_MIN;
+  const least = widthAt(SQ.LABEL_MIN);
+  let cap = SQ.LABEL_MIN;
+  while (cap + CAP_STEP <= SQ.LABEL_MAX && widthAt(cap + CAP_STEP) <= least + 0.5) cap += CAP_STEP;
+  return cap;
 }
 
 export function computeSeqGeometry({
-  participants, messages, fragments, labelW, headW, labelCap, labelH, reorder, rowDrag, fragDrag, ghost,
+  participants, messages, fragments, labelW, labelMinW, headW, headMinW, labelCap, labelH, reorder, rowDrag, fragDrag, ghost,
 }: SeqGeometryInput) {
-  const { idx, xs, gaps, W, hw } = computeColumns({ participants, messages, labelW, headW, labelCap });
+  const { idx, xs, gaps, W, hw, labelCapOf } = computeColumns({
+    participants, messages, labelW, labelMinW, headW, headMinW, labelCap,
+  });
   const pById: Record<string, SeqParticipant> = {};
   participants.forEach((p) => { pById[p.id] = p; });
   const n = participants.length;
@@ -297,6 +340,9 @@ export function computeSeqGeometry({
     idx, pById, n, PX, slotAt, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf,
     // Ширина шапки участника по id (замер, зажатый в пределы).
     headWOf: (id: string) => hw(idx[id]),
+    // Наибольшая ширина подписи шага на холсте по id: общий предел, но не уже её самого
+    // длинного слова и не уже места между её колонками (по порядку участников до жеста).
+    labelCapOf,
     fragRows, fragBranches, rowY, rowFromY, shownRow, msgY, ghostY, W, H, fragBoxes,
   };
 }

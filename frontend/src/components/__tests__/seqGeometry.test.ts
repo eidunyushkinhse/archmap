@@ -77,12 +77,38 @@ describe("колонки по содержимому", () => {
   });
 
   it("широкая шапка раздвигает соседей; ширина шапки зажата в пределы", () => {
-    const g = geo({ headW: { b: 150 } });
+    const g = geo({ headW: { b: 130 } });
     const [ab, bc] = gapsOf(g);
-    expect(ab).toBe((SQ.HEAD_MIN + 150) / 2 + SQ.HEAD_GAP);
+    expect(ab).toBe((SQ.HEAD_MIN + 130) / 2 + SQ.HEAD_GAP);
     expect(bc).toBe(ab);
     const huge = geo({ headW: { b: 900 } });
     expect(gapsOf(huge)[0]).toBe((SQ.HEAD_MIN + SQ.HEAD_MAX) / 2 + SQ.HEAD_GAP);
+  });
+
+  it("подпись не уже своего самого длинного слова: предел раздвигается под него", () => {
+    // Слово в 200 px при пределе 110: подпись — по слову с запасом на масштаб.
+    const g = geo({ labelW: { m1: 500 }, labelMinW: { m1: 200 }, labelCap: 110 });
+    const floor = Math.ceil(200 * 1.03) + 2;
+    expect(g.labelCapOf("m1")).toBe(floor);
+    expect(gapsOf(g)[1]).toBe(floor + SQ.LABEL_SIDE);
+    // Короткие слова предел не трогают.
+    expect(geo({ labelMinW: { m1: 60 }, labelCap: 110 }).labelCapOf("m1")).toBe(110);
+  });
+
+  it("подпись занимает место, которое у неё уже есть: шапки раздвинули промежуток шире предела", () => {
+    const heads = { a: 140, b: 140, c: 140, d: 140 };
+    const g = geo({ headW: heads, labelW: { m1: 400 }, labelCap: 110 });
+    // Промежуток b→c задан шапками (140 + воздух), подпись — во всю его ширину без полей.
+    expect(g.labelCapOf("m1")).toBe(140 + SQ.HEAD_GAP - SQ.LABEL_SIDE);
+    // Ширину холста это не меняет.
+    expect(g.W).toBe(geo({ headW: heads, labelCap: 110 }).W);
+  });
+
+  it("шапка: по естественной ширине имени, длинное — не уже самого длинного слова", () => {
+    expect(geo({ headW: { b: 80 } }).headWOf("b")).toBe(80);
+    expect(geo({ headW: { b: 20 } }).headWOf("b")).toBe(SQ.HEAD_MIN);
+    expect(geo({ headW: { b: 900 } }).headWOf("b")).toBe(SQ.HEAD_MAX);
+    expect(geo({ headW: { b: 900 }, headMinW: { b: 200 } }).headWOf("b")).toBe(200);
   });
 
   it("подпись шага внутри последнего участника уходит в правое поле", () => {
@@ -110,6 +136,16 @@ describe("вписывание: предел ширины подписи", () =>
 
   it("не влезает и на нижнем пределе — остаётся нижний", () => {
     expect(fitLabelCap(input, 100)).toBe(SQ.LABEL_MIN);
+  });
+
+  it("не влезает, а промежутки задают шапки — наибольший предел с той же шириной", () => {
+    // Шапки по 140: промежуток 152 вмещает подпись до 136 px, ниже холст не сужается —
+    // лишний перенос только растил бы строки.
+    const heads = { participants: parts, messages: msgs, labelW: input.labelW, headW: { a: 140, b: 140, c: 140, d: 140 } };
+    const cap = fitLabelCap(heads, 100);
+    expect(computeColumns({ ...heads, labelCap: cap }).W).toBe(computeColumns({ ...heads, labelCap: SQ.LABEL_MIN }).W);
+    expect(computeColumns({ ...heads, labelCap: cap + 10 }).W).toBeGreaterThan(computeColumns({ ...heads, labelCap: cap }).W);
+    expect(cap).toBeGreaterThan(SQ.LABEL_MIN);
   });
 });
 
