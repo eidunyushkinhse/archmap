@@ -19,6 +19,8 @@
 //   --drag <имя узла>         шаг перетаскивания (только архитектор)
 //   --short                   только открытие корня, раскрытие и вход на уровень
 //   --deploy                  шаг режима «Развёртывание»
+//   --home                    первый шаг открывает страницу проекта (оболочка проекта, где
+//                             воркер прогревается), а не редактор-карту
 //   --quick                   вместо пути пользователя — быстрые действия (хвост ненужного
 //                             расчёта): вход на уровень и возврат через 150 мс; раскрытие и
 //                             через 150 мс вход на уровень контейнера. Каждое — на свежей
@@ -51,6 +53,7 @@ const stepTimeout = Number(argOf("--timeout") ?? 180000);
 const short = args.includes("--short");
 const withDeploy = args.includes("--deploy");
 const quick = args.includes("--quick");
+const home = args.includes("--home");
 // пауза между действиями быстрого сценария: меньше любого счёта, больше одного кадра
 const QUICK_MS = 150;
 if (!projectName) { console.error("Нужен --project <имя>"); process.exit(2); }
@@ -194,7 +197,8 @@ await page.reload();
 await page.waitForSelector("body", { timeout: 30000 });
 await page.waitForTimeout(1000);
 
-await step("root", "открытие корня, холодное", () => setHash(`#/p/${project.id}/map`));
+await step("root", home ? "открытие страницы проекта, холодное" : "открытие корня, холодное",
+  () => setHash(home ? `#/p/${project.id}` : `#/p/${project.id}/map`));
 
 if (hub) {
   const lupa = `.react-flow__node[data-id="${hub.id}"] button[title="Раскрыть содержимое"]`;
