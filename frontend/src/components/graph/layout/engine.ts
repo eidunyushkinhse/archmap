@@ -26,16 +26,37 @@ import type { GuestLayer } from "./guestLayers";
 export const LEVEL_DIRECTION: FlowDirection = "DOWN";
 
 /**
- * СТРАТЕГИЯ РАССТАНОВКИ УЗЛОВ ВНУТРИ СЛОЯ (Ф4б, 2026-10-12): network simplex вместо
- * дефолтного Brandes–Köpf. BK выравнивает узел по одному (медианному) соседу и на
- * сценах полигона уводил хаб (Kafka) в край ряда — три длинных плеча и лишние кресты;
- * NS минимизирует взвешенную сумму отклонений рёбер и ставит хаб под центром масс
- * соседей. Замер auto DOWN (кресты/резы, длина): корень 1/1 → 0/0, система 2/0 → 1/0
- * (18.4k → 16.7k px), система с рамкой 4/0 → 3/2, каталог 0/0 (3774 → 3558). Одна из
- * стратегий меню Mermaid (elk.nodePlacementStrategy). Та же — в мини-раскладке блоков и
- * спавна детей (spawnChildren).
+ * СТРАТЕГИЯ РАССТАНОВКИ УЗЛОВ ВНУТРИ СЛОЯ — по размеру графа ELK (эпик render-scale, шаг
+ * «быстрый ELK и один прогон», 2026-11-21): до NODE_PLACEMENT_SMALL_MAX узлов графа
+ * включительно — NETWORK_SIMPLEX, больше — LINEAR_SEGMENTS. Одно правило на раскладку
+ * уровня (layoutLevel) и на мини-раскладку блоков и спавна детей (spawnChildren).
+ *
+ * NETWORK_SIMPLEX (Ф4б, 2026-10-12) выбран против дефолтного Brandes–Köpf: BK выравнивает
+ * узел по одному (медианному) соседу и на сценах полигона уводил хаб (Kafka) в край ряда —
+ * три длинных плеча и лишние кресты; NS минимизирует взвешенную сумму отклонений рёбер и
+ * ставит хаб под центром масс соседей (полигон auto DOWN, кресты/резы: корень 1/1 → 0/0,
+ * система 2/0 → 1/0, система с рамкой 4/0 → 3/2). Но NS растёт сверхлинейно и на входе на
+ * уровень стоил дороже роутера. Стадия ELK под Node, мс, NS → LS (в браузере ELK в 1,6–1,8
+ * раза медленнее): уровень хаба с 35 детьми (44/70) 1 724 → 276, эталон Sentry (42/93)
+ * 1 131 → 268, плоский уровень 60/120 6 320 → 413, 120/240 13 769 → 999; спавн 60 детей
+ * 2 134 → 262, 120 детей 16 676 → 549.
+ *
+ * ПОЧЕМУ НЕ LINEAR_SEGMENTS ВЕЗДЕ. На малых сценах полигона стрелок LS терял качество:
+ * система с рамкой — кресты 3 → 5, сумма по полигону кресты 61 → 63, «сквозь плашки»
+ * 34 → 37; а на графах до 30 узлов NS стоит десятки миллисекунд. С порогом 30 полигон
+ * прежний побитово, корпус по качеству в воротах шага (кресты 4 401 → 4 332, «сквозь
+ * плашки» +5,1 %, длина +2,9 %), сумма времени входов на уровень по корпусу 25,6 → 14,6 с.
+ * Раздельные пороги уровня и спавна (36, 50 и их сочетания) ничего не выигрывали — порог
+ * один. BRANDES_KOEPF быстр, но растягивает холст вширь в полтора-два раза;
+ * `elk.layered.thoroughness` на время NS не влияет. Обе стратегии — из меню Mermaid
+ * (elk.nodePlacementStrategy).
  */
-export const NODE_PLACEMENT = "NETWORK_SIMPLEX";
+export const NODE_PLACEMENT_SMALL_MAX = 30;
+
+/** Стратегия расстановки узлов внутри слоя для графа ELK из nodeCount узлов. */
+export function nodePlacementFor(nodeCount: number): "NETWORK_SIMPLEX" | "LINEAR_SEGMENTS" {
+  return nodeCount <= NODE_PLACEMENT_SMALL_MAX ? "NETWORK_SIMPLEX" : "LINEAR_SEGMENTS";
+}
 import { assignEdgeHandles } from "./level";
 import type { LayoutEdge } from "../../../types";
 import { diag } from "./diag";
@@ -77,10 +98,42 @@ function elkSignature(
   return `nodes:${nodeIds.join(",")}|edges:${edgePairs.join(",")}`;
 }
 
-// Сброс кэша ELK — ТОЛЬКО для тестов (замок детерминизма гоняет два живых
-// прогона на одном входе; без сброса второй тривиально совпал бы из кэша).
+// Кэш МИНИ-РАСКЛАДОК (эпик render-scale, шаг «быстрый ELK и один прогон»): подграф детей
+// раскрытого контейнера (spawnChildren.layoutChildrenBlock — блок свежей сцены и спавн
+// детей) раскладывался заново на каждом прогоне. У читателя засев владения не пишется, сцена
+// остаётся свежей, и даже прогон, взявший стрелки из кэша по routeSig, платил мини-ELK
+// (живой стенд: 30–100 мс на 25 детях). Ключ — весь граф ELK целиком (узлы с габаритами,
+// рёбра, опции): тот же граф → та же раскладка (ELK детерминирован, замок в engine.test.ts).
+const graphCache = new Map<string, Map<string, { x: number; y: number }>>();
+
+/**
+ * Раскладка графа ELK с кэшем по самому графу: позиции детей верхнего уровня (id → x, y).
+ * Возвращённую карту не мутировать — она живёт в кэше.
+ */
+export async function layoutGraphCached(
+  graph: Parameters<ElkInstance["layout"]>[0],
+): Promise<ReadonlyMap<string, { x: number; y: number }>> {
+  const key = JSON.stringify(graph);
+  const hit = graphCache.get(key);
+  if (hit) return hit;
+  const elk = await getElk();
+  const res = await elk.layout(graph);
+  const pos = new Map<string, { x: number; y: number }>();
+  for (const n of res.children ?? []) pos.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+  if (graphCache.size >= ELK_CACHE_MAX) {
+    const firstKey = graphCache.keys().next().value;
+    if (firstKey !== undefined) graphCache.delete(firstKey);
+  }
+  graphCache.set(key, pos);
+  return pos;
+}
+
+// Сброс кэшей ELK — ТОЛЬКО для тестов и замеров (замок детерминизма гоняет два живых
+// прогона на одном входе; без сброса второй тривиально совпал бы из кэша; корпус и
+// таблица стадий считают каждую сцену, как свежий воркер).
 export function __clearElkCacheForTests(): void {
   elkCache.clear();
+  graphCache.clear();
 }
 
 export type LevelLayout = {
@@ -165,7 +218,8 @@ export async function layoutLevel(
       layoutOptions: {
         "elk.algorithm": "layered",
         "elk.direction": LEVEL_DIRECTION,
-        "elk.layered.nodePlacement.strategy": NODE_PLACEMENT,
+        // стратегия — функция числа узлов графа, а оно уже в сигнатуре кэша (elkSignature)
+        "elk.layered.nodePlacement.strategy": nodePlacementFor(allNodes.length),
         "elk.layered.spacing.nodeNodeBetweenLayers": "120", // ≈ dagre ranksep
         "elk.spacing.nodeNode": String(sp.nodeGap),
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),

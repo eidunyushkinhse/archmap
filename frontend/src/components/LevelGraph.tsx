@@ -28,10 +28,10 @@ const SHARED_HIT_TOL = 4;
 import { OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
 import type { BlockData, GhostData, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelProjectionProps, LevelUndoProps, LinkedHighlight, LocateRequest, SiteCardData, WrappedEdgeData } from "./graph/types";
-import type { LayoutResult } from "./graph/layout/pipeline";
+import type { LayoutResult, PipelineOutput } from "./graph/layout/pipeline";
 import type { PrevScene } from "./graph/layout/incrementalScope";
 import type { LabelPlacement } from "./graph/layout/labelLayout";
-import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
+import { computeViewLayoutOffThread, LayoutSupersededError, releaseLayoutOwner } from "./graph/layout/pipelineClient";
 import {
   routeCache, viewCacheKey, toCacheEntry, fromCacheEntry, type RouteCacheView,
 } from "./graph/layout/routeCacheStore";
@@ -290,6 +290,10 @@ function LevelGraphInner({
   const holdRef = useRef(false); // окно открыто — счёт откладывать
   const dirtyRef = useRef(false); // в окне менялись входы раскладки
   const runIdRef = useRef(0); // «последний выигрывает» для async-прогонов
+  // Владелец запросов этого холста в очереди клиента воркера (pipelineClient): внутри
+  // владельца равный вход склеивается, свежий вытесняет ожидающий, устаревший обрывается.
+  const layoutOwnerRef = useRef<object>({});
+  const userRunsRef = useRef(0); // прогоны действия пользователя в полёте (не уборка)
   const lastSigRef = useRef<string | null>(null); // сигнатура последнего применённого
   const appliedResolveRef = useRef<(() => void) | null>(null); // ждун применения (flush)
   const computeNowRef = useRef<(opts?: { cleanup?: boolean }) => Promise<"applied" | "skipped" | "stale">>(
@@ -707,6 +711,10 @@ function LevelGraphInner({
     opts?: { cleanup?: boolean },
   ): Promise<"applied" | "skipped" | "stale"> => {
     const cleanup = opts?.cleanup === true;
+    // УБОРКА НЕ ПЕРЕБИВАЕТ ПРОГОН ДЕЙСТВИЯ (P14): новый runId сделал бы его результат
+    // устаревшим, а очередь воркера уборку при нём отклонит — пропали бы оба. Таймер
+    // уборки и так снимается стартом любого прогона; это страховка порядка.
+    if (cleanup && userRunsRef.current > 0) return "skipped";
     const runId = ++runIdRef.current;
     idleCleanup.noteRunStarted(); // любой новый прогон снимает взведённую уборку
     // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
@@ -719,7 +727,10 @@ function LevelGraphInner({
     // курсор progress без действия пользователя это снова «само что-то происходит»
     // (исключение зафиксировано в P4). Полигонные счётчики выше НЕ трогаем — их
     // ждут зонды, и уборка для них такой же прогон, как всякий другой.
-    if (!cleanup) setComputing((c) => c + 1);
+    if (!cleanup) {
+      setComputing((c) => c + 1);
+      userRunsRef.current++;
+    }
     try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
@@ -773,31 +784,40 @@ function LevelGraphInner({
       };
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
+      let out: PipelineOutput;
+      try {
+        out = await computeViewLayoutOffThread({
+          nodes, endpoints, edges, containerId, viewLayout,
+          ancestorIds: stableAncestorIds, expanded, localChildren,
+          // ленивая догрузка детей раскрытий живёт только в редактируемом режиме
+          // (useLevelDrill не фетчит в read-only): конвейеру это нужно, чтобы отличить
+          // «дети ещё едут» (состав неполон, прогон повторится) от «детей не будет»
+          // (страничные схемы — там раскрытый контейнер рисуется свёрнутым навсегда).
+          // Проекция хозяина приносит состав целиком — догрузки нет и там.
+          childrenLazyLoad: !isReadOnly && !projectedChildren,
+          // предел инлайн-вложенности от проекции (развёртывание — без предела); не
+          // задан — поле не передаётся, конвейер берёт MAX_INLINE_DEPTH
+          ...(inlineDepth !== undefined ? { maxInlineDepth: inlineDepth } : null),
+          sizes: sizesAtRun,
+          // edgeQuality НЕ задаём — авто-режим конвейера (P10 v2): типовая сцена считает
+          // стрелки первым же прогоном; сцена больше типовой с крупной пачкой незамеренных
+          // узлов идёт без стадий качества стрелок — их пересчитает прогон по замерам.
+          prevRoutes: prev.routes,
+          prevEdgeHandles: prev.handles,
+          prevRouteSig: prev.sig,
+          prevLabelPlacements: prev.labels,
+          scopeNodeIds: prev.scope,
+          prevScene: prev.scene,
+        }, { owner: layoutOwnerRef.current, background: cleanup });
+      } catch (e) {
+        // Перегнан более свежим запросом этого холста в очереди воркера (или холст ушёл):
+        // результата не будет, применит победитель — тот же исход, что «устаревший» ниже.
+        if (e instanceof LayoutSupersededError) return "stale";
+        throw e;
+      }
       const {
         layout: next, liveInputs, intents, routeSig, authoritative, scoped, budgetDegraded,
-      } = await computeViewLayoutOffThread({
-        nodes, endpoints, edges, containerId, viewLayout,
-        ancestorIds: stableAncestorIds, expanded, localChildren,
-        // ленивая догрузка детей раскрытий живёт только в редактируемом режиме
-        // (useLevelDrill не фетчит в read-only): конвейеру это нужно, чтобы отличить
-        // «дети ещё едут» (состав неполон, прогон повторится) от «детей не будет»
-        // (страничные схемы — там раскрытый контейнер рисуется свёрнутым навсегда).
-        // Проекция хозяина приносит состав целиком — догрузки нет и там.
-        childrenLazyLoad: !isReadOnly && !projectedChildren,
-        // предел инлайн-вложенности от проекции (развёртывание — без предела); не
-        // задан — поле не передаётся, конвейер берёт MAX_INLINE_DEPTH
-        ...(inlineDepth !== undefined ? { maxInlineDepth: inlineDepth } : null),
-        sizes: sizesAtRun,
-        // edgeQuality НЕ задаём — авто-режим конвейера (P10): прогоны с крупной
-        // пачкой незамеренных узлов (первый показ, раскрытие с новыми детьми)
-        // идут без стадий качества стрелок — их пересчитает прогон по замерам.
-        prevRoutes: prev.routes,
-        prevEdgeHandles: prev.handles,
-        prevRouteSig: prev.sig,
-        prevLabelPlacements: prev.labels,
-        scopeNodeIds: prev.scope,
-        prevScene: prev.scene,
-      });
+      } = out;
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
       // УЧЁТ СКОУПНОЙ ГРЯЗИ (P14): скоупный прогон её создал, авторитетный — смыл.
       // Отсюда взводится (и снимается) таймер фоновой уборки; уборочный прогон,
@@ -871,7 +891,10 @@ function LevelGraphInner({
       return "applied";
     } finally {
       w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 1) - 1;
-      if (!cleanup) setComputing((c) => c - 1); // симметрично инкременту выше
+      if (!cleanup) {
+        setComputing((c) => c - 1); // симметрично инкременту выше
+        userRunsRef.current--;
+      }
     }
     // Геометрия рёбер внутри viewLayout не вся влияет на позиции, НО зависимость — весь
     // объект намеренно: изломы/хэндлы пучков читает эффект-сборщик выше, и он должен
@@ -884,8 +907,14 @@ function LevelGraphInner({
   }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly, idleCleanup, showBudgetToast, projectedChildren, inlineDepth]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
-  // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).
+  // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта). Очереди
+  // воркера — что холст ушёл: его ожидающий запрос снимается, задача в полёте устаревает
+  // (и обрывается, если её ждёт следующий холст, — быстрый вход и выход без хвоста).
   useEffect(() => () => { runIdRef.current++; }, []);
+  useEffect(() => {
+    const owner = layoutOwnerRef.current;
+    return () => releaseLayoutOwner(owner);
+  }, []);
 
   // Эффект раскладки: данные изменились → пересчитать. В тихом окне (hold) — только
   // пометить dirty: счёт и применение случатся на флаше «мёртвой зоны» конца move

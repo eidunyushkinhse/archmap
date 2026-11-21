@@ -28,7 +28,7 @@ import type {
 } from "../../../types";
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
 import type { LiveHandleInputs, LiveRouteInputs } from "../interaction/useLiveDragHandles";
-import { NODE_W, NODE_H, MAX_INLINE_DEPTH } from "../constants";
+import { NODE_W, NODE_H, MAX_INLINE_DEPTH, TYPICAL_NODES, TYPICAL_EDGES } from "../constants";
 import { distinctEdgeTexts, edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
@@ -58,6 +58,7 @@ import { pathCrossesRects, arcFractionAtPoint } from "../edgePath";
 import { computeIncrementalScope, type PrevScene } from "./incrementalScope";
 import { widenNodesForLabels } from "./widenForLabels";
 import { diag } from "./diag";
+import type { RouteMemory } from "./routeMemory";
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
 export type LayoutResult = {
@@ -179,10 +180,12 @@ export interface PipelineInput {
   prevLabelPlacements?: Map<string, LabelPlacement>;
   // Ф3 перф-эпика (2026-08-20): управление стадиями КАЧЕСТВА СТРЕЛОК (роутер,
   // нуджинг, джоги, плашки, T4 — ~98% цены конвейера). "skip" — пропустить,
-  // "full" — считать всегда. НЕ ЗАДАНО — АВТО: пропуск, когда в сцене крупная
-  // пачка незамеренных узлов (первый показ, раскрытие с новыми детьми, импорт):
-  // такой прогон гарантированно повторится по приходу замеров, и его маршруты
-  // выбрасываются. РАСКЛАДКА УЗЛОВ, рамки и засев владения не пропускаются
+  // "full" — считать всегда. НЕ ЗАДАНО — АВТО: на ТИПОВОЙ сцене (P1, TYPICAL_NODES/
+  // TYPICAL_EDGES) стадии идут всегда — незамеренный узел считается NODE_W×NODE_H, и
+  // прогон после замера берёт тот же результат кэш-хитом по routeSig; на сцене БОЛЬШЕ
+  // типовой — пропуск, когда в ней крупная пачка незамеренных узлов (первый показ,
+  // раскрытие с новыми детьми, импорт): такой прогон гарантированно повторится по
+  // приходу замеров. РАСКЛАДКА УЗЛОВ, рамки и засев владения не пропускаются
   // никогда (интенты персистятся с первого прогона). При пропуске
   // autoRoutes/labelPlacements в результате отсутствуют — сборка рисует рёбра
   // простыми (smoothstep) до пере-прогона.
@@ -209,7 +212,8 @@ export interface PipelineOutput {
   // АВТОРИТЕТНЫЙ ПРОГОН (Ф2 эпика router-opt, спека perf.md P11) — гейт записи
   // ПЕРСИСТНОГО кэша маршрутов вида. true ⇔ (стадии качества стрелок отработали
   // полноценно ИЛИ результат взят целиком из prev по совпавшей routeSig) И в сцене
-  // НЕТ незамеренных узлов И прогон НЕ скоуплен — ни драг-скоупом (scopeNodeIds), ни
+  // НЕТ незамеренных узлов (на ТИПОВОЙ сцене незамеренность не мешает: sig несёт токен
+  // фолбэка NODE_W×NODE_H, см. typicalScene) И прогон НЕ скоуплен — ни драг-скоупом (scopeNodeIds), ни
   // инкрементальным авто-скоупом (prevScene, E84). Только такой результат равен
   // байт-в-байт полному холодному прогону — прочие (пропуск P10, частичные замеры,
   // любой скоуп) в кэш не кладутся: они по построению временные и отравили бы кэш
@@ -354,8 +358,19 @@ export function buildRouteSig(
   return parts.join(";");
 }
 
+/**
+ * Окружение прогона — то, что живёт ДОЛЬШЕ одного прогона и не входит во вход (вход
+ * структурно клонируется в воркер; окружение остаётся у вызывающего).
+ */
+export interface PipelineEnv {
+  // ПАМЯТЬ УЖЕ ПОСЧИТАННЫХ СЦЕН (эпик render-scale, P11): последние авторитетные
+  // результаты стадий стрелок по routeSig. Передаёт воркер (своя на страницу); без неё —
+  // прежнее поведение (корпус, тесты, запасной путь главного потока).
+  routeMemory?: RouteMemory;
+}
+
 /** Полный расчёт раскладки вида. Async из-за ELK; всё остальное синхронно и чисто. */
-export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
+export async function computeViewLayout(input: PipelineInput, env: PipelineEnv = {}): Promise<PipelineOutput> {
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
     expanded, localChildren, childrenLazyLoad, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
@@ -911,7 +926,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // удержание prev — ЕДИНСТВЕННЫЙ фикспойнт: роутер не идемпотентен относительно prev
   // (гистерезис осциллирует — асимметрия раздачи слотов free/pinned + обратная связь
   // маршрут↔плашка T4), и без этой ветки пара рёбер по очереди отжимала бы слоты.
-  const cacheHit = prevRouteSig === routeSig && !!prevRoutes && !!prevEdgeHandles && !!prevLabelPlacements;
+  const prevHit = prevRouteSig === routeSig && !!prevRoutes && !!prevEdgeHandles && !!prevLabelPlacements;
+  // ПАМЯТЬ СЦЕН (эпик render-scale, P11): prev по сигнатуре не совпал, но та же сцена уже
+  // считалась авторитетно (повторное раскрытие, возврат на виденное состояние) — результат
+  // берётся из памяти той же веткой кэш-хита. Эквивалентность та же, что у prev: в память
+  // кладётся только авторитетный результат под своей routeSig (см. конец прогона).
+  const memHit = prevHit ? undefined : env.routeMemory?.get(routeSig);
+  const cacheHit = prevHit || memHit !== undefined;
   // СТАДИИ КАЧЕСТВА СТРЕЛОК (роутер → нуджинг → джоги → плашки → T4) — локальный
   // блок, чтобы фолбэк-прогон двухфазного замера (edgeQuality: "skip") мог
   // пропустить их целиком (Ф3). Пишут во внешние autoRoutes/labelPlacements/
@@ -1306,15 +1327,26 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   }
   return budget;
   };
-  // АВТО-порог пропуска (edgeQuality не задан): И минимум штук, И доля сцены —
-  // единичные новые узлы (создание из палитры) не роняют все стрелки в
-  // smoothstep (мигание сцены хуже секундного лага), а bulk-спавн (раскрытие,
-  // первый показ) пропускает заведомо выбрасываемый прогон.
+  // ТИПОВАЯ СЦЕНА (P1: до TYPICAL_NODES отображаемых узлов и до TYPICAL_EDGES
+  // мастер-рёбер; эпик render-scale, шаг «один прогон»). Незамеренный узел — это узел
+  // NODE_W×NODE_H: у всех узлов холста фиксированный размер, и в живых замерах каждый
+  // замер равен запасному габариту. Поэтому на типовой сцене первый же прогон считает
+  // стрелки и АВТОРИТЕТЕН: прогон после замера с теми же габаритами даёт ту же
+  // сигнатуру routeSig (незамеренный узел и узел, замеренный ровно в NODE_W×NODE_H, —
+  // один токен) и берёт результат кэш-хитом, а разошедшийся замер даёт другую сигнатуру
+  // и честный пересчёт. Выше порога — прежний черновой прогон: там стрелки считаются
+  // секундами, и узлы полезно показать раньше.
+  const typicalScene = displayIds.length <= TYPICAL_NODES && groupArr.length <= TYPICAL_EDGES;
+  // АВТО-порог пропуска (edgeQuality не задан) — ТОЛЬКО ВЫШЕ ТИПОВОЙ СЦЕНЫ: И минимум
+  // штук, И доля сцены — единичные новые узлы (создание из палитры) не роняют все
+  // стрелки в smoothstep (мигание сцены хуже секундного лага), а bulk-спавн (раскрытие,
+  // первый показ) большой сцены пропускает прогон, который пересчитает замер.
   const UNMEASURED_SKIP_MIN = 3;
   const UNMEASURED_SKIP_SHARE = 0.05;
   const unmeasured = displayIds.reduce((k, id) => k + (sizeMap.has(id) ? 0 : 1), 0);
   const skipByUnmeasured = input.edgeQuality === "skip" || (
     input.edgeQuality === undefined &&
+    !typicalScene &&
     unmeasured >= UNMEASURED_SKIP_MIN &&
     unmeasured >= UNMEASURED_SKIP_SHARE * Math.max(1, displayIds.length)
   );
@@ -1331,11 +1363,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // законный результат. Цель P10 (не жечь счёт, который выбросят) соблюдена: стадии
   // не исполняются ни в одной из двух ветвей. Выигрыш — сцена открывается сразу со
   // стрелками, а не с промежуточным кадром smoothstep.
-  if (cacheHit && prevRoutes && prevEdgeHandles && prevLabelPlacements) {
+  if (prevHit && prevRoutes && prevEdgeHandles && prevLabelPlacements) {
     autoRoutes = prevRoutes;
     edgeHandles = new Map(prevEdgeHandles);
     labelPlacements = prevLabelPlacements;
     mark("стадии качества стрелок: кэш-хит по routeSig");
+  } else if (memHit) {
+    autoRoutes = memHit.routes;
+    edgeHandles = new Map(memHit.handles);
+    labelPlacements = memHit.labels;
+    mark("стадии качества стрелок: кэш-хит по routeSig (память сцен)");
   } else if (!skipQuality) {
     runBudget = runEdgeQualityStages();
     ranQualityStages = true;
@@ -1349,7 +1386,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // результат годится в кэш, только если он равен тому, что дал бы ПОЛНЫЙ прогон на
   // полных замерах и полном составе. Условия: стадии качества реально отработали ИЛИ
   // пришёл кэш-хит по sig (обе ветви дают финальную геометрию); НЕТ незамеренных узлов
-  // (фолбэк NODE_W×NODE_H — не те тела, что увидит рендер); прогон НЕ скоуплен НИ ОДНОЙ
+  // (фолбэк NODE_W×NODE_H — не те тела, что увидит рендер) — КРОМЕ ТИПОВОЙ СЦЕНЫ: там
+  // фолбэк и есть прогноз габаритов, и запись по нему отдаётся только сцене с той же
+  // сигнатурой (sig несёт токен фолбэка, замер иного размера даёт другой sig, а не
+  // чужие маршруты); прогон НЕ скоуплен НИ ОДНОЙ
   // из двух механик — ни драгом, ни авто-скоупом Ф3 (при скоупе часть маршрутов —
   // замороженный prev-контекст); СОСТАВ ПОЛОН — раскрытия не
   // ждут детей (полевая находка приёмки Ф2: частичный 17-узловой прогон корня имел
@@ -1358,12 +1398,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // СТУПЕНИ БЮДЖЕТА ЭТОГО ПРОГОНА (P13): null — ни одна не срабатывала.
   const budgetDegraded = runBudget?.result() ?? null;
   const authoritative = (ranQualityStages || cacheHit)
-    && unmeasured === 0 && !scoped
+    && (unmeasured === 0 || typicalScene) && !scoped
     && !hasPendingChildren && displayIds.length > 0
     // ДЕГРАДИРОВАННЫЙ ПРОГОН НЕ АВТОРИТЕТЕН (P13): его геометрия — не то, что дал бы
     // полный прогон, и в кэше вида (P11) она жила бы, пока не изменится сама сцена.
     // Прогон со ступенями показывается, но не консервируется.
     && budgetDegraded === null;
+  // ПАМЯТЬ СЦЕН — тот же гейт, что у кэша вида: только авторитетный результат (не
+  // скоуплен, не деградировал по бюджету, полный состав). Попадание из памяти тоже
+  // кладётся — оно освежает запись в очереди вытеснения.
+  if (authoritative && autoRoutes && labelPlacements) {
+    env.routeMemory?.put(routeSig, { routes: autoRoutes, handles: edgeHandles, labels: labelPlacements });
+  }
 
   // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
   // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг

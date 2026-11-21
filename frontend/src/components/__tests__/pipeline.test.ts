@@ -5,7 +5,7 @@ import {
 } from "../graph/layout/pipeline";
 import { DEFAULT_ROUTE_BUDGET, type RouteBudgetConfig } from "../graph/layout/routeBudget";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
-import { NODE_W, NODE_H } from "../graph/constants";
+import { NODE_W, NODE_H, TYPICAL_NODES } from "../graph/constants";
 
 // Характеризация КОМПОЗИЦИИ конвейера раскладки (R1/R3): отдельные стадии покрыты
 // своими тестами, здесь — сквозные инварианты целого: детерминизм, засев владения
@@ -673,21 +673,50 @@ describe("гашение осцилляций маршрутов (prevRouteSig)"
   });
 });
 
+// Сцена БОЛЬШЕ типовой (P1): TYPICAL_NODES + 1 локалов без связей — на ней авто-режим P10
+// прежний (черновой прогон без стрелок, затем полный по замерам). Связей нет нарочно:
+// пропуск решает число незамеренных узлов, а роутер на пустом наборе связей мгновенен.
+const BIG_IDS = Array.from({ length: TYPICAL_NODES + 1 }, (_, i) => `N${i}`);
+function bigInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
+  return levelInput({
+    nodes: BIG_IDS.map(appNode),
+    endpoints: [],
+    edges: [],
+    viewLayout: Object.fromEntries(BIG_IDS.map((id, i) => [id, { x: (i % 10) * 300, y: Math.floor(i / 10) * 200 }])),
+    edgeQuality: undefined,
+    ...overrides,
+  });
+}
+const sizesOf = (ids: readonly string[], sz: { w: number; h: number }) =>
+  Object.fromEntries(ids.map((id) => [id, sz]));
+
 describe("edgeQuality: фолбэк-прогон без стадий качества стрелок (перф-эпик Ф3, P10)", () => {
-  it("авто: незамеренная сцена → skip; все замерены → full; единичный незамеренный не роняет качество", async () => {
-    // 4 отображаемых (A, B, гость G, контейнер D), замеров нет → пропуск
+  it("авто: типовая сцена считает стрелки сразу, даже без замеров (незамеренный = NODE_W×NODE_H)", async () => {
+    // 4 отображаемых (A, B, гость G, контейнер D), замеров нет — сцена типовая (P1)
     const bare = await computeViewLayout({ ...levelInput(), edgeQuality: undefined });
-    expect(bare.layout.autoRoutes).toBeUndefined();
-    // все замерены → полный прогон
+    expect(bare.layout.autoRoutes).toBeDefined();
+    expect(bare.layout.labelPlacements).toBeDefined();
+    // и это ровно та сцена, что посчитал бы прогон после замера в NODE_W×NODE_H
     const sz = { w: NODE_W, h: NODE_H };
-    const all = await computeViewLayout({
+    const measured = await computeViewLayout({
       ...levelInput(), edgeQuality: undefined, sizes: { A: sz, B: sz, G: sz, D: sz },
     });
+    expect(measured.routeSig).toBe(bare.routeSig);
+    expect(sig(measured.layout)).toBe(sig(bare.layout));
+  });
+
+  it("авто выше типовой сцены: незамеренная пачка → skip; все замерены → full; единичный незамеренный не роняет качество", async () => {
+    expect(BIG_IDS.length).toBeGreaterThan(TYPICAL_NODES);
+    // замеров нет → пропуск (черновой прогон)
+    const bare = await computeViewLayout(bigInput());
+    expect(bare.layout.autoRoutes).toBeUndefined();
+    expect(bare.authoritative).toBe(false);
+    // все замерены → полный прогон
+    const sz = { w: NODE_W, h: NODE_H };
+    const all = await computeViewLayout(bigInput({ sizes: sizesOf(BIG_IDS, sz) }));
     expect(all.layout.autoRoutes).toBeDefined();
     // один незамеренный (создание узла из палитры) — качество не роняем
-    const one = await computeViewLayout({
-      ...levelInput(), edgeQuality: undefined, sizes: { A: sz, B: sz, G: sz },
-    });
+    const one = await computeViewLayout(bigInput({ sizes: sizesOf(BIG_IDS.slice(1), sz) }));
     expect(one.layout.autoRoutes).toBeDefined();
   });
 
@@ -751,7 +780,8 @@ describe("кэш маршрутов вида: сверка routeSig ДО ста�
 
   it("незамеренный прогон НЕ хитует кэш полнозамеренного (в sig — фолбэк-габариты)", async () => {
     const A = await computeViewLayout({ ...levelInput(), sizes: measured });
-    // тот же вид без замеров: авто-режим P10 → пропуск стадий; sig другая → не хит
+    // тот же вид без замеров: sig другая (фолбэк NODE_W×NODE_H против замера) → не хит;
+    // сцена типовая — стадии идут сразу и считают свою геометрию по фолбэку
     const { out: B, marks } = await withTrace(() => computeViewLayout({
       ...levelInput(), edgeQuality: undefined, sizes: undefined,
       prevRoutes: A.layout.autoRoutes,
@@ -761,10 +791,58 @@ describe("кэш маршрутов вида: сверка routeSig ДО ста�
     }));
     expect(B.routeSig).not.toBe(A.routeSig);
     expect(marks).not.toContain(CACHE_MARK);
+    expect(marks).toContain(ROUTER_MARK);
+    expect(B.layout.autoRoutes).toBeDefined();
+    // типовая сцена: прогноз габаритов авторитетен (его запись отдаётся только сцене с
+    // той же сигнатурой — см. тест ниже)
+    expect(B.authoritative).toBe(true);
+  });
+
+  it("выше типовой сцены незамеренный прогон пропускает стадии и не авторитетен, кэш полнозамеренного не хитует", async () => {
+    const A = await computeViewLayout(bigInput({ sizes: sizesOf(BIG_IDS, SZ) }));
+    expect(A.authoritative).toBe(true);
+    const { out: B, marks } = await withTrace(() => computeViewLayout(bigInput({
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    })));
+    expect(B.routeSig).not.toBe(A.routeSig);
+    expect(marks).not.toContain(CACHE_MARK);
     expect(marks).toContain("стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)");
     // маршруты прошлого прогона НЕ подменяют результат пропуска
     expect(B.layout.autoRoutes).toBeUndefined();
     expect(B.authoritative).toBe(false);
+  });
+
+  it("запись по ПРОГНОЗУ габаритов отдаётся только сцене с теми же габаритами (ловушка P11)", async () => {
+    // A — типовая сцена до замера: авторитетна, её результат лёг бы в кэш вида
+    const A = await computeViewLayout({ ...levelInput(), edgeQuality: undefined });
+    expect(A.authoritative).toBe(true);
+    const prevOfA = {
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    };
+    // замер РАЗОШЁЛСЯ с прогнозом: сигнатура другая — честный пересчёт, а не чужие маршруты
+    const { out: B, marks: mB } = await withTrace(() => computeViewLayout({
+      ...levelInput(), edgeQuality: undefined, sizes: measured, ...prevOfA,
+    }));
+    expect(B.routeSig).not.toBe(A.routeSig);
+    expect(mB).not.toContain(CACHE_MARK);
+    expect(mB).toContain(ROUTER_MARK);
+    // замер СОВПАЛ с прогнозом (ровно NODE_W×NODE_H): та же сигнатура — кэш-хит без стадий
+    const exact = { w: NODE_W, h: NODE_H };
+    const { out: C, marks: mC } = await withTrace(() => computeViewLayout({
+      ...levelInput(), edgeQuality: undefined,
+      sizes: { A: exact, B: exact, G: exact, D: exact }, ...prevOfA,
+    }));
+    expect(C.routeSig).toBe(A.routeSig);
+    expect(mC).toContain(CACHE_MARK);
+    expect(mC).not.toContain(ROUTER_MARK);
+    expect(sig(C.layout)).toBe(sig(A.layout));
+    expect(C.authoritative).toBe(true);
   });
 
   it("скоуп-прогон: сигнатура другая (routable-флаги), кэш-хита нет", async () => {
@@ -797,12 +875,18 @@ describe("кэш маршрутов вида: сверка routeSig ДО ста�
     // (3) явный пропуск стадий → нет
     const skip = await computeViewLayout({ ...levelInput(), sizes: measured, edgeQuality: "skip" });
     expect(skip.authoritative).toBe(false);
-    // (4) ЧАСТИЧНЫЕ замеры (стадии идут, но один узел на фолбэке) → нет
-    const partial = await computeViewLayout({
-      ...levelInput(), sizes: { A: SZ, B: SZ, G: SZ },
-    });
+    // (4) ЧАСТИЧНЫЕ замеры на сцене БОЛЬШЕ типовой (стадии идут, но один узел на
+    // фолбэке) → нет
+    const partial = await computeViewLayout(bigInput({ sizes: sizesOf(BIG_IDS.slice(1), SZ) }));
     expect(partial.layout.autoRoutes).toBeDefined();
     expect(partial.authoritative).toBe(false);
+    // (4б) те же частичные замеры на ТИПОВОЙ сцене → да: фолбэк — прогноз габаритов,
+    // sig несёт его токен, и запись не достанется сцене с иным замером этого узла
+    const partialTypical = await computeViewLayout({
+      ...levelInput(), sizes: { A: SZ, B: SZ, G: SZ },
+    });
+    expect(partialTypical.layout.autoRoutes).toBeDefined();
+    expect(partialTypical.authoritative).toBe(true);
     // (5) скоуп после драга → нет
     const scoped = await computeViewLayout({
       ...levelInput(), sizes: measured,

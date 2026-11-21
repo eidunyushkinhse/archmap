@@ -63,7 +63,7 @@ import {
   CLOSE_PAIR_GAP, LABEL_PORT_PAD, PORT_SNAP,
 } from "./ports";
 import { ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE } from "./incrementalScope";
-import { Z_CLEAR, LANE_GAP_MIN, LANE_CONFLICT_TOL, LANE_CONFLICT_PENALTY, LABEL_PAD, LABEL_SHIFT_TOL, LABEL_HOSTS } from "./zRoutes";
+import { Z_CLEAR, LANE_GAP_MIN, LANE_CONFLICT_TOL, LANE_CONFLICT_PENALTY, LABEL_PAD, LABEL_SHIFT_TOL, LABEL_HOSTS, Z_BUDGET } from "./zRoutes";
 import {
   NUDGE_GAP, NUDGE_GAP_LADDER, NUDGE_CLEAR, EPS as NUDGE_EPS,
   OVERLAP_MIN as NUDGE_OVERLAP_MIN, NEAR_OVERLAP_MIN as NUDGE_NEAR_OVERLAP_MIN,
@@ -85,7 +85,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 19;
+export const ROUTER_VERSION = 20;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -169,6 +169,9 @@ export function collectRouterConstants(): Record<string, unknown> {
     "labelBox.LABEL_END.clear": LABEL_END.clear,
     "zRoutes.LABEL_SHIFT_TOL": LABEL_SHIFT_TOL,
     "zRoutes.LABEL_HOSTS.lostCost": LABEL_HOSTS.lostCost,
+    // --- бюджет перебора Z-роутера (шаг «меньше проб», E92 v20): обрыв спуска по бюджету
+    // меняет выбор вариантов на больших сценах ---
+    "zRoutes.Z_BUDGET": { ...Z_BUDGET },
     // --- мост домена (autoRoutes) ---
     "autoRoutes.FRAME_CROSS_COST": FRAME_CROSS_COST,
     "autoRoutes.LABEL_CROSS_COST": LABEL_CROSS_COST,
@@ -269,6 +272,15 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v20 — шаг «меньше проб» эпика render-scale (2026-11-21, санкция владельца на смену
+  // маршрутов ради скорости): Z-роутер пробует меньше вариантов при прежнем критерии
+  // принятия (строгое падение истинной цены сцены): отсев проб по границе вклада связи,
+  // очередь повторных проб вместо слепых проходов, порядок проб по вкладу, тёплый старт
+  // кругов портов (E92 v20), проход по носителям без «носителей без дела» и вторым проходом
+  // очередью (E96 v20), бюджет проб по размеру сцены (Z_BUDGET, P16). Шаг вносится несколькими
+  // коммитами; каждый, что сдвигает маршруты, перегенерирует golden и обновляет этот хэш
+  // (версия внутри шага одна). Геометрия изменилась (golden перегенерирован).
+  20: "e3e7089cb2957d6e",
   // v19 — плашки подписей рамок сняты с препятствий (2026-10-27, приёмка эпика
   // «развёртывание», E21): линия проходит под плашкой рамки, а плашка рисуется в слое
   // подписей над линиями (CV33). Реестр −5 констант (frames.*), ROUTER_ALGO_REV 6

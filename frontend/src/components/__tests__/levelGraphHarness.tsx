@@ -257,9 +257,12 @@ export const apiNodesMock = {
 // МОК конвейера раскладки и сигнатуры.
 // ---------------------------------------------------------------------------
 export const pipelineClientMock = {
-  computeViewLayoutOffThread: vi.fn((_input: unknown): Promise<PipelineOutput> =>
+  computeViewLayoutOffThread: vi.fn((_input: unknown, _opts?: unknown): Promise<PipelineOutput> =>
     Promise.resolve(pipeline.result),
   ),
+  // очередь воркера: холст сообщает уход; исход «устарел» — свой класс (instanceof в LevelGraph)
+  releaseLayoutOwner: vi.fn((_owner: object): void => undefined),
+  LayoutSupersededError: class LayoutSupersededError extends Error {},
 };
 export const layoutSigMock = {
   layoutSig: (_layout: unknown): string => `sig-${sigCounter++}`,

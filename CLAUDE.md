@@ -54,7 +54,7 @@ archmap/
 │   │   │   ├── nodePage/  # части страницы объекта: свойства (в т.ч. строка «Размещение»), секции «Логика»/«OpenAPI»/«Схема» по элементу, группы потомков
 │   │   │   ├── deployment/# режим «Развёртывание»: проекция графа площадок на холст, окна «Размещение» и «Площадки»,
 │   │   │   │              # конфликты размещения контейнера целиком (placementConflicts, PlacementConflictList)
-│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 265 тестовых файлов)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 271 тестовый файл)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
 │   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel; режимы
@@ -66,7 +66,9 @@ archmap/
 │   │   │                  # workMode — режим оболочки «Объекты · Процессы · Развёртывание» (памяти нет: проект открывается в «Объектах»)
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
 │   │   └── embed/         # живая схема для лендинга: холст на снимке демо-проекта без бэкенда (embed.html, npm run build:embed)
-│   ├── scripts/           # replay-prof.ts, route-quality.ts — замеры роутера (npm run replay-prof / route-quality)
+│   ├── scripts/           # replay-prof.ts, route-quality.ts — замеры роутера (npm run replay-prof / route-quality);
+│   │                      # stage-table.ts, corpus-check.ts, arrows-gate.ts — стадии прогона, сверка корпуса сцен и
+│   │                      # ворота качества стрелок (npm run stage-table / corpus-check / arrows-gate)
 │   ├── knip.json          # поиск мёртвого кода (npm run knip; в CI)
 │   ├── package.json
 │   └── vite.config.ts     # прокси /api и /mcp → localhost:8000, vitest (jsdom), пороги покрытия
@@ -149,6 +151,8 @@ archmap/
 │   ├── *-probe.mjs / arrow-metrics.mjs / dump-levels.mjs / page-fit-diag.mjs  # полигонные зонды
 │   │                      # (токен — probeToken.mjs, учётка-читатель — probe-reader.py)
 │   ├── hub-survey.py      # метрики формы по всем уровням проектов (перф)
+│   ├── perf-scenes.py / perf-battery.mjs / prof-lines.mjs  # стенд движка холста (docs/plan-render-scale.md):
+│   │                      # синтетические сцены, батарея сценариев на живом стеке, построчный профиль конвейера
 │   ├── refresh-demo-template.py  # обновление пакета демо-шаблона из живого эталона в БД
 │   ├── seed-alerts-demo.py  # стенд, на котором горят все классы алертов
 │   ├── landing-shots.mjs / landing-videos.mjs / landing-embed-scene.mjs  # кадры, видео и живая схема лендинга

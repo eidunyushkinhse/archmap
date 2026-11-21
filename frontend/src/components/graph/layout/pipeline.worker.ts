@@ -13,19 +13,44 @@
 // — синхронная эмуляция в нашем воркере, ровно как на главном треде; сам код elk
 // document не трогает (его штатная среда — воркер без DOM). Импорт конвейера —
 // ДИНАМИЧЕСКИЙ: статические импорты хойстятся и исполнили бы elk до хака.
+//
+// ПАМЯТЬ СЦЕН (эпик render-scale, P11): воркер держит последние авторитетные результаты
+// стадий стрелок по routeSig и отдаёт их конвейеру окружением прогона — повторное
+// раскрытие и возврат на виденное состояние не считают стрелки заново. Память живёт, пока
+// жив воркер; свежий воркер после обрыва клиент засевает своим зеркалом памяти
+// ({ kind: "seed" }). Модуль памяти ELK не тянет — статический импорт хаку не мешает.
+//
+// ПРОГРЕВ (эпик render-scale): сообщение { kind: "warm" } грузит конвейер и ELK заранее —
+// клиент шлёт его, когда оболочка проекта открылась, ещё до данных холста. Прогреву
+// ничего не надо возвращать; настоящий прогон, пришедший раньше, чем ELK загрузился, ждёт
+// тот же промис загрузки, а не второй. Прогон синтетической сцены для разгона JIT (20 узлов,
+// 30 связей) пробовали: первый прогон холста он не ускорил (hub25 197 → 248 мс, Sentry
+// 243 → 245 мс против прогрева одной загрузкой), а настоящий прогон мог встать за ним.
+import { createRouteMemory } from "./routeMemory";
+import type { WorkerRequest } from "./pipelineClient";
+
 (self as unknown as { document?: object }).document ??= {};
 
 const pipelinePromise = import("./pipeline");
-
-interface WorkerRequest {
-  runId: number;
-  input: import("./pipeline").PipelineInput;
-}
+const routeMemory = createRouteMemory();
 
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
-  const { runId, input } = ev.data;
+  const msg = ev.data;
+  if (msg.kind === "seed") {
+    // засев памяти сцен после обрыва прежнего воркера (зеркало клиента, от давней к свежей)
+    for (const [sig, entry] of msg.entries) routeMemory.put(sig, entry);
+    return;
+  }
+  if (msg.kind === "warm") {
+    void pipelinePromise
+      .then(() => import("./engine"))
+      .then(({ getElk }) => getElk())
+      .catch(() => { /* прогрев — оптимизация: сбой проявится в первом прогоне */ });
+    return;
+  }
+  const { runId, input } = msg;
   void pipelinePromise
-    .then(({ computeViewLayout }) => computeViewLayout(input))
+    .then(({ computeViewLayout }) => computeViewLayout(input, { routeMemory }))
     .then((out) => {
       self.postMessage({ runId, ok: true as const, out });
     })
