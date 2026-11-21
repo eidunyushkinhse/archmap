@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app import versions
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
@@ -29,7 +30,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.process_copy import duplicate_process
 from app.process_export import detail_to_mermaid
-from app.process_import import apply_import, build_preview
+from app.process_import import apply_import, build_preview, replace_import
 from app.processes import (
     ProcessRuleError,
     bound_node_ids,
@@ -77,9 +78,10 @@ from app.schemas.process import (
 )
 from app.schemas.process_import import (
     ProcessImportApply,
-    ProcessImportIn,
     ProcessImportPreview,
+    ProcessImportPreviewIn,
     ProcessImportResult,
+    ProcessReplaceResult,
 )
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -139,7 +141,7 @@ def create_process(
 
 @router.post("/import/preview", response_model=ProcessImportPreview)
 def preview_process_import(
-    payload: ProcessImportIn,
+    payload: ProcessImportPreviewIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
@@ -148,7 +150,7 @@ def preview_process_import(
 
     Объявлен ДО /{process_id}: иначе FastAPI принял бы «import» за uuid процесса.
     """
-    return build_preview(db, project.id, payload.text, payload.name)
+    return build_preview(db, project.id, payload.text, payload.name, payload.overrides)
 
 
 @router.post(
@@ -162,6 +164,28 @@ def import_process(
 ) -> ProcessImportResult:
     """Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача)."""
     _, result = apply_import(db, project.id, payload.text, payload.name, payload.mapping)
+    commit_change(db, project, user.id, process=True)
+    return result
+
+
+@router.post("/{process_id}/import", response_model=ProcessReplaceResult)
+def replace_process_import(
+    process_id: uuid.UUID,
+    payload: ProcessImportApply,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_project_editor),
+) -> ProcessReplaceResult:
+    """Заменить содержимое процесса диаграммой (путь агента: поправить свой черновик).
+    Перед заменой ArchMap сохраняет версию всего проекта с прежним текстом процесса;
+    id, область и место процесса остаются."""
+    proc = _get_process(db, process_id, project)
+    try:
+        result = replace_import(
+            db, project, user, proc, payload.text, payload.name, payload.mapping
+        )
+    except versions.VersionError as e:
+        raise HTTPException(status_code=422, detail=e.detail) from e
     commit_change(db, project, user.id, process=True)
     return result
 

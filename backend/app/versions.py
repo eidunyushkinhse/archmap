@@ -179,6 +179,24 @@ def create_version(
     return row
 
 
+def ensure_version(
+    db: Session,
+    project: Project,
+    user: User,
+    node: Node | None,
+    comment: str,
+    *,
+    kind: VersionKind,
+) -> tuple[NodeVersion | None, bool]:
+    """Версия перед действием, которое стирает знание (удаление пачкой, замена процесса):
+    есть незафиксированное — сохранить новую и вернуть (row, True); нет — нынешнее
+    состояние уже лежит в последней версии, вернуть её (row, False). Без коммита."""
+    if has_pending(db, project, node, live_snapshot(db, project, node)):
+        return create_version(db, project, user, node, comment, kind=kind), True
+    # has_pending без версий отвечает True, поэтому последняя здесь есть всегда.
+    return last_version(db, project, node), False
+
+
 def delete_version(db: Session, version: NodeVersion) -> None:
     """Удалить версию. Номера остальных не пересчитываются: пропуск честнее, чем «v3»,
     вдруг ставшая другой версией в чужих ссылках и комментариях."""

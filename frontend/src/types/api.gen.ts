@@ -2318,6 +2318,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace Process Import
+         * @description Заменить содержимое процесса диаграммой (путь агента: поправить свой черновик).
+         *     Перед заменой ArchMap сохраняет версию всего проекта с прежним текстом процесса;
+         *     id, область и место процесса остаются.
+         */
+        post: operations["replace_process_import_api_v1_processes__process_id__import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}": {
         parameters: {
             query?: never;
@@ -4711,7 +4733,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "node" | "edge" | "doc";
+            kind: "node" | "edge" | "doc" | "process";
             /**
              * Id
              * Format: uuid
@@ -4801,7 +4823,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "node" | "edge" | "doc";
+            kind: "node" | "edge" | "doc" | "process";
             /**
              * Id
              * Format: uuid
@@ -4817,6 +4839,8 @@ export interface components {
          * @description Всё, что исчезнет, вместе с поддеревьями объектов пачки.
          */
         DeletionTotals: {
+            /** Processes */
+            processes: number;
             /** Nodes */
             nodes: number;
             /** Edges */
@@ -5940,6 +5964,29 @@ export interface components {
             prompt: string;
             /** Scan Url */
             scan_url?: string | null;
+        };
+        /**
+         * ImportStepPreview
+         * @description Шаг диаграммы, каким он станет: на какой связи встанет и к какой схеме привяжется.
+         */
+        ImportStepPreview: {
+            /** Order */
+            order: number;
+            /** From Name */
+            from_name: string;
+            /** To Name */
+            to_name: string;
+            /** Caption */
+            caption: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "attached" | "self" | "no_channel" | "ambiguous" | "unbound";
+            /** Doc Address */
+            doc_address: string | null;
+            /** Doc Status */
+            doc_status: ("linked" | "unresolved") | null;
         };
         /**
          * IntermediateEdgeAlert
@@ -7151,13 +7198,6 @@ export interface components {
                 [key: string]: string | null;
             };
         };
-        /** ProcessImportIn */
-        ProcessImportIn: {
-            /** Text */
-            text: string;
-            /** Name */
-            name?: string | null;
-        };
         /** ProcessImportPreview */
         ProcessImportPreview: {
             /** Name */
@@ -7175,6 +7215,42 @@ export interface components {
              * @default 0
              */
             doc_refs: number;
+            /**
+             * Steps
+             * @default []
+             */
+            steps: components["schemas"]["ImportStepPreview"][];
+            /**
+             * Attached
+             * @default 0
+             */
+            attached: number;
+            /**
+             * Dangling
+             * @default 0
+             */
+            dangling: number;
+            /**
+             * Self Messages
+             * @default 0
+             */
+            self_messages: number;
+        };
+        /**
+         * ProcessImportPreviewIn
+         * @description Превью. overrides: уточнения поверх автосопоставления (алиас → узел, null —
+         *     оставить без объекта); по ним считается, какие шаги встанут на связь. Без них —
+         *     только однозначные совпадения, как в окне ввоза до выбора.
+         */
+        ProcessImportPreviewIn: {
+            /** Text */
+            text: string;
+            /** Name */
+            name?: string | null;
+            /** Overrides */
+            overrides?: {
+                [key: string]: string | null;
+            } | null;
         };
         /** ProcessImportResult */
         ProcessImportResult: {
@@ -7230,6 +7306,53 @@ export interface components {
             message_count: number;
             /** Statuses */
             statuses: ("existing" | "planned" | "deprecated")[];
+        };
+        /**
+         * ProcessReplaceResult
+         * @description Замена содержимого существующего процесса диаграммой (POST /processes/{id}/import).
+         *     Перед заменой ArchMap сохраняет версию всего проекта, в ней остаётся прежний текст
+         *     процесса. version_created — версию сохранили сейчас; False — с последней версии
+         *     изменений не было, прежний текст лежит в ней.
+         */
+        ProcessReplaceResult: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Participants */
+            participants: number;
+            /** Unbound */
+            unbound: number;
+            /** Messages */
+            messages: number;
+            /** Attached */
+            attached: number;
+            /** Dangling */
+            dangling: number;
+            /**
+             * Self Messages
+             * @default 0
+             */
+            self_messages: number;
+            /** Fragments */
+            fragments: number;
+            /** Unsupported */
+            unsupported: string[];
+            /**
+             * Doc Linked
+             * @default 0
+             */
+            doc_linked: number;
+            /**
+             * Doc Unresolved
+             * @default 0
+             */
+            doc_unresolved: number;
+            /** Version Number */
+            version_number: number | null;
+            /** Version Created */
+            version_created: boolean;
         };
         /** ProcessUpdate */
         ProcessUpdate: {
@@ -8648,7 +8771,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "manual" | "pre_restore" | "restore" | "pre_delete";
+            kind: "manual" | "pre_restore" | "restore" | "pre_delete" | "pre_replace";
             /** Restored From */
             restored_from: number | null;
             /**
@@ -13089,7 +13212,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProcessImportIn"];
+                "application/json": components["schemas"]["ProcessImportPreviewIn"];
             };
         };
         responses: {
@@ -13135,6 +13258,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_process_import_api_v1_processes__process_id__import_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessImportApply"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessReplaceResult"];
                 };
             };
             /** @description Validation Error */
