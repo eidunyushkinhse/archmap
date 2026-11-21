@@ -311,6 +311,12 @@ button.ds-sub:hover {
   font-size: var(--fs-caption);
   color: var(--c-fg-muted);
 }
+/* Подложка открытого меню: клик мимо закрывает его. Ниже меню (z-index 20). */
+.ds-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+}
 
 /* ── Предупреждение: текст без коробки ───────────────────────────────── */
 .ds-warn {

@@ -19,6 +19,7 @@ import { loadErrorText } from "../../ui/loadErrorText";
 import PlacementDialog from "../deployment/PlacementDialog";
 import { placementFromNode } from "../deployment/placementFromNode";
 import type { PageElement } from "../element/elementView";
+import { Prop } from "./PropRows";
 import "../../ui/ds.css";
 
 interface Props {
@@ -57,13 +58,9 @@ function SiteNames({ sites }: { sites: Site[] }) {
   );
 }
 
+// Строка — общая пара «подпись — значение» строк свойств (PropRows).
 function Row({ title, children }: { title?: string; children: ReactNode }) {
-  return (
-    <div className="np-prop" title={title}>
-      <dt className="np-term">Размещение</dt>
-      <dd className="np-value">{children}</dd>
-    </div>
-  );
+  return <Prop term="Размещение" title={title}>{children}</Prop>;
 }
 
 export default function PlacementRow({ node, element, containerSites, isArchitect, onChanged }: Props) {

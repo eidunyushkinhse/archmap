@@ -310,11 +310,8 @@ button.np-approval[aria-expanded="true"] .np-approval-chev {
    Колонки — гибкий ряд с переносом: при узкой области одна. Левая узкая: в ней короткие
    значения (тип, статус, принадлежность, роль). Правая забирает остальное: в ней
    источник одной строкой и сводные технология и размещение системы. Порядок
-   в разметке — порядок обхода Tab (левая колонка, затем правая). Подпись — фиксированной ширины в обеих
-   колонках; текст значения начинается с одного x, чем бы значение ни было: у элементов
-   управления поля 3px 6px и такой же отрицательный отступ (ds-value-btn, ds-field),
-   у голого текста — те же поля по вертикали. Шаг строк — 30px, базовые линии подписи и
-   значения совпадают. */
+   в разметке — порядок обхода Tab (левая колонка, затем правая). Сами строки — общие с
+   панелью объекта в редакторе-карте: components/nodePage/propRows.css. */
 .np-props {
   display: flex;
   flex-wrap: wrap;
@@ -328,109 +325,6 @@ button.np-approval[aria-expanded="true"] .np-approval-chev {
 }
 .np-props-col + .np-props-col {
   flex: 1 1 360px;
-}
-.np-prop {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  column-gap: 16px;
-  align-items: baseline;
-  min-height: 30px;
-  padding: 2px 0;
-  box-sizing: border-box;
-}
-.np-term,
-.np-value {
-  margin: 0;
-  padding: 3px 0;
-  font-size: var(--fs-ui);
-  line-height: var(--lh-ui);
-}
-.np-term {
-  color: var(--c-fg-muted);
-}
-.np-value {
-  position: relative;
-  min-width: 0;
-  color: var(--c-fg);
-  overflow-wrap: anywhere;
-}
-/* Элемент управления внутри значения сам несёт поля 3px: у ячейки их нет. */
-.np-value:has(> .ds-field, > .np-selwrap, > .ds-value-btn, > .ts-cell, > .anchor-field--page > .ds-value-btn) {
-  padding-block: 0;
-}
-/* Шеврон выпадающего значения виден и при наведении на всю строку. */
-.np-prop:hover .ds-value-chev {
-  opacity: 1;
-}
-
-/* Выпадашка свойства (статус, принадлежность). */
-.np-selwrap {
-  position: relative;
-  display: inline-flex;
-  max-width: 100%;
-}
-.np-menu {
-  top: calc(100% + 2px);
-  left: -6px;
-  min-width: 180px;
-}
-
-/* Статус словом с точкой. В значении строки точка висит слева от текста — текст
-   статуса начинается с того же x, что и соседние значения; в меню стоит обычно. */
-.np-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.np-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex: none;
-}
-.np-value > .np-status,
-.np-value .ds-value-btn > .np-status {
-  position: relative;
-}
-.np-value > .np-status > .np-dot,
-.np-value .ds-value-btn > .np-status > .np-dot {
-  position: absolute;
-  left: -14px;
-  top: calc(50% - 3px);
-}
-
-/* Строка «Тип» (element/TypeValue): кнопка — общий ds-value-btn; меню типов — в общем
-   виде меню. */
-.np-props .ts-wrap--inline > .ts-trigger.ds-value-btn {
-  gap: 6px;
-}
-.np-props .ts-menu {
-  left: -6px;
-  right: auto;
-  width: auto;
-  min-width: 200px;
-  border-color: var(--c-line);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
-    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
-}
-.np-props .ts-option {
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  color: var(--c-fg);
-}
-.np-props .ts-option:hover,
-.np-props .ts-option:focus-visible {
-  background: var(--c-hover);
-}
-.np-props .ts-label {
-  font-size: var(--fs-ui);
-}
-.np-props .ts-option[aria-disabled="true"] .ts-label {
-  color: var(--c-fg-faint);
-}
-.np-props .ts-check {
-  color: var(--c-accent);
 }
 
 /* Строка «Размещение» (components/nodePage/PlacementRow): имена площадок через

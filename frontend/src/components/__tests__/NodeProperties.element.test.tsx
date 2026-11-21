@@ -216,3 +216,51 @@ describe("NodeProperties: строка «Тип»", () => {
     expect(screen.queryByRole("button", { name: "Внешний" })).toBeNull();
   });
 });
+
+// Escape в строках свойств (общие строки PropRows, страница и панель редактора): поле с
+// несохранённой правкой возвращает сохранённое и клавишу дальше не пускает (в редакторе
+// она закрыла бы панель); поле без правки и закрытое меню клавишу пропускают; открытое
+// меню закрывается само, и тоже без выхода выше.
+describe("строки свойств: Escape", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // Слушатель выше строк — как Escape редактора-карты.
+  function withOuterEscape(over: Partial<Node> = {}) {
+    const outer = vi.fn();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") outer(); };
+    window.addEventListener("keydown", onKey);
+    setup(over);
+    return { outer, done: () => window.removeEventListener("keydown", onKey) };
+  }
+
+  it("роль с правкой: Escape возвращает сохранённое, записи нет, выше не уходит", async () => {
+    const { outer, done } = withOuterEscape({ role: "шлюз" });
+    const role = screen.getByRole("textbox", { name: "Роль" });
+    await userEvent.clear(role);
+    await userEvent.type(role, "агент");
+    await userEvent.keyboard("{Escape}");
+    expect(role).toHaveValue("шлюз");
+    expect(outer).not.toHaveBeenCalled();
+    await userEvent.tab();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    // В поле без правки Escape идёт выше.
+    await userEvent.click(screen.getByRole("textbox", { name: "Технология" }));
+    await userEvent.keyboard("{Escape}");
+    expect(outer).toHaveBeenCalledOnce();
+    done();
+  });
+
+  it("открытое меню статуса: Escape закрывает только меню, фокус на значении", async () => {
+    const { outer, done } = withOuterEscape();
+    const value = screen.getByRole("button", { name: "Существует" });
+    await userEvent.click(value);
+    expect(document.querySelector(".np-menu")).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".np-menu")).toBeNull();
+    expect(value).toHaveFocus();
+    expect(outer).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(outer).toHaveBeenCalledOnce();
+    done();
+  });
+});

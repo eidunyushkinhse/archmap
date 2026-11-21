@@ -1,0 +1,126 @@
+/* Строки свойств объекта (components/nodePage/PropRows) — общие у «Свойств» страницы
+   объекта (две колонки, раскладка — pages/NodePage.css, .np-props) и панели объекта в
+   редакторе-карте (один столбец, components/inspector/panel.css). Подпись — фиксированной
+   ширины; текст значения начинается с одного x, чем бы значение ни было: у элементов
+   управления поля 3px 6px и такой же отрицательный отступ (ds-value-btn, ds-field), у
+   голого текста — те же поля по вертикали. Шаг строк — 30px, базовые линии подписи и
+   значения совпадают. */
+.np-prop {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: baseline;
+  min-height: 30px;
+  padding: 2px 0;
+  box-sizing: border-box;
+}
+.np-term,
+.np-value {
+  margin: 0;
+  padding: 3px 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.np-term {
+  color: var(--c-fg-muted);
+}
+.np-value {
+  position: relative;
+  min-width: 0;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+/* Элемент управления внутри значения сам несёт поля 3px: у ячейки их нет. */
+.np-value:has(> .ds-field, > .np-selwrap, > .ds-value-btn, > .ts-cell, > .anchor-field--page > .ds-value-btn, > .ds-grow) {
+  padding-block: 0;
+}
+/* Шеврон выпадающего значения виден и при наведении на всю строку. */
+.np-prop:hover .ds-value-chev {
+  opacity: 1;
+}
+/* «Повторить» у значения, которое не загрузилось (сводная технология системы в панели
+   редактора): тихой ссылкой в строке. */
+.np-retry {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-accent);
+  cursor: pointer;
+}
+.np-retry:hover {
+  text-decoration: underline;
+}
+
+/* Выпадашка свойства (статус, принадлежность). Наименьшую ширину меню задаёт общий
+   .ds-menu (200px): прежнее «min-width: 180px» здесь проигрывало ему в каскаде и снято,
+   чтобы результат не зависел от порядка подключения стилей. */
+.np-selwrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.np-menu {
+  top: calc(100% + 2px);
+  left: -6px;
+}
+
+/* Статус словом с точкой. В значении строки точка висит слева от текста — текст
+   статуса начинается с того же x, что и соседние значения; в меню стоит обычно. */
+.np-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.np-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.np-value > .np-status,
+.np-value .ds-value-btn > .np-status {
+  position: relative;
+}
+.np-value > .np-status > .np-dot,
+.np-value .ds-value-btn > .np-status > .np-dot {
+  position: absolute;
+  left: -14px;
+  top: calc(50% - 3px);
+}
+
+/* Строка «Тип» (element/TypeValue): кнопка — общий ds-value-btn; меню типов — в общем
+   виде меню. Ширину меню задаёт element.css (.ts-wrap--inline .ts-menu): правило с тем же
+   весом здесь проигрывало ему в каскаде, и его «width: auto» снято, чтобы результат не
+   зависел от порядка подключения стилей. */
+.np-prop .ts-wrap--inline > .ts-trigger.ds-value-btn {
+  gap: 6px;
+}
+.np-prop .ts-menu {
+  left: -6px;
+  right: auto;
+  min-width: 200px;
+  border-color: var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.np-prop .ts-option {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  color: var(--c-fg);
+}
+.np-prop .ts-option:hover,
+.np-prop .ts-option:focus-visible {
+  background: var(--c-hover);
+}
+.np-prop .ts-label {
+  font-size: var(--fs-ui);
+}
+.np-prop .ts-option[aria-disabled="true"] .ts-label {
+  color: var(--c-fg-faint);
+}
+.np-prop .ts-check {
+  color: var(--c-accent);
+}
