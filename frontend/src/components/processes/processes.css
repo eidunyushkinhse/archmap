@@ -206,8 +206,21 @@
 /* ── Подпись шага на диаграмме (SequenceDiagram) ──
    Ширина — естественная (width: max-content), предел задаёт max-width из геометрии:
    шире — перенос по словам; предел не уже самого длинного слова, слово не рвётся.
-   Номер — тихим текстом, цифры одной ширины. */
+   Номер — тихим текстом, цифры одной ширины.
+   Ореол: подпись шага через несколько колонок лежит на линиях жизни и полосах
+   активации, и они резали буквы. Текст обведён цветом фона (тени в восемь сторон и
+   мягкая тень поверх): линия обрывается у самых букв и видна между словами и строками.
+   Фон блоком не годится — он вырезал бы куски линий по всей высоте подписи. Цвет ореола
+   совпадает с фоном подписи (--seq-halo): у наведённой и выбранной он свой, иначе
+   вокруг букв проступила бы белая кайма. */
 .seq-label {
+  --seq-halo: var(--c-bg);
+  text-shadow:
+    1px 0 0 var(--seq-halo), -1px 0 0 var(--seq-halo),
+    0 1px 0 var(--seq-halo), 0 -1px 0 var(--seq-halo),
+    1px 1px 0 var(--seq-halo), -1px -1px 0 var(--seq-halo),
+    1px -1px 0 var(--seq-halo), -1px 1px 0 var(--seq-halo),
+    0 0 3px var(--seq-halo);
   display: flex;
   align-items: baseline;
   gap: 5px;
@@ -226,10 +239,12 @@
 /* Подпись-цель клика (шаг открывает панель): отклик наведением; выбранный шаг — тоном
    акцента, пока его панель открыта. */
 .seq-label.is-click:hover {
+  --seq-halo: var(--c-hover);
   background: var(--c-hover);
 }
 .seq-label.is-selected,
 .seq-label.is-selected:hover {
+  --seq-halo: var(--c-accent-soft);
   background: var(--c-accent-soft);
 }
 .seq-num {
@@ -253,14 +268,18 @@
   border-radius: var(--radius);
   white-space: nowrap;
 }
-/* Значок привязанной схемы логики после подписи. */
+/* Значок привязанной схемы логики после подписи. Тени текста на рисунок не ложатся,
+   поэтому ореол значка — подложка цветом фона подписи: значок мал, и линия жизни
+   обрывается только у него. */
 .seq-doc {
   display: inline-flex;
   vertical-align: -1px;
   margin-left: 3px;
   padding: 0;
   border: 0;
-  background: none;
+  border-radius: 2px;
+  background: var(--seq-halo);
+  box-shadow: 0 0 0 1px var(--seq-halo);
   color: var(--c-fg-faint);
 }
 button.seq-doc {

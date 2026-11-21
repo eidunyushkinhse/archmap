@@ -572,6 +572,11 @@ export default function SequenceDiagram({
                 />
               </>
             )}
+            {/* Шапка: вид фрагмента ярлыком и условие плашкой. Обе лежат поверх линий
+                жизни и полос активации (zIndex выше, чем у SVG), и у условия свой фон:
+                без него полоса активации проступала сквозь буквы. Плашка условия заходит
+                под ярлык (ярлык со срезанным углом рисуется поверх неё: clip-path даёт
+                ему свой слой), чтобы ни в зазоре, ни в срезе полоса не показывалась. */}
             <div
               onClick={onFragmentClick ? () => onFragmentClick(f.id) : undefined}
               title={onFragmentClick ? "Удалить фрагмент" : undefined}
@@ -581,7 +586,6 @@ export default function SequenceDiagram({
                 top: box.top,
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
                 zIndex: 3,
                 cursor: onFragmentClick ? "pointer" : "default",
                 pointerEvents: onFragmentClick ? "auto" : "none",
@@ -603,7 +607,21 @@ export default function SequenceDiagram({
               >
                 {f.kind}
               </span>
-              {f.guard && <span style={{ fontSize: 11, fontWeight: 600, color: BPT.amber }}>{f.guard}</span>}
+              {f.guard && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: BPT.amber,
+                    background: BPT.amberBg,
+                    marginLeft: -12,
+                    padding: "1px 6px 1px 20px",
+                    borderRadius: "0 4px 4px 0",
+                  }}
+                >
+                  {f.guard}
+                </span>
+              )}
             </div>
             {/* «+ иначе» — только у alt и только пока под новую ветвь хватает шагов:
                 каждая ветвь занимает свою строку, первая начинается с fromRow. Когда
@@ -633,27 +651,32 @@ export default function SequenceDiagram({
                 + иначе
               </button>
             )}
-            {/* Разделители ветвей — по одному на ветвь, каждый со своей ручкой. */}
+            {/* Разделители ветвей — по одному на ветвь, каждый со своей ручкой. Плашка
+                условия — отдельным слоем над SVG: внутри разделителя (zIndex 2, тот же,
+                что у SVG, и раньше по разметке) она уходила под полосы активации.
+                Пунктир и ручка остаются под SVG, как были: ручки стрелок в правке
+                ловят указатель первыми. */}
             {box.branches.map((b, bi) => (
-              <div
-                key={bi}
-                style={{
-                  position: "absolute",
-                  left: box.left,
-                  top: b.y,
-                  width: box.right - box.left,
-                  borderTop: "1.5px dashed " + BPT.amberLine,
-                  zIndex: 2,
-                  transition: fragDrag?.id === f.id ? undefined : "top .15s ease, width .15s ease",
-                }}
-              >
-                {onMoveBranch && !selectMode && (
-                  <div
-                    onPointerDown={(e) => onFragEdgeDown(e, f.id, "branch", b.row, bi)}
-                    title="Потянуть границу ветки"
-                    style={fragEdgeStyle(0, 0, box.right - box.left)}
-                  />
-                )}
+              <Fragment key={bi}>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: box.left,
+                    top: b.y,
+                    width: box.right - box.left,
+                    borderTop: "1.5px dashed " + BPT.amberLine,
+                    zIndex: 2,
+                    transition: fragDrag?.id === f.id ? undefined : "top .15s ease, width .15s ease",
+                  }}
+                >
+                  {onMoveBranch && !selectMode && (
+                    <div
+                      onPointerDown={(e) => onFragEdgeDown(e, f.id, "branch", b.row, bi)}
+                      title="Потянуть границу ветки"
+                      style={fragEdgeStyle(0, 0, box.right - box.left)}
+                    />
+                  )}
+                </div>
                 <span
                   onClick={
                     onEditBranch
@@ -669,8 +692,10 @@ export default function SequenceDiagram({
                     cursor: onEditBranch ? "pointer" : "default",
                     zIndex: 3,
                     position: "absolute",
-                    left: 10,
-                    top: -10,
+                    left: box.left + 10,
+                    top: b.y - 10,
+                    // Движется вместе со своим разделителем: та же анимация вершины.
+                    transition: fragDrag?.id === f.id ? undefined : "top .15s ease",
                     background: BPT.amberBg,
                     border: "1px solid " + BPT.amberLine,
                     color: BPT.amber,
@@ -682,7 +707,7 @@ export default function SequenceDiagram({
                 >
                   {b.guard || "иначе"}
                 </span>
-              </div>
+              </Fragment>
             ))}
           </div>
         );
