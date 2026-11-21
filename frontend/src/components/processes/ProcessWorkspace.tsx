@@ -1,7 +1,8 @@
 // Воркспейс режима «Процессы» — композиция рейла (список процессов) и холста
 // (диаграмма выбранного). Владеет списком processesApi.list(), выбором, флагами
 // railOpen/editing (персист в localStorage) и операциями новый/дублировать/удалить/
-// переименовать. Новый процесс создаётся только после ввода имени (строка в рейле).
+// переименовать/импортировать из Mermaid. Новый процесс создаётся только после ввода
+// имени (строка в рейле).
 // Вынесен из TreePage, чтобы не раздувать и без того большой компонент страницы.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -65,7 +66,7 @@ export default function ProcessWorkspace({
   const [limitToast, showLimit] = useDemoLimitToast();
   // Явно выбранный процесс. null → берём первый из списка (derived ниже), без эффекта.
   const [picked, setPicked] = useState<string | null>(initialProcessId ?? null);
-  // Импорт из mermaid: заводит НОВЫЙ процесс (слияние с существующим — отдельная задача).
+  // Импорт из Mermaid: заводит новые процессы (пачкой из файлов или вставленным текстом).
   const [importing, setImporting] = useState(false);
   // Ввод имени нового процесса в рейле: до Enter в базе ничего нет.
   const [creating, setCreating] = useState(false);
@@ -211,9 +212,13 @@ export default function ProcessWorkspace({
       {importing && (
         <ProcessImportModal
           onClose={() => setImporting(false)}
-          onImported={(pid) => {
-            setImporting(false);
-            setPicked(pid);
+          onImported={(ids, all) => {
+            // Прошли все — окно закрывается и открывается первый импортированный;
+            // часть упала — окно остаётся с упавшими, рейл уже знает новые.
+            if (all) {
+              setImporting(false);
+              setPicked(ids[0]);
+            }
             void reload();
             onChanged?.();  // импорт создал участников/шаги — знак алертов протух
           }}

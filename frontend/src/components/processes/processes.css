@@ -946,3 +946,190 @@ button.seq-doc:focus-visible {
   align-self: flex-end;
   margin: 4px 10px 10px 0;
 }
+
+/* ── Окно «Импорт процессов» и «Заменить процесс» (ProcessImportModal) ──
+   Новый язык: класс ds на обёртке содержимого выводит окно из-под правила
+   «.ds dialog.app-modal» (ui/tokens.css), которое держит непереведённые окна на
+   прежних метриках корня. Под черновиком только проблемы (ImportDraftIssues). */
+.pim {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Рамка перетаскивания файлов: место под неё есть всегда, чтобы окно не дёргалось. */
+  margin: -8px;
+  padding: 8px;
+  border: 1px dashed transparent;
+  border-radius: var(--radius-lg);
+}
+.pim.is-drop {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.pim-title {
+  margin: 0 32px 4px 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  /* Глобальное правило h2 (index.css) даёт отрицательный трекинг — в новом языке его нет. */
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.pim-name {
+  height: 32px;
+  font-size: var(--fs-body);
+}
+.pim-text {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-body);
+  color: var(--c-fg);
+  resize: vertical;
+}
+.pim-text::placeholder {
+  color: var(--c-fg-faint);
+}
+/* Фокус полей окна — кольцом нового языка, сильнее общего правила окон (ui/modal.css). */
+.app-modal .pim .ds-input:focus,
+.app-modal .pim .pim-text:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
+.app-modal .pim .ds-field:focus {
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+
+/* Проблемы черновика: строки без коробок, списки по клику. */
+.pim-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pim-issues:empty {
+  display: none;
+}
+.pim-line {
+  margin: 0;
+}
+.pim-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pim-part {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.pim-part-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.pim-select:disabled {
+  color: var(--c-fg-muted);
+  background: var(--c-bg-subtle);
+}
+.pim-exp-btn--warn,
+.pim-exp-btn--warn:hover {
+  color: var(--c-warn);
+}
+.pim-exp-btn--warn .ds-chev {
+  color: inherit;
+}
+.pim-exp-body {
+  margin: 4px 0 6px 18px;
+}
+.pim-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--c-fg-muted);
+}
+.pim-list li {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+.pim-list--mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+
+/* Несколько черновиков — строки: шеврон, название (правится на месте), число шагов,
+   крестик «убрать». Строка с проблемами раскрыта. */
+.pim-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+.pim-row {
+  border-top: 1px solid var(--c-line);
+}
+.pim-row:last-child {
+  border-bottom: 1px solid var(--c-line);
+}
+.pim-row-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+}
+.pim-row-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  cursor: pointer;
+}
+.pim-row-chev:hover {
+  background: var(--c-hover);
+}
+.pim-row-chev:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.pim-row-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-weight: 500;
+}
+.pim-row-steps {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.pim-row:hover .ds-del,
+.pim-row:focus-within .ds-del {
+  opacity: 1;
+}
+.pim-row-body {
+  padding: 0 8px 10px 34px;
+}
+
+.pim-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.pim-btns {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}

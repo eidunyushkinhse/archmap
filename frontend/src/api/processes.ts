@@ -21,6 +21,7 @@ import type {
   ProcessListItem,
   ProcessMessage,
   ProcessParticipant,
+  ProcessReplaceResult,
   ProcessUpdate,
 } from "../types";
 
@@ -74,11 +75,16 @@ export const processesApi = {
     api.post(`/processes/${id}/messages/detach`, { ids }),
 
   // Импорт процесса из mermaid: превью ничего не пишет, применение создаёт НОВЫЙ
-  // процесс (слияние с существующим — отдельная задача).
+  // процесс, замена переписывает содержимое существующего.
   importPreview: (body: ProcessImportIn): Promise<ProcessImportPreview> =>
     api.post<ProcessImportPreview>(`/processes/import/preview`, body),
   importProcess: (body: ProcessImportApply): Promise<ProcessImportResult> =>
     api.post<ProcessImportResult>(`/processes/import`, body),
+  // Замена содержимого процесса диаграммой: id и область остаются, перед заменой бэкенд
+  // сохраняет версию проекта (её номер в ответе). Привязка шага к схеме логики
+  // переживает замену только строкой `%% archmap-doc` перед шагом.
+  replaceProcess: (id: string, body: ProcessImportApply): Promise<ProcessReplaceResult> =>
+    api.post<ProcessReplaceResult>(`/processes/${id}/import`, body),
 
   // Композитор: каналы между парой участников (узлы a и b)
   channels: (id: string, a: string, b: string): Promise<Channel[]> =>
