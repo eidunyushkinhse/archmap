@@ -25,6 +25,7 @@ from app.routers import (
     data_import,
     data_refs,
     db_docs,
+    deletions,
     deployment,
     docs_import,
     edges,
@@ -120,6 +121,7 @@ app.include_router(config_import.router, prefix="/api/v1")
 app.include_router(docs_import.router, prefix="/api/v1")
 app.include_router(recon.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")
+app.include_router(deletions.router, prefix="/api/v1")
 app.include_router(views.router, prefix="/api/v1")
 app.include_router(deployment.router, prefix="/api/v1")
 app.include_router(uploads.router, prefix="/api/v1")

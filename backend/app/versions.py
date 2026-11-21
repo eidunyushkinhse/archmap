@@ -109,6 +109,17 @@ def last_version(db: Session, project: Project, node: Node | None) -> NodeVersio
     return db.scalars(stmt).first()
 
 
+def has_pending(
+    db: Session, project: Project, node: Node | None, live: VersionSnapshot
+) -> bool:
+    """Есть ли незафиксированное с последней версии объекта: так решают, нужна ли
+    автоматическая версия перед откатом и перед удалением пачкой. Хэш последней
+    пересчитан по её снимку, а не взят из колонки: проекция могла уточниться с её
+    фиксации."""
+    last = last_version(db, project, node)
+    return last is None or content_hash(live) != content_hash(snapshot_of(last))
+
+
 def _stats(snapshot: VersionSnapshot, base: VersionSnapshot) -> dict[str, Any]:
     """stats строки версии: счётчики снимка и перечень изменённого относительно base
     (форма — schemas.versions.VersionStats)."""

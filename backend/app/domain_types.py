@@ -49,9 +49,16 @@ ElementChangeKind = Literal[
 # Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная
 # фиксация редактором с его комментарием; pre_restore — автоматическая «Перед откатом
 # к vN», чтобы откат не терял незафиксированное; restore — автоматическая «Откат к vN»,
-# запись истории вперёд (номер источника — в restored_from).
-VersionKind = Literal["manual", "pre_restore", "restore"]
+# запись истории вперёд (номер источника — в restored_from); pre_delete — автоматическая
+# «Перед удалением агентом: …» перед удалением пачкой (app/deletions.py), чтобы удалённое
+# возвращалось откатом.
+VersionKind = Literal["manual", "pre_restore", "restore", "pre_delete"]
 VERSION_KINDS: tuple[VersionKind, ...] = get_args(VersionKind)
+
+# Что удаляется пачкой (app/deletions.py, путь агента и скриптов): объект с поддеревом,
+# связь, схема логики. Факты сюда не входят: их id агент не видит, а дозаливки фактов
+# ничего не удаляют по построению.
+DeletionKind = Literal["node", "edge", "doc"]
 
 # Категория элемента дельты версий (app/versions_diff.py), в порядке показа: свойства
 # объекта, связи, схема логики, спека OpenAPI, структура БД, каналы брокера,
