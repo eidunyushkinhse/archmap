@@ -312,6 +312,69 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
+  // Escape в два шага (редизайн, фаза 4а): первый закрывает панель объекта, следующий —
+  // выход из редактора. Чужой Escape (окно, всплывающее, погашенный ближе к месту) не в счёт.
+  it("Esc при открытой панели закрывает панель, следующий — выходит из редактора", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("object-inspector")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  it("Esc при открытом окне не закрывает ни панель, ни редактор: окно закрывается само", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    document.body.append(dialog);
+    const e = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    dialog.dispatchEvent(e);
+    dialog.remove();
+    // Клавишу не гасим: её cancel нужен самому окну.
+    expect(e.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    expect(props.onDone).not.toHaveBeenCalled();
+  });
+
+  it("Esc, погашенный ближе к месту нажатия или при открытом всплывающем, — не наш", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    const prevented = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    prevented.preventDefault();
+    window.dispatchEvent(prevented);
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    // Меню «⋮» шапки закрывается своим обработчиком на документе: его кнопка помечена
+    // aria-expanded — Escape достаётся меню, а не панели.
+    const menuBtn = document.createElement("button");
+    menuBtn.setAttribute("aria-expanded", "true");
+    screen.getByTestId("level-graph").append(menuBtn);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    // Раскрытая ветка дерева — не всплывающее.
+    menuBtn.className = "nt-chevzone";
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("object-inspector")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+  });
+
+  it("корень редактора на новом языке, шапка, дерево, холст и окна — на прежних метриках", async () => {
+    const { container } = render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const root = container.querySelector(".map-editor");
+    expect(root).toHaveClass("ds");
+    const pinned = [...(root?.children ?? [])].filter((el) => el.classList.contains("legacy-root"));
+    // Шапка, обёртка окон; в теле — обёртка дерева и область холста.
+    expect(pinned).toHaveLength(2);
+    expect(screen.getByTestId("tree-panel").parentElement).toHaveClass("legacy-root");
+    expect(screen.getByTestId("level-graph").closest(".legacy-root")).not.toBeNull();
+  });
+
   it("пустая история: undo-диспетчер ничего не применяет", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");

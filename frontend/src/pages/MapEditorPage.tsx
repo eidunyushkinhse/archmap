@@ -3,7 +3,7 @@
 // Слева: дерево объектов (дизайн страниц + секция «Добавить объект» внизу).
 // Центр: LevelGraph со всеми жестами. Справа: панель объекта или связи (ObjectInspector,
 // 320px) — только пока что-то выбрано.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { workBodyRow as bodyRow, workDivider as divider, workPage, workTopBar as topBar, workTopLeft as topLeft } from "../ui/pageChrome";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
@@ -43,6 +43,8 @@ import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
 import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon } from "../ui/icons";
 import "../ui/chrome.css";
+import "../ui/ds.css";
+import "./MapEditorPage.css";
 import BrandLink from "../ui/BrandLink";
 import TourHelpButton from "../components/tour/TourHelpButton";
 import DemoLimitToast from "../components/demo/DemoLimitToast";
@@ -529,14 +531,26 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     setTreeReload((t) => t + 1);
   }
 
-  // Esc = «Готово»
+  // Escape в два шага: первый закрывает панель объекта, следующий — «Готово» (выход из
+  // редактора). Escape, который забрал кто-то ближе к месту нажатия, сюда не относится:
+  // меню, поиск конца связи, панель источника и поле с несохранённой правкой гасят его
+  // сами (stopPropagation, preventDefault); открытое окно (нативный <dialog>) закрывается
+  // своим cancel — обработчик клавишу не гасит, а пропускает; открытое всплывающее с
+  // document-обработчиком (меню «⋮», «Рекомендации», легенда — ui/useDismiss) закрывает
+  // себя само: его кнопка ещё помечена aria-expanded. Шевроны дерева — не всплывающие.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const onEscape = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+    if (document.querySelector("dialog[open]")) return;
+    if (rootRef.current?.querySelector('[aria-expanded="true"]:not(.nt-chevzone)')) return;
+    if (selectedObject) { closePanel(); return; }
+    onDone();
+  });
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDone();
-    };
+    const onKey = (e: KeyboardEvent) => onEscape(e);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onDone]);
+  }, []);
 
   // ── Обработчики (порты из TreePage) ──────────────────────────────
   const refetchLevel = (level: string | null) => () => { load(level); };
@@ -915,10 +929,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   }), [schemaView, edgeLabelsHidden]);
 
   // ── Рендер ───────────────────────────────────────────────────────
+  // Корень — на новом языке (класс ds), но перестроена пока только правая панель. Шапка,
+  // дерево с палитрой, холст с тостами и окна закреплены на прежних метриках текста
+  // (legacy-root, ui/tokens.css): шапку и левую панель перестраивает фаза 4б, холст
+  // закреплён своим правилом там же.
   return (
-    <div style={page}>
+    <div ref={rootRef} className="map-editor ds" style={page}>
       {/* Топбар */}
-      <div style={topBar}>
+      <div className="legacy-root" style={topBar}>
         <div style={topLeft}>
           <BrandLink onClick={onAllProjects} />
           <span style={divider} />
@@ -990,7 +1008,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         {/* Дерево объектов: тот же плоский дизайн, что на страницах (ProjectShell),
             но клик навигирует внутри редактора (контейнер → дрилл на слой,
             лист → прыжок на слой родителя + выделение + пульс) и внизу есть
-            секция «Добавить объект» — единственное отличие от дерева страниц. */}
+            секция «Добавить объект» — единственное отличие от дерева страниц.
+            Обёртка без своей коробки (display: contents) только закрепляет метрики. */}
+        <div className="legacy-root" style={{ display: "contents" }}>
         <NodeTreePanel
           mode="editor"
           isArchitect={isArchitect}
@@ -1003,9 +1023,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           onTemplateDrag={setDragType}
           paletteTiles={tiles}
         />
+        </div>
 
-        {/* Холст */}
-        <div style={graphArea}>
+        {/* Холст — от левой панели до правого края окна или до панели объекта, без поля
+            и рамки (pages/MapEditorPage.css). */}
+        <div className="legacy-root" style={graphArea}>
           {/* Рейл тостов холста (правый верхний угол, спека AL10): кнопка
               «Рекомендации» + тост чужой сессии. Прозрачен для мыши,
               интерактивны только кнопка и панель (pointerEvents у них auto). */}
@@ -1068,7 +1090,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         )}
       </div>
 
-      {/* Модалки */}
+      {/* Модалки. Окна (<dialog>) закреплены на прежних метриках правилом
+          .ds dialog.app-modal; обёртка без коробки держит прежние метрики и у остального. */}
+      <div className="legacy-root" style={{ display: "contents" }}>
       {consequences.dialog}
       {nodeModal.open && (
         <NodeModal
@@ -1130,6 +1154,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       )}
       {/* Выбор связи (обычный / общее плечо) — рендерит useEdgeChoice */}
       {choiceModal}
+      </div>
     </div>
   );
 }
@@ -1140,7 +1165,7 @@ const NO_DROP_FRAMES: DropFrameTarget[] = [];
 // ── Стили ───────────────────────────────────────────────────────────
 
 const page: CSSProperties = { ...workPage, background: "#f8fafc" };
-const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", padding: 12, display: "flex", flexDirection: "column", position: "relative" };
+const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" };
 const doneBtn: CSSProperties = { padding: "7px 20px", fontSize: 13.5, fontWeight: 600, color: "#fff", background: "#2563eb", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" };
 const crumbLink: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", borderRadius: 7, fontSize: 13.5, color: "#64748b", cursor: "pointer", background: "none", border: "none" };
 const crumbCurrent: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", fontSize: 13.5, color: "#1e293b", fontWeight: 600, background: "none", border: "none", cursor: "default" };
