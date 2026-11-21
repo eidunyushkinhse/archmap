@@ -30,7 +30,7 @@
 // одинаковые рамки на свежих и владеемых сценах.
 import { NODE_W, NODE_H } from "../constants";
 import { edgeText, wrapLabel } from "../text";
-import { layoutGraphCached, LEVEL_DIRECTION, NODE_PLACEMENT } from "./engine";
+import { layoutGraphCached, LEVEL_DIRECTION, nodePlacementFor } from "./engine";
 import { flowSpacing } from "./flowGaps";
 import { wrappedLabelBoxSize } from "./labelBox";
 import type { AncestorRef, LayoutEdge, LevelPos, Node as AppNode } from "../../../types";
@@ -121,7 +121,8 @@ export async function layoutChildrenBlock(params: {
     layoutOptions: {
       "elk.algorithm": "layered",
       "elk.direction": LEVEL_DIRECTION,
-      "elk.layered.nodePlacement.strategy": NODE_PLACEMENT,
+      // то же правило, что у уровня (engine.nodePlacementFor): по числу узлов подграфа
+      "elk.layered.nodePlacement.strategy": nodePlacementFor(ids.length),
       "elk.layered.spacing.nodeNodeBetweenLayers": String(layerGap),
       "elk.spacing.nodeNode": String(sp.nodeGap),
       "elk.spacing.edgeNode": String(sp.edgeNodeGap),

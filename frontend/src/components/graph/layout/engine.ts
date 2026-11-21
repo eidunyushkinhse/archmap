@@ -26,16 +26,37 @@ import type { GuestLayer } from "./guestLayers";
 export const LEVEL_DIRECTION: FlowDirection = "DOWN";
 
 /**
- * СТРАТЕГИЯ РАССТАНОВКИ УЗЛОВ ВНУТРИ СЛОЯ (Ф4б, 2026-10-12): network simplex вместо
- * дефолтного Brandes–Köpf. BK выравнивает узел по одному (медианному) соседу и на
- * сценах полигона уводил хаб (Kafka) в край ряда — три длинных плеча и лишние кресты;
- * NS минимизирует взвешенную сумму отклонений рёбер и ставит хаб под центром масс
- * соседей. Замер auto DOWN (кресты/резы, длина): корень 1/1 → 0/0, система 2/0 → 1/0
- * (18.4k → 16.7k px), система с рамкой 4/0 → 3/2, каталог 0/0 (3774 → 3558). Одна из
- * стратегий меню Mermaid (elk.nodePlacementStrategy). Та же — в мини-раскладке блоков и
- * спавна детей (spawnChildren).
+ * СТРАТЕГИЯ РАССТАНОВКИ УЗЛОВ ВНУТРИ СЛОЯ — по размеру графа ELK (эпик render-scale, шаг
+ * «быстрый ELK и один прогон», 2026-11-21): до NODE_PLACEMENT_SMALL_MAX узлов графа
+ * включительно — NETWORK_SIMPLEX, больше — LINEAR_SEGMENTS. Одно правило на раскладку
+ * уровня (layoutLevel) и на мини-раскладку блоков и спавна детей (spawnChildren).
+ *
+ * NETWORK_SIMPLEX (Ф4б, 2026-10-12) выбран против дефолтного Brandes–Köpf: BK выравнивает
+ * узел по одному (медианному) соседу и на сценах полигона уводил хаб (Kafka) в край ряда —
+ * три длинных плеча и лишние кресты; NS минимизирует взвешенную сумму отклонений рёбер и
+ * ставит хаб под центром масс соседей (полигон auto DOWN, кресты/резы: корень 1/1 → 0/0,
+ * система 2/0 → 1/0, система с рамкой 4/0 → 3/2). Но NS растёт сверхлинейно и на входе на
+ * уровень стоил дороже роутера. Стадия ELK под Node, мс, NS → LS (в браузере ELK в 1,6–1,8
+ * раза медленнее): уровень хаба с 35 детьми (44/70) 1 724 → 276, эталон Sentry (42/93)
+ * 1 131 → 268, плоский уровень 60/120 6 320 → 413, 120/240 13 769 → 999; спавн 60 детей
+ * 2 134 → 262, 120 детей 16 676 → 549.
+ *
+ * ПОЧЕМУ НЕ LINEAR_SEGMENTS ВЕЗДЕ. На малых сценах полигона стрелок LS терял качество:
+ * система с рамкой — кресты 3 → 5, сумма по полигону кресты 61 → 63, «сквозь плашки»
+ * 34 → 37; а на графах до 30 узлов NS стоит десятки миллисекунд. С порогом 30 полигон
+ * прежний побитово, корпус по качеству в воротах шага (кресты 4 401 → 4 332, «сквозь
+ * плашки» +5,1 %, длина +2,9 %), сумма времени входов на уровень по корпусу 25,6 → 14,6 с.
+ * Раздельные пороги уровня и спавна (36, 50 и их сочетания) ничего не выигрывали — порог
+ * один. BRANDES_KOEPF быстр, но растягивает холст вширь в полтора-два раза;
+ * `elk.layered.thoroughness` на время NS не влияет. Обе стратегии — из меню Mermaid
+ * (elk.nodePlacementStrategy).
  */
-export const NODE_PLACEMENT = "NETWORK_SIMPLEX";
+export const NODE_PLACEMENT_SMALL_MAX = 30;
+
+/** Стратегия расстановки узлов внутри слоя для графа ELK из nodeCount узлов. */
+export function nodePlacementFor(nodeCount: number): "NETWORK_SIMPLEX" | "LINEAR_SEGMENTS" {
+  return nodeCount <= NODE_PLACEMENT_SMALL_MAX ? "NETWORK_SIMPLEX" : "LINEAR_SEGMENTS";
+}
 import { assignEdgeHandles } from "./level";
 import type { LayoutEdge } from "../../../types";
 import { diag } from "./diag";
@@ -197,7 +218,8 @@ export async function layoutLevel(
       layoutOptions: {
         "elk.algorithm": "layered",
         "elk.direction": LEVEL_DIRECTION,
-        "elk.layered.nodePlacement.strategy": NODE_PLACEMENT,
+        // стратегия — функция числа узлов графа, а оно уже в сигнатуре кэша (elkSignature)
+        "elk.layered.nodePlacement.strategy": nodePlacementFor(allNodes.length),
         "elk.layered.spacing.nodeNodeBetweenLayers": "120", // ≈ dagre ranksep
         "elk.spacing.nodeNode": String(sp.nodeGap),
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
