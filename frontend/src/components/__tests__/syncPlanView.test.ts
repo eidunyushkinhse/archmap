@@ -122,7 +122,7 @@ describe("связи", () => {
     );
     const r: SyncApplyOut = {
       created_nodes: [], updated_nodes: [], deprecated_nodes: [], created_edges: [],
-      updated_edges: ["С / producer → С / bus"], skipped: [], graph_rev: 3,
+      updated_edges: ["С / producer → С / bus"], skipped: [], graph_rev: 3, code_changes_cleared: [],
     };
     expect(applySummary(r)).toBe("Схема обновлена: 1 связей дополнено");
   });

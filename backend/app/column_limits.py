@@ -67,6 +67,9 @@ FIELD_WORDS_BY_MODEL: dict[tuple[str, str], str] = {
     ("NodeDoc", "name"): "Имя схемы",
     ("DeploymentSite", "name"): "Имя площадки",
     ("ProcessParticipant", "name"): "Имя участника",
+    # Сигнал CI о слиянии (app/code_changes.py): поля присылает CI, отказ читают в его журнале.
+    ("CodeChange", "repo"): "Репозиторий",
+    ("CodeChange", "branch"): "Ветка",
 }
 
 

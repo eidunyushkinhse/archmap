@@ -66,20 +66,20 @@ describe("AccountMenu", () => {
     expect(screen.queryByLabelText("Название")).not.toBeInTheDocument();
   });
 
-  it("архитектору «Только чтение» на выбор, «Пользователю» — включено и закрыто", async () => {
+  it("архитектору доступ на выбор, «Пользователю» — только чтение и закрыто", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     const { unmount } = render(<AccountMenu onLogout={vi.fn()} />);
     await userEvent.click(screen.getByLabelText("Профиль"));
     await userEvent.click(screen.getByRole("menuitem", { name: "Токены для MCP" }));
-    expect(await screen.findByLabelText("Только чтение")).toBeEnabled();
+    expect(await screen.findByLabelText("Доступ")).toBeEnabled();
     unmount();
 
     vi.mocked(getUserRole).mockReturnValue("viewer");
     render(<AccountMenu onLogout={vi.fn()} />);
     await userEvent.click(screen.getByLabelText("Профиль"));
     await userEvent.click(screen.getByRole("menuitem", { name: "Токены для MCP" }));
-    const ro = await screen.findByLabelText("Только чтение");
-    expect(ro).toBeChecked();
-    expect(ro).toBeDisabled();
+    const access = await screen.findByLabelText("Доступ");
+    expect(access).toHaveValue("read");
+    expect(access).toBeDisabled();
   });
 });

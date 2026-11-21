@@ -207,6 +207,9 @@ class SyncApplyOut(BaseModel):
     updated_edges: list[str] = []  # связи, у которых заполнен канал или тип канала
     skipped: list[str] = []  # действия, не применённые при записи; причина — в самой строке
     graph_rev: int = 0  # новый курсор схемы
+    # Репозитории, чьи напоминания о слиянии сняты этим обновлением (app/code_changes.py):
+    # в прогоне есть объекты из них.
+    code_changes_cleared: list[str] = []
 
 
 class ImportPromptOut(BaseModel):

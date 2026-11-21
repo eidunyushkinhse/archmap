@@ -20,7 +20,7 @@ import IssuedTokenView from "./IssuedTokenView";
 
 interface Props {
   // «Пользователю» (роль viewer) токен положен только для чтения — правило держит бэк
-  // (app/personal_tokens.py), здесь галочка лишь показана включённой и закрытой.
+  // (app/personal_tokens.py), здесь выбор доступа лишь показан закрытым.
   readOnlyOnly: boolean;
   onClose: () => void;
 }
@@ -34,13 +34,24 @@ const LIFETIMES: { value: string; days: Lifetime; label: string }[] = [
   { value: "none", days: null, label: "Бессрочно" },
 ];
 
-/** Имя по умолчанию: «Агент», а если занято — «Агент 2», «Агент 3»… (имя уникально). */
-function defaultTokenName(tokens: PersonalToken[]): string {
+// Что умеет токен: всё, что владелец (кроме удаления без версии), только читать или
+// только сообщать ArchMap о слиянии в репозитории из CI (backend/app/code_changes.py).
+type Access = "full" | "read" | "ci";
+
+const ACCESS: { value: Access; label: string }[] = [
+  { value: "full", label: "Полный" },
+  { value: "read", label: "Только чтение" },
+  { value: "ci", label: "Только сигнал из CI" },
+];
+
+/** Имя по умолчанию: «Агент» (у токена CI «CI»), а если занято — «Агент 2», «Агент 3»…
+ *  (имя уникально). */
+function defaultTokenName(tokens: PersonalToken[], base: string): string {
   const taken = new Set(tokens.map((t) => t.name));
-  if (!taken.has("Агент")) return "Агент";
+  if (!taken.has(base)) return base;
   let n = 2;
-  while (taken.has(`Агент ${n}`)) n += 1;
-  return `Агент ${n}`;
+  while (taken.has(`${base} ${n}`)) n += 1;
+  return `${base} ${n}`;
 }
 
 function fmtDate(iso: string): string {
@@ -57,7 +68,8 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
   const tokens = useAsyncLoad("tokens", tokensApi.list);
   // null — имя ещё не трогали: подставляется свободное по умолчанию.
   const [name, setName] = useState<string | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
+  const [access, setAccess] = useState<Access>("full");
+  const shownAccess: Access = readOnlyOnly ? "read" : access;
   const [lifetime, setLifetime] = useState("90");
   const [issued, setIssued] = useState<PersonalTokenCreated | null>(null);
   const [revoking, setRevoking] = useState<PersonalToken | null>(null);
@@ -70,14 +82,19 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
   const [revokeError, setRevokeError] = useState<string | null>(null);
 
   const list = tokens.data ?? [];
-  const shownName = name ?? defaultTokenName(list);
+  const shownName = name ?? defaultTokenName(list, shownAccess === "ci" ? "CI" : "Агент");
   const canIssue = shownName.trim().length > 0 && !issue.busy && tokens.data !== null;
 
   async function submit() {
     if (!canIssue) return;
     const days = LIFETIMES.find((l) => l.value === lifetime)?.days ?? 90;
     await issue.run(async () => {
-      setIssued(await tokensApi.create({ name: shownName.trim(), read_only: readOnlyOnly || readOnly, lifetime_days: days }));
+      setIssued(await tokensApi.create({
+        name: shownName.trim(),
+        read_only: shownAccess === "read",
+        ci_only: shownAccess === "ci",
+        lifetime_days: days,
+      }));
     });
   }
 
@@ -120,6 +137,7 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
                     <span style={nameCell}>{t.name}</span>
                     <code style={prefixCell}>{t.prefix}…</code>
                     {t.read_only && <span style={roTag}>только чтение</span>}
+                    {t.ci_only && <span style={roTag}>сигнал из CI</span>}
                   </div>
                   <div style={metaLine}>{tokenMeta(t)}</div>
                 </div>
@@ -155,15 +173,18 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
             </select>
           </div>
         </div>
-        <label style={readOnlyOnly ? { ...checkRow, cursor: "default", color: "#64748b" } : checkRow}>
-          <input
-            type="checkbox"
-            checked={readOnlyOnly || readOnly}
+        <div style={{ width: 220 }}>
+          <label style={labelStyle} htmlFor="tok-access">Доступ</label>
+          <select
+            id="tok-access"
+            style={input}
+            value={shownAccess}
             disabled={readOnlyOnly}
-            onChange={(e) => setReadOnly(e.target.checked)}
-          />
-          <span>Только чтение</span>
-        </label>
+            onChange={(e) => setAccess(ACCESS.find((a) => a.value === e.target.value)?.value ?? "full")}
+          >
+            {ACCESS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+          </select>
+        </div>
 
         {issue.error && <p style={errText}>{issue.error}</p>}
 
@@ -215,7 +236,3 @@ const revokeBtn: CSSProperties = {
 };
 const sectionLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569", margin: "20px 0 10px" };
 const fieldsRow: CSSProperties = { display: "flex", gap: 12, alignItems: "flex-start" };
-const checkRow: CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, color: "#1e293b",
-  cursor: "pointer", margin: "0 0 16px",
-};

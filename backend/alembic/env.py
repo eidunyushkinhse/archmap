@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool, text
 import app.models.broker_channel
 import app.models.business_process
 import app.models.channel_field
+import app.models.code_change
 import app.models.config_param
 import app.models.db_column
 import app.models.db_table

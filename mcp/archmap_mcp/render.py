@@ -724,8 +724,35 @@ def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[s
     return out
 
 
+CODE_CHANGE_NODES_SHOWN = 5  # объектов репозитория в строке напоминания, дальше числом
+
+
+def code_change_line(c: dict[str, Any]) -> str:
+    """Напоминание о слиянии (AL37): репозиторий, сколько слияний и с какого дня, коммиты
+    (между ними агент смотрит, что поменялось) и затронутые объекты."""
+    merges = int(c.get("merges") or 0)
+    since = str(c.get("first_at") or "")[:10]
+    line = f"{c.get('repo')}: {merges} {_plural(merges, ('слияние', 'слияния', 'слияний'))}"
+    line += f" с {since}" if since else ""
+    first, last = c.get("first_commit"), c.get("last_commit")
+    if first and last and first != last:
+        line += f", коммиты {str(first)[:8]}…{str(last)[:8]}"
+    elif last or first:
+        line += f", коммит {str(last or first)[:8]}"
+    if c.get("branch"):
+        line += f" в {c['branch']}"
+    nodes: list[dict[str, Any]] = c.get("nodes") or []
+    names = ", ".join(str(n.get("node_name")) for n in nodes[:CODE_CHANGE_NODES_SHOWN])
+    rest = len(nodes) - CODE_CHANGE_NODES_SHOWN
+    line += f". Объекты: {names}" + (f" и ещё {rest}" if rest > 0 else "")
+    return (
+        line + ". Напоминание снимет обновление из кода с объектами этого репозитория "
+        "(archmap_sync_preview, затем archmap_sync_apply)"
+    )
+
+
 def alerts(data: dict[str, Any]) -> str:
-    """Рекомендации проекта — 16 классов в порядке, заголовках и словах панели
+    """Рекомендации проекта — 17 классов в порядке, заголовках и словах панели
     SchemaAlerts.tsx (решение 7 плана эпика «Доработка MCP-сервера»).
 
     Читается это агентом, а показывается человеку панелью — значит и называться
@@ -745,6 +772,7 @@ def alerts(data: dict[str, Any]) -> str:
         value = data.get(key) or []
         return list(value) if isinstance(value, list) else []
 
+    code_changes = lst("code_changes")
     disconnected = lst("disconnected_nodes")
     intermediate = lst("intermediate_edges")
     descendant = lst("descendant_edges")
@@ -772,6 +800,7 @@ def alerts(data: dict[str, Any]) -> str:
         """Конец связи: проблемный выделяется кавычками — в панели он подсвечен."""
         return f"«{name}»" if marked else name
 
+    add("Документацию пора обновить", [code_change_line(c) for c in code_changes])
     add("Объекты без связей", [str(d["node_name"]) for d in disconnected])
     add(
         "Связи в систему или контейнер",
@@ -879,7 +908,8 @@ def alerts(data: dict[str, Any]) -> str:
     # Общий счётчик — как бабл панели: изолированные группы дают не число групп, а
     # число НЕДОСТАЮЩИХ связей (групп − 1), остальные классы — по записи.
     total = (
-        len(disconnected) + len(intermediate) + len(descendant) + max(0, len(isolated) - 1)
+        len(code_changes) + len(disconnected) + len(intermediate) + len(descendant)
+        + max(0, len(isolated) - 1)
         + len(container_own) + len(component_facts) + len(data_refs) + len(channel_refs) + len(config_refs)
         + len(broker_edges) + len(dangling) + len(orphan_legs) + len(unbound)
         + len(unlinked) + len(undescribed) + len(persons_inside)

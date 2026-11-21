@@ -35,6 +35,12 @@ class PersonalToken(Base):
     read_only: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Только сигнал CI: токен умеет одно — сообщить о слиянии в репозитории (POST
+    # /api/v1/code-changes); везде ещё, включая /mcp, отказ (app/auth.py). Его кладут в
+    # переменные CI многих репозиториев, и утечка не даёт ни читать, ни менять знание.
+    ci_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )

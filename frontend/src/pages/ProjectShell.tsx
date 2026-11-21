@@ -19,6 +19,7 @@ import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import AccountMenu from "../components/users/AccountMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
+import CodeChangeNotice from "../components/project/CodeChangeNotice";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
@@ -206,11 +207,27 @@ export default function ProjectShell({
             onSynced={() => {
               setTreeReload((t) => t + 1);
               setSyncToken((t) => t + 1);
+              // обновление из кода снимает напоминание о слиянии: плашка гаснет сразу
+              reloadAlerts();
             }}
           />
           <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
         </div>
       </div>
+
+      {/* Код ушёл вперёд документации: CI сообщил о слиянии в репозиторий проекта. */}
+      {isArchitect && (
+        <CodeChangeNotice
+          projectId={projectId}
+          changes={alerts.code_changes}
+          onSynced={() => {
+            setTreeReload((t) => t + 1);
+            setSyncToken((t) => t + 1);
+            reloadAlerts();
+          }}
+          onDismissed={reloadAlerts}
+        />
+      )}
 
       {/* ── Тело ──────────────────────────────────────────────── */}
       <div style={bodyRow}>

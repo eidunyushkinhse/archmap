@@ -30,7 +30,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app import demo, demo_limits, scan_file
+from app import code_changes, demo, demo_limits, scan_file
 from app.access import (
     VIEWER_EDITOR_DETAIL,
     VIEWER_OWNER_DETAIL,
@@ -498,6 +498,11 @@ def sync_apply(
 
     plan = plan_for(db, project_id, merged, _sync_policies(payload))
     report = apply_sync_plan(db, project, merged, plan)
+    # Документацию объектов этих репозиториев только что сверили с кодом: напоминание о
+    # слиянии снимается, даже если менять было нечего.
+    cleared = code_changes.clear_for_sources(
+        db, project.id, (k for n in merged.nodes for k in n.source_keys)
+    )
     project.updated_at = datetime.now(UTC)
     project.updated_by_id = user.id
     db.commit()
@@ -509,6 +514,7 @@ def sync_apply(
         updated_edges=report.updated_edges,
         skipped=report.skipped,
         graph_rev=project.graph_rev,
+        code_changes_cleared=cleared,
     )
 
 

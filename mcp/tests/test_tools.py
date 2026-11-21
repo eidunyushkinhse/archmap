@@ -543,6 +543,7 @@ async def test_применение_синка_шлёт_contents_текстам�
         updated_edges=["Маркетплейс / Заказы → Маркетплейс / Kafka"],
         skipped=["Маркетплейс / Склад: тип не изменён. У объекта есть вложенные объекты — базой данных, брокером или «Пользователем» ему не стать"],
         graph_rev=12,
+        code_changes_cleared=["gitlab.example.org/market/shop"],
     ).model_dump(mode="json"))
 
     out = await tools.call(
@@ -561,6 +562,11 @@ async def test_применение_синка_шлёт_contents_текстам�
     assert "Пропущено (причина в строке): 1" in out
     assert "• Маркетплейс / Склад: тип не изменён." in out
     assert "graph_rev=12" in out
+    # обновление из кода с объектами репозитория снимает напоминание о слиянии из CI
+    assert (
+        "Напоминание «Документацию пора обновить» снято для репозитория "
+        "gitlab.example.org/market/shop." in out
+    )
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == ["прогон"]
     assert body["base_graph_rev"] == 7  # курсор схемы не потерялся вместе с формой
