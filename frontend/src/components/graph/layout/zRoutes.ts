@@ -222,14 +222,6 @@ interface Straight {
   slot: [number, number] | null; // слот подписи на прямой (across с запасом); null — носителя нет
   thick: number;                 // поперечная протяжённость плашки с запасом (0 — без подписи)
 }
-/**
- * Неподвижное препятствие раздачи. Параллельное дорожкам (стаб или прямая чужой связи;
- * `thick` > 0 — на этом пробеге лежит плашка подписи, дорожка держит от неё запас) либо
- * СЛОТ ПОДПИСИ поперёк дорожек (`slot`): pos — середина слота across, lo..hi — along-полоса
- * плашки, thick — высота слота; дорожка с пробегом в этой полосе выходит из слота на ту
- * сторону, откуда приходит её вертикаль.
- */
-interface Fixed { edge: ZEdge | null; pos: number; lo: number; hi: number; thick: number; slot: boolean }
 
 /** Цена креста при выборе варианта дорожки — та же, что у A* (routeAll.DEFAULT_CROSS_COST). */
 const CAND_CROSS_COST = 200;
@@ -484,28 +476,83 @@ function slotsOf(n: number, dag: Dep[]): number[] {
 const runOverlap = (a: { lo: number; hi: number }, b: { lo: number; hi: number }): number =>
   Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo);
 
-/** Неподвижные препятствия, применимые к сегменту раздачи (см. distribute). */
-interface Applicable {
-  app: Array<{ f: Fixed; up: boolean; down: boolean }>;
-  hasSlot: boolean;   // среди них есть слот подписи
-  hasThick: boolean;  // есть отрезок с толщиной плашки (не слот)
+/**
+ * Неподвижные препятствия раздачи одной ориентации. Препятствие — параллельное дорожкам
+ * (стаб или прямая чужой связи; thick > 0 — на этом пробеге лежит плашка подписи, дорожка
+ * держит от неё запас) либо СЛОТ ПОДПИСИ поперёк дорожек (slot): pos — середина слота
+ * across, lo..hi — along-полоса плашки, thick — высота слота; дорожка с пробегом в этой
+ * полосе выходит из слота на ту сторону, откуда приходит её вертикаль. edge — номер
+ * связи-владельца в списке вызова (−1 у прямой). Хранятся столбцами (perf, эпик
+ * render-scale): раздача идёт на каждой пробе спуска, и объект на препятствие кормил
+ * сборщик мусора.
+ */
+class FixedCols {
+  n = 0;
+  edge = new Int32Array(64);
+  pos = new Float64Array(64);
+  lo = new Float64Array(64);
+  hi = new Float64Array(64);
+  thick = new Float64Array(64);
+  slot = new Uint8Array(64);
+  add(edge: number, pos: number, lo: number, hi: number, thick: number, slot: boolean): void {
+    if (this.n === this.pos.length) {
+      const len = this.pos.length * 2;
+      const i32 = new Int32Array(len); i32.set(this.edge); this.edge = i32;
+      const u8 = new Uint8Array(len); u8.set(this.slot); this.slot = u8;
+      const grow = (a: Float64Array<ArrayBuffer>): Float64Array<ArrayBuffer> => { const g = new Float64Array(len); g.set(a); return g; };
+      this.pos = grow(this.pos); this.lo = grow(this.lo); this.hi = grow(this.hi); this.thick = grow(this.thick);
+    }
+    const k = this.n++;
+    this.edge[k] = edge; this.pos[k] = pos; this.lo[k] = lo; this.hi[k] = hi; this.thick[k] = thick; this.slot[k] = slot ? 1 : 0;
+  }
 }
 
-// Применимые препятствия сегмента (чужие, с общим пробегом) и сторона, откуда к слоту
-// подписи приходит вертикаль дорожки. От зазора не зависят: считаются один раз на раздачу,
-// а не в каждом из до четырёх вариантов разрешения при каждом прогоне (и входят в ключ
-// памяти раздачи компоненты).
-function applicableOf(s: Seg, fixed: ReadonlyArray<Fixed>): Applicable {
-  const app: Array<{ f: Fixed; up: boolean; down: boolean }> = [];
-  let hasSlot = false, hasThick = false;
-  for (const f of fixed) {
-    if (f.edge === s.edge || !(runOverlap(f, s) > EPS)) continue;
-    const up = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "up");
-    const down = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "down");
-    app.push({ f, up, down });
-    if (f.slot) hasSlot = true; else if (f.thick !== 0) hasThick = true;
+/**
+ * Применимые препятствия сегментов одной раздачи: у сегмента k (номер в списке раздачи) —
+ * записи [start[k], start[k + 1]) в общих буферах. fi — номер препятствия, code — вид: 0 —
+ * отрезок, у слота подписи 1 + up + 2·down (с какой стороны к слоту приходит вертикаль
+ * дорожки); flags[k]: 1 — среди них есть слот, 2 — есть отрезок с толщиной плашки. Применимы
+ * чужие препятствия с общим пробегом; от зазора это не зависит, поэтому список считается один
+ * раз на раздачу, а не в каждом из до четырёх вариантов разрешения (и входит в ключ памяти
+ * раздачи компоненты).
+ */
+class AppTable {
+  start = new Int32Array(65);
+  flags = new Uint8Array(64);
+  fi = new Int32Array(256);
+  code = new Uint8Array(256);
+  build(S: ReadonlyArray<Seg>, F: FixedCols): void {
+    const n = S.length;
+    if (this.flags.length < n) { this.flags = new Uint8Array(2 * n); this.start = new Int32Array(2 * n + 1); }
+    let m = 0;
+    for (let k = 0; k < n; k++) {
+      const s = S[k], own = s.edge.ix;
+      this.start[k] = m;
+      let flags = 0;
+      for (let f = 0; f < F.n; f++) {
+        // runOverlap(f, s) > EPS, слово в слово
+        if (F.edge[f] === own || !(Math.min(F.hi[f], s.hi) - Math.max(F.lo[f], s.lo) > EPS)) continue;
+        let code = 0;
+        if (F.slot[f] === 1) {
+          const fLo = F.lo[f], fHi = F.hi[f];
+          let up = false, down = false;
+          for (const v of s.verts) {
+            if (!within(v.along, fLo, fHi)) continue;
+            if (v.dir === "up") up = true; else down = true;
+          }
+          code = 1 + (up ? 1 : 0) + (down ? 2 : 0);
+          flags |= 1;
+        } else if (F.thick[f] !== 0) flags |= 2;
+        if (m === this.fi.length) {
+          const i32 = new Int32Array(2 * m); i32.set(this.fi); this.fi = i32;
+          const u8 = new Uint8Array(2 * m); u8.set(this.code); this.code = u8;
+        }
+        this.fi[m] = f; this.code[m] = code; m++;
+      }
+      this.flags[k] = flags;
+    }
+    this.start[n] = m;
   }
-  return { app, hasSlot, hasThick };
 }
 
 /**
@@ -520,7 +567,8 @@ function applicableOf(s: Seg, fixed: ReadonlyArray<Fixed>): Applicable {
  * проверка наложений (уступят A*).
  */
 function distribute(
-  M: Seg[], slots: number[], interacts: (a: Seg, b: Seg) => boolean, apps: ReadonlyArray<Applicable>,
+  M: Seg[], slots: number[], interacts: (a: Seg, b: Seg) => boolean,
+  ks: ReadonlyArray<number>, app: AppTable, F: FixedCols, edgeIds: ReadonlyArray<string>,
 ): { lanes: number[]; gap: number } {
   const m = M.length;
   const K = Math.max(...slots) + 1;
@@ -569,20 +617,23 @@ function distribute(
   // потеряны), толщины чужих стабов; в крайнем случае полоса остаётся как есть (дорожка
   // ляжет на линию и уступит A* по наложению, как прежде).
   const band0 = M.map((_, i) => [lo[i], hi[i]] as [number, number]);
-  // применимые препятствия каждого сегмента (applicableOf) считает вызывающий
+  // применимые препятствия сегмента i — записи таблицы app у его номера ks[i] (AppTable)
   const resolveAll = (): void => {
     M.forEach((s, i) => {
       [lo[i], hi[i]] = band0[i];
-      const { app, hasSlot, hasThick } = apps[i];
-      if (app.length === 0) return;
+      const q0 = app.start[ks[i]], q1 = app.start[ks[i] + 1];
+      if (q0 === q1) return;
+      const hasSlot = (app.flags[ks[i]] & 1) !== 0, hasThick = (app.flags[ks[i]] & 2) !== 0;
       const d = desired[i];
       const resolve = (ownThick: number, useSlots: boolean, useThick: boolean): [number, number] | null => {
         let pieces: Array<[number, number]> = [[lo[i], hi[i]]];
-        for (const { f, up, down } of app) {
-          if (f.slot && !useSlots) continue;
-          const g = Math.max(f.slot ? 0 : gap, ((useThick ? f.thick : 0) + ownThick) / 2);
-          const z0 = f.pos - g, z1 = f.pos + g;
-          const keepLo = !(f.slot && down && !up), keepHi = !(f.slot && up && !down);
+        for (let q = q0; q < q1; q++) {
+          const f = app.fi[q], code = app.code[q];
+          const slot = code !== 0, up = slot && ((code - 1) & 1) !== 0, down = slot && ((code - 1) & 2) !== 0;
+          if (slot && !useSlots) continue;
+          const g = Math.max(slot ? 0 : gap, ((useThick ? F.thick[f] : 0) + ownThick) / 2);
+          const z0 = F.pos[f] - g, z1 = F.pos[f] + g;
+          const keepLo = !(slot && down && !up), keepHi = !(slot && up && !down);
           const next: Array<[number, number]> = [];
           for (const [a, b] of pieces) {
             if (keepLo && z0 > a + EPS) { const nb = Math.min(b, z0); if (nb >= a - EPS) next.push([a, nb]); }
@@ -616,7 +667,12 @@ function distribute(
       // вариант «без толщин» совпадает с ним и тоже пуст.
       if (!pc && hasThick) pc = resolve(thick[i], false, false);
       if (__zDebug.trace && s.members.some((m) => m.id.startsWith(__zDebug.trace))) {
-        zlog(s.edge.id.slice(0, 8), "fix", `#${s.idx}`, `d=${d.toFixed(0)}`, `gap=${gap}`, `band=${lo[i].toFixed(0)}..${hi[i].toFixed(0)}`, `→ ${pc ? `${pc[0].toFixed(0)}..${pc[1].toFixed(0)}` : "none"}`, app.map(({ f }) => `${f.edge ? f.edge.id.slice(0, 8) : "straight"}@${f.pos.toFixed(0)}${f.slot ? "s" : ""}${f.thick > 0 ? `t${f.thick}` : ""}`).join(" "));
+        const fs: string[] = [];
+        for (let q = q0; q < q1; q++) {
+          const f = app.fi[q];
+          fs.push(`${F.edge[f] >= 0 ? edgeIds[F.edge[f]].slice(0, 8) : "straight"}@${F.pos[f].toFixed(0)}${F.slot[f] === 1 ? "s" : ""}${F.thick[f] > 0 ? `t${F.thick[f]}` : ""}`);
+        }
+        zlog(s.edge.id.slice(0, 8), "fix", `#${s.idx}`, `d=${d.toFixed(0)}`, `gap=${gap}`, `band=${lo[i].toFixed(0)}..${hi[i].toFixed(0)}`, `→ ${pc ? `${pc[0].toFixed(0)}..${pc[1].toFixed(0)}` : "none"}`, fs.join(" "));
       }
       if (!pc) return;
       lo[i] = pc[0]; hi[i] = pc[1];
@@ -1222,32 +1278,34 @@ export function zRoutes(params: {
   };
   // Неподвижные отрезки, параллельные дорожкам ориентации o: стабы и прямые связей
   // поперечной ориентации (их along — across для o).
-  const fixedOf = (o: Orient): Fixed[] => {
-    const out: Fixed[] = [];
+  const fixedCols = new FixedCols();
+  const fixedOf = (o: Orient): FixedCols => {
+    const out = fixedCols;
+    out.n = 0;
     for (const e of edges) {
       if (!e.cand) continue;
       const slot = slotOfHost(e);
       if (e.orient !== o) {
         const first = e.lanes[0], last = e.lanes[e.lanes.length - 1];
-        out.push({ edge: e, pos: e.uAlong, lo: Math.min(e.uAcross, first), hi: Math.max(e.uAcross, first), thick: 0, slot: false });
-        out.push({ edge: e, pos: e.dAlong, lo: Math.min(last, e.dAcross), hi: Math.max(last, e.dAcross), thick: 0, slot: false });
+        out.add(e.ix, e.uAlong, Math.min(e.uAcross, first), Math.max(e.uAcross, first), 0, false);
+        out.add(e.ix, e.dAlong, Math.min(last, e.dAcross), Math.max(last, e.dAcross), 0, false);
         // стаб-носитель подписи: на пробеге слота — толщина плашки
         if (slot && (e.host === "dstub" || e.host === "ustub")) {
-          out.push({ edge: e, pos: hostAlong(e), lo: slot[0], hi: slot[1], thick: e.thickFlow + 2 * LABEL_PAD, slot: false });
+          out.add(e.ix, hostAlong(e), slot[0], slot[1], e.thickFlow + 2 * LABEL_PAD, false);
         }
       } else if (slot) {
         // слот подписи на отрезке потока — поперечное препятствие дорожкам этой ориентации
         const a = hostAlong(e);
-        out.push({ edge: e, pos: (slot[0] + slot[1]) / 2, lo: a - e.thickFlow / 2 - LABEL_PAD, hi: a + e.thickFlow / 2 + LABEL_PAD, thick: slot[1] - slot[0], slot: true });
+        out.add(e.ix, (slot[0] + slot[1]) / 2, a - e.thickFlow / 2 - LABEL_PAD, a + e.thickFlow / 2 + LABEL_PAD, slot[1] - slot[0], true);
       }
     }
     for (const s of straights) {
       if (s.orient !== o) {
-        out.push({ edge: null, pos: s.along, lo: Math.min(s.lo, s.hi), hi: Math.max(s.lo, s.hi), thick: 0, slot: false });
-        if (s.slot) out.push({ edge: null, pos: s.along, lo: s.slot[0], hi: s.slot[1], thick: s.thick, slot: false });
+        out.add(-1, s.along, Math.min(s.lo, s.hi), Math.max(s.lo, s.hi), 0, false);
+        if (s.slot) out.add(-1, s.along, s.slot[0], s.slot[1], s.thick, false);
       } else if (s.slot) {
         const half2 = s.thick / 2;
-        out.push({ edge: null, pos: (s.slot[0] + s.slot[1]) / 2, lo: s.along - half2, hi: s.along + half2, thick: s.slot[1] - s.slot[0], slot: true });
+        out.add(-1, (s.slot[0] + s.slot[1]) / 2, s.along - half2, s.along + half2, s.slot[1] - s.slot[0], true);
       }
     }
     return out;
@@ -1265,14 +1323,17 @@ export function zRoutes(params: {
   // полос, внутри — зависимости, разрыв циклов, топологические номера, позиции через
   // решатель. hints — собирать ли свободные дорожки (финальный вызов).
   // Раздача одной компоненты: зависимости пар, разрыв циклов, номера дорожек, позиции.
-  const solveComp = (M: Seg[], apps: ReadonlyArray<Applicable>): CompResult => {
+  // ks — номера сегментов компоненты в списке раздачи (адреса в таблице применимых app).
+  const edgeIds = edges.map((e) => e.id);
+  const appTable = new AppTable();
+  const solveComp = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): CompResult => {
     const m = M.length;
     const deps: Dep[] = [];
     for (let i = 0; i < m; i++) {
       for (let j = i + 1; j < m; j++) if (interacts(M[i], M[j])) deps.push(...pairDeps(i, j, M[i], M[j]));
     }
     const slots = slotsOf(m, breakCycles(m, deps));
-    const { lanes, gap } = distribute(M, slots, interacts, apps);
+    const { lanes, gap } = distribute(M, slots, interacts, ks, appTable, F, edgeIds);
     return { slots, lanes, gap };
   };
   // ПАМЯТЬ РАЗДАЧИ КОМПОНЕНТЫ. Результат компоненты зависит только от её сегментов (в их
@@ -1289,8 +1350,8 @@ export function zRoutes(params: {
   //   отражена составом списка.
   const compMemo = new ExactMemo<CompResult>(COMP_MEMO_LIMIT);
   const compKey = new ExactKey();
-  const keyOfComp = (M: Seg[], apps: ReadonlyArray<Applicable>): void => {
-    const k = compKey;
+  const keyOfComp = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): void => {
+    const k = compKey, app = appTable;
     k.reset();
     k.push(M.length);
     for (let i = 0; i < M.length; i++) {
@@ -1304,36 +1365,59 @@ export function zRoutes(params: {
       k.push(Number.isFinite(s.bandLo) && Number.isFinite(s.bandHi) ? 0 : s.lane);
       k.push(s.thick); k.push(s.preShrunk ? 1 : 0);
       k.push(s.idx === 2 ? (s.edge.cand?.x ?? s.lane) : 0);
-      const app = apps[i].app;
-      k.push(app.length);
-      for (const { f, up, down } of app) { k.push(f.pos); k.push(f.thick); k.push(f.slot ? 1 + (up ? 1 : 0) + (down ? 2 : 0) : 0); }
+      const q0 = app.start[ks[i]], q1 = app.start[ks[i] + 1];
+      k.push(q1 - q0);
+      for (let q = q0; q < q1; q++) { const f = app.fi[q]; k.push(F.pos[f]); k.push(F.thick[f]); k.push(app.code[q]); }
     }
   };
-  const solveCompMemo = (M: Seg[], apps: ReadonlyArray<Applicable>): CompResult => {
-    if (!cacheOn) return solveComp(M, apps);
-    keyOfComp(M, apps);
+  const solveCompMemo = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): CompResult => {
+    if (!cacheOn) return solveComp(M, ks, F);
+    keyOfComp(M, ks, F);
     const h = compKey.hash();
     const hit = compMemo.get(h, compKey);
     if (hit) {
       if (selfCheck) {
-        const honest = solveComp(M, apps);
+        const honest = solveComp(M, ks, F);
         if (!sameNums(hit.slots, honest.slots) || !sameNums(hit.lanes, honest.lanes) || !sameNum(hit.gap, honest.gap)) selfCheckFail("раздача компоненты");
       }
       return hit;
     }
-    const res = solveComp(M, apps);
+    const res = solveComp(M, ks, F);
     compMemo.put(h, compKey, res);
     return res;
   };
-  const assign = (o: Orient, hints: boolean): void => {
+  // Раздача ориентации o целиком. rec — запись того, что она пишет в связи (для памяти
+  // раздачи ориентации): четвёрки «номер связи, вид отрезка (0/1 — дорожка, 2 — колонна),
+  // позиция, номер дорожки».
+  const assignFull = (o: Orient, hints: boolean, rec: number[] | null): void => {
     const S = segsOf(o);
     const n = S.length;
     if (n === 0) return;
     const F = fixedOf(o);
+    appTable.build(S, F);
     const parent = S.map((_, k) => k);
     const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) if (interacts(S[i], S[j])) parent[find(i)] = find(j);
+    // Компоненты: пары взаимодействующих сегментов. Перекрытие пробега ищется проходом по
+    // сегментам в порядке lo: у сегмента b правее a (b.lo ≥ a.lo) перекрытие с зазором —
+    // ровно a.hi − b.lo > −NUDGE_GAP (b.hi ≥ b.lo), и дальше по lo оно только убывает. Разбиение
+    // на компоненты и их порядок (по меньшему номеру сегмента) от порядка слияний не зависят.
+    // Нечисловой пробег — прежний полный перебор пар.
+    let finite = true;
+    for (const sg of S) if (!Number.isFinite(sg.lo) || !Number.isFinite(sg.hi)) { finite = false; break; }
+    if (finite) {
+      const byLo = S.map((_, k) => k).sort((a, b) => S[a].lo - S[b].lo || a - b);
+      for (let p = 0; p < n; p++) {
+        const a = S[byLo[p]];
+        for (let q = p + 1; q < n; q++) {
+          const b = S[byLo[q]];
+          if (!(a.hi - b.lo > -NUDGE_GAP)) break;
+          if (interacts(a, b)) parent[find(byLo[p])] = find(byLo[q]);
+        }
+      }
+    } else {
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) if (interacts(S[i], S[j])) parent[find(i)] = find(j);
+      }
     }
     const comps = new Map<number, number[]>();
     for (let k = 0; k < n; k++) {
@@ -1344,14 +1428,14 @@ export function zRoutes(params: {
     for (const members of comps.values()) {
       const M = members.map((k) => S[k]);
       const m = M.length;
-      const apps = M.map((s) => applicableOf(s, F));
-      const { slots, lanes, gap } = solveCompMemo(M, apps);
+      const { slots, lanes, gap } = solveCompMemo(M, members, F);
       M.forEach((s, i) => {
         s.slot = slots[i];
         s.lane = lanes[i];
         for (const part of s.parts ?? [s]) {
           if (part.idx === 2) part.edge.x = s.lane;
           else { part.edge.lanes[part.idx] = s.lane; part.edge.slots[part.idx] = s.slot; }
+          if (rec) rec.push(part.edge.ix, part.idx, s.lane, s.slot);
         }
       });
       if (__zDebug.on && (hints || (__zDebug.trace && M.some((s) => s.edge.id.startsWith(__zDebug.trace)))) && m > 1) zlog("comp", o, M.map((s) => `${s.edge.id.slice(0, 8)}#${s.idx}[${s.bandLo.toFixed(0)}..${s.bandHi.toFixed(0)}|${s.lo.toFixed(0)}..${s.hi.toFixed(0)}]s${s.slot}@${s.lane}`).join(" "));
@@ -1364,6 +1448,76 @@ export function zRoutes(params: {
       if (below >= M[lo].bandLo - EPS) sink.add(half(below));
       if (above <= M[hi].bandHi + EPS) sink.add(half(above));
     }
+  };
+  // ПАМЯТЬ РАЗДАЧИ ОРИЕНТАЦИИ. Почти каждая проба делает два круга раздачи, и второй круг
+  // обычно лишь подтверждает первый: его входы совпадают с входами первого. Раздача
+  // ориентации — функция того, что читают segsOf и fixedOf; ключ — ровно эти числа по
+  // связям, а свои же итоги, которые раздача не читает, в него не входят (иначе второй круг
+  // всегда отличался бы от первого):
+  //   у каждой связи — вариант и носитель подписи;
+  //   связь этой ориентации — колонна у ZZ (вертикали дорожек), дорожки у носителя-колонны
+  //   (его слот — препятствие); свои дорожки она иначе не читает (полосы дорожек конечны,
+  //   и natural/tieBreak берут середину полосы; нечисловая полоса — дорожки в ключе);
+  //   связь поперечной ориентации — крайние дорожки (стабы и пробег колонны), у ZZ — по какую
+  //   сторону от колонны лежат порты (направления вертикалей колонны) и сама колонна, если
+  //   её полоса не конечна (её читают natural и tieBreak).
+  // Попадание повторяет записи прошлой раздачи с тем же ключом. С подсказками A* (финальный
+  // вызов) раздача считается всегда.
+  const HOST_CODE: Record<Host, number> = { none: 0, dstub: 1, ustub: 2, column: 3, lane0: 4, lane1: 5 };
+  const assignKey = new ExactKey();
+  const assignMemo = new ExactMemo<number[]>(COMP_MEMO_LIMIT);
+  // варианты с нечисловой полосой дорожки (на деле их не бывает): при таком варианте у любой
+  // связи ориентации полоса ствола может стать нечисловой, и тогда дорожки всех её связей
+  // читаются (natural, tieBreak, средняя дорожка ствола) — они идут в ключ
+  const openCands = new Set<Cand>();
+  for (const e of edges) for (const c of e.cands) if (!c.bands.every(([a, b]) => Number.isFinite(a) && Number.isFinite(b))) openCands.add(c);
+  const keyOfAssign = (o: Orient): void => {
+    const k = assignKey;
+    k.reset();
+    k.push(o === "v" ? 0 : 1);
+    const open = openCands.size > 0 && edges.some((e) => e.orient === o && e.cand !== null && openCands.has(e.cand));
+    for (const e of edges) {
+      k.push(e.cand ? e.cands.indexOf(e.cand) : -1);
+      k.push(HOST_CODE[e.host]);
+      if (e.orient === o) {
+        if (e.kind === "zz") k.push(e.x);
+        const ownLanes = e.host === "column" || open;
+        k.push(ownLanes ? 1 : 0);
+        if (ownLanes) for (const v of e.lanes) k.push(v);
+      } else {
+        k.push(e.lanes[0]); k.push(e.lanes[e.lanes.length - 1]);
+        if (e.kind === "zz") {
+          k.push(e.uAlong < e.x ? 1 : 0); k.push(e.dAlong < e.x ? 1 : 0);
+          k.push(Number.isFinite(e.colLo) && Number.isFinite(e.colHi) ? 0 : e.x);
+        }
+      }
+    }
+  };
+  const replay = (rec: ReadonlyArray<number>): void => {
+    for (let q = 0; q < rec.length; q += 4) {
+      const e = edges[rec[q]], idx = rec[q + 1];
+      if (idx === 2) e.x = rec[q + 2];
+      else { e.lanes[idx] = rec[q + 2]; e.slots[idx] = rec[q + 3]; }
+    }
+  };
+  const assign = (o: Orient, hints: boolean): void => {
+    if (!cacheOn || hints) { assignFull(o, hints, null); return; }
+    keyOfAssign(o);
+    const h = assignKey.hash();
+    const hit = assignMemo.get(h, assignKey);
+    if (hit) {
+      if (selfCheck) {
+        const honest: number[] = [];
+        assignFull(o, false, honest);
+        if (!sameNums(hit, honest)) selfCheckFail("раздача ориентации");
+      }
+      replay(hit);
+      return;
+    }
+    const rec: number[] = [];
+    // assignFull не трогает ключ (у памяти компонент свой), запись идёт по нему же
+    assignFull(o, false, rec);
+    assignMemo.put(h, assignKey, rec);
   };
   // Обе ориентации кругами до сходимости (дорожки и колонны зависят друг от друга:
   // первый круг может упорядочить колонны по дорожкам-серединам, и только следующий
@@ -1455,97 +1609,221 @@ export function zRoutes(params: {
   const straightPts: EdgePoint[][] = [];
   for (const [id, pts] of routes) if (pts.length === 2 && straights.length > 0 && groups.some((g) => g.id === id)) straightPts.push(pts);
   // ПАМЯТЬ МАРШРУТОВ, ПАР И СЛОТОВ (см. «ПАМЯТЬ ПРОБ СПУСКА»). Маршрут связи — чистая
-  // функция её геометрии (вид, дорожки, колонна; порты и тела в вызове неизменны): последний
-  // построенный маршрут держится, пока геометрия та же, и несёт номер. Кресты и наложение
-  // пары зависят только от двух маршрутов, касание слота подписи чужой линией — от слота и
-  // маршрута: их результаты держатся по номерам и пересчитываются только там, где маршрут
-  // или слот сменился. Цена собирается из тех же слагаемых в прежнем порядке: связи
+  // функция её геометрии (вид, дорожки, колонна; порты и тела в вызове неизменны): связь
+  // помнит последние ROUTE_RECENT геометрий с маршрутами, и каждый маршрут несёт номер.
+  // Отвергнутая проба сдвигает дорожки соседей, следующая возвращает их на прежние места —
+  // возвращённый маршрут сохраняет прежний номер. Кресты и наложение пары зависят только от
+  // двух маршрутов, касание слота подписи чужой линией — от слота и маршрута: их результаты
+  // держатся по номерам (у пары — PAIR_WAYS последних сочетаний) и пересчитываются только
+  // для новых сочетаний. Цена собирается из тех же слагаемых в прежнем порядке: связи
   // (недопустимые, крюки), пары (i, j) — наложения и кресты в порядке первого появления
   // точки, потерянные носители по связям.
-  interface BuiltRoute { kind: "z" | "zz"; l0: number; l1: number; x: number; pts: EdgePoint[] | null; id: number }
+  interface BuiltRoute { kind: "z" | "zz"; l0: number; l1: number; x: number; pts: EdgePoint[] | null; id: number; box: Box }
+  const ROUTE_RECENT = 8, PAIR_WAYS = 4;
   let routeSerial = 0;
-  const routeMemo: Array<BuiltRoute | null> = edges.map(() => null);
+  const routeRecent: BuiltRoute[][] = edges.map(() => []);
   const routeOf = (e: ZEdge): BuiltRoute => {
     const zz = e.kind === "zz";
     const l0 = e.lanes[0], l1 = zz ? e.lanes[1] : 0, x = zz ? e.x : 0;
-    const m = routeMemo[e.ix];
-    if (cacheOn && m && m.kind === e.kind && sameNum(m.l0, l0) && sameNum(m.l1, l1) && sameNum(m.x, x)) {
-      if (selfCheck && !samePts(m.pts, buildRoute(e))) selfCheckFail("маршрут связи");
-      return m;
+    const recent = routeRecent[e.ix];
+    if (cacheOn) {
+      for (let k = 0; k < recent.length; k++) {
+        const m = recent[k];
+        if (m.kind !== e.kind || !sameNum(m.l0, l0) || !sameNum(m.l1, l1) || !sameNum(m.x, x)) continue;
+        if (selfCheck && !samePts(m.pts, buildRoute(e))) selfCheckFail("маршрут связи");
+        if (k > 0) { recent.splice(k, 1); recent.unshift(m); }
+        return m;
+      }
     }
-    const r: BuiltRoute = { kind: e.kind, l0, l1, x, pts: buildRoute(e), id: ++routeSerial };
-    routeMemo[e.ix] = r;
+    const pts = buildRoute(e);
+    const r: BuiltRoute = { kind: e.kind, l0, l1, x, pts, id: ++routeSerial, box: pts ? boxOf(pts) : NO_BOX };
+    recent.unshift(r);
+    if (recent.length > ROUTE_RECENT) recent.pop();
     return r;
   };
-  // Готовые маршруты пробы: сначала прямые (место k), потом связи с маршрутом (место
-  // nS + номер связи) — места растут в порядке обхода, пара (i, j) — ячейка места i × места j.
+  // МЕСТА МАРШРУТОВ: прямая k — место k, связь — место nS + её номер; места растут в порядке
+  // обхода цены (сначала прямые, потом связи), пара мест (a < b) — ячейка a × nP + b.
   const nS = straightPts.length, nP = nS + edges.length;
-  const bPts: EdgePoint[][] = [...straightPts];
-  const bId: number[] = straightPts.map(() => ++routeSerial);
-  const bPlace: number[] = straightPts.map((_, k) => k);
-  const bEdge: Array<ZEdge | null> = straightPts.map(() => null);
-  const nameOf = (i: number): string => { const e = bEdge[i]; return e ? e.id.slice(0, 8) : "straight"; };
-  const pairIdA = new Int32Array(nP * nP), pairIdB = new Int32Array(nP * nP);   // 0 — пусто
-  const pairOv = new Uint8Array(nP * nP);
-  const pairKeys: Array<CrossKey[]> = new Array<CrossKey[]>(nP * nP);
+  const placeEdge: Array<ZEdge | null> = [...straightPts.map(() => null), ...edges];
+  const placePts: EdgePoint[][] = [...straightPts, ...edges.map(() => [])];
+  const straightIds = straightPts.map(() => ++routeSerial);
+  // габариты маршрутов мест (x0, x1, y0, y1 подряд) — отсев далёких пар
+  const placeBox = new Float64Array(nP * 4);
+  straightPts.forEach((pts, k) => placeBox.set(boxOf(pts), 4 * k));
+  const nameOf = (p: number): string => { const e = placeEdge[p]; return e ? e.id.slice(0, 8) : "straight"; };
+  // память пар: ячейка — PAIR_WAYS записей (номера маршрутов, кресты, наложение) по кругу
   const NO_KEYS: CrossKey[] = [];
-  // слот подписи связи: прямоугольник и его номер (сменился прямоугольник — новый номер)
-  const lostRect: Array<NodeRect | null> = edges.map(() => null);
-  const lostGen = new Int32Array(edges.length);
+  const pairIdA = new Int32Array(nP * nP * PAIR_WAYS), pairIdB = new Int32Array(nP * nP * PAIR_WAYS);   // 0 — пусто
+  const pairOv = new Uint8Array(nP * nP * PAIR_WAYS);
+  const pairNext = new Uint8Array(nP * nP);
+  const pairKeys: CrossKey[][] = new Array<CrossKey[]>(nP * nP * PAIR_WAYS).fill(NO_KEYS);
+  // РАЗРЕЖЕННАЯ СУММА ПАР. Слагаемые дают только пары с крестами или наложением, таких
+  // немного. Пара пересчитывается (через память пар), лишь когда сменился маршрут одного из
+  // её мест; у каждого места — список ненулевых партнёров с большими местами по возрастанию,
+  // и сумма обходит их в порядке (a, b), том же, что полный перебор пар (нулевые пары
+  // слагаемых не дают). regId — номер маршрута места, по которому посчитаны его пары (0 —
+  // места нет: маршрута нет, связь уступила A*).
+  const regId = new Int32Array(nP), newId = new Int32Array(nP);
+  const curKeys: CrossKey[][] = new Array<CrossKey[]>(nP * nP).fill(NO_KEYS);
+  const curOv = new Uint8Array(nP * nP);
+  const nzRow: number[][] = Array.from({ length: nP }, () => []);
+  const changedMark = new Uint8Array(nP);
+  // ОТСЕВ ДАЛЁКИХ ПАР. Крест лежит внутри отрезков обеих ломаных, то есть в габаритах обеих;
+  // наложение — отрезки ближе LANE_GAP_MIN поперёк с общим пробегом вдоль, то есть габариты
+  // сходятся ближе LANE_GAP_MIN. Пара, чьи габариты, раздутые на LANE_GAP_MIN (+1 px на
+  // округление), не касаются, ни креста, ни наложения не даёт — по построению, без расчёта.
+  const NEAR_PAD = LANE_GAP_MIN + 1;
+  const near = (a: number, b: number): boolean => {
+    const A = 4 * a, B = 4 * b, bx = placeBox;
+    return bx[A] - NEAR_PAD <= bx[B + 1] && bx[B] - NEAR_PAD <= bx[A + 1] && bx[A + 2] - NEAR_PAD <= bx[B + 3] && bx[B + 2] - NEAR_PAD <= bx[A + 3];
+  };
+  // кресты и наложение пары мест a < b с маршрутами по номерам newId; ложь — пара нулевая
+  const pairAt = (a: number, b: number): boolean => {
+    if (!near(a, b)) {
+      if (selfCheck && (crossingKeys(placePts[a], placePts[b]).length > 0 || overlapping(placePts[a], placePts[b]))) selfCheckFail("отсев далёких пар");
+      return false;
+    }
+    const cell = a * nP + b, idA = newId[a], idB = newId[b];
+    const ea = placeEdge[a], eb = placeEdge[b];
+    let way = -1;
+    if (cacheOn) {
+      for (let w = cell * PAIR_WAYS, w1 = w + PAIR_WAYS; w < w1; w++) if (pairIdA[w] === idA && pairIdB[w] === idB) { way = w; break; }
+    }
+    if (way >= 0) {
+      const keys = pairKeys[way], ov = pairOv[way];
+      if (selfCheck) {
+        const k2 = crossingKeys(placePts[a], placePts[b]);
+        const ov2 = !(ea !== null && eb !== null && sharesEnd(ea, eb)) && overlapping(placePts[a], placePts[b]);
+        if ((ov2 ? 1 : 0) !== ov || k2.length !== keys.length || k2.some((k, n) => k !== keys[n])) selfCheckFail("пара маршрутов");
+      }
+      curKeys[cell] = keys; curOv[cell] = ov;
+      return keys.length > 0 || ov === 1;
+    }
+    const k2 = crossingKeys(placePts[a], placePts[b]);
+    const keys = k2.length > 0 ? k2 : NO_KEYS;
+    const ov = !(ea !== null && eb !== null && sharesEnd(ea, eb)) && overlapping(placePts[a], placePts[b]) ? 1 : 0;
+    const w = cell * PAIR_WAYS + pairNext[cell];
+    pairNext[cell] = (pairNext[cell] + 1) % PAIR_WAYS;
+    pairIdA[w] = idA; pairIdB[w] = idB; pairKeys[w] = keys; pairOv[w] = ov;
+    curKeys[cell] = keys; curOv[cell] = ov;
+    return keys.length > 0 || ov === 1;
+  };
+  // ненулевой партнёр b в строке места a (по возрастанию)
+  const rowSet = (a: number, b: number, nz: boolean): void => {
+    const row = nzRow[a];
+    let k = 0;
+    while (k < row.length && row[k] < b) k++;
+    const has = k < row.length && row[k] === b;
+    if (nz && !has) row.splice(k, 0, b);
+    else if (!nz && has) row.splice(k, 1);
+  };
+  // слот подписи связи: последние прямоугольники с номерами (как у маршрутов); память
+  // «слот × маршрут места» — PAIR_WAYS записей на ячейку (номер слота, номер маршрута, режет ли)
+  const lostRects: Array<Array<{ r: NodeRect; gen: number }>> = edges.map(() => []);
   let lostSerial = 0;
-  const lostAtGen = new Int32Array(edges.length * nP), lostAtId = new Int32Array(edges.length * nP);
-  const lostAtHit = new Uint8Array(edges.length * nP);
+  const lostAtGen = new Int32Array(edges.length * nP * PAIR_WAYS), lostAtId = new Int32Array(edges.length * nP * PAIR_WAYS);
+  const lostAtHit = new Uint8Array(edges.length * nP * PAIR_WAYS);
+  const lostNext = new Uint8Array(edges.length * nP);
+  const slotGen = (e: ZEdge, r: NodeRect): number => {
+    const recent = lostRects[e.ix];
+    if (cacheOn) {
+      for (let k = 0; k < recent.length; k++) {
+        const q = recent[k].r;
+        if (!sameNum(q.x, r.x) || !sameNum(q.y, r.y) || !sameNum(q.w, r.w) || !sameNum(q.h, r.h)) continue;
+        const it = recent[k];
+        if (k > 0) { recent.splice(k, 1); recent.unshift(it); }
+        return it.gen;
+      }
+    }
+    const gen = ++lostSerial;
+    recent.unshift({ r, gen });
+    if (recent.length > ROUTE_RECENT) recent.pop();
+    return gen;
+  };
   const slotCut = (pts: EdgePoint[], r: NodeRect): boolean => {
     for (let k = 1; k < pts.length; k++) if (segInRect(pts[k - 1], pts[k], r)) return true;
     return false;
   };
+  // режет ли маршрут места p слот r (номер gen) связи e; отрезок, заходящий внутрь слота,
+  // лежит в габаритах маршрута — маршрут, чьи габариты слота не касаются, его не режет
+  const cutAt = (e: ZEdge, gen: number, r: NodeRect, p: number): boolean => {
+    const P = 4 * p, bx = placeBox;
+    if (bx[P + 1] < r.x || bx[P] > r.x + r.w || bx[P + 3] < r.y || bx[P + 2] > r.y + r.h) {
+      if (selfCheck && slotCut(placePts[p], r)) selfCheckFail("отсев далёких слотов");
+      return false;
+    }
+    const cell = e.ix * nP + p, id = newId[p];
+    if (cacheOn) {
+      for (let w = cell * PAIR_WAYS, w1 = w + PAIR_WAYS; w < w1; w++) {
+        if (lostAtGen[w] !== gen || lostAtId[w] !== id) continue;
+        const cut = lostAtHit[w] === 1;
+        if (selfCheck && slotCut(placePts[p], r) !== cut) selfCheckFail("слот подписи");
+        return cut;
+      }
+    }
+    const cut = slotCut(placePts[p], r);
+    const w = cell * PAIR_WAYS + lostNext[cell];
+    lostNext[cell] = (lostNext[cell] + 1) % PAIR_WAYS;
+    lostAtGen[w] = gen; lostAtId[w] = id; lostAtHit[w] = cut ? 1 : 0;
+    return cut;
+  };
+  // РАЗРЕЖЕННЫЙ СЧЁТ ПОТЕРЯННЫХ НОСИТЕЛЕЙ: у связи со слотом — сколько маршрутов мест режут
+  // слот (cutCnt) и кто именно (cutCur); пересчёт — только по сменившимся местам, а при новом
+  // слоте — заново. lostReg — номер слота, по которому посчитан счёт (0 — не посчитан).
+  const lostReg = new Int32Array(edges.length), cutCnt = new Int32Array(edges.length);
+  const cutCur = new Uint8Array(edges.length * nP);
   const crossAt = new Map<CrossKey, number>();
+  const changed: number[] = [];
   const sceneCost = (): number => {
     assignLanes(false);
-    let nb = nS;
     let cost = 0;
     costParts.cr = 0; costParts.ov = 0; costParts.inv = 0; costParts.det = 0; costParts.lost = 0; costParts.ovPairs = []; costParts.crPairs = [];
+    for (let k = 0; k < nS; k++) newId[k] = straightIds[k];
     for (const e of edges) {
-      const r = routeOf(e);
-      if (r.pts) { bPts[nb] = r.pts; bId[nb] = r.id; bPlace[nb] = nS + e.ix; bEdge[nb] = e; nb++; } else { cost += INVALID_COST; costParts.inv++; }
+      const r = routeOf(e), p = nS + e.ix;
+      if (r.pts) { placePts[p] = r.pts; newId[p] = r.id; placeBox.set(r.box, 4 * p); } else { newId[p] = 0; cost += INVALID_COST; costParts.inv++; }
       if (e.kind === "zz") {
         const d = Math.abs(e.x - e.uAlong) + Math.abs(e.x - e.dAlong) - Math.abs(e.uAlong - e.dAlong);
         cost += d; costParts.det += d;
       }
     }
+    // сменившиеся места (по возрастанию) и пересчёт их пар: пару двух сменившихся считает
+    // меньшее место (своя строка заново), пару с несменившимся меньшим — правка его строки
+    changed.length = 0;
+    for (let p = 0; p < nP; p++) if (newId[p] !== regId[p]) { changed.push(p); changedMark[p] = 1; }
+    for (const p of changed) {
+      for (let q = 0; q < p; q++) {
+        if (changedMark[q] === 1 || newId[q] === 0) continue;
+        rowSet(q, p, newId[p] !== 0 && pairAt(q, p));
+      }
+      const row = nzRow[p];
+      row.length = 0;
+      if (newId[p] === 0) continue;
+      for (let q = p + 1; q < nP; q++) {
+        if (newId[q] !== 0 && pairAt(p, q)) row.push(q);
+      }
+    }
+    for (const p of changed) { changedMark[p] = 0; regId[p] = newId[p]; }
     // кресты — по ТОЧКАМ (Ф3): члены общего плеча режут чужую линию в одной точке — это
     // один крест и для глаза, и для метрики E23; поштучный счёт по парам маршрутов
     // переоценивал ствол в N раз и уводил спуск от эталона
     crossAt.clear();
-    for (let i = 0; i < nb; i++) {
-      const ei = bEdge[i], idI = bId[i], rowI = bPlace[i] * nP;
-      for (let j = i + 1; j < nb; j++) {
-        const ej = bEdge[j];
-        const cell = rowI + bPlace[j];
-        let keys: CrossKey[], ov: boolean;
-        if (cacheOn && pairIdA[cell] === idI && pairIdB[cell] === bId[j]) {
-          keys = pairKeys[cell]; ov = pairOv[cell] === 1;
-          if (selfCheck) {
-            const k2 = crossingKeys(bPts[i], bPts[j]);
-            const ov2 = !(ei !== null && ej !== null && sharesEnd(ei, ej)) && overlapping(bPts[i], bPts[j]);
-            if (ov2 !== ov || k2.length !== keys.length || k2.some((k, n) => k !== keys[n])) selfCheckFail("пара маршрутов");
-          }
-        } else {
-          const k2 = crossingKeys(bPts[i], bPts[j]);
-          keys = k2.length > 0 ? k2 : NO_KEYS;
-          ov = !(ei !== null && ej !== null && sharesEnd(ei, ej)) && overlapping(bPts[i], bPts[j]);
-          pairIdA[cell] = idI; pairIdB[cell] = bId[j]; pairKeys[cell] = keys; pairOv[cell] = ov ? 1 : 0;
-        }
+    for (let a = 0; a < nP; a++) {
+      if (newId[a] === 0) continue;
+      const ea = placeEdge[a];
+      for (const b of nzRow[a]) {
+        const cell = a * nP + b, keys = curKeys[cell];
         if (keys.length > 0) {
-          const w = ei !== null && ej !== null && twinOf.get(ei) === ej ? TWIN_CROSS_FACTOR : 1;
+          const eb = placeEdge[b];
+          const w = ea !== null && eb !== null && twinOf.get(ea) === eb ? TWIN_CROSS_FACTOR : 1;
           for (const key of keys) {
             crossAt.set(key, Math.max(crossAt.get(key) ?? 0, w));
-            if (__zDebug.trace) costParts.crPairs.push(`${nameOf(i)}×${nameOf(j)}`);
+            if (__zDebug.trace) costParts.crPairs.push(`${nameOf(a)}×${nameOf(b)}`);
           }
         }
-        if (ov) {
+        if (curOv[cell] === 1) {
           cost += OVERLAP_COST_Z; costParts.ov++;
-          if (__zDebug.on) costParts.ovPairs.push(`${nameOf(i)}~${nameOf(j)}`);
+          if (__zDebug.on) costParts.ovPairs.push(`${nameOf(a)}~${nameOf(b)}`);
         }
       }
     }
@@ -1554,33 +1832,72 @@ export function zRoutes(params: {
     // линия (Z-маршрут или прямая) → плашка ляжет на линию, носитель потерян
     for (const e of edges) {
       e.hostLost = false;
-      if (!e.label || !LABEL_HOSTS.on) continue;
-      if (e.host === "none") { cost += LABEL_HOSTS.lostCost; costParts.lost++; continue; }
+      if (!e.label || !LABEL_HOSTS.on) { lostReg[e.ix] = 0; continue; }
+      if (e.host === "none") { lostReg[e.ix] = 0; cost += LABEL_HOSTS.lostCost; costParts.lost++; continue; }
       const r = slotRectOf(e);
       if (r) {
-        const prevRect = lostRect[e.ix];
-        if (!(cacheOn && prevRect && sameNum(prevRect.x, r.x) && sameNum(prevRect.y, r.y) && sameNum(prevRect.w, r.w) && sameNum(prevRect.h, r.h))) {
-          lostRect[e.ix] = r;
-          lostGen[e.ix] = ++lostSerial;
-        }
-        const gen = lostGen[e.ix], row = e.ix * nP;
-        for (let i = 0; i < nb && !e.hostLost; i++) {
-          if (bEdge[i] === e) continue;
-          const cell = row + bPlace[i];
-          let cut: boolean;
-          if (cacheOn && lostAtGen[cell] === gen && lostAtId[cell] === bId[i]) {
-            cut = lostAtHit[cell] === 1;
-            if (selfCheck && slotCut(bPts[i], r) !== cut) selfCheckFail("слот подписи");
-          } else {
-            cut = slotCut(bPts[i], r);
-            lostAtGen[cell] = gen; lostAtId[cell] = bId[i]; lostAtHit[cell] = cut ? 1 : 0;
+        const gen = slotGen(e, r), own = nS + e.ix, row = e.ix * nP;
+        if (lostReg[e.ix] !== gen) {
+          let cnt = 0;
+          for (let p = 0; p < nP; p++) {
+            const cut = p !== own && newId[p] !== 0 && cutAt(e, gen, r, p);
+            cutCur[row + p] = cut ? 1 : 0;
+            if (cut) cnt++;
           }
-          if (cut) e.hostLost = true;
+          cutCnt[e.ix] = cnt;
+          lostReg[e.ix] = gen;
+        } else {
+          for (const p of changed) {
+            const cut = p !== own && newId[p] !== 0 && cutAt(e, gen, r, p);
+            cutCnt[e.ix] += (cut ? 1 : 0) - cutCur[row + p];
+            cutCur[row + p] = cut ? 1 : 0;
+          }
         }
-      }
+        e.hostLost = cutCnt[e.ix] > 0;
+      } else lostReg[e.ix] = 0;
       if (e.hostLost) { cost += LABEL_HOSTS.lostCost; costParts.lost++; }
     }
+    if (selfCheck) {
+      const ref = sceneCostRef();
+      if (!sameNum(ref.cost, cost) || ref.lost.some((v, i) => v !== edges[i].hostLost)) selfCheckFail("цена сцены (разреженная сумма)");
+    }
     return cost;
+  };
+  // Цена сцены полным перебором без памяти — прежний расчёт слово в слово; эталон для
+  // самопроверки разреженной суммы (флаги потерь — в отдельный список, состояние не трогает).
+  const sceneCostRef = (): { cost: number; lost: boolean[] } => {
+    const built: EdgePoint[][] = [...straightPts];
+    const builtEdges: Array<ZEdge | null> = straightPts.map(() => null);
+    let cost = 0;
+    for (const e of edges) {
+      const pts = buildRoute(e);
+      if (pts) { built.push(pts); builtEdges.push(e); } else cost += INVALID_COST;
+      if (e.kind === "zz") cost += Math.abs(e.x - e.uAlong) + Math.abs(e.x - e.dAlong) - Math.abs(e.uAlong - e.dAlong);
+    }
+    const at = new Map<CrossKey, number>();
+    for (let i = 0; i < built.length; i++) {
+      for (let j = i + 1; j < built.length; j++) {
+        const ei = builtEdges[i], ej = builtEdges[j];
+        const twins = ei !== null && ej !== null && twinOf.get(ei) === ej;
+        for (const key of crossingKeys(built[i], built[j])) at.set(key, Math.max(at.get(key) ?? 0, twins ? TWIN_CROSS_FACTOR : 1));
+        if (!(ei !== null && ej !== null && sharesEnd(ei, ej)) && overlapping(built[i], built[j])) cost += OVERLAP_COST_Z;
+      }
+    }
+    for (const w of at.values()) cost += w * CAND_CROSS_COST;
+    const lost = edges.map(() => false);
+    for (const e of edges) {
+      if (!e.label || !LABEL_HOSTS.on) continue;
+      if (e.host === "none") { cost += LABEL_HOSTS.lostCost; continue; }
+      const r = slotRectOf(e);
+      if (r) {
+        for (let i = 0; i < built.length && !lost[e.ix]; i++) {
+          if (builtEdges[i] === e) continue;
+          if (slotCut(built[i], r)) lost[e.ix] = true;
+        }
+      }
+      if (lost[e.ix]) cost += LABEL_HOSTS.lostCost;
+    }
+    return { cost, lost };
   };
 
   // ── выбор варианта: старт без соседей, затем покоординатный спуск по цене сцены ──
@@ -1764,6 +2081,20 @@ export function zRoutes(params: {
   }
   const asc = (p: number, q: number): number => p - q;
   return { routes, portKeys, gridHints: { xs: [...hintXs].sort(asc), ys: [...hintYs].sort(asc) }, labelAnchors };
+}
+
+/** Габариты ломаной: x0, x1, y0, y1. */
+type Box = [number, number, number, number];
+const NO_BOX: Box = [NaN, NaN, NaN, NaN];
+function boxOf(pts: ReadonlyArray<EdgePoint>): Box {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) {
+    if (p.x < x0) x0 = p.x;
+    if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y;
+    if (p.y > y1) y1 = p.y;
+  }
+  return [x0, x1, y0, y1];
 }
 
 // Ключ точки креста — пара (half(x), half(y)), как прежняя строка «x|y», но числом: удвоенные
