@@ -65,6 +65,8 @@ import { NUDGE_GAP } from "./channelNudge";
 const EPS = 0.5;
 // Отладочный след выбора вариантов: полигон стрелок включает его флагом (в проде молчит).
 export const __zDebug: { on: boolean; lines: string[]; trace: string } = { on: false, lines: [], trace: "" };
+// Вызовы с дорогими аргументами (map/join/toFixed) стоят под `if (__zDebug.on)`: аргументы
+// вычисляются до входа в zlog, и выключенный след иначе платил бы за них на каждой пробе.
 const zlog = (...args: unknown[]): void => { if (__zDebug.on) __zDebug.lines.push(args.map(String).join(" ")); };
 
 // Константы контракта маршрутов (реестр ROUTER_VERSION).
@@ -137,6 +139,7 @@ interface Seg {
   lane: number;
   thick: number;           // толщина поперёк под плашку подписи (Ф3): 0 — сегмент без подписи
   preShrunk?: boolean;     // полоса уже сужена под толщину (колонна: от тел просвета, не от зон портов)
+  parts?: Seg[];           // у ствола из нескольких сегментов — его части (им раздача возвращает дорожку)
 }
 
 /**
@@ -188,6 +191,11 @@ interface ZEdge {
   cands: Cand[];
   exclude: NodeRect[];
   hard: ReadonlyArray<NodeRect>;
+  // Тела сцены без тел своих концов (obstacles минус exclude, в прежнем порядке) и они же
+  // вместе с hard — препятствия проверки маршрута. Считаются ОДИН раз при создании связи:
+  // прежде фильтр тел крутился на каждой пробе спуска для каждой связи (perf, render-scale).
+  bodies: NodeRect[];
+  blockers: NodeRect[];
   label?: Size;            // габарит плашки подписи (Ф3)
   lenFlow: number;         // протяжённость плашки вдоль отрезка потока (стаб/колонна) и поперёк него
   thickFlow: number;
@@ -535,26 +543,41 @@ function distribute(
   // потеряны), толщины чужих стабов; в крайнем случае полоса остаётся как есть (дорожка
   // ляжет на линию и уступит A* по наложению, как прежде).
   const band0 = M.map((_, i) => [lo[i], hi[i]] as [number, number]);
+  // Применимые препятствия сегмента (чужие, с общим пробегом) и сторона, откуда к слоту
+  // подписи приходит вертикаль дорожки, от зазора не зависят: они считаются один раз на
+  // раздачу, а не в каждом из до четырёх вариантов разрешения при каждом прогоне.
+  // hasSlot — среди них есть слот подписи; hasThick — есть отрезок с толщиной плашки.
+  const apps = M.map((s) => {
+    const app: Array<{ f: Fixed; up: boolean; down: boolean }> = [];
+    let hasSlot = false, hasThick = false;
+    for (const f of fixed) {
+      if (f.edge === s.edge || !(runOverlap(f, s) > EPS)) continue;
+      const up = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "up");
+      const down = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "down");
+      app.push({ f, up, down });
+      if (f.slot) hasSlot = true; else if (f.thick !== 0) hasThick = true;
+    }
+    return { app, hasSlot, hasThick };
+  });
   const resolveAll = (): void => {
     M.forEach((s, i) => {
       [lo[i], hi[i]] = band0[i];
-      const app = fixed.filter((f) => f.edge !== s.edge && runOverlap(f, s) > EPS);
+      const { app, hasSlot, hasThick } = apps[i];
       if (app.length === 0) return;
       const d = desired[i];
       const resolve = (ownThick: number, useSlots: boolean, useThick: boolean): [number, number] | null => {
         let pieces: Array<[number, number]> = [[lo[i], hi[i]]];
-        for (const f of app) {
+        for (const { f, up, down } of app) {
           if (f.slot && !useSlots) continue;
           const g = Math.max(f.slot ? 0 : gap, ((useThick ? f.thick : 0) + ownThick) / 2);
           const z0 = f.pos - g, z1 = f.pos + g;
-          const up = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "up");
-          const down = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "down");
+          const keepLo = !(f.slot && down && !up), keepHi = !(f.slot && up && !down);
           const next: Array<[number, number]> = [];
           for (const [a, b] of pieces) {
-            if (z0 > a + EPS && !(f.slot && down && !up)) next.push([a, Math.min(b, z0)]);
-            if (z1 < b - EPS && !(f.slot && up && !down)) next.push([Math.max(a, z1), b]);
+            if (keepLo && z0 > a + EPS) { const nb = Math.min(b, z0); if (nb >= a - EPS) next.push([a, nb]); }
+            if (keepHi && z1 < b - EPS) { const na = Math.max(a, z1); if (b >= na - EPS) next.push([na, b]); }
           }
-          pieces = next.filter(([a, b]) => b >= a - EPS);
+          pieces = next;
           if (pieces.length === 0) return null;
         }
         let best: [number, number] | null = null, bestD = Infinity;
@@ -571,14 +594,18 @@ function distribute(
         const thin = resolve(0, true, true);
         if (!pc || distOf(pc) > distOf(thin) + LABEL_SHIFT_TOL) { degrade(i); pc = thin; }
       }
-      // чужие слоты уводят слишком далеко — их носители потеряны (точная проверка это увидит)
-      {
+      // чужие слоты уводят слишком далеко — их носители потеряны (точная проверка это увидит).
+      // Без слотов среди применимых вариант «без слотов» по построению равен уже выбранному
+      // (та же толщина, те же препятствия) — повторный расчёт пропускается.
+      if (hasSlot) {
         const noSlots = resolve(thick[i], false, true);
         if (!pc || distOf(pc) > distOf(noSlots) + LABEL_SHIFT_TOL) pc = noSlots;
       }
-      if (!pc) pc = resolve(thick[i], false, false);
+      // Сюда доходят, только если и вариант без слотов пуст; без толщин у чужих отрезков
+      // вариант «без толщин» совпадает с ним и тоже пуст.
+      if (!pc && hasThick) pc = resolve(thick[i], false, false);
       if (__zDebug.trace && s.members.some((m) => m.id.startsWith(__zDebug.trace))) {
-        zlog(s.edge.id.slice(0, 8), "fix", `#${s.idx}`, `d=${d.toFixed(0)}`, `gap=${gap}`, `band=${lo[i].toFixed(0)}..${hi[i].toFixed(0)}`, `→ ${pc ? `${pc[0].toFixed(0)}..${pc[1].toFixed(0)}` : "none"}`, app.map((f) => `${f.edge ? f.edge.id.slice(0, 8) : "straight"}@${f.pos.toFixed(0)}${f.slot ? "s" : ""}${f.thick > 0 ? `t${f.thick}` : ""}`).join(" "));
+        zlog(s.edge.id.slice(0, 8), "fix", `#${s.idx}`, `d=${d.toFixed(0)}`, `gap=${gap}`, `band=${lo[i].toFixed(0)}..${hi[i].toFixed(0)}`, `→ ${pc ? `${pc[0].toFixed(0)}..${pc[1].toFixed(0)}` : "none"}`, app.map(({ f }) => `${f.edge ? f.edge.id.slice(0, 8) : "straight"}@${f.pos.toFixed(0)}${f.slot ? "s" : ""}${f.thick > 0 ? `t${f.thick}` : ""}`).join(" "));
       }
       if (!pc) return;
       lo[i] = pc[0]; hi[i] = pc[1];
@@ -635,7 +662,7 @@ function distribute(
     if (!changed) break;
   }
   // страховка: несовместные ограничения не выталкивают дорожку из её полосы (на край тела)
-  M.forEach((s, i) => { if (lo[i] > hi[i] + EPS) { x[i] = clamp(desired[i], s.bandLo, s.bandHi); zlog(s.edge.id.slice(0, 8), "band-empty", `#${s.idx}`, `lo=${lo[i].toFixed(0)}`, `hi=${hi[i].toFixed(0)}`, `band=${s.bandLo.toFixed(0)}..${s.bandHi.toFixed(0)}`, `col=${s.edge.colLo.toFixed(0)}..${s.edge.colHi.toFixed(0)}`, `free=${s.edge.freeLo.toFixed(0)}..${s.edge.freeHi.toFixed(0)}`, `thick=${s.thick}`, `gap=${gap}`); } });
+  M.forEach((s, i) => { if (lo[i] > hi[i] + EPS) { x[i] = clamp(desired[i], s.bandLo, s.bandHi); if (__zDebug.on) zlog(s.edge.id.slice(0, 8), "band-empty", `#${s.idx}`, `lo=${lo[i].toFixed(0)}`, `hi=${hi[i].toFixed(0)}`, `band=${s.bandLo.toFixed(0)}..${s.bandHi.toFixed(0)}`, `col=${s.edge.colLo.toFixed(0)}..${s.edge.colHi.toFixed(0)}`, `free=${s.edge.freeLo.toFixed(0)}..${s.edge.freeHi.toFixed(0)}`, `thick=${s.thick}`, `gap=${gap}`); } });
   if (__zDebug.trace && M.some((sg) => sg.members.some((m) => m.id.startsWith(__zDebug.trace)))) {
     zlog("dist", `gap=${gap.toFixed(1)} center=${center.toFixed(1)} K=${K}`, M.map((sg, i) => `${sg.edge.id.slice(0, 8)}#${sg.idx} s${slots[i]} lo=${lo[i].toFixed(0)} hi=${hi[i].toFixed(0)} d=${desired[i].toFixed(0)} x=${x[i].toFixed(0)}`).join(" "), `pairs=${feasible.map(([a, b, gp]) => `${a}>${b}:${gp.toFixed(0)}`).join(",")}`);
   }
@@ -719,7 +746,7 @@ export function zRoutes(params: {
     const edge: ZEdge = {
       id: g.id, orient: o, sIsU, kind: "z", uAlong, dAlong, uAcross, dAcross,
       x: NaN, colLo: NaN, colHi: NaN, freeLo: NaN, freeHi: NaN, lanes: [], slots: [], adjU: true, adjD: true,
-      cand: null, cands: [], exclude, hard, label: lab,
+      cand: null, cands: [], exclude, hard, bodies, blockers: [...bodies, ...hard], label: lab,
       lenFlow: lab ? (o === "v" ? lab.h : lab.w) : 0, thickFlow: lab ? (o === "v" ? lab.w : lab.h) : 0,
       lenLane: lab ? (o === "v" ? lab.w : lab.h) : 0, thickLane: lab ? (o === "v" ? lab.h : lab.w) : 0,
       host: "none", hostOff: false, hostLost: false,
@@ -741,7 +768,7 @@ export function zRoutes(params: {
         const mid = (b0 + b1) / 2;
         return a0 < spanHi && a1 > spanLo && mid > c0 && mid < c1;
       };
-      if (obstacles.some((r) => !exclude.some((e) => sameRect(e, r)) && blocks(r))) return false;
+      if (bodies.some(blocks)) return false;
       return !hard.some(blocks);
     };
     const spanLo = Math.min(uAlong, dAlong), spanHi = Math.max(uAlong, dAlong);
@@ -754,7 +781,7 @@ export function zRoutes(params: {
         const [c0, c1] = rectAcross(o, r);
         rows.push([c0 - pad, c1 + pad]);
       };
-      for (const r of obstacles) if (!exclude.some((e) => sameRect(e, r))) consider(r, Z_CLEAR);
+      for (const r of bodies) consider(r, Z_CLEAR);
       for (const r of hard) consider(r, 0);
       return rows;
     };
@@ -796,7 +823,7 @@ export function zRoutes(params: {
       if (!Number.isFinite(x) || x < piece[0] || x > piece[1]) continue;
       const i1 = laneIntervals(o, uAlong, x, uAcross, dAcross, obstacles, exclude, hard);
       const i2 = laneIntervals(o, x, dAlong, uAcross, dAcross, obstacles, exclude, hard);
-      if (i1.length === 0 || i2.length === 0) { zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, `i1=${i1.length}`, `i2=${i2.length}`); continue; }
+      if (i1.length === 0 || i2.length === 0) { if (__zDebug.on) zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, `i1=${i1.length}`, `i2=${i2.length}`); continue; }
       // Дорожки ZZ лежат в РАЗНЫХ каналах: между ними ряд тел, который колонна обходит
       // (общий канал — дело Z). Когда колонна порта свободна, интервал одной дорожки
       // тянется через несколько каналов и накрывает интервал другой — тогда он режется
@@ -806,9 +833,9 @@ export function zRoutes(params: {
       if (b1[1] > b2[0] - LANE_GAP_MIN) {
         const p1 = subtractHoles(b1, bodyRows(Math.min(x, dAlong), Math.max(x, dAlong)));
         const p2 = subtractHoles(b2, bodyRows(Math.min(uAlong, x), Math.max(uAlong, x)));
-        if (p1.length === 0 || p2.length === 0) { zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, "split empty"); continue; }
+        if (p1.length === 0 || p2.length === 0) { if (__zDebug.on) zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, "split empty"); continue; }
         b1 = p1[0]; b2 = p2[p2.length - 1];
-        if (b1[1] > b2[0] - LANE_GAP_MIN) { zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, "same channel after split"); continue; }
+        if (b1[1] > b2[0] - LANE_GAP_MIN) { if (__zDebug.on) zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, "same channel after split"); continue; }
       }
       const [b1Lo, b1Hi] = b1, [b2Lo, b2Hi] = b2;
       cands.push({
@@ -861,7 +888,7 @@ export function zRoutes(params: {
     edge.cands = cands;
     edges.push(edge);
     if (__zDebug.on) zlog(g.id.slice(0, 8), "free", freeColumns(o, uAcross, dAcross, obstacles, exclude, frames, softOf?.(g.id) ?? []).map(([a, b]) => `${a.toFixed(0)}..${b.toFixed(0)}`).join(" "), "hard", hard.map((r) => `[${r.x.toFixed(0)},${r.y.toFixed(0)} ${r.w.toFixed(0)}x${r.h.toFixed(0)}]`).join(""));
-    zlog(g.id.slice(0, 8), "cands", cands.map((c) => `${c.kind}${c.bands.map((b) => `[${b[0].toFixed(0)}..${b[1].toFixed(0)}]`).join("")}${c.kind === "zz" ? `x${c.x}(${c.colLo.toFixed(0)}..${c.colHi.toFixed(0)})` : ""}`).join(" "));
+    if (__zDebug.on) zlog(g.id.slice(0, 8), "cands", cands.map((c) => `${c.kind}${c.bands.map((b) => `[${b[0].toFixed(0)}..${b[1].toFixed(0)}]`).join("")}${c.kind === "zz" ? `x${c.x}(${c.colLo.toFixed(0)}..${c.colHi.toFixed(0)})` : ""}`).join(" "));
   }
 
   // ── сегменты раздачи по ориентациям ─────────────────────────────────────────────
@@ -892,15 +919,16 @@ export function zRoutes(params: {
     const dx = thickFlow / 2 + LABEL_PAD;
     return !sidePorts.some((p) => p.gid !== gid && p.side === side && Math.abs(p.along - along) < dx - EPS && Math.abs(p.across - across) <= lenFlow + 2 * LABEL_PAD);
   };
-  // под слотом нет тел, чужих рамок и чужих прямых той же ориентации
-  const slotFree = (o: Orient, exclude: ReadonlyArray<NodeRect>, hard: ReadonlyArray<NodeRect>, id: string, along: number, aLo: number, aHi: number, thickFlow: number): boolean => {
+  // под слотом нет тел, чужих рамок и чужих прямых той же ориентации (bodies — тела сцены
+  // без тел концов связи)
+  const slotFree = (o: Orient, bodies: ReadonlyArray<NodeRect>, hard: ReadonlyArray<NodeRect>, id: string, along: number, aLo: number, aHi: number, thickFlow: number): boolean => {
     const x0 = along - thickFlow / 2 - LABEL_PAD, x1 = along + thickFlow / 2 + LABEL_PAD;
     const hits = (r: NodeRect): boolean => {
       const [a0, a1] = rectAlong(o, r);
       const [c0, c1] = rectAcross(o, r);
       return a0 < x1 - EPS && a1 > x0 + EPS && c0 < aHi - EPS && c1 > aLo + EPS;
     };
-    if (obstacles.some((r) => !exclude.some((e) => sameRect(e, r)) && hits(r))) return false;
+    if (bodies.some(hits)) return false;
     if (hard.some(hits)) return false;
     return !straights.some((st) => st.id !== id && st.orient === o && Math.abs(st.along - along) < thickFlow / 2 + LABEL_PAD - EPS && st.lo < aHi - EPS && st.hi > aLo + EPS);
   };
@@ -919,10 +947,10 @@ export function zRoutes(params: {
     const last = c.bands[c.bands.length - 1], first = c.bands[0];
     if (e.shareD === undefined && last[0] <= e.dAcross - need + EPS
       && sideFree(e.id, sideOf(o, "d"), e.dAlong, e.dAcross, e.thickFlow, e.lenFlow)
-      && slotFree(o, e.exclude, e.hard, e.id, e.dAlong, e.dAcross - need, e.dAcross, e.thickFlow)) return "dstub";
+      && slotFree(o, e.bodies, e.hard, e.id, e.dAlong, e.dAcross - need, e.dAcross, e.thickFlow)) return "dstub";
     if (e.shareU === undefined && first[1] >= e.uAcross + need - EPS
       && sideFree(e.id, sideOf(o, "u"), e.uAlong, e.uAcross, e.thickFlow, e.lenFlow)
-      && slotFree(o, e.exclude, e.hard, e.id, e.uAlong, e.uAcross, e.uAcross + need, e.thickFlow)) return "ustub";
+      && slotFree(o, e.bodies, e.hard, e.id, e.uAlong, e.uAcross, e.uAcross + need, e.thickFlow)) return "ustub";
     // колонна: пробег между каналами вмещает плашку вдоль, просвет между телами — поперёк
     if (c.kind === "zz" && c.bands[1][0] - c.bands[0][1] >= need - EPS && c.freeHi - c.freeLo + 2 * Z_CLEAR >= e.thickFlow + 2 * LABEL_PAD - EPS) return "column";
     const along = e.lenLane + 2 * LABEL_PAD;
@@ -984,7 +1012,8 @@ export function zRoutes(params: {
     const excl = g ? [rectOf(g.source), rectOf(g.target)].filter((r): r is NodeRect => !!r) : [];
     if (!sideFree(st.id, sideOf(st.orient, "u"), st.along, st.lo, thickFlow, lenFlow)) continue;
     if (!sideFree(st.id, sideOf(st.orient, "d"), st.along, st.hi, thickFlow, lenFlow)) continue;
-    if (!slotFree(st.orient, excl, hardOf?.(st.id) ?? [], st.id, st.along, slot[0], slot[1], thickFlow)) continue;
+    const stBodies = obstacles.filter((r) => !excl.some((e) => sameRect(e, r)));
+    if (!slotFree(st.orient, stBodies, hardOf?.(st.id) ?? [], st.id, st.along, slot[0], slot[1], thickFlow)) continue;
     st.slot = slot;
     st.thick = thickFlow + 2 * LABEL_PAD;
   }
@@ -1052,9 +1081,9 @@ export function zRoutes(params: {
   };
   // СТВОЛЫ: сегменты одного общего плеча с пересекающимися полосами сливаются в один
   // (вертикали — объединение, пробег — охват, полоса — пересечение); несовместимые по
-  // полосе члены образуют второй ствол ниже по стволу первого. Части запоминаются, чтобы
-  // вернуть дорожку каждому члену.
-  const partsOf = new Map<Seg, Seg[]>();
+  // полосе члены образуют второй ствол ниже по стволу первого. Части запоминаются на самом
+  // стволе (Seg.parts), чтобы вернуть дорожку каждому члену; прежняя карта «ствол → части»
+  // на весь вызов копила тысячи мёртвых сегментов.
   const mergeShared = (S: Seg[]): Seg[] => {
     const out: Seg[] = [];
     const byShare = new Map<string, Seg[]>();
@@ -1083,7 +1112,7 @@ export function zRoutes(params: {
         runs.push({ seg: { ...sg }, parts: [sg] });
       }
       for (const r of runs) {
-        if (r.parts.length > 1) partsOf.set(r.seg, r.parts);
+        if (r.parts.length > 1) r.seg.parts = r.parts;
         out.push(r.seg);
       }
     }
@@ -1121,10 +1150,14 @@ export function zRoutes(params: {
     }
     return out;
   };
-  const interacts = (a: Seg, b: Seg): boolean =>
-    !a.members.some((m) => b.members.includes(m)) &&
-    runOverlap(a, b) > -NUDGE_GAP &&
-    Math.min(a.bandHi, b.bandHi) - Math.max(a.bandLo, b.bandLo) >= -EPS;
+  // Общий член (одна связь в обоих сегментах) — не взаимодействие. У несклеенных сегментов
+  // по одному члену, и проверка сводится к сравнению двух связей (быстрый путь).
+  const interacts = (a: Seg, b: Seg): boolean => {
+    const am = a.members, bm = b.members;
+    if (am.length === 1 && bm.length === 1) { if (am[0] === bm[0]) return false; }
+    else if (am.some((m) => bm.includes(m))) return false;
+    return runOverlap(a, b) > -NUDGE_GAP && Math.min(a.bandHi, b.bandHi) - Math.max(a.bandLo, b.bandLo) >= -EPS;
+  };
 
   // Раздача дорожек одной ориентации: компоненты по перекрытию пробега (с зазором) и
   // полос, внутри — зависимости, разрыв циклов, топологические номера, позиции через
@@ -1157,12 +1190,12 @@ export function zRoutes(params: {
       M.forEach((s, i) => {
         s.slot = slots[i];
         s.lane = lanes[i];
-        for (const part of partsOf.get(s) ?? [s]) {
+        for (const part of s.parts ?? [s]) {
           if (part.idx === 2) part.edge.x = s.lane;
           else { part.edge.lanes[part.idx] = s.lane; part.edge.slots[part.idx] = s.slot; }
         }
       });
-      if ((hints || (__zDebug.trace && M.some((s) => s.edge.id.startsWith(__zDebug.trace)))) && m > 1) zlog("comp", o, M.map((s) => `${s.edge.id.slice(0, 8)}#${s.idx}[${s.bandLo.toFixed(0)}..${s.bandHi.toFixed(0)}|${s.lo.toFixed(0)}..${s.hi.toFixed(0)}]s${s.slot}@${s.lane}`).join(" "));
+      if (__zDebug.on && (hints || (__zDebug.trace && M.some((s) => s.edge.id.startsWith(__zDebug.trace)))) && m > 1) zlog("comp", o, M.map((s) => `${s.edge.id.slice(0, 8)}#${s.idx}[${s.bandLo.toFixed(0)}..${s.bandHi.toFixed(0)}|${s.lo.toFixed(0)}..${s.hi.toFixed(0)}]s${s.slot}@${s.lane}`).join(" "));
       if (!hints) continue;
       // свободные дорожки по обе стороны стопки — подсказки A* связям без Z
       let lo = 0, hi = 0;
@@ -1180,14 +1213,31 @@ export function zRoutes(params: {
   const nV = edges.filter((e) => e.orient === "v").length;
   const order: Orient[] = nV >= edges.length - nV ? ["v", "h"] : ["h", "v"];
   const MAX_ROUNDS = 4;
-  const snapshot = (): number[] => edges.flatMap((e) => [...e.lanes, e.x]);
+  // Снимок переменных раздачи (дорожки и колонна каждой связи) для проверки сходимости —
+  // в два переиспользуемых буфера: длина дорожек связи внутри раздачи не меняется.
+  let snapA = new Float64Array(0), snapB = new Float64Array(0);
+  const snapshot = (buf: Float64Array<ArrayBuffer>): Float64Array<ArrayBuffer> => {
+    let n = 0;
+    for (const e of edges) n += e.lanes.length + 1;
+    const out = buf.length === n ? buf : new Float64Array(n);
+    let k = 0;
+    for (const e of edges) {
+      for (const v of e.lanes) out[k++] = v;
+      out[k++] = e.x;
+    }
+    return out;
+  };
   const assignLanes = (hints: boolean): void => {
-    let prev = snapshot();
+    let prev = snapA = snapshot(snapA);
     for (let round = 0; round < MAX_ROUNDS; round++) {
       const last = round === MAX_ROUNDS - 1;
       for (const o of order) assign(o, hints && last);
-      const cur = snapshot();
-      const same = cur.length === prev.length && cur.every((v, i) => v === prev[i] || (Number.isNaN(v) && Number.isNaN(prev[i])));
+      const cur = prev === snapA ? (snapB = snapshot(snapB)) : (snapA = snapshot(snapA));
+      let same = true;
+      for (let k = 0; k < cur.length; k++) {
+        const v = cur[k], p = prev[k];
+        if (v !== p && !(Number.isNaN(v) && Number.isNaN(p))) { same = false; break; }
+      }
       if (same) {
         // сошлось: подсказки собираются отдельным проходом, если их ещё не собирали
         if (hints && !last) for (const o of order) assign(o, true);
@@ -1209,8 +1259,7 @@ export function zRoutes(params: {
         mk(o, e.x, e.lanes[1]), mk(o, e.dAlong, e.lanes[1]), mk(o, e.dAlong, e.dAcross),
       ];
     const pts = cleanup(e.sIsU ? ud : [...ud].reverse());
-    const bodies = obstacles.filter((r) => !e.exclude.some((x) => sameRect(x, r)));
-    if (pathCrossesRects(pts, [...bodies, ...e.hard])) return null;
+    if (pathCrossesRects(pts, e.blockers)) return null;
     return pts;
   };
 
@@ -1338,7 +1387,7 @@ export function zRoutes(params: {
             if (twin && tc) apply(twin, tc);
             evals++;
             const cost = sceneCost();
-            zlog(e.id.slice(0, 8), "try", c.kind, c.bands.map((b) => `${b[0].toFixed(0)}..${b[1].toFixed(0)}`).join("/"), Number.isFinite(c.x) ? `x=${c.x}` : "", tc ? "+twin" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} ov=${costParts.ov} inv=${costParts.inv} det=${costParts.det.toFixed(0)} lost=${costParts.lost}`, costParts.ovPairs.join(","), __zDebug.trace ? `[${costParts.crPairs.join(" ")}]` : "");
+            if (__zDebug.on) zlog(e.id.slice(0, 8), "try", c.kind, c.bands.map((b) => `${b[0].toFixed(0)}..${b[1].toFixed(0)}`).join("/"), Number.isFinite(c.x) ? `x=${c.x}` : "", tc ? "+twin" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} ov=${costParts.ov} inv=${costParts.inv} det=${costParts.det.toFixed(0)} lost=${costParts.lost}`, costParts.ovPairs.join(","), __zDebug.trace ? `[${costParts.crPairs.join(" ")}]` : "");
             if (cost < best - EPS) { best = cost; improved = true; moved = true; break; }
             if (current) apply(e, current);
             if (twin && tc && twinCurrent) apply(twin, twinCurrent);
@@ -1363,7 +1412,7 @@ export function zRoutes(params: {
         const prevHost = e.host;
         e.hostOff = true; e.host = "none";
         const cost = sceneCost();
-        zlog(e.id.slice(0, 8), "host-off", prevHost, e.hostLost ? "(lost)" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} lost=${costParts.lost} det=${costParts.det.toFixed(0)}`);
+        if (__zDebug.on) zlog(e.id.slice(0, 8), "host-off", prevHost, e.hostLost ? "(lost)" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} lost=${costParts.lost} det=${costParts.det.toFixed(0)}`);
         if (cost < best - EPS) { best = cost; improved = true; any = true; continue; }
         e.hostOff = false; e.host = prevHost;
       }
@@ -1384,14 +1433,14 @@ export function zRoutes(params: {
   assignLanes(true);
   for (const e of edges) {
     const c = e.cand;
-    zlog(e.id.slice(0, 8), "→", e.kind, c ? c.bands.map((b, i) => `${b[0].toFixed(0)}..${b[1].toFixed(0)}@${e.lanes[i]}`).join("/") : "", Number.isFinite(e.x) ? `x=${e.x}` : "", e.label ? `host=${e.host}${e.hostLost ? "(lost)" : ""}` : "");
+    if (__zDebug.on) zlog(e.id.slice(0, 8), "→", e.kind, c ? c.bands.map((b, i) => `${b[0].toFixed(0)}..${b[1].toFixed(0)}@${e.lanes[i]}`).join("/") : "", Number.isFinite(e.x) ? `x=${e.x}` : "", e.label ? `host=${e.host}${e.hostLost ? "(lost)" : ""}` : "");
   }
 
   // ── сборка и проверка: тела, чужие рамки, взаимные наложения ───────────────────
   const built = new Map<string, { edge: ZEdge; pts: EdgePoint[] }>();
   for (const e of edges) {
     const pts = buildRoute(e);
-    if (!pts) { zlog(e.id.slice(0, 8), "DROP body/hard/collapsed"); continue; }
+    if (!pts) { if (__zDebug.on) zlog(e.id.slice(0, 8), "DROP body/hard/collapsed"); continue; }
     built.set(e.id, { edge: e, pts });
   }
   // наложение двух маршрутов: дорожки ближе LANE_GAP_MIN с общим пробегом либо слитые
@@ -1407,7 +1456,7 @@ export function zRoutes(params: {
       if (sharesEnd(A.edge, B.edge) || !overlapping(A.pts, B.pts)) continue;
       const sa = slotOf(A.edge), sb = slotOf(B.edge);
       const loser = sa > sb || (sa === sb && ids[i] > ids[j]) ? ids[i] : ids[j];
-      zlog(loser.slice(0, 8), "DROP overlap with", (loser === ids[i] ? ids[j] : ids[i]).slice(0, 8));
+      if (__zDebug.on) zlog(loser.slice(0, 8), "DROP overlap with", (loser === ids[i] ? ids[j] : ids[i]).slice(0, 8));
       dropped.add(loser);
     }
   }
