@@ -977,6 +977,10 @@ export function zRoutes(params: {
   // память проб спуска (см. «ПАМЯТЬ ПРОБ СПУСКА»): под отладочным следом выключена
   const cacheOn = !__zDebug.on && !__zDebug.trace;
   const selfCheck = cacheOn && diag.__ARCHMAP_Z_SELFCHECK === true;
+  // счётчики перебора (diag.__ARCHMAP_Z_STATS): заводит измеритель, в проде их нет
+  const stats = diag.__ARCHMAP_Z_STATS;
+  const count = (name: string): void => { if (stats) stats[name] = (stats[name] ?? 0) + 1; };
+  count("calls");
   const routes = new Map<string, EdgePoint[]>();
   const portKeys = new Map<string, { s?: number; t?: number }>();
   const hintXs = new Set<number>(), hintYs = new Set<number>();
@@ -1966,6 +1970,7 @@ export function zRoutes(params: {
   const crossAt = new Map<CrossKey, number>();
   const changed: number[] = [];
   const sceneCost = (): number => {
+    if (stats) count("evals");
     assignLanes(false);
     let cost = 0;
     costParts.cr = 0; costParts.ov = 0; costParts.inv = 0; costParts.det = 0; costParts.lost = 0; costParts.ovPairs = []; costParts.crPairs = [];
@@ -2129,9 +2134,10 @@ export function zRoutes(params: {
             apply(e, c);
             if (twin && tc) apply(twin, tc);
             evals++;
+            if (stats) count("tries");
             const cost = sceneCost();
             if (__zDebug.on) zlog(e.id.slice(0, 8), "try", c.kind, c.bands.map((b) => `${b[0].toFixed(0)}..${b[1].toFixed(0)}`).join("/"), Number.isFinite(c.x) ? `x=${c.x}` : "", tc ? "+twin" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} ov=${costParts.ov} inv=${costParts.inv} det=${costParts.det.toFixed(0)} lost=${costParts.lost}`, costParts.ovPairs.join(","), __zDebug.trace ? `[${costParts.crPairs.join(" ")}]` : "");
-            if (cost < best - EPS) { best = cost; improved = true; moved = true; break; }
+            if (cost < best - EPS) { best = cost; improved = true; moved = true; if (stats) count("accepted"); break; }
             if (current) apply(e, current);
             if (twin && tc && twinCurrent) apply(twin, twinCurrent);
           }
@@ -2154,9 +2160,10 @@ export function zRoutes(params: {
         if (!e.label || e.host === "none" || !e.cand) continue;
         const prevHost = e.host;
         e.hostOff = true; e.host = "none";
+        if (stats) count("hostTries");
         const cost = sceneCost();
         if (__zDebug.on) zlog(e.id.slice(0, 8), "host-off", prevHost, e.hostLost ? "(lost)" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} lost=${costParts.lost} det=${costParts.det.toFixed(0)}`);
-        if (cost < best - EPS) { best = cost; improved = true; any = true; continue; }
+        if (cost < best - EPS) { best = cost; improved = true; any = true; if (stats) count("hostAccepted"); continue; }
         e.hostOff = false; e.host = prevHost;
       }
       if (!improved) break;

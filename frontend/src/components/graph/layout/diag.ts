@@ -30,6 +30,12 @@ export interface ArchmapDiag {
   // zRoutesCache проверяет, что каждый кэш на фазз-сценах действительно сверялся;
   // corpus-check --selfcheck печатает итог).
   __ARCHMAP_Z_SELFCHECK_COUNT?: Record<string, number>;
+  // СЧЁТЧИКИ ПЕРЕБОРА Z-РОУТЕРА (эпик render-scale, шаг «меньше проб»): заводит тот, кто
+  // меряет (corpus-check), zRoutes прибавляет по названию: calls — вызовы, evals — полные
+  // оценки цены сцены, tries / hostTries — пробы вариантов и носителей, accepted /
+  // hostAccepted — принятые из них.
+  // Дешёвый счёт без отладочного следа: под следом память выключена и прогон в разы дольше.
+  __ARCHMAP_Z_STATS?: Record<string, number>;
 }
 
 export const diag = globalThis as typeof globalThis & ArchmapDiag;

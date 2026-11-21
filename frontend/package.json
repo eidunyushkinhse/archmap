@@ -19,6 +19,7 @@
     "route-quality": "tsx scripts/route-quality.ts",
     "stage-table": "tsx scripts/stage-table.ts",
     "corpus-check": "tsx scripts/corpus-check.ts",
+    "arrows-gate": "tsx scripts/arrows-gate.ts",
     "knip": "knip"
   },
   "dependencies": {
