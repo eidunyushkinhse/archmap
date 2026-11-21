@@ -1,8 +1,8 @@
 // Строка «Размещение» по элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md):
 // площадки хранятся у контейнера. Контейнер (лист или с компонентами) правит их сам
-// (значение — кнопка окна); у системы — площадки её контейнеров, частичная приглушена и
-// поясняется подсказкой; компонент размещается вместе с контейнером: площадки
-// контейнера без правки, контейнер назван в подсказке строки.
+// (значение — кнопка окна); у системы — площадки её контейнеров, частичная поясняется
+// подсказкой; компонент размещается вместе с контейнером: площадки контейнера без
+// правки, контейнер назван в подсказке строки. Читателю строка без площадок не рисуется.
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import PlacementRow from "../nodePage/PlacementRow";
@@ -55,8 +55,11 @@ describe("PlacementRow: элемент архитектуры", () => {
     expect(screen.queryByText(/как у контейнера/)).toBeNull();
   });
 
-  it("компонент у читателя; контейнер без площадок — «не указано»", () => {
-    renderRow(COMPONENT, { containerSites: [], isArchitect: false });
+  it("компонент, контейнер без площадок: редактору «не указано», читателю строки нет", () => {
+    const { unmount } = renderRow(COMPONENT, { containerSites: [], isArchitect: false });
+    expect(screen.queryByText("Размещение")).toBeNull();
+    unmount();
+    renderRow(COMPONENT, { containerSites: [] });
     expect(screen.getByText("не указано")).toBeInTheDocument();
   });
 
@@ -69,21 +72,23 @@ describe("PlacementRow: элемент архитектуры", () => {
     expect(screen.getByText("Размещение").closest(".np-prop")).not.toHaveAttribute("title");
   });
 
-  it("внешняя система (Р42) — размещение не ведётся, без «Изменить»", () => {
-    renderRow({ kind: "external" }, {
-      n: { name: "Банк", parent_id: null, is_external: true, element_effective: "system", container_name: null },
-    });
+  it("внешняя система (Р42) — размещение не ведётся, без «Изменить»; читателю строки нет", () => {
+    const n = { name: "Банк", parent_id: null, is_external: true, element_effective: "system" as const, container_name: null };
+    const { unmount } = renderRow({ kind: "external" }, { n, isArchitect: false });
+    expect(screen.queryByText("Размещение")).toBeNull();
+    unmount();
+    renderRow({ kind: "external" }, { n });
     expect(screen.getByText("не ведётся у внешней системы")).toBeInTheDocument();
     expect(editButton()).toBeNull();
   });
 
-  it("система — площадки её контейнеров; частичная приглушена и поясняется подсказкой", () => {
+  it("система — площадки её контейнеров; частичная поясняется подсказкой, цвет обычный", () => {
     renderRow({ kind: "system" }, {
       n: { name: "Торговля", has_children: true, child_count: 2, element_effective: "system", sites: [EU, { ...RU, partial: true }] },
     });
-    expect(screen.getByText("prod-ru")).toHaveClass("np-site--partial");
+    expect(screen.getByText("prod-ru")).toHaveClass("np-site", { exact: true });
     expect(screen.getByText("prod-ru")).toHaveAttribute("title", "Здесь размещена часть контейнеров системы");
-    expect(screen.getByText("prod-eu")).not.toHaveClass("np-site--partial");
+    expect(screen.getByText("prod-eu")).toHaveClass("np-site", { exact: true });
     expect(screen.queryByText(/часть контейнеров/)).toBeNull();
     expect(editButton()).not.toBeNull();
   });

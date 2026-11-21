@@ -86,10 +86,16 @@ describe("NodeProperties: строка «Размещение»", () => {
     vi.mocked(deploymentApi.setPlacements).mockResolvedValue(undefined);
   });
 
-  it("без размещения — «не указано»", () => {
-    setup({ sites: [] }, { isArchitect: false });
+  it("без размещения у редактора — «не указано»", () => {
+    setup({ sites: [] });
     expect(screen.getByText("Размещение")).toBeInTheDocument();
     expect(screen.getByText("не указано")).toBeInTheDocument();
+  });
+
+  it("без размещения у читателя строки нет", () => {
+    setup({ sites: [] }, { isArchitect: false });
+    expect(screen.queryByText("Размещение")).toBeNull();
+    expect(screen.queryByText("не указано")).toBeNull();
   });
 
   it("размещение объекта: имена площадок через запятую, родитель вложенной — подсказкой", () => {
@@ -101,14 +107,14 @@ describe("NodeProperties: строка «Размещение»", () => {
     expect(screen.queryByText("не указано")).toBeNull();
   });
 
-  it("у системы площадка, где стоит часть её контейнеров, приглушена и поясняется подсказкой", () => {
+  it("у системы площадка, где стоит часть её контейнеров, поясняется подсказкой, цвет как у обычного значения", () => {
     setup(
       { sites: [PART_K8S, OWN_VM], has_children: true, child_count: 2, element_effective: "system" },
       { isArchitect: false, isSystem: true },
     );
-    expect(screen.getByText("Кластер prod")).toHaveClass("np-site--partial");
+    expect(screen.getByText("Кластер prod")).toHaveClass("np-site", { exact: true });
     expect(screen.getByText("Кластер prod").getAttribute("title")).toContain("часть контейнеров");
-    expect(screen.getByText("vm-1")).not.toHaveClass("np-site--partial");
+    expect(screen.getByText("vm-1")).toHaveClass("np-site", { exact: true });
   });
 
   it("у «Пользователя» строки нет", () => {

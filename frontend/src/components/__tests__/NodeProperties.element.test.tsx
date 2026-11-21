@@ -1,9 +1,10 @@
 // Свойства страницы объекта: одна строка «Тип» (Р40 раздела 13 docs/plan-c4-elements.md)
 // у любого объекта, подпись без справки «?» (она живёт в инспекторе редактора); у
-// компонента имя контейнера — ссылка на его страницу (контейнер берётся из крошек
-// страницы); невозможные пункты серые; сводная технология только у системы (Р15), у
-// остальных своя и правится; две колонки в порядке обхода Tab; принадлежность —
-// выпадашкой. Хук правки свойств — настоящий (useNodePatch).
+// компонента контейнер не называется (его называют крошки страницы; строка «Входит в
+// контейнер» — только в инспекторе); невозможные пункты серые; сводная технология только
+// у системы (Р15), у остальных своя и правится; две колонки в порядке обхода Tab;
+// принадлежность — выпадашкой; читателю пустые строки не рисуются. Хук правки свойств —
+// настоящий (useNodePatch).
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -93,25 +94,24 @@ describe("NodeProperties: строка «Тип»", () => {
     expect(screen.queryByRole("button", { name: "Что такое система, контейнер и компонент" })).toBeNull();
   });
 
-  it("компонент у архитектора: «Компонент» в выпадашке, имя контейнера ведёт на его страницу", async () => {
+  it("компонент у архитектора: «Компонент» в выпадашке, второй строки с контейнером нет", () => {
     setup(
       { element_effective: "component", container_name: "orders", parent_id: "c" },
       { ancestors: [ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")] },
     );
     expect(typeButton()).toHaveTextContent("Компонент");
-    const link = screen.getByRole("button", { name: "«orders»" });
-    expect(link.parentElement).toHaveTextContent("Входит в контейнер «orders»");
-    await userEvent.click(link);
-    expect(onNavigateNode).toHaveBeenCalledWith("c");
+    expect(screen.queryByText(/Входит в контейнер/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "«orders»" })).toBeNull();
   });
 
-  it("компонент у читателя — «Компонент контейнера «orders»»", () => {
+  it("компонент у читателя — просто «Компонент», без имени контейнера", () => {
     setup(
       { element_effective: "component", container_name: "orders", parent_id: "c" },
       { isArchitect: false, ancestors: [ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")] },
     );
-    const link = screen.getByRole("button", { name: "«orders»" });
-    expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
+    const value = screen.getByText("Тип").nextElementSibling as HTMLElement;
+    expect(value).toHaveTextContent(/^Компонент$/);
+    expect(screen.queryByRole("button", { name: "«orders»" })).toBeNull();
   });
 
   it("лист — «Контейнер», пустая система — «Система», внешние — «Внешняя система» / «Внешний контейнер»", () => {
@@ -157,6 +157,31 @@ describe("NodeProperties: строка «Тип»", () => {
     setup({ technology: null });
     expect(screen.getByRole("textbox", { name: "Роль" })).toHaveAttribute("placeholder", "не указана");
     expect(screen.getByRole("textbox", { name: "Технология" })).toHaveAttribute("placeholder", "не указана");
+  });
+
+  it("читателю пустые роль, технология, источник и размещение не рисуются", () => {
+    setup({ role: null, technology: null, source: null, sites: [] }, { isArchitect: false });
+    expect(terms()).toEqual(["Тип", "Статус", "Принадлежность"]);
+    expect(screen.queryByText("не указана")).toBeNull();
+    expect(screen.queryByText("не задан")).toBeNull();
+    expect(screen.queryByText("не указано")).toBeNull();
+  });
+
+  it("читателю заполненные строки видны; у системы без сводной технологии её строки нет", () => {
+    const { unmount } = setup(
+      { role: "шлюз", technology: "Kong", source: { repo: "github.com/org/gw", path: null, host: null }, sites: [{ id: "k", name: "Кластер prod", kind: "kubernetes", partial: false }] },
+      { isArchitect: false },
+    );
+    expect(terms()).toEqual(["Тип", "Статус", "Принадлежность", "Роль", "Технология", "Источник", "Размещение"]);
+    unmount();
+    setup({ ...GROUP, element: null, element_effective: "system", technology: null }, { isArchitect: false, isSystem: true, aggTech: "" });
+    expect(terms()).not.toContain("Технология");
+  });
+
+  it("редактору пустые строки видны: их значение задают здесь", () => {
+    setup({ role: null, technology: null, source: null, sites: [] });
+    expect(terms()).toEqual(["Тип", "Статус", "Принадлежность", "Роль", "Технология", "Источник", "Размещение"]);
+    expect(screen.getByRole("button", { name: "Задать источник" })).toHaveTextContent("не задан");
   });
 
   it("две колонки: тип, статус, принадлежность, роль — потом технология, источник, размещение", () => {

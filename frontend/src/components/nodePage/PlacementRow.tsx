@@ -5,9 +5,10 @@
 // для одного объекта; площадки грузятся по нажатию, окно само их не грузит.
 //
 // По элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md): площадки хранятся у
-// контейнера. У системы это площадки её контейнеров; где стоит часть — имя приглушено.
+// контейнера. У системы это площадки её контейнеров; где стоит часть, говорит подсказка.
 // Компонент размещается вместе с контейнером: строка показывает площадки контейнера, без
-// правки. У внешней системы (Р42) размещение не ведётся — строка так и говорит.
+// правки. У внешней системы (Р42) размещение не ведётся — строка так и говорит. Читателю
+// строка без площадок не рисуется: пустое значение нужно только тому, кто его задаёт.
 // Строка — пара dt/dd сетки свойств, окно — внутри значения: открытый <dialog> живёт в
 // верхнем слое и места в строке не занимает.
 import { Fragment, useState } from "react";
@@ -49,7 +50,7 @@ function SiteNames({ sites }: { sites: Site[] }) {
       {sites.map((s, i) => (
         <Fragment key={s.id}>
           {i > 0 && ", "}
-          <span className={s.partial ? "np-site np-site--partial" : "np-site"} title={siteHint(s)}>{s.name}</span>
+          <span className="np-site" title={siteHint(s)}>{s.name}</span>
         </Fragment>
       ))}
     </span>
@@ -84,6 +85,7 @@ export default function PlacementRow({ node, element, containerSites, isArchitec
   // Компонент: площадки его контейнера, правки здесь нет (D29: площадки задаются
   // контейнеру). Пока контейнер грузится — пусто.
   if (element.kind === "component" || element.kind === "composite") {
+    if (!isArchitect && (containerSites === null || containerSites.length === 0)) return null;
     return (
       <Row title={`Как у контейнера «${element.container.name}»: компонент размещается вместе с ним`}>
         {containerSites !== null && <SiteNames sites={containerSites} />}
@@ -93,6 +95,7 @@ export default function PlacementRow({ node, element, containerSites, isArchitec
 
   // Внешняя система — чёрный ящик чужого продукта: площадок проекта у неё нет и не будет.
   if (element.kind === "external") {
+    if (!isArchitect) return null;
     return (
       <Row>
         <span className="ds-empty">не ведётся у внешней системы</span>
@@ -100,6 +103,7 @@ export default function PlacementRow({ node, element, containerSites, isArchitec
     );
   }
 
+  if (!isArchitect && node.sites.length === 0) return null;
   return (
     <Row>
       {isArchitect ? (

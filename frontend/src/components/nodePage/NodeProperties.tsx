@@ -6,6 +6,8 @@
 // окном), у читателя текст. Текст любого значения начинается с одного x: элементы
 // управления выглядят текстом (ui/ds.css: ds-value-btn, ds-field). Строка «Тип» — общий
 // рендер с инспектором редактора (element/TypeValue), вид кнопки задаёт место вызова.
+// Читателю строка без значения не рисуется (роль, технология, источник, размещение):
+// пустое значение нужно только тому, кто может его задать.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { AncestorRef, Node, NodeStatus } from "../../types";
@@ -13,6 +15,7 @@ import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ChevronDownIcon } from "../../ui/icons";
 import { noAutofill } from "../../ui/noAutofill";
 import AnchorField from "../anchor/AnchorField";
+import { anchorKind } from "../anchor/anchorText";
 import PlacementRow from "./PlacementRow";
 import { STATUS_ORDER } from "../nodeTerms";
 import type { useNodePatch } from "../../pages/useNodePatch";
@@ -107,7 +110,7 @@ function Prop({ term, title, children }: { term: string; title?: string; childre
   );
 }
 
-// Пустое значение у читателя.
+// Пустое значение: «загрузка» сводной технологии и пустая сводная технология системы.
 const Empty = ({ text = "не указана" }: { text?: string }) => <span className="ds-empty">{text}</span>;
 
 export default function NodeProperties({
@@ -143,10 +146,12 @@ export default function NodeProperties({
           {/* Тип (Р40): одна строка из шести значений у любого объекта. Архитектор меняет
               тип прямо здесь (импорт мог ошибиться в типе); невозможные пункты серые,
               остальные запреты — на сервере, отказ плашкой выше. Справка «?» о типах
-              живёт в инспекторе редактора: на странице подпись без значков. */}
+              живёт в инспекторе редактора: на странице подпись без значков. Контейнер
+              компонента на странице не называется: его уже назвали крошки над названием
+              (в инспекторе строка «Входит в контейнер» остаётся). */}
           <Prop term="Тип">
             <TypeValue
-              view={typeView(node, ancestors)}
+              view={{ ...typeView(node, ancestors), container: null }}
               options={isArchitect ? typeOptions({ mode: "change", node, ancestors }) : null}
               onPick={typePick.pick}
               onNavigateNode={onNavigateNode}
@@ -184,27 +189,29 @@ export default function NodeProperties({
             )}
           </Prop>
 
-          <Prop term="Роль">
-            {isArchitect ? (
-              <input
-                {...noAutofill("node-page-2")}
-                className="ds-field"
-                aria-label="Роль"
-                value={patch.role}
-                onChange={(e) => patch.setRole(e.target.value)}
-                onBlur={patch.commitRole}
-                placeholder="не указана"
-              />
-            ) : (
-              node.role || <Empty />
-            )}
-          </Prop>
+          {(isArchitect || !!node.role) && (
+            <Prop term="Роль">
+              {isArchitect ? (
+                <input
+                  {...noAutofill("node-page-2")}
+                  className="ds-field"
+                  aria-label="Роль"
+                  value={patch.role}
+                  onChange={(e) => patch.setRole(e.target.value)}
+                  onBlur={patch.commitRole}
+                  placeholder="не указана"
+                />
+              ) : (
+                node.role
+              )}
+            </Prop>
+          )}
         </dl>
 
         {/* ── Правая колонка: технология, источник, размещение ── */}
         <dl className="np-props-col">
           {/* Технология (не для персон) */}
-          {shape !== "person" && (
+          {shape !== "person" && (isArchitect || (isSystem ? techLoading || aggTech !== "" : !!node.technology)) && (
             <Prop term="Технология">
               {isSystem ? (
                 // Система сама не запускается: её технология — уникальные технологии
@@ -221,21 +228,23 @@ export default function NodeProperties({
                   placeholder="не указана"
                 />
               ) : (
-                node.technology || <Empty />
+                node.technology
               )}
             </Prop>
           )}
 
           {/* Источник — чем ArchMap опознаёт объект при обновлениях из кода. Значение
               целиком открывает редактор источника; «Очистить» и справка — в нём. */}
-          <Prop term="Источник">
-            <AnchorField
-              source={node.source}
-              isArchitect={isArchitect}
-              onSave={patch.commitSource}
-              variant="page"
-            />
-          </Prop>
+          {(isArchitect || anchorKind(node.source) !== null) && (
+            <Prop term="Источник">
+              <AnchorField
+                source={node.source}
+                isArchitect={isArchitect}
+                onSave={patch.commitSource}
+                variant="page"
+              />
+            </Prop>
+          )}
 
           {/* Размещение — площадки развёртывания (Ф3 эпика развёртывания). У
               «Пользователя» размещения нет: он живёт вне системы. */}

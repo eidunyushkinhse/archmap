@@ -200,10 +200,46 @@ button.ds-sub:hover {
 .ds-btn:hover:not(:disabled) {
   background: var(--c-hover);
 }
+.ds-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+/* Основная кнопка: фон акцента, белый текст. Одна на форму. */
+.ds-btn--primary {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: #fff;
+}
+.ds-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-accent) 88%, var(--c-fg));
+}
 .ds-add:focus-visible,
 .ds-btn:focus-visible {
   outline: 2px solid var(--c-accent);
   outline-offset: 1px;
+}
+
+/* ── Поле ввода формы: рамка на токенах, фокус акцентом ──────────────────── */
+.ds-input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font: inherit;
+  font-size: var(--fs-ui);
+  color: var(--c-fg);
+}
+.ds-input::placeholder {
+  color: var(--c-fg-faint);
+}
+.ds-input:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
 
 /* ── Вкладки-текст: активная с подчёркиванием, без подложки-сегмента ─────── */

@@ -143,14 +143,17 @@ describe("AnchorField — правка", () => {
 });
 
 // Строка свойств страницы объекта (variant="page", редизайн): значение одной строкой без
-// приставок «код:» и «путь», значение целиком открывает тот же редактор; «Очистить» и
-// справка — в нём, под значением строки действий нет; пустой источник — «не задан».
+// приставок «код:» и «путь»; значение целиком открывает панель поверх страницы под ним.
+// В панели — вкладки вида, поля, «Сохранить», «Отмена» и «Очистить»; ⓘ и абзаца-подсказки
+// нет; «будет сохранено как» — только когда сервер приведёт ввод к другому виду; Escape и
+// клик мимо закрывают без сохранения. Пустой источник — «не задан».
 describe("AnchorField — строка свойств страницы", () => {
   function наСтранице(source: NodeSource | null, isArchitect = true) {
     const onSave = vi.fn<(s: NodeSource | null) => Promise<string | null>>(() => Promise.resolve(null));
     render(<AnchorField source={source} isArchitect={isArchitect} onSave={onSave} variant="page" />);
     return onSave;
   }
+  const панель = () => screen.queryByRole("group", { name: "Источник" });
 
   it("код — «репозиторий / путь» одной строкой, без приставок и без «Изменить · Очистить»", () => {
     наСтранице({ repo: "github.com/org/mono", path: "services/orders" });
@@ -179,12 +182,77 @@ describe("AnchorField — строка свойств страницы", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("клик по значению открывает редактор; «Очистить» и справка — в нём", async () => {
+  it("клик по значению открывает панель на языке ds; ⓘ и абзаца-подсказки нет; «Очистить» в ней", async () => {
     const onSave = наСтранице({ host: "payments" });
-    await userEvent.click(screen.getByRole("button", { name: "Источник: payments" }));
+    const value = screen.getByRole("button", { name: "Источник: payments" });
+    await userEvent.click(value);
+    expect(value).toHaveAttribute("aria-expanded", "true");
+    expect(панель()).toHaveClass("anchor-pop");
+    expect(screen.getByRole("radiogroup", { name: "Вид источника" })).toHaveClass("ds-tabs");
+    expect(screen.getByRole("radio", { name: "Имя зависимости" })).toHaveClass("ds-tab", "is-active");
     expect(screen.getByLabelText("Имя")).toHaveValue("payments");
-    expect(кнопкаПояснения()).toBeInTheDocument();
+    expect(screen.getByLabelText("Имя")).toHaveClass("ds-input");
+    expect(screen.getByLabelText("Имя")).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Сохранить" })).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(screen.getByRole("button", { name: "Отмена" })).toHaveClass("ds-btn");
+    expect(screen.queryByRole("button", { name: "Что такое источник" })).toBeNull();
+    expect(screen.queryByText(/Можно вставить адрес клона/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
     expect(onSave).toHaveBeenCalledWith(null);
+    expect(панель()).toBeNull();
+  });
+
+  it("Escape закрывает панель без сохранения, фокус возвращается на значение", async () => {
+    const onSave = наСтранице({ host: "payments" });
+    await userEvent.click(screen.getByRole("button", { name: "Источник: payments" }));
+    await userEvent.clear(screen.getByLabelText("Имя"));
+    await userEvent.type(screen.getByLabelText("Имя"), "kafka");
+    await userEvent.keyboard("{Escape}");
+    expect(панель()).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Источник: payments" })).toHaveFocus();
+  });
+
+  it("клик мимо панели закрывает её без сохранения", async () => {
+    const onSave = наСтранице(null);
+    await userEvent.click(screen.getByRole("button", { name: "Задать источник" }));
+    await userEvent.type(screen.getByLabelText("Репозиторий"), "github.com/org/repo");
+    await userEvent.click(document.querySelector(".anchor-pop-backdrop") as HTMLElement);
+    expect(панель()).toBeNull();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("Enter в поле сохраняет сырой ввод и закрывает панель", async () => {
+    const onSave = наСтранице(null);
+    await userEvent.click(screen.getByRole("button", { name: "Задать источник" }));
+    await userEvent.type(screen.getByLabelText("Репозиторий"), "github.com/org/repo{Enter}");
+    expect(onSave).toHaveBeenCalledWith({ repo: "github.com/org/repo", path: null });
+    await waitFor(() => expect(панель()).toBeNull());
+  });
+
+  it("«будет сохранено как» — только когда сервер приведёт ввод к другому виду", async () => {
+    наСтранице(null);
+    await userEvent.click(screen.getByRole("button", { name: "Задать источник" }));
+    // Ввод уже в том виде, в каком его запишет сервер: подсказка ничего не добавляет.
+    await userEvent.type(screen.getByLabelText("Репозиторий"), "github.com/org/repo");
+    await waitFor(() => expect(preview).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText(/будет сохранено как/)).toBeNull();
+    // Адрес клона сервер приведёт к другому виду — подсказка нужна.
+    await userEvent.clear(screen.getByLabelText("Репозиторий"));
+    await userEvent.type(screen.getByLabelText("Репозиторий"), "https://github.com/Org/Repo.git");
+    expect(await screen.findByText("будет сохранено как: github.com/org/repo")).toBeInTheDocument();
+  });
+
+  it("отказ сервера остаётся в панели, панель не закрывается", async () => {
+    const onSave = vi.fn<(s: NodeSource | null) => Promise<string | null>>(() =>
+      Promise.resolve("localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде"),
+    );
+    render(<AnchorField source={null} isArchitect onSave={onSave} variant="page" />);
+    await userEvent.click(screen.getByRole("button", { name: "Задать источник" }));
+    await userEvent.type(screen.getByLabelText("Репозиторий"), "x");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/принадлежат среде/);
+    expect(панель()).not.toBeNull();
   });
 });

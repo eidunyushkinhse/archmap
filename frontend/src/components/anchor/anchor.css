@@ -169,7 +169,88 @@
 .anchor-field--page .anchor-pv {
   align-self: flex-start;
 }
-/* «Очистить» в редакторе страницы — ссылкой у правого края ряда кнопок. */
-.anchor-clear {
+
+/* Панель правки источника на странице: поверх страницы под значением, страница не
+   сдвигается. Подложка ловит клик мимо (закрыть без сохранения). Язык ds: вкладки
+   вида, подписи полей 12px, поля и кнопки на токенах (ui/ds.css). */
+.anchor-field--page {
+  position: relative;
+}
+.anchor-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+}
+.anchor-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -6px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 12px 14px 14px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  overflow-wrap: normal;
+  cursor: default;
+}
+.anchor-pop:focus {
+  outline: none;
+}
+.anchor-pop-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.anchor-pop-note,
+.anchor-pop-err {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  overflow-wrap: anywhere;
+}
+.anchor-pop-note {
+  color: var(--c-fg-muted);
+}
+.anchor-pop-err {
+  color: var(--c-danger);
+}
+.anchor-pop-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+/* «Очистить» — тихой текстовой кнопкой у правого края ряда. */
+.anchor-pop-clear {
   margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.anchor-pop-clear:hover:not(:disabled) {
+  color: var(--c-danger);
+  text-decoration: underline;
+}
+.anchor-pop-clear:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
