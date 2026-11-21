@@ -8,7 +8,7 @@
 - ORM: SQLAlchemy 2.0 + Alembic (миграции)
 - Аутентификация: JWT (PyJWT + pwdlib[bcrypt]); личные токены доступа `archmap_…` для ИИ-агентов и скриптов
   (в БД — sha256; метод DELETE закрыт, удаление пачкой с версией перед ним; без администрирования,
-  «только чтение» — по методу)
+  «только чтение» — по методу, «только сигнал из CI» — только POST /code-changes)
 - Тесты: vitest (фронт), pytest (бэк — на in-memory SQLite; MCP — поверх подменённого httpx)
 - Линтеры: tsc + eslint + knip (фронт), ruff + mypy (бэк и MCP)
 - Зависимости поставки: backend/requirements-prod.lock с хэшами (pip --require-hashes);
@@ -29,7 +29,7 @@ archmap/
 │   ├── src/
 │   │   ├── api/           # клиент бэкенда: client (общий запрос, 401, X-Project-Id), auth, admin, nodes,
 │   │   │                  # processes, projects, docsImport, dataRefs, projectScope, tokens, versions, deployment (площадки и размещение),
-│   │   │                  # scan (файл сборщика фактов: версия и ссылка)
+│   │   │                  # codeChanges («Документация актуальна»: снять напоминание о слиянии из CI)
 │   │   ├── lib/           # общие механизмы без разметки: lazyOnce, useAsyncLoad, safeStorage, copyText,
 │   │   │                  # connection (признак «нет связи»), motion (prefers-reduced-motion)
 │   │   ├── ui/            # общие UI-примитивы: Modal, ConfirmDialog, ErrorBoundary, LoadError, UpdateNotice,
@@ -40,7 +40,7 @@ archmap/
 │   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, ObjectInspector, DocOverlay
 │   │   │   ├── processes/ # бизнес-процессы: sequence-диаграммы, рейл, композитор, импорт из mermaid
 │   │   │   ├── project/   # создание и правка проектов, ввоз (ImportPane), догрузка, доступ, превью схемы,
-│   │   │   │              # ссылка на файл сборщика фактов (ScanFileLink)
+│   │   │   │              # плашка «Документацию пора обновить» по сигналу CI (CodeChangeNotice)
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
 │   │   │   ├── anchor/    # поле и тексты источника объекта (source_ref; в коде понятие зовётся anchor)
@@ -54,7 +54,7 @@ archmap/
 │   │   │   ├── nodePage/  # части страницы объекта: свойства (в т.ч. строка «Размещение»), секции «Логика»/«OpenAPI»/«Схема» по элементу, группы потомков
 │   │   │   ├── deployment/# режим «Развёртывание»: проекция графа площадок на холст, окна «Размещение» и «Площадки»,
 │   │   │   │              # конфликты размещения контейнера целиком (placementConflicts, PlacementConflictList)
-│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 266 тестовых файлов)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 265 тестовых файлов)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
 │   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel; режимы
@@ -74,14 +74,16 @@ archmap/
 │   ├── app/
 │   │   ├── models/        # SQLAlchemy: project, project_member, user, node, edge, node_doc, view_layout, view_state,
 │   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*,
-│   │   │                  # personal_token, node_version, deployment_site/deployment_instance (площадки и экземпляры)
-│   │   ├── routers/       # 28 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
+│   │   │                  # personal_token, node_version, deployment_site/deployment_instance (площадки и экземпляры),
+│   │   │                  # code_change (напоминание о слиянии в репозитории по сигналу CI)
+│   │   ├── routers/       # 29 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
 │   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
 │   │   │                  # broker_channels, channels_import, config_params, config_import, versions, deployment,
 │   │   │                  # facts (перенос и сбор фактов), uploads (одноразовая ссылка загрузки),
 │   │   │                  # scan (раздача сборщика фактов archmap-scan.pyz без входа),
-│   │   │                  # deletions (удаление пачкой с версией перед ним — путь агента и скриптов)
-│   │   ├── schemas/       # Pydantic-контракт API (32 модуля; из него генерируется api.gen.ts)
+│   │   │                  # deletions (удаление пачкой с версией перед ним — путь агента и скриптов),
+│   │   │                  # code_changes (сигнал CI о слиянии в репозиторий и его снятие)
+│   │   ├── schemas/       # Pydantic-контракт API (33 модуля; из него генерируется api.gen.ts)
 │   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health, /ready и /mcp
 │   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
 │   │   ├── domain_types.py  # словари предметной области (Literal формы, статусы, роли…) и pick
@@ -115,10 +117,11 @@ archmap/
 │   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
 │   │   ├── scan_file.py   # файл сборщика фактов для раздачи (/api/v1/scan): версия, sha256, кэш по mtime
-│   │   ├── scan_origin.py # пометка «собрано сборщиком фактов» по шапке входа (превью, план обновления, факты)
+│   │   ├── scan_origin.py # шапка сборщика фактов: отказ черновику схемы, пометка файлов фактов
+│   │   ├── code_changes.py # сигнал CI о слиянии: проекты по источникам объектов, напоминание (AL37) и снятие
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (95 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (96 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings
