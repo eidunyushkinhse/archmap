@@ -1,6 +1,7 @@
 // Воркспейс режима «Процессы» — композиция рейла (список процессов) и холста
 // (диаграмма выбранного). Владеет списком processesApi.list(), выбором, флагами
-// railOpen/editing (персист в localStorage) и операциями новый/дублировать/удалить.
+// railOpen/editing (персист в localStorage) и операциями новый/дублировать/удалить/
+// переименовать. Новый процесс создаётся только после ввода имени (строка в рейле).
 // Вынесен из TreePage, чтобы не раздувать и без того большой компонент страницы.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -12,8 +13,8 @@ import type { ProcessListItem } from "../../types";
 import ProcessCanvas from "./ProcessCanvas";
 import ProcessImportModal from "./ProcessImportModal";
 import ProcessRail from "./ProcessRail";
-import { IcoFlow } from "./icons";
-import { BPT } from "./tokens";
+import AddDocsMenu from "../AddDocsMenu";
+import "../../ui/ds.css";
 import "./processes.css";
 import DemoLimitToast from "../demo/DemoLimitToast";
 import { useDemoLimitToast } from "../demo/useDemoLimitToast";
@@ -66,6 +67,8 @@ export default function ProcessWorkspace({
   const [picked, setPicked] = useState<string | null>(initialProcessId ?? null);
   // Импорт из mermaid: заводит НОВЫЙ процесс (слияние с существующим — отдельная задача).
   const [importing, setImporting] = useState(false);
+  // Ввод имени нового процесса в рейле: до Enter в базе ничего нет.
+  const [creating, setCreating] = useState(false);
   const [railOpen, setRailOpen] = useState<boolean>(() => readPrefs().railOpen ?? true);
   // Пришли ЧИНИТЬ (строка алерта в редакторе-карте) — открываемся сразу в правке:
   // иначе человек попадает на диаграмму, где ничего не кликается, и сломанный шаг
@@ -146,10 +149,18 @@ export default function ProcessWorkspace({
   // Защита от гонок: held токен последней операции, чтобы не перетереть выбор.
   const opSeq = useRef(0);
 
-  async function onNew() {
+  // «Новый процесс» из меню «Добавить» (рейла или пустого экрана): строка с полем имени
+  // в рейле, рейл при этом разворачивается.
+  function startCreate() {
+    setRailOpen(true);
+    setCreating(true);
+  }
+
+  async function onCreate(name: string) {
+    setCreating(false);
     const myOp = ++opSeq.current;
     try {
-      const created = await processesApi.create({ name: "Новый процесс" });
+      const created = await processesApi.create({ name });
       await reload();
       if (opSeq.current === myOp) {
         setPicked(created.id);
@@ -212,8 +223,11 @@ export default function ProcessWorkspace({
         processes={items}
         selectedId={selectedId}
         onSelect={(id) => setPicked(id)}
-        onNew={() => void onNew()}
         onImport={() => setImporting(true)}
+        creating={creating}
+        onStartCreate={startCreate}
+        onCreate={(name) => void onCreate(name)}
+        onCancelCreate={() => setCreating(false)}
         expanded={railOpen}
         onToggle={() => setRailOpen((o) => !o)}
         isArchitect={isArchitect}
@@ -222,25 +236,29 @@ export default function ProcessWorkspace({
         onRename={(id, name) => void onRename(id, name)}
       />
       {error && items === null ? (
-        <div style={emptyWrap}>
-          <div style={{ color: "#dc2626", fontSize: 13 }}>{error}</div>
+        <div className="proc-empty ds">
+          <span className="proc-empty-err">{error}</span>
         </div>
       ) : items !== null && items.length === 0 ? (
-        <div style={emptyWrap}>
-          <span style={emptyGlyph}>
-            <IcoFlow s={26} />
-          </span>
-          <div style={{ fontSize: 15, fontWeight: 600, color: BPT.head }}>Пока ни одного процесса</div>
-          {!isArchitect && (
-            <div style={{ fontSize: 13, color: BPT.mut, maxWidth: 360, textAlign: "center" }}>
-              Архитектор ещё не создал ни одного бизнес-процесса.
-            </div>
+        // Пустой проект — одна строка; редактору рядом «Добавить» с тем же меню, что в рейле.
+        <div className="proc-empty ds">
+          <span>Процессов пока нет.</span>
+          {isArchitect && (
+            <AddDocsMenu
+              groups={[[
+                { label: "Импорт из Mermaid", onSelect: () => setImporting(true) },
+                { label: "Новый процесс", onSelect: startCreate },
+              ]]}
+            />
           )}
         </div>
       ) : selectedId ? (
         <ProcessCanvas
           key={selectedId}
           id={selectedId}
+          // Имя — из списка: переименование в рейле или в шапке видно сразу в обоих местах.
+          name={selName ?? ""}
+          onRename={(name) => void onRename(selectedId, name)}
           isArchitect={isArchitect}
           editing={editing}
           syncRev={syncRev}
@@ -251,8 +269,8 @@ export default function ProcessWorkspace({
           onOpenNode={onOpenNode}
         />
       ) : (
-        <div style={emptyWrap}>
-          <div style={{ fontSize: 13, color: BPT.mut }}>Загрузка</div>
+        <div className="proc-empty ds">
+          <span>Загрузка</span>
         </div>
       )}
       <DemoLimitToast message={limitToast} />
@@ -266,26 +284,4 @@ const workspace: CSSProperties = {
   display: "flex",
   minHeight: 0,
   minWidth: 0,
-};
-const emptyWrap: CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 10,
-  background: BPT.canvas,
-};
-const emptyGlyph: CSSProperties = {
-  width: 52,
-  height: 52,
-  borderRadius: 14,
-  background: "#fff",
-  border: "1px solid " + BPT.line,
-  color: BPT.accent,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  marginBottom: 4,
 };

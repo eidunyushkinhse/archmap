@@ -24,8 +24,11 @@ function renderRail(isArchitect = true) {
       processes={[PROCESS]}
       selectedId="p1"
       onSelect={onSelect}
-      onNew={() => {}}
       onImport={() => {}}
+      creating={false}
+      onStartCreate={() => {}}
+      onCreate={() => {}}
+      onCancelCreate={() => {}}
       expanded
       onToggle={() => {}}
       isArchitect={isArchitect}

@@ -36,16 +36,6 @@ export function C4Glyph({ shape, s = 16 }: { shape: NodeShape; s?: number }) {
   );
 }
 
-export function IcoFlow({ s = 17 }: { s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.7}>
-      <circle cx="6" cy="6" r="2.4" />
-      <circle cx="18" cy="12" r="2.4" />
-      <circle cx="6" cy="18" r="2.4" />
-      <path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
-    </svg>
-  );
-}
 export function IcoPlus({ s = 16 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.9}>
@@ -57,14 +47,6 @@ export function IcoClose({ s = 16 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.9}>
       <path d="M6 6 L18 18 M18 6 L6 18" />
-    </svg>
-  );
-}
-export function IcoEdit({ s = 15 }: { s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>
-      <path d="M4 20 h4 L19 9 a2 2 0 0 0-3-3 L5 17 Z" />
-      <path d="M14 7 L17 10" />
     </svg>
   );
 }

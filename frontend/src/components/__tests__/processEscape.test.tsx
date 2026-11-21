@@ -123,19 +123,19 @@ describe("Escape закрывает оверлеи процесса", () => {
     await waitFor(() => expect(screen.queryByText("Добавить ветку «иначе»")).toBeNull());
   });
 
-  it("карточку сообщения самому себе", async () => {
+  it("карточку шага внутри участника", async () => {
     await renderCanvas();
     await userEvent.click(screen.getByText("click-self"));
-    await screen.findByText(/Сообщение самому себе/);
+    await screen.findByText("Шаг внутри «Покупатель»");
 
     await userEvent.keyboard("{Escape}");
 
-    await waitFor(() => expect(screen.queryByText(/Сообщение самому себе/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Шаг внутри «Покупатель»")).toBeNull());
   });
 
   it("панель участников", async () => {
     await renderCanvas();
-    await userEvent.click(screen.getByRole("button", { name: "Участник" }));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить участника" }));
     await screen.findByText("Добавить из дерева схемы");
 
     await userEvent.keyboard("{Escape}");

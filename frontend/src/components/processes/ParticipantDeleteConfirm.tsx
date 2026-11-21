@@ -31,7 +31,7 @@ export default function ParticipantDeleteConfirm({ name, links, deleting, error,
     <ConfirmDialog
       variant="card"
       title={`Убрать «${name}» из процесса?`}
-      lead={links.length > 0 ? "Вместе с ним из процесса уйдут его сообщения:" : undefined}
+      lead={links.length > 0 ? "Вместе с ним из процесса уйдут его шаги:" : undefined}
       error={error}
       confirmLabel="Убрать"
       busyLabel="Убираем"

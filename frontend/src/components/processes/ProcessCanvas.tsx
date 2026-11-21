@@ -15,7 +15,6 @@ import ConfirmDialog from "../../ui/ConfirmDialog";
 import ParticipantDeleteConfirm, { type DelLink } from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
 import { C4Glyph, IcoBrokenLink, IcoClose } from "./icons";
-import { ViewHint } from "./SchemaViewChrome";
 import ProcessToolbar from "./ProcessToolbar";
 import SequenceDiagram from "./SequenceDiagram";
 import { deriveActivations } from "./sequence/layout";
@@ -35,6 +34,11 @@ import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   id: string;
+  // Название — из списка процессов воркспейса (переименование видно сразу и в рейле, и
+  // в шапке); пока список не пришёл — из самого процесса.
+  name?: string;
+  // Переименование из шапки (только редактору).
+  onRename?: (name: string) => void;
   isArchitect: boolean;
   editing: boolean;
   onToggleEditing: (v: boolean) => void;
@@ -53,7 +57,7 @@ interface Props {
 }
 
 export default function ProcessCanvas({
-  id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev, fixOnOpen,
+  id, name, onRename, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev, fixOnOpen,
 }: Props) {
   const proc = useProcessDetail(id, onChanged, syncRev);
   const {
@@ -146,7 +150,7 @@ export default function ProcessCanvas({
         const other = outgoing ? m.to_participant_id : m.from_participant_id;
         return {
           id: m.id,
-          label: m.caption || m.technology || "сообщение",
+          label: m.caption || m.technology || "шаг",
           dir: outgoing ? "к" : "от",
           other: partById[other]?.name ?? other,
         };
@@ -262,7 +266,7 @@ export default function ProcessCanvas({
         if (!detail) return null;
         return (
           <PromptCard
-            title={`Сообщение самому себе · ${partById[o.pid]?.name ?? o.pid}`}
+            title={`Шаг внутри «${partById[o.pid]?.name ?? o.pid}»`}
             hint="Участник делает что-то сам, без связи с другими объектами."
             autofillKey="process-canvas-1"
             value={o.caption}
@@ -349,8 +353,8 @@ export default function ProcessCanvas({
           <PromptCard
             title={`Фрагмент «${o.frag}»`}
             hint={`${o.fromRow === o.toRow
-              ? `Сообщение ${o.fromRow + 1}`
-              : `Сообщения ${o.fromRow + 1}–${o.toRow + 1}`} · условие (показывается в заголовке фрагмента)`}
+              ? `Шаг ${o.fromRow + 1}`
+              : `Шаги ${o.fromRow + 1}–${o.toRow + 1}`}. Условие будет в заголовке фрагмента.`}
             autofillKey="process-canvas-3"
             value={o.guard}
             onChange={(guard) => updateOverlay("frag", (x) => ({ ...x, guard }))}
@@ -525,11 +529,12 @@ export default function ProcessCanvas({
   // ── Тулбар над диаграммой ─────────────────────────────────────────
   const toolbar = (
     <ProcessToolbar
-      name={detail?.name ?? "Процесс"}
-      scopeName={detail?.scope_name ?? "Вся схема"}
+      name={name || detail?.name || "Процесс"}
+      scopeName={detail?.scope_name ?? null}
       isArchitect={isArchitect}
       editing={editing}
       onToggleEditing={onToggleEditing}
+      onRename={onRename}
       danglingCount={danglingCount}
       onReattach={() => void reattachChannels()}
       fragSelect={fragSelect}
@@ -547,7 +552,6 @@ export default function ProcessCanvas({
   return (
     <div style={canvasShell} className="bp ds">
       {toolbar}
-      {hasStatus && <ViewHint view={view} />}
       <div className="proc-body">
       <div
         className="proc-scroll"
@@ -558,7 +562,7 @@ export default function ProcessCanvas({
           if (t === e.currentTarget || t.classList.contains("proc-diagram")) setPickedStep(null);
         }}
       >
-        {error && <div style={{ padding: "8px 14px 0", color: "#dc2626", fontSize: 12 }}>{error}</div>}
+        {error && <div className="proc-error">{error}</div>}
         {/* Итог подхвата каналов: гасится кликом — это не ошибка, а сводка. */}
         {bindNote && (
           <div
@@ -569,12 +573,10 @@ export default function ProcessCanvas({
           </div>
         )}
         {!detail || !seq ? (
-          <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>Загрузка</div>
+          <div className="proc-blank">Загрузка</div>
         ) : seq.participants.length === 0 ? (
-          <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>
-            {editing
-              ? "Добавьте участников (объекты схемы) кнопкой «Участник», затем сообщения между ними."
-              : "В процессе пока нет участников и сообщений."}
+          <div className="proc-blank">
+            {editing ? "Добавьте первого участника кнопкой «Добавить участника»." : "Процесс пуст."}
           </div>
         ) : (
           // data-tour: диаграмма процесса — вторая цель шага «Бизнес-процессы» тура демо.
@@ -605,7 +607,7 @@ export default function ProcessCanvas({
         {editing && fragSelect && (
           <div style={fragHintBar}>
             <span>
-              Протяните по сообщениям, чтобы выделить диапазон для фрагмента{" "}
+              Протяните по шагам, чтобы выделить диапазон для фрагмента{" "}
               <b style={{ color: BPT.amber }}>«{fragSelect}»</b>
             </span>
             <button className="bp-btn-ghost" style={{ height: 26, padding: "0 10px" }} onClick={() => setFragSelect(null)}>

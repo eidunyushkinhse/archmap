@@ -55,9 +55,9 @@ vi.mock("../OpenApiViewer", () => ({ default: () => <div data-testid="swagger" /
 vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div /> }));
 vi.mock("../processes/ProcessCanvas", () => ({ default: () => <div data-testid="process-canvas" /> }));
 vi.mock("../processes/ProcessRail", () => ({
-  default: ({ onNew, onDuplicate }: { onNew: () => void; onDuplicate: (id: string) => void }) => (
+  default: ({ onCreate, onDuplicate }: { onCreate: (name: string) => void; onDuplicate: (id: string) => void }) => (
     <div>
-      <button onClick={onNew}>Новый процесс</button>
+      <button onClick={() => onCreate("Возврат")}>Новый процесс</button>
       <button onClick={() => onDuplicate("bp1")}>Дублировать</button>
     </div>
   ),

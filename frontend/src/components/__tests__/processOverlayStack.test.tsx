@@ -73,7 +73,7 @@ beforeEach(() => {
 // Панель «Участники» → крестик у участника с шагами → подтверждение удаления.
 async function openDeleteFromPanel() {
   render(<ProcessCanvas id="p1" isArchitect editing onToggleEditing={vi.fn()} onChanged={vi.fn()} />);
-  await userEvent.click(await screen.findByRole("button", { name: "Участник" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Добавить участника" }));
   await screen.findByText("Добавить из дерева схемы");
   await userEvent.click(screen.getAllByTitle("Убрать")[0]);
   return screen.findByText(CONFIRM);
