@@ -981,6 +981,7 @@ export function zRoutes(params: {
   const stats = diag.__ARCHMAP_Z_STATS;
   const count = (name: string): void => { if (stats) stats[name] = (stats[name] ?? 0) + 1; };
   count("calls");
+  let honest = false;   // идёт честная проба отсеянного (см. «ОТСЕВ ПРОБ»): в счёт оценок не входит
   const routes = new Map<string, EdgePoint[]>();
   const portKeys = new Map<string, { s?: number; t?: number }>();
   const hintXs = new Set<number>(), hintYs = new Set<number>();
@@ -1970,7 +1971,7 @@ export function zRoutes(params: {
   const crossAt = new Map<CrossKey, number>();
   const changed: number[] = [];
   const sceneCost = (): number => {
-    if (stats) count("evals");
+    if (stats && !honest) count("evals");
     assignLanes(false);
     let cost = 0;
     costParts.cr = 0; costParts.ov = 0; costParts.inv = 0; costParts.det = 0; costParts.lost = 0; costParts.ovPairs = []; costParts.crPairs = [];
@@ -2111,8 +2112,93 @@ export function zRoutes(params: {
     }
     return bestOv > -EPS ? best : undefined;
   };
+  // ── ВКЛАД СВЯЗИ В ЦЕНУ И СОСТАВ ЕЁ КОНФЛИКТОВ (шаг «меньше проб», эпик render-scale) ──
+  // Считаются по разреженной сумме ПОСЛЕДНЕЙ оценки — её обязаны звать сразу после оценки
+  // лучшего состояния (стартового или только что принятого). Вклад — сколько цены сцены
+  // может уйти вместе с выбором связи, сверху: её недопустимость, крюк, кресты и наложения
+  // всех её пар (точка, общая с чужой парой, считается целиком), свой потерянный носитель и
+  // чужие слоты, которые режет её маршрут. Подпись — хэш состава конфликтов: партнёры пар с
+  // числом крестов и наложением, недопустимость, потеря носителя, разрезанные слоты.
+  const contrib = new Float64Array(edges.length);
+  const sig = new Int32Array(edges.length);
+  const detourOf = (e: ZEdge): number => Math.abs(e.x - e.uAlong) + Math.abs(e.x - e.dAlong) - Math.abs(e.uAlong - e.dAlong);
+  const scanBest = (): void => {
+    contrib.fill(0);
+    sig.fill(0x811c9dc5 | 0);
+    const mix = (k: number, v: number): void => { sig[k] = Math.imul(sig[k] ^ v, 0x01000193); };
+    for (const e of edges) {
+      if (newId[nS + e.ix] === 0) { contrib[e.ix] += INVALID_COST; mix(e.ix, -1); }
+      if (e.kind === "zz") contrib[e.ix] += detourOf(e);
+    }
+    for (let a = 0; a < nP; a++) {
+      if (newId[a] === 0) continue;
+      const ea = placeEdge[a];
+      for (const b of nzRow[a]) {
+        const cell = a * nP + b, nk = curKeys[cell].length, ov = curOv[cell];
+        const eb = placeEdge[b];
+        const w = ea !== null && eb !== null && twinOf.get(ea) === eb ? TWIN_CROSS_FACTOR : 1;
+        const c = nk * w * CAND_CROSS_COST + (ov === 1 ? OVERLAP_COST_Z : 0);
+        const code = nk * 2 + ov;
+        if (ea) { contrib[ea.ix] += c; mix(ea.ix, b); mix(ea.ix, code); }
+        if (eb) { contrib[eb.ix] += c; mix(eb.ix, a); mix(eb.ix, code); }
+      }
+    }
+    if (!LABEL_HOSTS.on) return;
+    for (const f of edges) {
+      if (!f.label) continue;
+      if (f.host === "none" || f.hostLost) { contrib[f.ix] += LABEL_HOSTS.lostCost; mix(f.ix, -2); }
+      if (!f.hostLost || lostReg[f.ix] === 0) continue;
+      const row = f.ix * nP;
+      for (let p = nS; p < nP; p++) if (cutCur[row + p] === 1) { contrib[p - nS] += LABEL_HOSTS.lostCost; mix(p - nS, -3 - f.ix); }
+    }
+  };
+  // Нижняя граница собственной цены связи при варианте c: крюк колонны (раздача держит
+  // колонну в её полосе — кусок просвета, ближайшая к портам точка которого и есть c.x, с
+  // запасом на полпикселя округления) и потеря носителя, если при варианте его нет.
+  const ownFloor = (e: ZEdge, c: Cand): number => {
+    let v = c.kind === "zz" ? Math.max(0, c.detour - 1) : 0;
+    if (e.label && LABEL_HOSTS.on && hostOf(e, c) === "none") v += LABEL_HOSTS.lostCost;
+    return v;
+  };
+  // ── ОТСЕВ ПРОБ ДО ПОЛНОЙ ОЦЕНКИ (шаг «меньше проб») ──────────────────────────────
+  // ГРАНИЦА ВКЛАДА: смена варианта связи (у парного хода — обеих связей пары) убирает из цены
+  // сцены не больше их вклада (contrib) и платит не меньше пола нового выбора (ownFloor);
+  // если пол не ниже вклада, строгого падения цены нет. Правило ПРИБЛИЖЁННОЕ: косвенных
+  // сдвигов (соседи переразложились, когда связь ушла из канала) оно не видит. Его меряет
+  // честная проба отсеянного (diag.__ARCHMAP_Z_SKIPCHECK или самопроверка): проба считается,
+  // как если бы её делали, счёт «было бы принято» идёт в diag.__ARCHMAP_Z_STATS, а состояние
+  // всех связей возвращается как было — решения спуска от проверки не зависят.
+  const skipCheck = cacheOn && (selfCheck || diag.__ARCHMAP_Z_SKIPCHECK === true);
+  interface EdgeState {
+    kind: "z" | "zz"; x: number; colLo: number; colHi: number; freeLo: number; freeHi: number;
+    adjU: boolean; adjD: boolean; cand: Cand | null; lanes: number[]; slots: number[];
+    host: Host; hostOff: boolean; hostLost: boolean;
+  }
+  const saveState = (): EdgeState[] => edges.map((e) => ({
+    kind: e.kind, x: e.x, colLo: e.colLo, colHi: e.colHi, freeLo: e.freeLo, freeHi: e.freeHi,
+    adjU: e.adjU, adjD: e.adjD, cand: e.cand, lanes: e.lanes.slice(), slots: e.slots.slice(),
+    host: e.host, hostOff: e.hostOff, hostLost: e.hostLost,
+  }));
+  const restoreState = (s: ReadonlyArray<EdgeState>): void => {
+    edges.forEach((e, i) => {
+      const q = s[i];
+      e.kind = q.kind; e.x = q.x; e.colLo = q.colLo; e.colHi = q.colHi; e.freeLo = q.freeLo; e.freeHi = q.freeHi;
+      e.adjU = q.adjU; e.adjD = q.adjD; e.cand = q.cand; e.lanes = q.lanes; e.slots = q.slots;
+      e.host = q.host; e.hostOff = q.hostOff; e.hostLost = q.hostLost;
+    });
+  };
+  const honestAccepts = (move: () => void): boolean => {
+    const saved = saveState();
+    move();
+    honest = true;
+    const cost = sceneCost();
+    honest = false;
+    restoreState(saved);
+    return cost < best - EPS;
+  };
   const movable = edges.filter((e) => e.cands.length > 1);
   let best = sceneCost();
+  scanBest();
   let evals = 0;
   const MAX_EVALS = 400;
   const descend = (): void => {
@@ -2131,13 +2217,22 @@ export function zRoutes(params: {
           const steps: Array<Cand | undefined> = twinCand && twinCand !== twinCurrent ? [twinCand, undefined] : [undefined];
           for (const tc of steps) {
             if (evals >= MAX_EVALS) break;
+            // граница вклада: пол нового выбора не ниже вклада прежнего — строгого падения нет
+            const floor = twin && tc ? ownFloor(e, c) + ownFloor(twin, tc) : ownFloor(e, c);
+            const gain = twin && tc ? contrib[e.ix] + contrib[twin.ix] : contrib[e.ix];
+            if (floor >= gain - EPS) {
+              if (__zDebug.on) zlog(e.id.slice(0, 8), "skip", "bound", c.kind, `floor=${floor.toFixed(0)}`, `contrib=${gain.toFixed(0)}`);
+              if (stats) count("skip.bound");
+              if (skipCheck && honestAccepts(() => { apply(e, c); if (twin && tc) apply(twin, tc); })) count("skipWould.bound");
+              continue;
+            }
             apply(e, c);
             if (twin && tc) apply(twin, tc);
             evals++;
             if (stats) count("tries");
             const cost = sceneCost();
             if (__zDebug.on) zlog(e.id.slice(0, 8), "try", c.kind, c.bands.map((b) => `${b[0].toFixed(0)}..${b[1].toFixed(0)}`).join("/"), Number.isFinite(c.x) ? `x=${c.x}` : "", tc ? "+twin" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} ov=${costParts.ov} inv=${costParts.inv} det=${costParts.det.toFixed(0)} lost=${costParts.lost}`, costParts.ovPairs.join(","), __zDebug.trace ? `[${costParts.crPairs.join(" ")}]` : "");
-            if (cost < best - EPS) { best = cost; improved = true; moved = true; if (stats) count("accepted"); break; }
+            if (cost < best - EPS) { best = cost; improved = true; moved = true; if (stats) count("accepted"); scanBest(); break; }
             if (current) apply(e, current);
             if (twin && tc && twinCurrent) apply(twin, twinCurrent);
           }
@@ -2163,7 +2258,7 @@ export function zRoutes(params: {
         if (stats) count("hostTries");
         const cost = sceneCost();
         if (__zDebug.on) zlog(e.id.slice(0, 8), "host-off", prevHost, e.hostLost ? "(lost)" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} lost=${costParts.lost} det=${costParts.det.toFixed(0)}`);
-        if (cost < best - EPS) { best = cost; improved = true; any = true; if (stats) count("hostAccepted"); continue; }
+        if (cost < best - EPS) { best = cost; improved = true; any = true; if (stats) count("hostAccepted"); scanBest(); continue; }
         e.hostOff = false; e.host = prevHost;
       }
       if (!improved) break;

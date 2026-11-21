@@ -23,7 +23,11 @@
 //                         себе ошибкой в этом режиме не считаются)
 //   --selfcheck           самопроверка кэшей Z-роутера (diag.__ARCHMAP_Z_SELFCHECK): каждое
 //                         попадание в кэш дополнительно считается честно и сверяется,
-//                         расхождение — исключение с названием кэша (прогон медленнее)
+//                         расхождение — исключение с названием кэша (прогон медленнее);
+//                         включает и честную пробу отсеянного (--skipcheck)
+//   --skipcheck           честная проба отсеянного (diag.__ARCHMAP_Z_SKIPCHECK): пробы,
+//                         отсеянные правилами до полной оценки, всё же считаются, счёт
+//                         «было бы принято» — в счётчиках skipWould.<правило> (маршруты те же)
 // Вход без базового дампа считается (время печатается), но не сверяется.
 // Код возврата 1 — есть отличия от базовых дампов (без --quality) либо не пройдены ворота
 // качества (с --quality).
@@ -50,7 +54,7 @@ const flag = (name: string): string | undefined => {
 };
 const [inputsDir, baselineDir] = argv;
 if (!inputsDir || !baselineDir || inputsDir.startsWith("--") || baselineDir.startsWith("--")) {
-  console.error("использование: npm run corpus-check -- <каталог входов> <каталог базовых дампов> [--only a,b] [--skip a,b] [--write dir] [--write-all dir] [--save-times f] [--ref-times f] [--save-stats f] [--ref-stats f] [--quality] [--selfcheck]");
+  console.error("использование: npm run corpus-check -- <каталог входов> <каталог базовых дампов> [--only a,b] [--skip a,b] [--write dir] [--write-all dir] [--save-times f] [--ref-times f] [--save-stats f] [--ref-stats f] [--quality] [--selfcheck] [--skipcheck]");
   process.exit(2);
 }
 const list = (v: string | undefined): string[] => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : []);
@@ -68,6 +72,10 @@ if (argv.includes("--selfcheck")) {
   diag.__ARCHMAP_Z_SELFCHECK = true;
   diag.__ARCHMAP_Z_SELFCHECK_COUNT = selfCount;
   console.log("самопроверка кэшей Z-роутера включена: времена не сравнимы с опорными");
+}
+if (argv.includes("--skipcheck")) {
+  diag.__ARCHMAP_Z_SKIPCHECK = true;
+  console.log("честная проба отсеянного включена: времена не сравнимы с опорными");
 }
 const refTimes: Record<string, number> = refTimesFile
   ? (JSON.parse(readFileSync(refTimesFile, "utf8")) as Record<string, number>)
@@ -99,6 +107,7 @@ const load = (name: string): PipelineInput =>
 
 const times: Record<string, number> = {};
 const statsOut: Record<string, SceneStats> = {};
+const statTotals: Record<string, number> = {};
 const scenes: SceneQuality[] = [];
 let same = 0, differ = 0, unchecked = 0, sum = 0, refSum = 0, evalSum = 0, refEvalSum = 0, callSum = 0;
 const differing: string[] = [];
@@ -111,6 +120,7 @@ for (const name of names) {
   const out = await computeViewLayout(input);
   const ms = performance.now() - t0;
   diag.__ARCHMAP_Z_STATS = undefined;
+  for (const [k, v] of Object.entries(zStats)) statTotals[k] = (statTotals[k] ?? 0) + v;
   const evals = zStats.evals ?? 0, calls = zStats.calls ?? 0;
   times[name] = Math.round(ms);
   statsOut[name] = { ms: Math.round(ms), evals, calls };
@@ -162,6 +172,7 @@ if (saveStats) writeFileSync(saveStats, JSON.stringify(statsOut, null, 2));
 const total = `сцен ${names.length}: совпало ${same}, отличается ${differ}, без базы ${unchecked}; всего ${Math.round(sum)} мс`;
 console.log(refSum > 0 ? `${total} (было ${Math.round(refSum)} мс, ×${(refSum / sum).toFixed(1)})` : total);
 console.log(`ИТОГО оценок цены сцены ${refEvalSum > 0 ? `${refEvalSum} → ` : ""}${evalSum}${refEvalSum > 0 ? ` (×${(refEvalSum / Math.max(1, evalSum)).toFixed(2)} меньше)` : ""}, вызовов zRoutes ${callSum}`);
+console.log(`счётчики Z-роутера: ${Object.entries(statTotals).map(([k, v]) => `${k} ${v}`).join(", ")}`);
 if (diag.__ARCHMAP_Z_SELFCHECK) {
   console.log(`сверок самопроверки: ${Object.entries(selfCount).map(([k, v]) => `${k} ${v}`).join(", ") || "ни одной"}`);
 }
