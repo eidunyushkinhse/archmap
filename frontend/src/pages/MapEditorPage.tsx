@@ -928,9 +928,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   }), [schemaView, edgeLabelsHidden]);
 
   // ── Рендер ───────────────────────────────────────────────────────
-  // Корень — на новом языке (класс ds): шапка, правая панель. Дерево с палитрой, холст с
-  // тостами и окна закреплены на прежних метриках текста (legacy-root, ui/tokens.css):
-  // дерево и палитру перестраивает фаза 4б, холст закреплён своим правилом там же.
+  // Корень — на новом языке (класс ds): шапка, дерево с палитрой (своя область .ds),
+  // правая панель. Холст с тостами и окна закреплены на прежних метриках текста
+  // (legacy-root, ui/tokens.css); холст закреплён ещё и своим правилом там же.
   return (
     <div ref={rootRef} className="map-editor ds" style={page}>
       <MapEditorHeader
@@ -966,9 +966,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         {/* Дерево объектов: тот же плоский дизайн, что на страницах (ProjectShell),
             но клик навигирует внутри редактора (контейнер → дрилл на слой,
             лист → прыжок на слой родителя + выделение + пульс) и внизу есть
-            секция «Добавить объект» — единственное отличие от дерева страниц.
-            Обёртка без своей коробки (display: contents) только закрепляет метрики. */}
-        <div className="legacy-root" style={{ display: "contents" }}>
+            секция «Добавить объект» — единственное отличие от дерева страниц. */}
         <NodeTreePanel
           mode="editor"
           isArchitect={isArchitect}
@@ -981,7 +979,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           onTemplateDrag={setDragType}
           paletteTiles={tiles}
         />
-        </div>
 
         {/* Холст — от левой панели до правого края окна или до панели объекта, без поля
             и рамки (pages/MapEditorPage.css). */}

@@ -118,6 +118,37 @@ describe("NodeTreePanel (плоский режим)", () => {
     expect(plus("api")).toBe("Создать компонент внутри «api»");
   });
 
+  // Редизайн, фаза 4б: панель — своя область нового языка (.ds) в любом режиме, поле
+  // поиска — ds-input. Вид не зависит от того, на каком экране панель нарисована.
+  it("корень панели — область нового языка в трёх режимах, поиск — ds-input", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([node("root")]);
+    const panels = [
+      <NodeTreePanel key="p" mode="pages" onNodePage={vi.fn()} isArchitect />,
+      <NodeTreePanel key="e" mode="editor" onDrillTo={vi.fn()} onPickLeaf={vi.fn()} isArchitect />,
+      <NodeTreePanel key="d" mode="deploy" onOpenLevel={vi.fn()} onPickObject={vi.fn()} isArchitect />,
+    ];
+    for (const panel of panels) {
+      const { container, unmount } = render(panel);
+      await waitFor(() => expect(screen.getByText("ROOT")).toBeInTheDocument());
+      const aside = container.querySelector("aside");
+      expect(aside).toHaveClass("ds", "nt-panel");
+      expect(screen.getByPlaceholderText("Поиск по имени")).toHaveClass("ds-input");
+      unmount();
+    }
+  });
+
+  it("поиск: «Очистить» стирает запрос, дерево возвращается", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([node("root")]);
+    vi.mocked(nodesApi.search).mockResolvedValue([]);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} />);
+    await waitFor(() => expect(screen.getByText("ROOT")).toBeInTheDocument());
+    await userEvent.type(screen.getByPlaceholderText("Поиск по имени"), "zz");
+    expect(await screen.findByText("Ничего не найдено")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
+    expect(screen.getByPlaceholderText("Поиск по имени")).toHaveValue("");
+    expect(screen.getByText("ROOT")).toBeInTheDocument();
+  });
+
   it("персоны видны в плоском режиме (без отсева)", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([
       node("user", { shape: "person", name: "Покупатель" }),
