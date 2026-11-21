@@ -1,0 +1,384 @@
+/* Общие примитивы нового языка (редизайн, направление А «Документ»): раздел, подгруппа,
+   строка списка, тихая кнопка «Добавить», вторичная кнопка, вкладки-текст, меню,
+   предупреждение, тихая таблица, поле в виде текста. Значения — только токены
+   ui/tokens.css. Класс ставит переведённый экран (корень с .ds); стили импортирует
+   каждый модуль, который ставит класс (как ui/smallButton.css): стили чужого ленивого
+   чанка на странице могут быть не загружены. */
+
+/* ── Раздел: заголовок 16px/600, справа действия раздела ─────────────── */
+.ds-sec {
+  margin-top: 40px;
+}
+.ds-sec-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-height: 30px;
+  margin-bottom: 8px;
+}
+.ds-sec-title {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  color: var(--c-fg);
+}
+.ds-sec-acts {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+/* Подгруппа внутри раздела («Операции», «Воркеры», имя компонента): подпись без
+   рамок, счётчиков и верхнего регистра. */
+.ds-sub {
+  margin: 16px 0 4px;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+.ds-sec-head + .ds-sub,
+.ds-sec-head + * > .ds-sub:first-child {
+  margin-top: 4px;
+}
+/* Подпись-ссылка (имя компонента ведёт на его страницу). */
+button.ds-sub {
+  display: inline-block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.ds-sub:hover {
+  color: var(--c-fg);
+  text-decoration: underline;
+}
+
+/* ── Строка списка: вся строка — одна кнопка ─────────────────────────────
+   Сверху волосяная линия, при наведении подложка с выходом на 8px за колонку
+   (отрицательные поля у списка, свои поля у кнопок строки). Строка из двух частей
+   (главная и тихая справа) — две кнопки в одной строке: вложенная кнопка невалидна. */
+.ds-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+.ds-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  border-radius: var(--radius);
+}
+.ds-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  border-top: 1px solid var(--c-line);
+}
+.ds-row:hover {
+  background: var(--c-hover);
+}
+/* Подложка наведения сама отделяет строку: линии над ней и под ней гаснут. */
+.ds-row:hover::before,
+.ds-row:hover + .ds-row::before {
+  border-top-color: transparent;
+}
+.ds-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ds-row-side {
+  flex: none;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-row-side:hover {
+  color: var(--c-fg);
+  text-decoration: underline;
+}
+.ds-row-main:focus-visible,
+.ds-row-side:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.ds-row-name {
+  font-weight: 500;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+/* Машинный текст строки (операция, путь): моноширинный, тихий. */
+.ds-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+/* Тихий текст у правого края строки (вид схемы, «не описана»). */
+.ds-row-quiet {
+  margin-left: auto;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+
+/* ── Кнопки ──────────────────────────────────────────────────────────── */
+/* «Добавить»: тихая текстовая кнопка акцентного цвета в строке заголовка раздела. */
+.ds-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-accent);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-add:hover {
+  background: var(--c-accent-soft);
+}
+.ds-add svg {
+  display: block;
+  flex: none;
+}
+/* Вторичная кнопка: белая, рамка, 30px. */
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font: inherit;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--c-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-btn:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-add:focus-visible,
+.ds-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+
+/* ── Вкладки-текст: активная с подчёркиванием, без подложки-сегмента ─────── */
+.ds-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+}
+.ds-tab {
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.ds-tab:hover {
+  color: var(--c-fg);
+}
+.ds-tab.is-active {
+  color: var(--c-fg);
+  border-bottom-color: var(--c-fg);
+}
+
+/* ── Меню ────────────────────────────────────────────────────────────── */
+.ds-menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 200px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.ds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ds-menu-item:hover,
+.ds-menu-item:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+.ds-menu-item--danger {
+  color: var(--c-danger);
+}
+.ds-menu-head {
+  padding: 6px 10px 2px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+
+/* ── Предупреждение: текст без коробки ───────────────────────────────── */
+.ds-warn {
+  margin: 0 0 8px;
+  max-width: 68ch;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-warn);
+}
+.ds-danger {
+  margin: 0 0 8px;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-danger);
+}
+
+/* ── Тихая таблица: шапка 12px, строки с волосяной линией сверху ─────────── */
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-ui);
+}
+.ds-table th {
+  padding: 0 12px 6px 0;
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--c-fg-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+.ds-table td {
+  padding: 8px 12px 8px 0;
+  border-top: 1px solid var(--c-line);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+/* ── Поле в виде текста: рамка-фон при наведении, обводка при фокусе ───────
+   Поля 3px 6px и такой же отрицательный отступ слева: текст поля стоит ровно там,
+   где стоял бы голый текст значения. */
+.ds-field {
+  display: block;
+  width: calc(100% + 6px);
+  box-sizing: border-box;
+  margin: 0 0 0 -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  outline: none;
+}
+.ds-field:hover {
+  background: var(--c-hover);
+}
+.ds-field:focus {
+  background: var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.ds-field::placeholder {
+  color: var(--c-fg-faint);
+  opacity: 1;
+}
+
+/* ── Значение-кнопка: правка по клику на значении ───────────────────────
+   Выглядит текстом: те же поля и отрицательный отступ, что у .ds-field, поэтому текст
+   кнопки, поля и голого значения начинается с одного x. Шеврон выпадающего значения
+   виден при наведении, фокусе и открытом меню (строка свойств показывает его и при
+   наведении на всю строку — правило места вызова). */
+.ds-value-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% + 6px);
+  box-sizing: border-box;
+  margin: 0 0 0 -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  color: var(--c-fg);
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ds-value-btn:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-value-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.ds-value-chev {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+  opacity: 0;
+}
+.ds-value-btn:hover .ds-value-chev,
+.ds-value-btn:focus-visible .ds-value-chev,
+.ds-value-btn[aria-expanded="true"] .ds-value-chev {
+  opacity: 1;
+}
+/* Пустое значение («не указана», «не задан»). */
+.ds-empty {
+  color: var(--c-fg-faint);
+}

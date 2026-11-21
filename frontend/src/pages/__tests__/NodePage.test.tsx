@@ -239,6 +239,30 @@ describe("NodePage", () => {
     expect(screen.getByDisplayValue("Python")).toBeInTheDocument();
   });
 
+  it("описание стоит в шапке под названием, а не строкой свойств", async () => {
+    setup();
+    const desc = await screen.findByRole("textbox", { name: "Описание" });
+    expect(desc).toHaveValue("Приём платежей");
+    expect(desc.closest("header")).not.toBeNull();
+    expect(desc.closest(".np-props")).toBeNull();
+  });
+
+  it("пустое описание: у редактора поле «Добавьте описание», у читателя ничего", async () => {
+    const view = setup({ node: { description: null } });
+    expect(await screen.findByPlaceholderText("Добавьте описание")).toHaveValue("");
+    view.unmount();
+    setup({ node: { description: null }, isArchitect: false });
+    await screen.findByRole("heading", { name: "Сервис оплаты" });
+    expect(screen.queryByRole("textbox", { name: "Описание" })).toBeNull();
+    expect(document.querySelector(".np-desc")).toBeNull();
+  });
+
+  it("у читателя описание — абзац под названием", async () => {
+    setup({ isArchitect: false });
+    await screen.findByRole("heading", { name: "Сервис оплаты" });
+    expect(screen.getByText("Приём платежей")).toHaveClass("np-desc");
+  });
+
   it("внешняя система (Р42): своя технология полем, статуса страницы нет, размещение не ведётся", async () => {
     setup({ node: { is_external: true, element_effective: "system" } });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
@@ -1267,15 +1291,16 @@ describe("NodePage: источник", () => {
     return render(<NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />);
   }
 
-  it("источник агентского узла показан видом и значением", async () => {
+  it("источник агентского узла показан одной строкой: репозиторий / путь", async () => {
     setupAnchor({ source: { repo: "github.com/org/mono", path: "services/orders", host: null } });
-    expect(await screen.findByText("код:")).toBeInTheDocument();
-    expect(screen.getByText("github.com/org/mono, путь services/orders")).toBeInTheDocument();
+    expect(await screen.findByText("github.com/org/mono / services/orders")).toBeInTheDocument();
+    expect(screen.queryByText("код:")).toBeNull();
   });
 
-  it("узел без источника говорит, по чему его тогда узнают", async () => {
+  it("узел без источника — тихое «не задан»", async () => {
     setupAnchor();
-    expect(await screen.findByText("нет, объект опознаётся по имени")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Задать источник" })).toHaveTextContent("не задан");
+    expect(screen.queryByText("нет, объект опознаётся по имени")).toBeNull();
   });
 
   it("правка источника уходит PATCH-ом со своим CAS, не трогая прочих свойств", async () => {
@@ -1287,7 +1312,7 @@ describe("NodePage: источник", () => {
     );
     setupAnchor({ version: 1 });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Изменить" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Задать источник" }));
     await userEvent.type(screen.getByLabelText("Репозиторий"), "https://github.com/org/repo.git");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
@@ -1304,9 +1329,9 @@ describe("NodePage: источник", () => {
 
   it("наблюдатель источник видит, но не правит", async () => {
     setupAnchor({ source: { repo: "github.com/org/repo", path: null, host: null } }, false);
-    expect(await screen.findByText("код:")).toBeInTheDocument();
+    expect(await screen.findByText("github.com/org/repo")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Источник/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Что такое источник" })).toBeInTheDocument();
   });
 });
 
@@ -1329,7 +1354,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     return render(<NodePage nodeId={n.id} isArchitect={isArchitect} {...nav} />);
   }
 
-  it("лист: пилюля рядом с именем, выбор «Согласовано» уходит PATCH-ом и красит пилюлю", async () => {
+  it("лист: статус рядом с именем, выбор «Согласовано» уходит PATCH-ом и красит пилюлю", async () => {
     vi.mocked(nodesApi.update).mockResolvedValue(
       node("n1", { approval: "approved", approval_effective: "approved", version: 2 }),
     );
@@ -1345,7 +1370,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     expect(await screen.findByRole("button", { name: /Согласовано/ })).toHaveClass("np-approval--ok");
   });
 
-  it("лист, читатель: пилюля без выпадашки", async () => {
+  it("лист, читатель: статус без выпадашки", async () => {
     const { container } = setupPage(node("n1"), [], false);
     await screen.findByText("Сервис оплаты");
     const pill = container.querySelector(".np-approval") as HTMLElement;
@@ -1362,7 +1387,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
       node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" }),
       kids, false,
     );
-    const pill = await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+    const pill = await screen.findByRole("button", { name: "Согласовано 1 из 2" }, ждать);
     await userEvent.click(pill);
     await userEvent.click(screen.getByRole("button", { name: "База платежей" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k2");
@@ -1375,7 +1400,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     ];
     const cont = node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" });
     setupPage(cont, kids);
-    await screen.findByRole("button", { name: /В работе · 0 из 2/ }, ждать);
+    await screen.findByRole("button", { name: "Согласовано 0 из 2" }, ждать);
 
     // Другая сессия согласовала одного ребёнка: статус системы тот же («в работе»),
     // его сигнатура не меняется — освежить счётчик обязано перечитывание детей.
@@ -1386,7 +1411,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     await waitFor(() => expect(nodesApi.getContextGraph).toHaveBeenCalled());
     await act(async () => { window.dispatchEvent(new Event("focus")); });
 
-    await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+    await screen.findByRole("button", { name: "Согласовано 1 из 2" }, ждать);
   });
 
   it("система: вложенные объекты не загрузились — причина и «Повторить», а не «нечего согласовывать»", async () => {
@@ -1397,10 +1422,10 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     // Потомков страница просит после загрузки самого объекта — первый запрос откажет.
     vi.mocked(nodesApi.getDescendants).mockRejectedValueOnce(new ApiError(500, "Сервер недоступен"));
     const alert = await screen.findByText("Не удалось загрузить вложенные объекты", {}, ждать);
-    expect(screen.queryByRole("button", { name: /В работе · / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Согласовано \d+ из/ })).not.toBeInTheDocument();
     await userEvent.click(within(alert.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Повторить" }));
     await waitFor(() => expect(screen.queryByText("Не удалось загрузить вложенные объекты")).not.toBeInTheDocument());
-    await screen.findByRole("button", { name: /В работе · 0 из 1/ }, ждать);
+    await screen.findByRole("button", { name: "Согласовано 0 из 1" }, ждать);
   });
 
   it("система: единицы — все вложенные объекты, кроме систем, в том числе компоненты контейнера", async () => {
@@ -1418,9 +1443,8 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
       node("s", { name: "Торговля", has_children: true, child_count: 2, element_effective: "system" }),
       kids, false,
     );
-    const pill = await screen.findByRole("button", { name: /В работе · 1 из 3/ }, ждать);
+    const pill = await screen.findByRole("button", { name: "Согласовано 1 из 3" }, ждать);
     await userEvent.click(pill);
-    expect(screen.getByText("Согласовано 1 из 3")).toBeInTheDocument();
     for (const name of ["Заказы", "Заказы-API", "Остатки"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
@@ -1569,9 +1593,9 @@ describe("NodePage: контейнер компонента и пилюля си
     const kids = [node("k1", { name: "Реплика", parent_id: "db", approval: "approved", approval_effective: "approved" })];
     vi.mocked(nodesApi.get).mockResolvedValue(db);
     setupPage(db, [db, ...kids], kids);
-    const pill = await screen.findByRole("button", { name: /В работе · 1 из 1/ }, ждать);
+    const pill = await screen.findByRole("button", { name: "Согласовано 1 из 1" }, ждать);
     await userEvent.click(pill);
-    expect(screen.getByText("Согласовано 1 из 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Реплика" })).toBeInTheDocument();
     expect(screen.queryByText("Загрузка")).toBeNull();
   });
 

@@ -1,7 +1,11 @@
-// Карточка «Свойства» страницы объекта (аудит F-5): тип, принадлежность, статус, роль,
-// технология, источник, размещение, описание — у архитектора правкой на месте (inline CAS
-// через useNodePatch; размещение — окном), у наблюдателя текстом. Строка «Тип» — общий
-// рендер с инспектором редактора (element/TypeValue), выпадашка статуса — PropDropdown.
+// «Свойства» страницы объекта (редизайн, направление А «Документ»): две колонки пар
+// «подпись — значение» сразу под описанием, без заголовка и карточки. Левая колонка —
+// тип, статус, принадлежность, роль; правая — технология, источник, размещение. Порядок
+// в разметке — порядок обхода Tab: сначала левая колонка, потом правая. У архитектора
+// правка на месте по клику на значении (inline CAS через useNodePatch; размещение —
+// окном), у читателя текст. Текст любого значения начинается с одного x: элементы
+// управления выглядят текстом (ui/ds.css: ds-value-btn, ds-field). Строка «Тип» — общий
+// рендер с инспектором редактора (element/TypeValue), вид кнопки задаёт место вызова.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { AncestorRef, Node, NodeStatus } from "../../types";
@@ -15,8 +19,9 @@ import type { useNodePatch } from "../../pages/useNodePatch";
 import { useTypePick } from "../element/useTypePick";
 import { pageElement, typeView } from "../element/elementView";
 import { typeOptions } from "../element/typeOptions";
-import { ElementHelp, TypeValue } from "../element/ElementParts";
+import { TypeValue } from "../element/ElementParts";
 import "../element/element.css";
+import "../../ui/ds.css";
 
 type NodePatch = ReturnType<typeof useNodePatch>;
 
@@ -26,22 +31,33 @@ const EXTERNAL_HINT =
   "серверы внутренние, даже если они вне системы. Границу системы показывает вложенность " +
   "объектов.";
 
+// Принадлежность — выпадашкой из двух пунктов, как статус (переключатель с меняющейся
+// подписью читался хуже).
+type Belonging = "internal" | "external";
+const BELONGING_ORDER: readonly Belonging[] = ["internal", "external"];
+const BELONGING_LABEL: Record<Belonging, string> = { internal: "Внутренний", external: "Внешний" };
+
 // Точка статуса: у существующего — нейтральная серая, у прочих — цвет статуса.
 function statusDotColor(status: NodeStatus, isExternal: boolean): string {
   if (status === "existing") return "#9ca3af";
   return getNodeColors(isExternal, 0, status).bg;
 }
 
+// Статус словом с точкой. В строке свойств точка висит слева от текста (np-status),
+// чтобы текст статуса начинался с того же x, что и остальные значения.
 function StatusLabel({ status, isExternal }: { status: NodeStatus; isExternal: boolean }) {
   return (
-    <>
-      <span className="np-dot" style={{ background: statusDotColor(status, isExternal) }} />
+    <span className="np-status">
+      <span className="np-dot" style={{ background: statusDotColor(status, isExternal) }} aria-hidden="true" />
       {STATUS_META[status].label}
-    </>
+    </span>
   );
 }
 
-// Выпадашка свойства (статус): кнопка с текущим значением и меню вариантов поверх
+// Шеврон выпадающего значения: виден при наведении на строку и при фокусе.
+const chevron = <span className="ds-value-chev" aria-hidden="true"><ChevronDownIcon /></span>;
+
+// Выпадашка свойства (статус, принадлежность): значение-кнопка и меню вариантов поверх
 // подложки; выбор закрывает меню, а коммит делает хук правки — только при реальном
 // изменении.
 function PropDropdown<T extends string>({ current, options, renderOption, onPick }: {
@@ -55,21 +71,23 @@ function PropDropdown<T extends string>({ current, options, renderOption, onPick
     <span className="np-selwrap">
       <button
         type="button"
-        className="np-select"
+        className="ds-value-btn"
         onClick={() => setOpen((o) => !o)}
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
         aria-expanded={open}
       >
         {current}
-        <ChevronDownIcon />
+        {chevron}
       </button>
       {open && (
         <>
           <div className="np-backdrop" onClick={() => setOpen(false)} />
-          <ul className="np-menu">
+          <ul className="np-menu ds-menu">
             {options.map((v) => (
-              <li key={v} onClick={() => { setOpen(false); onPick(v); }}>
-                {renderOption(v)}
+              <li key={v}>
+                <button type="button" className="ds-menu-item" onClick={() => { setOpen(false); onPick(v); }}>
+                  {renderOption(v)}
+                </button>
               </li>
             ))}
           </ul>
@@ -78,6 +96,19 @@ function PropDropdown<T extends string>({ current, options, renderOption, onPick
     </span>
   );
 }
+
+// Пара «подпись — значение». title — пояснение на всю строку (принадлежность).
+function Prop({ term, title, children }: { term: string; title?: string; children: ReactNode }) {
+  return (
+    <div className="np-prop" title={title}>
+      <dt className="np-term">{term}</dt>
+      <dd className="np-value">{children}</dd>
+    </div>
+  );
+}
+
+// Пустое значение у читателя.
+const Empty = ({ text = "не указана" }: { text?: string }) => <span className="ds-empty">{text}</span>;
 
 export default function NodeProperties({
   patch, ancestors, isArchitect, isSystem, techLoading, aggTech, containerSites, onNavigateNode, onPlacementChanged,
@@ -103,162 +134,123 @@ export default function NodeProperties({
   // Тип (Р40): система ↔ контейнер — смена элемента с окном последствий, если они есть;
   // база, брокер, «Пользователь» — смена формы с правилами сервера.
   const typePick = useTypePick(patch);
+  const belonging: Belonging = patch.isExternal ? "external" : "internal";
   return (
-    <div className="np-card">
-      <h3 className="np-card-title">Свойства</h3>
+    <>
       <div className="np-props">
-        {/* Тип (Р40): одна строка из шести значений у любого объекта, справка «?» у
-            термина. Архитектор меняет тип прямо здесь (импорт мог ошибиться в типе —
-            кейс «Monitored Hosts» с типом «Пользователь»); невозможные пункты серые с
-            причиной (typeOptions), остальные запреты — на сервере, отказ плашкой выше. */}
-        <span className="np-term el-term">Тип<ElementHelp /></span>
-        <span className="np-value">
-          <TypeValue
-            view={typeView(node, ancestors)}
-            options={isArchitect ? typeOptions({ mode: "change", node, ancestors }) : null}
-            onPick={typePick.pick}
-            onNavigateNode={onNavigateNode}
-            trigger={{ className: "np-select", chevron: <ChevronDownIcon />, inline: true }}
-          />
-        </span>
-
-        {/* Принадлежность (до Ф3 развёртывания — «Размещение»: слово ушло площадкам).
-            Внешность — относительно контура ОРГАНИЗАЦИИ (спека N2а): чужой
-            продукт/сторона, а не «вне системы» — границу системы выражает дерево.
-            Подсказка снимает двусмысленность (QA Zabbix v4).
-            Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
-            сервис — активный синий, чужой — серый, как точка у наблюдателя ниже.
-            Данные не инвертируются — только вид. */}
-        <span className="np-term" title={EXTERNAL_HINT}>Принадлежность</span>
-        <span className="np-value" title={EXTERNAL_HINT}>
-          {isArchitect ? (
-            <button type="button" className="np-toggle" onClick={patch.toggleExternal} aria-pressed={!patch.isExternal}>
-              <span className={"np-switch" + (patch.isExternal ? "" : " is-on")} />
-              {patch.isExternal ? "Внешний" : "Внутренний"}
-            </button>
-          ) : (
-            <>
-              <span className="np-dot" style={{ background: node.is_external ? "#9ca3af" : "#2563eb", display: "inline-block", marginRight: 6 }} />
-              {node.is_external ? "Внешний" : "Внутренний"}
-            </>
-          )}
-        </span>
-
-        {/* Статус */}
-        <span className="np-term">Статус</span>
-        <span className="np-value">
-          {isArchitect ? (
-            <PropDropdown
-              current={<StatusLabel status={patch.status} isExternal={patch.isExternal} />}
-              options={STATUS_ORDER}
-              renderOption={(st) => <StatusLabel status={st} isExternal={patch.isExternal} />}
-              onPick={patch.pickStatus}
+        {/* ── Левая колонка: тип, статус, принадлежность, роль ── */}
+        <dl className="np-props-col">
+          {/* Тип (Р40): одна строка из шести значений у любого объекта. Архитектор меняет
+              тип прямо здесь (импорт мог ошибиться в типе); невозможные пункты серые,
+              остальные запреты — на сервере, отказ плашкой выше. Справка «?» о типах
+              живёт в инспекторе редактора: на странице подпись без значков. */}
+          <Prop term="Тип">
+            <TypeValue
+              view={typeView(node, ancestors)}
+              options={isArchitect ? typeOptions({ mode: "change", node, ancestors }) : null}
+              onPick={typePick.pick}
+              onNavigateNode={onNavigateNode}
+              trigger={{ className: "ds-value-btn", chevron, inline: true }}
             />
-          ) : (
-            <>
-              <span className="np-dot" style={{ background: statusDotColor(node.status, node.is_external), display: "inline-block", marginRight: 6 }} />
-              {STATUS_META[node.status].label}
-            </>
-          )}
-        </span>
+          </Prop>
 
-        {/* Роль */}
-        <span className="np-term">Роль</span>
-        <span className="np-value">
-          {isArchitect ? (
-            <input
-              {...noAutofill("node-page-2")}
-              className="np-field"
-              value={patch.role}
-              onChange={(e) => patch.setRole(e.target.value)}
-              onBlur={patch.commitRole}
-              placeholder="например, API или шлюз"
-            />
-          ) : (
-            node.role || <span className="np-value--empty">не указана</span>
-          )}
-        </span>
+          <Prop term="Статус">
+            {isArchitect ? (
+              <PropDropdown
+                current={<StatusLabel status={patch.status} isExternal={patch.isExternal} />}
+                options={STATUS_ORDER}
+                renderOption={(st) => <StatusLabel status={st} isExternal={patch.isExternal} />}
+                onPick={patch.pickStatus}
+              />
+            ) : (
+              <StatusLabel status={node.status} isExternal={node.is_external} />
+            )}
+          </Prop>
 
-        {/* Технология (не для персон) */}
-        {shape !== "person" && (
-          <>
-            <span className="np-term">Технология</span>
-            <span className="np-value">
+          {/* Принадлежность (до Ф3 развёртывания — «Размещение»: слово ушло площадкам).
+              Внешность — относительно контура ОРГАНИЗАЦИИ (спека N2а): чужой
+              продукт/сторона, а не «вне системы» — границу системы выражает дерево.
+              Подсказка снимает двусмысленность (QA Zabbix v4). */}
+          <Prop term="Принадлежность" title={EXTERNAL_HINT}>
+            {isArchitect ? (
+              <PropDropdown
+                current={BELONGING_LABEL[belonging]}
+                options={BELONGING_ORDER}
+                renderOption={(b) => BELONGING_LABEL[b]}
+                onPick={(b) => { if (b !== belonging) patch.toggleExternal(); }}
+              />
+            ) : (
+              BELONGING_LABEL[node.is_external ? "external" : "internal"]
+            )}
+          </Prop>
+
+          <Prop term="Роль">
+            {isArchitect ? (
+              <input
+                {...noAutofill("node-page-2")}
+                className="ds-field"
+                aria-label="Роль"
+                value={patch.role}
+                onChange={(e) => patch.setRole(e.target.value)}
+                onBlur={patch.commitRole}
+                placeholder="не указана"
+              />
+            ) : (
+              node.role || <Empty />
+            )}
+          </Prop>
+        </dl>
+
+        {/* ── Правая колонка: технология, источник, размещение ── */}
+        <dl className="np-props-col">
+          {/* Технология (не для персон) */}
+          {shape !== "person" && (
+            <Prop term="Технология">
               {isSystem ? (
                 // Система сама не запускается: её технология — уникальные технологии
                 // потомков, только чтение (Р15; у контейнера технология своя).
-                techLoading ? (
-                  <span className="np-value--empty">загрузка</span>
-                ) : aggTech !== "" ? (
-                  aggTech
-                ) : (
-                  <span className="np-value--empty">не указана</span>
-                )
+                techLoading ? <Empty text="загрузка" /> : aggTech !== "" ? aggTech : <Empty />
               ) : isArchitect ? (
                 <input
                   {...noAutofill("node-page-3")}
-                  className="np-field"
+                  className="ds-field"
+                  aria-label="Технология"
                   value={patch.technology}
                   onChange={(e) => patch.setTechnology(e.target.value)}
                   onBlur={patch.commitTech}
-                  placeholder="например, Python"
+                  placeholder="не указана"
                 />
               ) : (
-                node.technology || <span className="np-value--empty">не указана</span>
+                node.technology || <Empty />
               )}
-            </span>
-          </>
-        )}
-
-        {/* Источник — чем ArchMap опознаёт объект при обновлениях из кода. Стоит
-            среди свойств, а не в служебном углу: у ручного и агентского узла
-            поведение при импорте разное, и разницу должно быть видно. */}
-        {/* Терм без np-term--top: модификатор (align-self: start + отступ сверху)
-            нужен textarea описания, а здесь значение — строка с текстом, и
-            сетка выравнивает её с термом по базовой линии; с модификатором
-            подпись уезжала ниже значения (замечание пользователя 2026-09-04). */}
-        <span className="np-term">Источник</span>
-        <span className="np-value">
-          <AnchorField
-            source={node.source}
-            isArchitect={isArchitect}
-            onSave={patch.commitSource}
-          />
-        </span>
-
-        {/* Размещение — площадки развёртывания (Ф3 эпика развёртывания). У
-            «Пользователя» размещения нет: он живёт вне системы. */}
-        {shape !== "person" && (
-          <PlacementRow
-            node={node}
-            element={pageElement(node, ancestors)}
-            containerSites={containerSites}
-            isArchitect={isArchitect}
-            onChanged={onPlacementChanged}
-            onNavigateNode={onNavigateNode}
-          />
-        )}
-
-        {/* Описание — последняя строка таблицы свойств */}
-        <span className="np-term np-term--top">Описание</span>
-        <span className="np-value">
-          {isArchitect ? (
-            <textarea
-              {...noAutofill("node-page-4")}
-              className="np-field np-fieldarea"
-              value={patch.description}
-              onChange={(e) => patch.setDescription(e.target.value)}
-              onBlur={patch.commitDesc}
-              placeholder="Описание объекта"
-            />
-          ) : (
-            <span style={{ lineHeight: 1.55 }}>
-              {node.description || <span className="np-value--empty">нет описания</span>}
-            </span>
+            </Prop>
           )}
-        </span>
+
+          {/* Источник — чем ArchMap опознаёт объект при обновлениях из кода. Значение
+              целиком открывает редактор источника; «Очистить» и справка — в нём. */}
+          <Prop term="Источник">
+            <AnchorField
+              source={node.source}
+              isArchitect={isArchitect}
+              onSave={patch.commitSource}
+              variant="page"
+            />
+          </Prop>
+
+          {/* Размещение — площадки развёртывания (Ф3 эпика развёртывания). У
+              «Пользователя» размещения нет: он живёт вне системы. */}
+          {shape !== "person" && (
+            <PlacementRow
+              node={node}
+              element={pageElement(node, ancestors)}
+              containerSites={containerSites}
+              isArchitect={isArchitect}
+              onChanged={onPlacementChanged}
+            />
+          )}
+        </dl>
       </div>
       {typePick.dialog}
-    </div>
+    </>
   );
 }

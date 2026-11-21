@@ -1,10 +1,9 @@
 // Строка «Размещение» по элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md):
 // площадки хранятся у контейнера. Контейнер (лист или с компонентами) правит их сам
-// («Изменить»); у системы — площадки её контейнеров, частичная — «часть контейнеров»;
-// компонент размещается вместе с контейнером: площадки контейнера, серым «как у
-// контейнера «orders»» со ссылкой на его страницу, без «Изменить», редактору — пометка.
+// (значение — кнопка окна); у системы — площадки её контейнеров, частичная приглушена и
+// поясняется подсказкой; компонент размещается вместе с контейнером: площадки
+// контейнера без правки, контейнер назван в подсказке строки.
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import PlacementRow from "../nodePage/PlacementRow";
 import type { PageElement } from "../element/elementView";
@@ -27,8 +26,6 @@ function node(over: Partial<Node> = {}): Node {
   };
 }
 
-const onNavigateNode = vi.fn();
-
 function renderRow(element: PageElement, over: { n?: Partial<Node>; containerSites?: Site[] | null; isArchitect?: boolean } = {}) {
   return render(
     <div>
@@ -38,7 +35,6 @@ function renderRow(element: PageElement, over: { n?: Partial<Node>; containerSit
         containerSites={over.containerSites === undefined ? null : over.containerSites}
         isArchitect={over.isArchitect ?? true}
         onChanged={vi.fn()}
-        onNavigateNode={onNavigateNode}
       />
     </div>,
   );
@@ -48,27 +44,20 @@ const COMPONENT: PageElement = { kind: "component", container: { id: "c", name: 
 const editButton = () => screen.queryByRole("button", { name: "Изменить размещение" });
 
 describe("PlacementRow: элемент архитектуры", () => {
-  it("компонент — площадки контейнера и «как у контейнера «orders»» ссылкой, без «Изменить»", async () => {
+  it("компонент — площадки контейнера без правки, контейнер назван в подсказке строки", () => {
     renderRow(COMPONENT, { containerSites: [EU, RU] });
     expect(screen.getByText("prod-eu")).toBeInTheDocument();
     expect(screen.getByText("prod-ru")).toBeInTheDocument();
-    expect(screen.getByText(/как у контейнера/)).toHaveTextContent("как у контейнера «orders»");
+    expect(screen.getByText("Размещение").closest(".np-prop")).toHaveAttribute(
+      "title", "Как у контейнера «orders»: компонент размещается вместе с ним",
+    );
     expect(editButton()).toBeNull();
-    expect(screen.getByText("Компонент размещается вместе с контейнером")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "«orders»" }));
-    expect(onNavigateNode).toHaveBeenCalledWith("c");
+    expect(screen.queryByText(/как у контейнера/)).toBeNull();
   });
 
-  it("компонент у читателя — без пометки; контейнер без площадок — «не указано»", () => {
+  it("компонент у читателя; контейнер без площадок — «не указано»", () => {
     renderRow(COMPONENT, { containerSites: [], isArchitect: false });
     expect(screen.getByText("не указано")).toBeInTheDocument();
-    expect(screen.queryByText("Компонент размещается вместе с контейнером")).toBeNull();
-  });
-
-  it("контейнер компонента не найден в крошках — имя текстом, без ссылки", () => {
-    renderRow({ kind: "component", container: { id: null, name: "orders" } }, { containerSites: null });
-    expect(screen.getByText(/как у контейнера/)).toHaveTextContent("как у контейнера «orders»");
-    expect(screen.queryByRole("button", { name: "«orders»" })).toBeNull();
   });
 
   it("контейнер с компонентами — свои площадки и «Изменить», как у листа", () => {
@@ -77,7 +66,7 @@ describe("PlacementRow: элемент архитектуры", () => {
     });
     expect(screen.getByText("prod-eu")).toBeInTheDocument();
     expect(editButton()).not.toBeNull();
-    expect(screen.queryByText(/как у контейнера/)).toBeNull();
+    expect(screen.getByText("Размещение").closest(".np-prop")).not.toHaveAttribute("title");
   });
 
   it("внешняя система (Р42) — размещение не ведётся, без «Изменить»", () => {
@@ -88,11 +77,14 @@ describe("PlacementRow: элемент архитектуры", () => {
     expect(editButton()).toBeNull();
   });
 
-  it("система — площадки её контейнеров, частичная — «часть контейнеров»", () => {
+  it("система — площадки её контейнеров; частичная приглушена и поясняется подсказкой", () => {
     renderRow({ kind: "system" }, {
       n: { name: "Торговля", has_children: true, child_count: 2, element_effective: "system", sites: [EU, { ...RU, partial: true }] },
     });
-    expect(screen.getAllByText("часть контейнеров")).toHaveLength(1);
+    expect(screen.getByText("prod-ru")).toHaveClass("np-site--partial");
+    expect(screen.getByText("prod-ru")).toHaveAttribute("title", "Здесь размещена часть контейнеров системы");
+    expect(screen.getByText("prod-eu")).not.toHaveClass("np-site--partial");
+    expect(screen.queryByText(/часть контейнеров/)).toBeNull();
     expect(editButton()).not.toBeNull();
   });
 });

@@ -4,6 +4,11 @@
 // обновлениях иначе, чем агентский с виду такой же, и никто этого не видел.
 // Здесь он виден, объясняет себя (ⓘ) и правится.
 //
+// Вид чтения задаёт место вызова (variant). Инспектор — словами с видом источника,
+// ⓘ и «Изменить · Очистить» под значением. Страница объекта (редизайн, направление А) —
+// одна строка моноширинным текстом без приставок; значение целиком открывает редактор,
+// а «Очистить» и ⓘ живут в нём. Редактор у обоих вариантов один.
+//
 // Нормализации на фронте НЕТ ни строчки: и живая подсказка «будет сохранено
 // как…», и отказы приходят с сервера (POST /nodes/anchor-preview той же
 // функцией, что валидирует PATCH). Иначе форма обещала бы одно, а сохранение
@@ -16,10 +21,11 @@ import InfoPopover from "../../ui/InfoPopover";
 import type { AnchorKind } from "./anchorText";
 import {
   ANCHOR_HELP, FIELD_LABEL, FORM_HINT, HELP_LABEL, KIND_LABEL, KIND_TAB,
-  NO_ANCHOR, PLACEHOLDER, PREVIEW_EMPTY, PREVIEW_PREFIX,
-  anchorKind as kindOf, anchorReadable as readable,
+  NO_ANCHOR, NO_ANCHOR_SHORT, PLACEHOLDER, PREVIEW_EMPTY, PREVIEW_PREFIX,
+  anchorCompact, anchorKind as kindOf, anchorReadable as readable,
 } from "./anchorText";
 import "./anchor.css";
+import "../../ui/ds.css";
 import { noAutofill } from "../../ui/noAutofill";
 
 // Вид якоря: код (репозиторий + путь) или имя зависимости. Третьего нет —
@@ -34,9 +40,12 @@ interface Props {
   // Возвращает текст отказа сервера — или null, если сохранилось: 422 обязан
   // остаться под формой, где человек его исправит, а не увести форму со сцены.
   onSave: (source: NodeSource | null) => Promise<string | null>;
+  // Вид чтения: инспектор редактора (по умолчанию) или строка свойств страницы объекта.
+  variant?: "inspector" | "page";
 }
 
-export default function AnchorField({ source, isArchitect, onSave }: Props) {
+export default function AnchorField({ source, isArchitect, onSave, variant = "inspector" }: Props) {
+  const page = variant === "page";
   const kindNow = kindOf(source);
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<Kind>("code");
@@ -113,6 +122,32 @@ export default function AnchorField({ source, isArchitect, onSave }: Props) {
       ))}
     </InfoPopover>
   );
+
+  if (!editing && page) {
+    // Строка свойств страницы: значение одной строкой, у архитектора — кнопка редактора.
+    const text = source && kindNow ? anchorCompact(source) : null;
+    return (
+      <span className="anchor-field anchor-field--page">
+        {isArchitect ? (
+          <button
+            type="button"
+            className="ds-value-btn anchor-pv"
+            onClick={открыть}
+            disabled={saving}
+            aria-label={text ? `Источник: ${text}` : "Задать источник"}
+            title={source && kindNow ? `${KIND_LABEL[kindNow]}: ${readable(source)}` : undefined}
+          >
+            {text ? <span className="anchor-pv-text">{text}</span> : <span className="ds-empty">{NO_ANCHOR_SHORT}</span>}
+          </button>
+        ) : text ? (
+          <span className="anchor-pv-text" title={source && kindNow ? `${KIND_LABEL[kindNow]}: ${readable(source)}` : undefined}>{text}</span>
+        ) : (
+          <span className="ds-empty">{NO_ANCHOR_SHORT}</span>
+        )}
+        {saveError && <span className="anchor-err">{saveError}</span>}
+      </span>
+    );
+  }
 
   if (!editing) {
     return (
@@ -215,6 +250,11 @@ export default function AnchorField({ source, isArchitect, onSave }: Props) {
           onClick={() => { void commit(draft); }}>Сохранить</button>
         <button type="button" className="anchor-btn" disabled={saving}
           onClick={() => setEditing(false)}>Отмена</button>
+        {/* На странице «Очистить» живёт в редакторе: под значением строки нет. */}
+        {page && source && (
+          <button type="button" className="anchor-link anchor-clear" disabled={saving}
+            onClick={() => { void commit(null); }}>Очистить</button>
+        )}
       </span>
     </span>
   );

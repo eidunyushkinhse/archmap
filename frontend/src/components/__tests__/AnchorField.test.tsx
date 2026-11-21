@@ -141,3 +141,50 @@ describe("AnchorField — правка", () => {
     expect(preview).not.toHaveBeenCalled();
   });
 });
+
+// Строка свойств страницы объекта (variant="page", редизайн): значение одной строкой без
+// приставок «код:» и «путь», значение целиком открывает тот же редактор; «Очистить» и
+// справка — в нём, под значением строки действий нет; пустой источник — «не задан».
+describe("AnchorField — строка свойств страницы", () => {
+  function наСтранице(source: NodeSource | null, isArchitect = true) {
+    const onSave = vi.fn<(s: NodeSource | null) => Promise<string | null>>(() => Promise.resolve(null));
+    render(<AnchorField source={source} isArchitect={isArchitect} onSave={onSave} variant="page" />);
+    return onSave;
+  }
+
+  it("код — «репозиторий / путь» одной строкой, без приставок и без «Изменить · Очистить»", () => {
+    наСтранице({ repo: "github.com/org/mono", path: "services/orders" });
+    const value = screen.getByRole("button", { name: "Источник: github.com/org/mono / services/orders" });
+    expect(value).toHaveTextContent("github.com/org/mono / services/orders");
+    expect(screen.queryByText("код:")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Очистить" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Что такое источник" })).toBeNull();
+  });
+
+  it("имя зависимости — само имя", () => {
+    наСтранице({ host: "payments" });
+    expect(screen.getByRole("button", { name: "Источник: payments" })).toHaveTextContent("payments");
+  });
+
+  it("пустой источник: у редактора тихое «не задан» кнопкой, у читателя — текстом", () => {
+    наСтранице(null);
+    expect(screen.getByRole("button", { name: "Задать источник" })).toHaveTextContent("не задан");
+    expect(screen.queryByText("нет, объект опознаётся по имени")).toBeNull();
+  });
+
+  it("читатель видит значение текстом, кнопок нет", () => {
+    наСтранице({ repo: "github.com/org/mono", path: null }, false);
+    expect(screen.getByText("github.com/org/mono")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("клик по значению открывает редактор; «Очистить» и справка — в нём", async () => {
+    const onSave = наСтранице({ host: "payments" });
+    await userEvent.click(screen.getByRole("button", { name: "Источник: payments" }));
+    expect(screen.getByLabelText("Имя")).toHaveValue("payments");
+    expect(кнопкаПояснения()).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
+    expect(onSave).toHaveBeenCalledWith(null);
+  });
+});

@@ -1,37 +1,494 @@
-/* Страница объекта (NodePage) — скролл-документ, секции-карточки.
-   Палитра совпадает с приложением (Design Tokens из ТЗ). */
+/* Страница объекта (NodePage) и главная проекта (ProjectHomePage) — редизайн,
+   направление А «Документ» (docs/plan-redesign.md): страница читается как документ.
+   Корень страницы несёт класс .ds (ui/tokens.css), общие примитивы — ui/ds.css; здесь
+   раскладка страницы: колонка, шапка, сетка свойств. Карточек нет. Значения — токены. */
 
 .np-page {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  background: #f8fafc;
+  background: var(--c-bg);
   scrollbar-gutter: stable;
 }
 
+/* Колонка документа: по центру области, поля 32px сверху, 48px по бокам (24px при
+   узкой области), 96px снизу. */
 .np-inner {
   width: 100%;
-  margin: 0;
-  padding: 24px 24px 56px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 48px 96px;
   box-sizing: border-box;
 }
+@media (max-width: 1180px) {
+  .np-inner {
+    padding-inline: 24px;
+  }
+}
 
-/* Документация под схемой (связи, процессы, структура, каналы, конфигурация, логика,
-   OpenAPI) — одной обёрткой с той же раскладкой, что у колонки карточек: на неё
-   смотрит обучающий тур. Тур прокручивает к ней с запасом сверху — низ схемы
-   остаётся на виду, и видно, что документация лежит под ней. */
+/* Разделы под схемой одной обёрткой: на неё смотрит обучающий тур (шаг «Не только
+   схема»). Тур прокручивает к ней с запасом сверху — низ схемы остаётся на виду. */
 .np-docs {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   scroll-margin-top: 35vh;
 }
 
+/* ── Шапка: крошки, название, статус и меню, описание ────────────────── */
+.np-breadcrumb {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  margin-bottom: 6px;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+.np-breadcrumb button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.np-breadcrumb button:hover {
+  color: var(--c-fg);
+}
+.np-bc-sep {
+  user-select: none;
+}
+
+.np-title-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  /* Без переноса: длинное имя сжимается (поле прокручивается внутри, у читателя
+     текст переносится), статус и ⋯ остаются в строке. */
+}
+.np-title-aside {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.np-name {
+  margin: 0;
+  min-width: 0;
+  font-family: inherit;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+
+/* Поле имени растёт и сжимается под текст. Обёртка — grid с одной ячейкой, в ней
+   две невидимые копии текста с тем же шрифтом и полями, что у поля: ::after — само имя
+   (из data-value), ::before — слово «api», нижняя граница ширины. Ширину ячейки задаёт
+   более широкая копия; поле лежит поверх абсолютом и в размер ячейки не вмешивается —
+   иначе его собственная ширина «на 20 символов» раздувала бы ячейку. Отрицательный
+   отступ слева ставит текст поля туда же, где стоит имя у читателя (.np-name). Имя
+   шире строки — обёртку сжимает flex, копии режутся, поле прокручивается внутри. */
+.np-name-fit {
+  position: relative;
+  display: inline-grid;
+  min-width: 0;
+  margin: 0 0 0 -6px;
+}
+.np-name-fit::before,
+.np-name-fit::after {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: pre;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  padding: 2px 6px;
+}
+.np-name-fit::before {
+  content: "api";
+}
+.np-name-fit::after {
+  content: attr(data-value) " ";
+}
+.np-name-input {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  color: var(--c-fg);
+  outline: none;
+}
+.np-name-input:hover {
+  background: var(--c-hover);
+}
+.np-name-input:focus {
+  background: var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+
+/* Описание сразу под названием: 14px/1.6, не шире 68 знаков. У редактора — поле без
+   рамки, растущее по тексту: невидимая копия текста в той же ячейке сетки задаёт его
+   высоту (как у имени), ручки растяжения и прокрутки нет. */
+.np-desc,
+.np-desc-fit {
+  max-width: 68ch;
+  margin: 8px 0 0;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.np-desc-fit {
+  display: grid;
+  max-width: calc(68ch + 12px);
+  margin-left: -6px;
+  white-space: normal;
+}
+.np-desc-fit::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+  white-space: pre-wrap;
+}
+.np-desc-fit::after,
+.np-desc-input {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 6px;
+  border: 0;
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+.np-desc-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  resize: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--c-fg);
+  outline: none;
+}
+.np-desc-input:hover {
+  background: var(--c-hover);
+}
+.np-desc-input:focus {
+  background: var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.np-desc-input::placeholder {
+  color: var(--c-fg-faint);
+  opacity: 1;
+}
+
+/* ── Статус страницы (components/nodePage/ApprovalPill) ─────────────────
+   Не пилюля: точка 6px и тихий текст, шеврон виден при наведении. Это не жизненный
+   цикл объекта (тот — в свойствах). Выпадашка — под статусом справа. */
+.np-approval-wrap {
+  position: relative;
+}
+.np-approval {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+  cursor: default;
+}
+button.np-approval {
+  cursor: pointer;
+}
+button.np-approval:hover {
+  color: var(--c-fg);
+  background: var(--c-hover);
+}
+button.np-approval:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.np-approval-chev {
+  display: inline-flex;
+  opacity: 0;
+}
+button.np-approval:hover .np-approval-chev,
+button.np-approval:focus-visible .np-approval-chev,
+button.np-approval[aria-expanded="true"] .np-approval-chev {
+  opacity: 1;
+}
+.np-approval-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.np-approval-dot--work {
+  background: var(--c-warn);
+}
+.np-approval-dot--ok {
+  background: var(--c-ok);
+}
+.np-approval-menu {
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 240px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.np-approval-row small {
+  display: block;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.np-approval-tick {
+  margin-left: auto;
+  color: var(--c-accent);
+}
+
+/* ⋯-меню */
+.np-menu-wrap {
+  position: relative;
+}
+.np-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-section);
+  line-height: 1;
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.np-menu-btn:hover,
+.np-menu-btn[aria-expanded="true"] {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.np-dropdown {
+  right: 0;
+  top: calc(100% + 4px);
+}
+
+/* Подложка открытых выпадашек: клик мимо закрывает. */
+.np-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+}
+
+/* ── Свойства: две колонки пар «подпись — значение» ───────────────────
+   Колонки — гибкий ряд с переносом: при узкой области одна. Правая шире: в ней
+   источник, путь в репозитории моноширинным длиннее коротких значений левой. Порядок
+   в разметке — порядок обхода Tab (левая колонка, затем правая). Подпись — фиксированной ширины в обеих
+   колонках; текст значения начинается с одного x, чем бы значение ни было: у элементов
+   управления поля 3px 6px и такой же отрицательный отступ (ds-value-btn, ds-field),
+   у голого текста — те же поля по вертикали. Шаг строк — 30px, базовые линии подписи и
+   значения совпадают. */
+.np-props {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 32px;
+  margin-top: 20px;
+}
+.np-props-col {
+  flex: 1 1 280px;
+  margin: 0;
+  min-width: 0;
+}
+.np-props-col + .np-props-col {
+  flex: 1.4 1 340px;
+}
+.np-prop {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: baseline;
+  min-height: 30px;
+  padding: 2px 0;
+  box-sizing: border-box;
+}
+.np-term,
+.np-value {
+  margin: 0;
+  padding: 3px 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.np-term {
+  color: var(--c-fg-muted);
+}
+.np-value {
+  position: relative;
+  min-width: 0;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+/* Элемент управления внутри значения сам несёт поля 3px: у ячейки их нет. */
+.np-value:has(> .ds-field, > .np-selwrap, > .ds-value-btn, > .ts-cell, > .anchor-field--page > .ds-value-btn) {
+  padding-block: 0;
+}
+/* Шеврон выпадающего значения виден и при наведении на всю строку. */
+.np-prop:hover .ds-value-chev {
+  opacity: 1;
+}
+
+/* Выпадашка свойства (статус, принадлежность). */
+.np-selwrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.np-menu {
+  top: calc(100% + 2px);
+  left: -6px;
+  min-width: 180px;
+}
+
+/* Статус словом с точкой. В значении строки точка висит слева от текста — текст
+   статуса начинается с того же x, что и соседние значения; в меню стоит обычно. */
+.np-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.np-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.np-value > .np-status,
+.np-value .ds-value-btn > .np-status {
+  position: relative;
+}
+.np-value > .np-status > .np-dot,
+.np-value .ds-value-btn > .np-status > .np-dot {
+  position: absolute;
+  left: -14px;
+  top: calc(50% - 3px);
+}
+
+/* Строка «Тип» (element/TypeValue): кнопка — общий ds-value-btn; меню типов — в общем
+   виде меню. Строка «Входит в контейнер» под ней — тихим текстом. */
+.np-props .ts-wrap--inline > .ts-trigger.ds-value-btn {
+  gap: 6px;
+}
+.np-props .ts-menu {
+  left: -6px;
+  right: auto;
+  width: auto;
+  min-width: 200px;
+  border-color: var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.np-props .ts-option {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  color: var(--c-fg);
+}
+.np-props .ts-option:hover,
+.np-props .ts-option:focus-visible {
+  background: var(--c-hover);
+}
+.np-props .ts-label {
+  font-size: var(--fs-ui);
+}
+.np-props .ts-option[aria-disabled="true"] .ts-label {
+  color: var(--c-fg-faint);
+}
+.np-props .ts-check {
+  color: var(--c-accent);
+}
+.np-props .ts-sub {
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.np-props .el-link {
+  color: inherit;
+}
+
+/* Строка «Размещение» (components/nodePage/PlacementRow): имена площадок через
+   запятую; где у системы стоит часть контейнеров — имя приглушено. */
+.np-site--partial {
+  color: var(--c-fg-muted);
+}
+/* Отказ загрузки площадок — своей строкой под значением. */
+.np-site-err {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-danger);
+}
+
+/* ── Предупреждения: текст без коробки ──────────────────────────────── */
+.np-conflict,
+.np-warn {
+  margin: 12px 0 0;
+  max-width: 68ch;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.np-conflict {
+  color: var(--c-warn);
+}
+.np-warn {
+  margin: 0 0 8px;
+  color: var(--c-warn);
+}
+
+/* ── Загрузка ─────────────────────────────────────────────────────────
+   Заглушка на время загрузки страницы. flex/min-width — ТА ЖЕ роль в строке, что
+   у .np-page: заглушка становится колонкой контента рядом с деревом объектов и
+   центрируется в ней сама (находка ручной проверки 2026-08-08). Класс ставит и
+   pages/ProjectAccessGate. */
+.np-loading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* ════ Ниже — прежние стили разделов, ждут перевода на новый язык ════ */
+
 /* ── Карточка-секция ─────────────────────────────────────────────── */
 .np-card {
+  margin-top: 16px;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -65,51 +522,7 @@
   color: #94a3b8;
 }
 
-/* ── Шапка страницы ──────────────────────────────────────────────── */
-.np-header {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 22px 24px 18px;
-}
-
-.np-breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-  font-size: 12.5px;
-  color: #64748b;
-}
-
-.np-breadcrumb button {
-  background: none;
-  border: none;
-  font: inherit;
-  color: #2563eb;
-  cursor: pointer;
-  padding: 2px 5px;
-  border-radius: 5px;
-}
-.np-breadcrumb button:hover {
-  background: #eff6ff;
-}
-
-.np-breadcrumb .np-bc-sep {
-  color: #cbd5e1;
-  margin: 0 1px;
-  user-select: none;
-}
-
-.np-title-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  /* Без переноса: длинное имя сжимается (поле прокручивается внутри, у читателя
-     текст переносится), пилюля статуса и ⋯ остаются в строке на расстоянии gap. */
-}
-
+/* Глиф и чип-пилюли главной проекта */
 .np-glyph {
   width: 34px;
   height: 34px;
@@ -120,205 +533,9 @@
   border-radius: 8px;
   color: #fff;
 }
-
-.np-name {
-  font-size: 23px;
-  font-weight: 700;
-  color: #0f172a;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-}
-
-/* Поле имени растёт и сжимается под текст. Обёртка — grid с одной ячейкой, в ней
-   две невидимые копии текста с тем же шрифтом, паддингами и рамкой, что у поля:
-   ::after — само имя (из data-value), ::before — слово «api», нижняя граница
-   ширины (самое короткое из обычных имён). Ширину ячейки задаёт более широкая
-   копия; поле лежит поверх абсолютом и в размер ячейки не вмешивается — иначе
-   его собственная ширина «на 20 символов» раздувала бы ячейку, и у короткого
-   имени пилюля статуса стояла бы далеко. Отрицательный margin слева (и по
-   вертикали — на рамку) выравнивает текст с именем у читателя (.np-name); справа
-   его нет, чтобы между рамкой поля и пилюлей всегда оставался gap строки. Имя
-   шире строки — обёртку сжимает flex, копии режутся (overflow), поле
-   прокручивается внутри. */
-.np-name-fit {
-  position: relative;
-  display: inline-grid;
-  margin: -1px 0 -1px -6px;
-}
-.np-name-fit::before,
-.np-name-fit::after {
-  grid-area: 1 / 1;
-  min-width: 0;
-  overflow: hidden;
-  visibility: hidden;
-  white-space: pre;
-  font-size: 23px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-  padding: 1px 6px;
-  border: 1px solid transparent;
-}
-.np-name-fit::before {
-  content: "api";
-}
-.np-name-fit::after {
-  content: attr(data-value) " ";
-}
-.np-name-input {
-  position: absolute;
-  inset: 0;
-  min-width: 0;
-  font-size: 23px;
-  font-weight: 700;
-  color: #0f172a;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 1px 6px;
-  margin: 0;
-  background: transparent;
-  font-family: inherit;
-  outline: none;
-}
-.np-name-input:hover {
-  border-color: #e2e8f0;
-}
-.np-name-input:focus {
-  border-color: #2563eb;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-/* Бейдж статуса */
-.np-status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.np-status-badge--existing {
-  background: #f1f5f9;
-  color: #475569;
-}
-.np-status-badge--planned {
-  background: #dcfce7;
-  color: #166534;
-}
-.np-status-badge--deprecated {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-/* Пилюля статуса СТРАНИЦЫ (components/nodePage/ApprovalPill, docs/tasks/page-status.md):
-   «в работе» — жёлтая, «согласовано» — зелёная. Не путать с бейджем жизненного цикла
-   выше. Выпадашка — под пилюлей слева (у ⋯-меню она справа). */
-.np-approval-wrap {
-  position: relative;
-}
-.np-approval {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.3;
-  padding: 4px 10px 4px 9px;
-  border: 1px solid;
-  border-radius: 999px;
-  white-space: nowrap;
-  cursor: default;
-}
-button.np-approval {
-  cursor: pointer;
-}
-.np-approval--work {
-  background: #fef3c7;
-  color: #92400e;
-  border-color: #fcd34d;
-}
-.np-approval--ok {
-  background: #dcfce7;
-  color: #166534;
-  border-color: #86efac;
-}
-.np-approval-chev {
-  font-size: 10px;
-  opacity: 0.8;
-}
-.np-approval-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-.np-approval-dot--work {
-  background: #f59e0b;
-}
-.np-approval-dot--ok {
-  background: #22c55e;
-}
-.np-approval-menu {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  min-width: 250px;
-  max-height: 360px;
-  overflow-y: auto;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  z-index: 20;
-  padding: 6px;
-}
-.np-approval-head {
-  font-size: 11px;
-  font-weight: 700;
-  color: #94a3b8;
-  padding: 6px 10px 4px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-.np-approval-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 10px;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  color: #1e293b;
-  text-align: left;
-  cursor: pointer;
-}
-.np-approval-row:hover {
-  background: #f1f5f9;
-}
-.np-approval-row.is-current {
-  background: #f8fafc;
-}
-.np-approval-row small {
+.np-glyph svg {
   display: block;
-  color: #64748b;
-  font-size: 11.5px;
 }
-.np-approval-tick {
-  margin-left: auto;
-  color: #2563eb;
-  font-size: 12px;
-}
-
-/* Чип-пилюля (счётчики на домашней странице проекта) */
 .np-count-chip {
   display: inline-flex;
   align-items: center;
@@ -332,122 +549,9 @@ button.np-approval {
   border: 1px solid #e2e8f0;
 }
 
-/* ⋯-меню */
-.np-menu-wrap {
-  position: relative;
-  margin-left: auto;
-}
-
-.np-menu-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-  color: #64748b;
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-}
-.np-menu-btn:hover {
-  background: #f8fafc;
-  color: #475569;
-}
-
-.np-dropdown {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  min-width: 200px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  z-index: 20;
-  padding: 4px;
-  overflow: hidden;
-}
-
-.np-dropdown button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  color: #1e293b;
-  cursor: pointer;
-  border-radius: 7px;
-  text-align: left;
-}
-.np-dropdown button:hover {
-  background: #f1f5f9;
-}
-.np-dropdown button.np-danger {
-  color: #dc2626;
-}
-.np-dropdown button.np-danger:hover {
-  background: #fef2f2;
-}
-
-/* ── Свойства (таблица «термин — значение», п.3) ─────────────────── */
-/* Две колонки, поля строго друг под другом; ширина ограничена 2/3 страницы,
-   выравнивание по левому краю (grid слева по умолчанию). */
-.np-props {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 10px 16px;
-  align-items: baseline;
-  max-width: 66%;
-  min-width: 300px;
-}
-
-.np-term {
-  font-size: 12.5px;
-  color: #64748b;
-  font-weight: 500;
-  margin: 0;
-}
-/* Термин многострочного значения (Описание): к верхней грани textarea, а не по
-   базовой линии (иначе метка «уезжала» бы на первую строку текста). */
-.np-term--top {
-  align-self: start;
-  padding-top: 6px;
-}
-
-.np-value {
-  font-size: 13px;
-  color: #1e293b;
-  margin: 0;
-  min-width: 0;
-}
-
 .np-value--empty {
   color: #94a3b8;
   font-style: italic;
-}
-
-/* Строка «Размещение» (components/nodePage/PlacementRow): площадки развёртывания
-   перечнем через запятую в ритме соседних строк — иконка вида, имя, серым «в
-   <родитель>» и «от контейнера «X»»; «Изменить» — ссылкой, как у источника. */
-.np-site-ico {
-  display: inline-block;
-  vertical-align: -2px;
-  margin-right: 4px;
-  color: #64748b;
-}
-.np-site-ico svg {
-  display: block;
-}
-.np-site-muted {
-  margin-left: 4px;
-  color: #64748b;
 }
 .np-site-edit {
   margin-left: 10px;
@@ -461,18 +565,6 @@ button.np-approval {
 }
 .np-site-edit:hover:not(:disabled) {
   text-decoration: underline;
-}
-.np-site-edit:disabled {
-  color: #94a3b8;
-  cursor: default;
-}
-/* Отказ загрузки площадок — своей строкой под значением. */
-.np-site-err {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: #b91c1c;
 }
 
 .np-field {
@@ -496,131 +588,6 @@ button.np-approval {
   border-color: #2563eb;
   background: #fff;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
-}
-
-.np-fieldarea {
-  resize: vertical;
-  min-height: 56px;
-  line-height: 1.5;
-}
-
-/* Селект статуса */
-.np-selwrap {
-  position: relative;
-  display: inline-flex;
-}
-
-.np-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 13px;
-  color: #1e293b;
-  background: transparent;
-  cursor: pointer;
-  outline: none;
-}
-.np-select:hover {
-  border-color: #e2e8f0;
-  background: #fafbfc;
-}
-
-.np-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.np-menu {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  min-width: 160px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
-  z-index: 15;
-  padding: 4px;
-  list-style: none;
-  margin: 0;
-}
-
-.np-menu li {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 10px;
-  font-size: 13px;
-  color: #1e293b;
-  cursor: pointer;
-  border-radius: 6px;
-}
-.np-menu li:hover {
-  background: #f1f5f9;
-}
-/* Пункт в две строки: подпись и серое пояснение (элемент архитектуры) */
-.np-menu-two {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.np-menu-two small {
-  font-size: 11.5px;
-  color: #64748b;
-}
-
-.np-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 14;
-}
-
-/* Toggle (принадлежность: внутренний / внешний) */
-.np-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: none;
-  border: none;
-  font: inherit;
-  font-size: 13px;
-  color: #1e293b;
-  cursor: pointer;
-  padding: 2px 0;
-}
-
-.np-switch {
-  width: 32px;
-  height: 18px;
-  border-radius: 999px;
-  background: #cbd5e1;
-  position: relative;
-  transition: background 0.15s;
-  flex: none;
-}
-.np-switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.15s;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
-}
-.np-switch.is-on {
-  background: #2563eb;
-}
-.np-switch.is-on::after {
-  transform: translateX(14px);
 }
 
 /* ── Связи (таблица) ─────────────────────────────────────────────── */
@@ -701,28 +668,8 @@ button.np-approval {
   background: #f8fafc;
 }
 
-/* ── Конфликт CAS ────────────────────────────────────────────────── */
-.np-conflict {
-  color: #92400e;
-  background: #fef3c7;
-  border: 1px solid #fcd34d;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12.5px;
-  margin: 0 0 12px;
-}
 
 /* ── Правила контейнеров ─────────────────────────────────────────── */
-/* Предупреждение о собственных (grandfather) схемах/спеке контейнера */
-.np-warn {
-  color: #92400e;
-  background: #fef3c7;
-  border: 1px solid #fcd34d;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12.5px;
-  margin: 0 0 10px;
-}
 
 /* Подзаголовок внутри карточки («Схемы детей», «Спеки детей») */
 .np-sublabel {
@@ -758,27 +705,6 @@ button.np-approval {
   padding: 8px 0;
 }
 
-/* ── Загрузка / ошибка ───────────────────────────────────────────── */
-/* Заглушка на время загрузки страницы. flex/min-width — ТА ЖЕ роль в строке, что
-   у .np-page: заглушка становится колонкой контента рядом с деревом объектов и
-   центрируется в ней сама. Без этого блок сжимался по содержимому и садился к
-   левому краю, под панель, — текст «Загрузка…» оказывался не по центру страницы
-   (находка ручной проверки 2026-08-08). Смещение считать не нужно: центр едет за
-   панелью, свёрнута она или раскрыта. */
-.np-loading {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #64748b;
-  font-size: 14px;
-}
-
-/* ── Глиф формы в шапке (34px) ───────────────────────────────────── */
-.np-glyph svg {
-  display: block;
-}
 
 /* ── Строки доков (Логика / OpenAPI) ─────────────────────────────── */
 .np-doc-row {

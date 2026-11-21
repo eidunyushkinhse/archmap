@@ -66,12 +66,21 @@ export function anchorReadable(src: NodeSource): string {
   return src.host ?? "";
 }
 
+/** Источник одной строкой для строки свойств страницы: «github.com/org/repo / src/api»,
+ *  у зависимости — её имя. Без приставок «код:» и «путь»: вид читается по самому значению. */
+export function anchorCompact(src: NodeSource): string {
+  if (src.repo) return src.path ? `${src.repo} / ${src.path}` : src.repo;
+  return src.host ?? "";
+}
+
 // Подписи двух видов источника — в чтении и в переключателе формы.
 export const KIND_LABEL = { code: "код", dependency: "имя зависимости" } as const;
 export const KIND_TAB = { code: "Код", dependency: "Имя зависимости" } as const;
 
 // Узел без источника: не «пусто», а объяснение последствия — по чему его тогда узнают.
 export const NO_ANCHOR = "нет, объект опознаётся по имени";
+// То же на странице объекта: короткое пустое значение, последствие — в справке редактора.
+export const NO_ANCHOR_SHORT = "не задан";
 
 export const FIELD_LABEL = {
   repo: "Репозиторий",

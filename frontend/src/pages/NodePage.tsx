@@ -1,13 +1,13 @@
-// Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
-// (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
-// связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
+// Страница объекта (single-schema; редизайн, направление А «Документ»): читается как
+// документ. Шапка (крошки, название, статус страницы, меню), описание, свойства одной
+// ровной сеткой (inline CAS), схема (контекст объекта виртуальным корневым уровнем —
+// SchemaSection), дальше только разделы с содержимым. Правка — по клику на значении.
 import { Fragment, useCallback, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
-import { nodeNesting, shapeDocs, treeNesting } from "../types";
+import { nodeNesting, shapeDocs } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict, isDemoLimit } from "../api/client";
-import { getNodeColors } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
@@ -28,13 +28,14 @@ import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import type { NavigateMap, ViewMetaState } from "../components/graph/types";
 import "./NodePage.css";
+import "../ui/ds.css";
 import { noAutofill } from "../ui/noAutofill";
 import NodeProperties from "../components/nodePage/NodeProperties";
 import LogicSection from "../components/nodePage/LogicSection";
 import OpenApiSection from "../components/nodePage/OpenApiSection";
 import type { DocTarget } from "../components/nodePage/docTarget";
 import EdgesSection from "../components/nodePage/EdgesSection";
-import HeaderGlyph from "../components/nodePage/HeaderGlyph";
+import DescriptionField from "../components/nodePage/DescriptionField";
 import ApprovalPill from "../components/nodePage/ApprovalPill";
 import ProcessesSection from "../components/nodePage/ProcessesSection";
 import SchemaSection from "../components/nodePage/SchemaSection";
@@ -203,7 +204,6 @@ function NodePageInner({
     () => (containerId ? nodesApi.get(containerId) : Promise.resolve(null)),
   );
   const containerNode = componentContainer.data;
-  const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -368,36 +368,31 @@ function NodePageInner({
   }, [container]);
 
   return (
-    <div className="np-page">
+    <div className="np-page ds">
       {metaToast && <div style={metaToastStyle}>Объект только что изменили в другом окне</div>}
       <div className="np-inner">
-        {/* ── Шапка ─────────────────────────────────────────────── */}
-        <div className="np-header">
-          {/* Breadcrumb предков */}
-          <div className="np-breadcrumb">
-            <button onClick={onNavigateProject}>Проект</button>
+        {/* ── Шапка: крошки, название, статус страницы и меню, описание ── */}
+        <header className="np-header">
+          <nav className="np-breadcrumb" aria-label="Путь к объекту">
+            <button type="button" onClick={onNavigateProject}>Проект</button>
             {ancestors.map((a) => (
-              <span key={a.id} style={{ display: "inline-flex", alignItems: "center" }}>
-                <span className="np-bc-sep">›</span>
-                <button onClick={() => onNavigateNode(a.id)}>{a.name}</button>
-              </span>
+              <Fragment key={a.id}>
+                <span className="np-bc-sep" aria-hidden="true">/</span>
+                <button type="button" onClick={() => onNavigateNode(a.id)}>{a.name}</button>
+              </Fragment>
             ))}
-          </div>
+          </nav>
 
-          {/* Глиф + имя + бейджи */}
           <div className="np-title-row">
-            <span className="np-glyph" style={{ background: colors.bg }}>
-              <HeaderGlyph shape={shape} nesting={treeNesting(node)} />
-            </span>
-
             {isArchitect ? (
               // Поле имени — по ширине самого имени, но не уже слова «api» (обёртка
               // np-name-fit: невидимые копии текста в той же ячейке задают ширину):
-              // длинное имя не обрезается, пилюля статуса стоит рядом с коротким.
+              // длинное имя не обрезается, статус стоит справа в той же строке.
               <span className="np-name-fit" data-value={patch.name}>
                 <input
                   {...noAutofill("node-page-1")}
                   className="np-name-input"
+                  aria-label="Название"
                   value={patch.name}
                   onChange={(e) => patch.setName(e.target.value)}
                   onBlur={patch.commitName}
@@ -405,63 +400,75 @@ function NodePageInner({
                 />
               </span>
             ) : (
-              <span className="np-name">{node.name}</span>
+              <h1 className="np-name">{node.name}</h1>
             )}
 
-            {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор
-                редактора; у внешней системы (Р42) статус не ведётся — пилюли нет */}
-            {element.kind !== "external" && (
-              <ApprovalPill
-                node={node}
-                isArchitect={isArchitect}
-                units={loadDescendants ? container.units : NO_UNITS}
-                onNavigateNode={onNavigateNode}
-                onPick={patch.pickApproval}
-              />
-            )}
-
-            {/* ⋯-меню: пункты просмотра — обеим ролям (история версий нужна и
-                читателю, docs/tasks/doc-versions.md §7), пункты правки — редактору */}
-            <div className="np-menu-wrap">
-              <button
-                className="np-menu-btn"
-                onClick={() => setMenuOpen((o) => !o)}
-                title="Действия"
-              >
-                ⋯
-              </button>
-              {menuOpen && (
-                <>
-                  <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
-                  <div className="np-dropdown">
-                    {onNavigateMap && (
-                      <button onClick={() => {
-                        setMenuOpen(false);
-                        // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
-                        onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
-                      }}>
-                        Открыть в редакторе
-                      </button>
-                    )}
-                    <button onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
-                      Версии документации
-                    </button>
-                    {isArchitect && (
-                      <>
-                        <button onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
-                          Экспорт объекта с вложенными
-                        </button>
-                        <button className="np-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
-                          Удалить объект
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
+            <div className="np-title-aside">
+              {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор
+                  редактора; у внешней системы (Р42) статус не ведётся — его нет */}
+              {element.kind !== "external" && (
+                <ApprovalPill
+                  node={node}
+                  isArchitect={isArchitect}
+                  units={loadDescendants ? container.units : NO_UNITS}
+                  onNavigateNode={onNavigateNode}
+                  onPick={patch.pickApproval}
+                />
               )}
+
+              {/* ⋯-меню: пункты просмотра — обеим ролям (история версий нужна и
+                  читателю, docs/tasks/doc-versions.md §7), пункты правки — редактору */}
+              <div className="np-menu-wrap">
+                <button
+                  type="button"
+                  className="np-menu-btn"
+                  onClick={() => setMenuOpen((o) => !o)}
+                  title="Действия"
+                  aria-expanded={menuOpen}
+                >
+                  ⋯
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
+                    <div className="np-dropdown ds-menu">
+                      {onNavigateMap && (
+                        <button type="button" className="ds-menu-item" onClick={() => {
+                          setMenuOpen(false);
+                          // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
+                          onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
+                        }}>
+                          Открыть в редакторе
+                        </button>
+                      )}
+                      <button type="button" className="ds-menu-item" onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
+                        Версии документации
+                      </button>
+                      {isArchitect && (
+                        <>
+                          <button type="button" className="ds-menu-item" onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
+                            Экспорт объекта с вложенными
+                          </button>
+                          <button type="button" className="ds-menu-item ds-menu-item--danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
+                            Удалить объект
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* Описание — сразу под названием, а не строкой свойств */}
+          <DescriptionField
+            value={isArchitect ? patch.description : (node.description ?? "")}
+            editable={isArchitect}
+            onChange={patch.setDescription}
+            onCommit={patch.commitDesc}
+          />
+        </header>
 
         {/* Конфликт CAS */}
         {patch.conflict && <p className="np-conflict">{patch.conflict}</p>}
