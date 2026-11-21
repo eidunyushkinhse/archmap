@@ -2,6 +2,7 @@
 // по сигналу без сворачивания, авто-раскрытие ветки до текущего узла) и палитра
 // шаблонов с «корзиной» на время драга.
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeTreePanel from "../NodeTreePanel";
 import { NODE_DRAG_MIME } from "../nodeTree.mime";
@@ -188,6 +189,33 @@ describe("NodeTreePanel: палитра шаблонов", () => {
     expect(greyed()).toEqual([]);
     expect(tile("component")).toHaveAttribute("title", "Перетащить «Компонент» на схему");
     expect(nodesApi.get).not.toHaveBeenCalled();
+  });
+
+  // Редизайн, фаза 4б: палитра всегда раскрыта — тихая подпись без шеврона и постоянной
+  // подсказки (её смысл — в подсказке плитки). Сворачивание панели — одна кнопка-значок
+  // с подсказкой «Свернуть панель» (на неё опирается зонд холста), в свёрнутой полосе —
+  // одна кнопка «Развернуть панель», без значков секций.
+  it("палитра без аккордеона и подсказки; сворачивание — одна кнопка-значок", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([]);
+    const { container } = render(
+      <NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect currentNodeId={null} />,
+    );
+    await screen.findByText("Нет объектов");
+    expect(screen.getByText("Добавить объект")).toBeInTheDocument();
+    expect(screen.queryByText(/Перетащите/)).toBeNull();
+    const palette = document.querySelector<HTMLElement>('[data-tour="palette"]')!;
+    expect(palette.closest(".nt-palette")!.querySelector("button")).toBeNull();
+    const collapse = screen.getByRole("button", { name: "Свернуть панель" });
+    expect(collapse).toHaveAttribute("title", "Свернуть панель");
+    expect(collapse).toHaveClass("ds-icon-btn");
+    expect(collapse.textContent).toBe("");
+
+    await userEvent.click(collapse);
+    expect(document.querySelector('[data-tour="palette"]')).toBeNull();
+    const aside = container.querySelector("aside")!;
+    expect([...aside.querySelectorAll("button")].map((b) => b.title)).toEqual(["Развернуть панель"]);
+    await userEvent.click(screen.getByRole("button", { name: "Развернуть панель" }));
+    expect(document.querySelector('[data-tour="palette"]')).not.toBeNull();
   });
 
   it("палитры нет у наблюдателя и в дереве страниц", async () => {

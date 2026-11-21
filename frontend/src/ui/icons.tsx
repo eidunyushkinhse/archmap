@@ -59,11 +59,6 @@ export const CollapseIcon = ({ size = 13, dir = "left" }: IcoProps & { dir?: "le
     <path d={d[0]} /><path d={d[1]} /></svg>);
 };
 
-// Иконки секций для свёрнутого рейла.
-export const TreeIcon = ({ size = 17 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.7} aria-hidden>
-    <rect x="9" y="3" width="6" height="4.5" rx="1" /><rect x="3" y="16.5" width="6" height="4.5" rx="1" />
-    <rect x="15" y="16.5" width="6" height="4.5" rx="1" /><path d="M12 7.5 V11 M6 16.5 V13 H18 V16.5" /></svg>);
 export const PlusIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M12 5 V19 M5 12 H19" /></svg>);

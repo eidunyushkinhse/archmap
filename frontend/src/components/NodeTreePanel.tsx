@@ -4,7 +4,7 @@ import { nodeNesting, treeNesting } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
 import { PlaceButton, TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { offDeployCanvas, placeable, treeRowTitle } from "./nodeTree.mode";
-import { CloseIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
+import { CloseIcon, CollapseIcon } from "../ui/icons";
 import "../ui/ds.css";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
@@ -105,16 +105,6 @@ export default function NodeTreePanel(props: Props) {
   const [collapsed, setCollapsed] = useState(false); // свёрнута ли вся панель
   // Драг шаблона из палитры: на это время панель накрывается «корзиной».
   const paletteDrag = usePaletteDrag(editor?.onTemplateDrag);
-  // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
-  const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(["tree", "add"]),
-  );
-  const toggleSection = (key: string) =>
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
 
   // ── Поиск (pages_pivot) ──────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
@@ -175,28 +165,8 @@ export default function NodeTreePanel(props: Props) {
 
   return (
     <aside className={"ds nt-panel" + (collapsed ? " nt-panel--collapsed" : "")}>
-      {/* Свёрнутая панель — рейл с иконками секций: клик разворачивает панель и
-          открывает соответствующую секцию (а не пустая полоса). */}
-      {collapsed ? (
-        <div className="nt-rail">
-          <button
-            className="nt-railbtn"
-            title="Дерево объектов"
-            onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("tree")); }}
-          >
-            <TreeIcon />
-          </button>
-          {isArchitect && !deploy && (
-            <button
-              className="nt-railbtn"
-              title="Добавить объект"
-              onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("add")); }}
-            >
-              <PlusIcon />
-            </button>
-          )}
-        </div>
-      ) : (
+      {/* Свёрнутая панель — узкая полоса с одной кнопкой «Развернуть панель» внизу. */}
+      {!collapsed && (
       <div className="nt-content">
           <>
             {/* Поиск — а на время переноса ВМЕСТО него полоса «в корень проекта»:
@@ -271,14 +241,9 @@ export default function NodeTreePanel(props: Props) {
             </div>
 
             {/* Палитра «Добавить объект» — только в редакторе; ЕДИНСТВЕННОЕ
-                отличие плоского дерева редактора от дерева страниц. */}
+                отличие плоского дерева редактора от дерева страниц. Всегда раскрыта. */}
             {editor && isArchitect && (
-              <PaletteSection
-                open={openSections.has("add")}
-                onToggle={() => toggleSection("add")}
-                drag={paletteDrag}
-                tiles={editor.paletteTiles ?? null}
-              />
+              <PaletteSection drag={paletteDrag} tiles={editor.paletteTiles ?? null} />
             )}
           </>
       </div>
@@ -289,14 +254,17 @@ export default function NodeTreePanel(props: Props) {
           размонтирование плитки-источника во время нативного drag отменяет драг. */}
       {paletteDrag.dragging && <TrashOverlay drag={paletteDrag} />}
 
-      {/* Футер сворачивания — вне скролла контента, виден и в свёрнутом состоянии. */}
+      {/* Сворачивание — тихая кнопка-значок внизу, вне скролла контента, как у списка
+          процессов; видна и в свёрнутой полосе. На подсказку «Свернуть панель» опирается
+          зонд холста (scripts/dump-levels.mjs). */}
       <button
-        className="nt-collapse"
+        type="button"
+        className="ds-icon-btn nt-collapse"
         onClick={() => setCollapsed((c) => !c)}
         title={collapsed ? "Развернуть панель" : "Свернуть панель"}
+        aria-label={collapsed ? "Развернуть панель" : "Свернуть панель"}
       >
-        <CollapseIcon dir={collapsed ? "right" : "left"} />
-        {!collapsed && <span>Свернуть панель</span>}
+        <CollapseIcon size={15} dir={collapsed ? "right" : "left"} />
       </button>
     </aside>
   );

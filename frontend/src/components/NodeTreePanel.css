@@ -15,17 +15,10 @@
   background: var(--c-bg-subtle);
   transition: width 0.22s ease;
 }
+/* Свёрнутая панель — узкая полоса, в ней одна кнопка «Развернуть панель» внизу. */
 .nt-panel--collapsed {
   width: 48px;
-}
-/* Рейл свёрнутой панели: вертикальный ряд кнопок-значков. */
-.nt-rail {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding-top: var(--space-3);
+  justify-content: flex-end;
 }
 /* Содержимое фиксированной ширины — без переноса текста при анимации сворачивания. */
 .nt-content {
@@ -81,69 +74,6 @@
 .nt-hint {
   padding: var(--space-2) 14px;
   color: var(--c-fg-faint);
-}
-
-/* Разделитель секций аккордеона: тонкая линия сверху у всех, кроме первой. */
-.nt-section:not(:first-child) {
-  border-top: 1px solid #e2e8f0;
-}
-
-/* Заголовок секции аккордеона: caps-микролейбл с SVG-шевроном справа и hover-строкой. */
-.nt-sechead {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 12px 14px 8px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #64748b;
-  transition: color 0.12s ease;
-}
-.nt-sechead:hover {
-  color: #334155;
-}
-.nt-sechead:hover .nt-secchev {
-  color: #64748b;
-}
-.nt-secchev {
-  margin-left: auto;
-  flex: none;
-  color: #94a3b8;
-  display: inline-flex;
-  /* Секция живёт у нижнего края и раскрывается ВВЕРХ, поэтому свёрнутая смотрит
-     вверх («открыть туда»), раскрытая — вниз («убрать обратно»). Базовый глиф
-     ChevronIcon смотрит вправо. */
-  transform: rotate(-90deg);
-  transition: transform 0.15s ease, color 0.12s ease;
-}
-.nt-secchev--open {
-  transform: rotate(90deg);
-}
-
-/* Иконочная кнопка секции в свёрнутом рейле. */
-.nt-railbtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  color: #94a3b8;
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.nt-railbtn:hover {
-  background: #eff6ff;
-  color: #2563eb;
 }
 
 /* Строка дерева: единый стиль для контейнеров и листьев (ни ссылок, ни пилюль). Левое
@@ -251,53 +181,107 @@
   border-left: 1px solid var(--c-line);
 }
 
-/* Карточка-шаблон в палитре «Добавить узел». Курсор: раскрытая рука по умолчанию,
-   «схватившая» (закрытая) при зажатии — :active нельзя задать инлайн-стилем. */
-.template-card {
+/* ── Сворачивание панели: тихая кнопка-значок (ui/ds.css, ds-icon-btn) внизу справа,
+   в свёрнутой полосе — по центру. ── */
+.nt-collapse {
+  align-self: flex-end;
+  margin: 4px 10px 10px 0;
+}
+.nt-panel--collapsed .nt-collapse {
+  align-self: center;
+  margin: 0 0 10px;
+}
+
+/* ── Палитра «Добавить объект» (nodeTree.Palette): тихая подпись (ds-sub) и плитки 3×2
+   по 56px — значок 20px над подписью 12px. ── */
+.nt-palette {
+  flex: none;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--c-line);
+}
+.nt-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+/* Плитка-источник драга. Курсор: раскрытая рука, «схватившая» при зажатии (:active). */
+.nt-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 56px;
+  box-sizing: border-box;
+  /* Без боковых полей: самая длинная подпись («Пользователь», 84px) встаёт в плитку
+     шириной 93px целиком. */
+  padding: 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  color: var(--c-fg-muted);
   cursor: grab;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  user-select: none;
+  transition: border-color 0.12s ease, color 0.12s ease;
 }
-.template-card:hover {
-  border-color: #93c5fd;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+.nt-tile:hover {
+  border-color: var(--c-line-strong);
+  color: var(--c-fg);
 }
-.template-card:active {
+.nt-tile:active {
   cursor: grabbing;
 }
 /* Тип, которого некуда положить ни на уровне, ни в раскрытые рамки: серая плитка без
    драга, объяснение — в подсказке. */
-.template-card--off,
-.template-card--off:active {
+.nt-tile--off,
+.nt-tile--off:active {
   cursor: not-allowed;
   opacity: 0.45;
 }
-.template-card--off:hover {
-  border-color: #e2e8f0;
-  box-shadow: none;
+.nt-tile--off:hover {
+  border-color: var(--c-line);
+  color: var(--c-fg-muted);
+}
+.nt-tile-icon {
+  display: block;
+  pointer-events: none;
+  fill: var(--c-hover);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.nt-tile-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-tight);
+  color: var(--c-fg);
 }
 
-/* Футер сворачивания панели — нижняя строка вне скролла контента. */
-.nt-collapse {
+/* «Корзина» — плитка поверх всей панели на время драга шаблона: дроп на неё ничего не
+   создаёт. Под курсором темнее. */
+.nt-trash {
+  position: absolute;
+  inset: 10px;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  flex-shrink: 0;
-  height: 34px;
-  width: 100%;
-  padding: 0;
-  border: none;
-  border-top: 1px solid #e2e8f0;
-  background: none;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
-  transition: background 0.12s ease, color 0.12s ease;
+  border: 1.5px dashed var(--c-line-strong);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--c-bg-subtle) 92%, transparent);
+  color: var(--c-fg-faint);
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-.nt-collapse:hover {
-  background: #f1f5f9;
-  color: #334155;
+.nt-trash--active {
+  border-color: var(--c-fg-faint);
+  background: var(--c-hover);
+  color: var(--c-fg-muted);
+}
+.nt-trash-inner {
+  display: flex;
+  pointer-events: none;
 }
 
 /* «+» на строке дерева — виден только при наведении на строку. */

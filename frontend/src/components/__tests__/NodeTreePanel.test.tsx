@@ -338,14 +338,18 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     return { ...utils, onOpenLevel, onPickObject, onPlace };
   }
 
-  it("без «+», ручки переноса и палитры; в свёрнутом рейле — только дерево", async () => {
+  it("без «+», ручки переноса и палитры; в свёрнутой полосе — одна кнопка «Развернуть панель»", async () => {
     const { container } = await scene();
     expect(container.querySelector(".nt-add-child")).toBeNull();
     expect(screen.queryByLabelText(/Перенести/)).toBeNull();
     expect(screen.queryByText(/Добавить объект/i)).toBeNull();
-    await userEvent.click(screen.getByTitle("Свернуть панель"));
-    expect(screen.getByTitle("Дерево объектов")).toBeInTheDocument();
-    expect(screen.queryByTitle("Добавить объект")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Свернуть панель" }));
+    const aside = container.querySelector("aside")!;
+    expect([...aside.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Развернуть панель"]);
+    expect(screen.queryByPlaceholderText("Поиск по имени")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Развернуть панель" }));
+    expect(screen.getByPlaceholderText("Поиск по имени")).toBeInTheDocument();
+    expect(screen.getByText("Витрина")).toBeInTheDocument();
   });
 
   it("иконка размещения — у сервиса, БД и системы архитектора; строки «Пользователя» нет", async () => {
