@@ -205,9 +205,12 @@ export default function SequenceDiagram({
     [participants, messages, fragments, labelH, reorder, rowDrag, fragDrag, ghost],
   );
   const {
-    idx, pById, n, PX, lifeTop, colX, isDraggedK, lhOf,
+    idx, pById, PX, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf,
     fragRows, fragBranches, rowY, rowFromY, shownRow, msgY, ghostY, W, H, fragBoxes,
   } = geo;
+  // Крайние колонки: от них считаются полоса-призрак и рамка выделения диапазона.
+  const xFirst = PX(0);
+  const xLast = PX(Math.max(0, participants.length - 1));
 
   // Приглушение по виду схемы: участник со статусом вне вида гаснет (см. ТЗ статусов).
   // ⚠️ Гашение — ТОЛЬКО визуальный слой: управление оно не отбирает (на C4-холсте
@@ -349,12 +352,14 @@ export default function SequenceDiagram({
     setSelfHover(false);
     let best: string | null = null;
     let bestD = Infinity;
+    let bestK = 0;
     participants.forEach((p, k) => {
       if (p.id === drag.from) return; // источник — не цель колонок (для себя есть хэндл «себе»)
       const d = Math.abs(x - PX(k));
-      if (d < bestD) { bestD = d; best = p.id; }
+      if (d < bestD) { bestD = d; best = p.id; bestK = k; }
     });
-    setHover(bestD <= SQ.COL_W / 2 ? best : null);
+    // Радиус попадания — половина соседнего промежутка: промежутки разной ширины.
+    setHover(bestD <= colHalf(bestK) ? best : null);
     setDrag((d) => (d ? { ...d, px: x, py: y } : d));
   }
   // Отпускание: reorder — фиксируем новый порядок, если шапка ушла в другую колонку;
@@ -398,7 +403,8 @@ export default function SequenceDiagram({
       return;
     }
     if (reorder) {
-      const to = Math.max(0, Math.min(n - 1, Math.round((reorder.px - SQ.MARGIN) / SQ.COL_W)));
+      // Цель — ближайший центр колонки (та же, что показана на экране во время жеста).
+      const to = reorderToK;
       if (to !== reorder.fromK) {
         onReorderParticipants?.(arrayMove(participants.map((p) => p.id), reorder.fromK, to));
       }
@@ -1060,9 +1066,9 @@ export default function SequenceDiagram({
           <div
             style={{
               position: "absolute",
-              left: SQ.MARGIN - 40,
+              left: xFirst - 40,
               top: ghostY,
-              width: W - (SQ.MARGIN - 40) * 2,
+              width: xLast - xFirst + 80,
               borderTop: "1.5px dashed #bcd2fb",
               zIndex: 2,
             }}
@@ -1206,9 +1212,9 @@ export default function SequenceDiagram({
             <div
               style={{
                 position: "absolute",
-                left: SQ.MARGIN - 56,
+                left: xFirst - 56,
                 top: rowY(Math.min(selRange.a, selRange.b)) - 16,
-                width: W - (SQ.MARGIN - 56) * 2,
+                width: xLast - xFirst + 112,
                 height: rowY(Math.max(selRange.a, selRange.b)) - rowY(Math.min(selRange.a, selRange.b)) + 32,
                 background: "rgba(37,99,235,.10)",
                 border: "1.5px dashed #2563eb",
