@@ -1,26 +1,10 @@
 /* Стили «хрома» приложения прежнего вида, которым нужны псевдоклассы (:hover) — задать
-   инлайном нельзя. Шапки нового языка — ui/ds.css (ds-head*, ds-icon-btn). */
+   инлайном нельзя. Шапки нового языка — ui/ds.css (ds-head*, ds-icon-btn, ds-avatar). */
 
 /* Хлебная крошка-ссылка: подсветка фона и синева на hover (без подчёркиваний). */
 .crumb:hover {
   background: #eff6ff;
   color: #1d4ed8;
-}
-
-/* Аватар профиля. */
-.pf-avatar:hover {
-  border-color: #93c5fd;
-  background: #dbeafe;
-}
-
-/* Пункты меню профиля. Фон задаётся здесь, а не инлайном: инлайновый background
-   перебивал бы :hover. */
-.pf-item {
-  background: none;
-  transition: background 0.12s ease;
-}
-.pf-item:hover {
-  background: #f1f5f9;
 }
 
 /* Логотип-ссылка на «Все проекты» (ui/BrandLink) */

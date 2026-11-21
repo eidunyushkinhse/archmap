@@ -10,6 +10,35 @@ function open() {
 }
 
 describe("ProfileMenu", () => {
+  // Редизайн, фаза 5: кружок 28px и меню нового языка; корень — область .ds, поэтому меню
+  // одинаково в шапке проекта и в шапках экранов прежнего вида («Проекты», «Пользователи»).
+  it("кружок и меню нового языка, корень — область .ds", async () => {
+    const { container } = render(<ProfileMenu role="Архитектор" onLogout={vi.fn()} onChangePassword={vi.fn()} />);
+    const avatar = screen.getByLabelText("Профиль");
+    expect(avatar).toHaveClass("ds-avatar");
+    expect(avatar.getAttribute("style")).toBeNull();
+    expect(avatar).toHaveTextContent("А");
+    expect(container.firstElementChild).toHaveClass("ds");
+    await open();
+    expect(avatar).toHaveAttribute("aria-expanded", "true");
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveClass("ds-menu");
+    expect(menu.getAttribute("style")).toBeNull();
+    for (const it of screen.getAllByRole("menuitem")) expect(it).toHaveClass("ds-menu-item");
+    expect(screen.getByText("Архитектор")).toHaveClass("ds-menu-head");
+    expect(menu.querySelectorAll(".ds-menu-sep")).toHaveLength(2);
+  });
+
+  it("Escape и клик мимо закрывают меню", async () => {
+    render(<ProfileMenu role="Архитектор" onLogout={vi.fn()} />);
+    await open();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    await open();
+    await userEvent.click(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
   it("наблюдателю без админки: «Сменить пароль» и «Выйти», без «Пользователи»", async () => {
     render(
       <ProfileMenu role="Наблюдатель" onLogout={vi.fn()} onChangePassword={vi.fn()} onOpenUsers={vi.fn()} />,

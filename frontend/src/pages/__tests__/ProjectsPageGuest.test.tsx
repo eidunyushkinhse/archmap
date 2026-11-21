@@ -98,6 +98,26 @@ describe("ProjectsPage: гость демо-стенда", () => {
     expect(пункты).toEqual(["Открыть", "Редактировать", "Архивировать"]);
   });
 
+  // Меню профиля нового языка стоит и в шапке «Проектов» (экран прежнего вида): корень
+  // меню — своя область .ds, пункты работают (редизайн, фаза 5).
+  it("обычный пользователь: меню профиля нового языка работает на «Проектах»", async () => {
+    vi.mocked(getIsGuest).mockReturnValue(false);
+    список([ЯРМАРКА]);
+    const onLogout = vi.fn();
+    render(<ProjectsPage onOpenProject={vi.fn()} onLogout={onLogout} onOpenUsers={vi.fn()} />);
+    await screen.findByText("Маркетплейс «Ярмарка»");
+    const avatar = screen.getByRole("button", { name: "Профиль" });
+    expect(avatar).toHaveClass("ds-avatar");
+    expect(avatar.closest(".ds")).not.toBeNull();
+    await userEvent.click(avatar);
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveClass("ds-menu");
+    expect(within(menu).getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["Сменить пароль", "Токены для MCP", "Выйти"]);
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Выйти" }));
+    expect(onLogout).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("обычный пользователь: ни метки, ни плашки, «Доступ» на месте", async () => {
     vi.mocked(getIsGuest).mockReturnValue(false);
     список([ЯРМАРКА]);

@@ -10,10 +10,14 @@ export const workPage: CSSProperties = { display: "flex", flexDirection: "column
 export const workBodyRow: CSSProperties = { flex: 1, display: "flex", minHeight: 0, overflow: "hidden" };
 
 // ── Списочные экраны («Проекты», «Пользователи»): прокручивается вся страница.
+// Высота шапки 59px задана явно: прежде её задавал аватар 34px, а кружок профиля нового
+// языка 28px (ui/ProfileMenu) — без этого шапка списков сжалась бы на 4px, а логотип при
+// переходе в проект сдвигался бы.
 export const listPage: CSSProperties = { height: "100vh", overflowY: "auto", background: "#f8fafc" };
 export const listTopBar: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "space-between",
   padding: "12px 24px", background: "#fff", borderBottom: "1px solid #e2e8f0",
+  minHeight: 59, boxSizing: "border-box",
 };
 export const listTitle: CSSProperties = { margin: 0, fontSize: 26, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" };
 export const listPrimaryBtn: CSSProperties = {
