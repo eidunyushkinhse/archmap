@@ -57,6 +57,7 @@ import { hasConsequences } from "../components/element/elementChange";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import { typeOptions } from "../components/element/typeOptions";
 import { dropEligibility, dropRefusal, paletteTiles } from "../components/element/paletteTiles";
+import { warmLayoutWorker } from "../components/graph/layout/pipelineClient";
 
 interface Props {
   projectId: string;
@@ -73,6 +74,9 @@ interface Props {
 }
 
 export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone, onAllProjects, onNavigateNode }: Props) {
+  // Прогрев воркера раскладки (эпик render-scale), как в оболочке проекта: конвейер и ELK
+  // грузятся, пока страница ждёт данные уровня.
+  useEffect(() => { warmLayoutWorker(); }, []);
   // ── Стейт уровня (адаптация TreePage) ────────────────────────────
   const [nodes, setNodes] = useState<Node[]>([]);
   // Ведёт ли ПРОЕКТ переход (есть planned/deprecated) — приходит с сервера вместе с
