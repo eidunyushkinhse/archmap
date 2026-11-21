@@ -391,7 +391,7 @@ describe("MapEditorPage", () => {
     expect(props.onDone).not.toHaveBeenCalled();
   });
 
-  it("Esc, погашенный ближе к месту нажатия или при открытом всплывающем, — не наш", async () => {
+  it("Esc не наш, если его погасили ближе к месту нажатия или открыто всплывающее", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     await выбрать(node("n1"));

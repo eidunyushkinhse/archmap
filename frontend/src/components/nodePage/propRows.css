@@ -4,11 +4,15 @@
    ширины; текст значения начинается с одного x, чем бы значение ни было: у элементов
    управления поля 3px 6px и такой же отрицательный отступ (ds-value-btn, ds-field), у
    голого текста — те же поля по вертикали. Шаг строк — 30px, базовые линии подписи и
-   значения совпадают. */
+   значения совпадают. Ширина подписи и промежуток — переменными: от начала значения
+   (--np-value-x) отмеряют свои меню значений места вызова (inspector/panel.css). */
 .np-prop {
+  --np-term-w: 112px;
+  --np-col-gap: 16px;
+  --np-value-x: calc(var(--np-term-w) + var(--np-col-gap));
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  column-gap: 16px;
+  grid-template-columns: var(--np-term-w) minmax(0, 1fr);
+  column-gap: var(--np-col-gap);
   align-items: baseline;
   min-height: 30px;
   padding: 2px 0;
