@@ -91,6 +91,16 @@ export const LABEL_HOSTS = { on: true, lostCost: 100 };
  * за ним стоят дороже подписи впритык (цена потери носителя — полкреста).
  */
 export const LABEL_SHIFT_TOL = 50;
+/**
+ * БЮДЖЕТ ПЕРЕБОРА (шаг «меньше проб» эпика render-scale, механизм Д; E92 v20, perf.md P16):
+ * потолок полных оценок цены сцены на вызов zRoutes — функция размера сцены, не времени.
+ * Спуск до первого прохода по носителям тратит не больше descent(n) = clamp(round(perEdge /
+ * n), min, max) проб (n — число Z-связей вызова): проба на большой сцене дороже, и проб на
+ * ней меньше. Проход по носителям и спуски после него делят остаток до descent(n) + число
+ * связей с подписью; каждая проба носителя входит в счёт. Прежде — 400 проб спуска на любой
+ * сцене и проход по носителям без счёта. Отсеянная проба бюджет не тратит.
+ */
+export const Z_BUDGET = { perEdge: 24000, min: 60, max: 400 } as const;
 
 /** Ориентация дорожки: "v" — ось потока вертикальная (дорожка горизонтальна), "h" — наоборот. */
 type Orient = "v" | "h";
@@ -2304,8 +2314,11 @@ export function zRoutes(params: {
   const movable = edges.filter((e) => e.cands.length > 1);
   let best = sceneCost();
   scanBest();
+  // бюджет (Z_BUDGET): сначала потолок спуска, после первого спуска — общий с носителями
   let evals = 0;
-  const MAX_EVALS = 400;
+  const descentBudget = Math.max(Z_BUDGET.min, Math.min(Z_BUDGET.max, Math.round(Z_BUDGET.perEdge / Math.max(1, edges.length))));
+  const totalBudget = descentBudget + (LABEL_HOSTS.on ? edges.filter((e) => e.label).length : 0);
+  let cap = descentBudget;
   // ── ОЧЕРЕДЬ ПРОБ (шаг «меньше проб», механизм Б) ──────────────────────────────────
   // Прежде после любого принятого хода спуск заново пробовал все варианты всех связей
   // (второй и третий проход), хотя ход меняет обстановку у немногих. Теперь связь пробуется
@@ -2332,7 +2345,7 @@ export function zRoutes(params: {
   const byContrib = (a: ZEdge, b: ZEdge): number => contrib[b.ix] - contrib[a.ix] || a.ix - b.ix;
   const descend = (start: ReadonlyArray<ZEdge>): void => {
     let round = start.filter((e) => e.cands.length > 1).sort(byContrib);
-    for (let pass = 0; pass < 3 && round.length > 0 && evals < MAX_EVALS; pass++) {
+    for (let pass = 0; pass < 3 && round.length > 0 && evals < cap; pass++) {
       const next: ZEdge[] = [];
       for (const e of round) { inRound[e.ix] = 1; touched[e.ix] = 1; }
       const enqueue = (f: ZEdge): void => {
@@ -2346,13 +2359,13 @@ export function zRoutes(params: {
         const twin = twinOf.get(e);
         let moved = false;
         for (const c of e.cands) {
-          if (c === current || evals >= MAX_EVALS) continue;
+          if (c === current || evals >= cap) continue;
           // сначала парный ход (если близнец есть и у него есть парный вариант), потом одиночный
           const twinCand = twin ? matchCand(twin, c) : undefined;
           const twinCurrent = twin?.cand ?? null;
           const steps: Array<Cand | undefined> = twinCand && twinCand !== twinCurrent ? [twinCand, undefined] : [undefined];
           for (const tc of steps) {
-            if (evals >= MAX_EVALS) break;
+            if (evals >= cap) break;
             // граница вклада: пол нового выбора не ниже вклада прежнего — строгого падения нет
             const floor = twin && tc ? ownFloor(e, c) + ownFloor(twin, tc) : ownFloor(e, c);
             const gain = twin && tc ? contrib[e.ix] + contrib[twin.ix] : contrib[e.ix];
@@ -2445,8 +2458,10 @@ export function zRoutes(params: {
           }
           continue;
         }
+        if (evals >= cap) break;
         const prevHost = e.host;
         e.hostOff = true; e.host = "none";
+        evals++;
         if (stats) count("hostTries");
         const cost = sceneCost();
         if (__zDebug.on) zlog(e.id.slice(0, 8), "host-off", prevHost, e.hostLost ? "(lost)" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} lost=${costParts.lost} det=${costParts.det.toFixed(0)}`);
@@ -2487,6 +2502,7 @@ export function zRoutes(params: {
     start = movable.filter((f) => mark[f.ix] !== 0);
   }
   descend(start);
+  cap = totalBudget;
   if (LABEL_HOSTS.on) {
     for (let round = 0; round < 2; round++) {
       // после снятых носителей — спуск по тем, чьё окружение они изменили (очередь)
