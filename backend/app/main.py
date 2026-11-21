@@ -20,6 +20,7 @@ from app.routers import (
     auth,
     broker_channels,
     channels_import,
+    code_changes,
     config_import,
     config_params,
     data_import,
@@ -122,6 +123,7 @@ app.include_router(docs_import.router, prefix="/api/v1")
 app.include_router(recon.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")
 app.include_router(deletions.router, prefix="/api/v1")
+app.include_router(code_changes.router, prefix="/api/v1")
 app.include_router(views.router, prefix="/api/v1")
 app.include_router(deployment.router, prefix="/api/v1")
 app.include_router(uploads.router, prefix="/api/v1")

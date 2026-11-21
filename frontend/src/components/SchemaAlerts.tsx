@@ -159,7 +159,7 @@ interface SectionSpec<T> {
   body: (item: T, i: number) => ReactNode;
 }
 
-// Раздел со стёртым типом записей: шестнадцать разных классов живут одним списком, и
+// Раздел со стёртым типом записей: семнадцать разных классов живут одним списком, и
 // общий счёт считается по нему же (аудит F-35: раньше — деструктуризация, сумма из
 // пятнадцати слагаемых и пятнадцать <Section> тремя несвязанными списками; забытое
 // слагаемое не проявилось бы ничем).
@@ -210,6 +210,24 @@ function stepLine(m: { process_name: string; caption: string | null }) {
 
 // Порядок списка — порядок разделов в панели.
 const ALERT_SECTIONS: AlertSection[] = [
+  // Сигнал CI: в основную ветку репозитория слиты изменения, а обновления из кода с тех
+  // пор не было (AL37, app/code_changes.py). Строка на репозиторий, переход к верхнему
+  // объекту из него; гаснет обновлением из кода или «Документация актуальна» на плашке.
+  section({
+    title: "Документацию пора обновить",
+    items: (a: Alerts) => a.code_changes,
+    key: (c) => c.id,
+    go: (c) => toNode(c.nodes[0]?.node_id ?? ""),
+    body: (c) => (
+      <span className="sa-row">
+        <span className="sa-strong">{c.repo}</span>
+        <span className="sa-muted">
+          {c.merges} {plural(c.merges, ["слияние", "слияния", "слияний"])} · {c.nodes.length}{" "}
+          {plural(c.nodes.length, ["объект", "объекта", "объектов"])}
+        </span>
+      </span>
+    ),
+  }),
   section({
     title: "Объекты без связей",
     items: (a: Alerts) => a.disconnected_nodes,

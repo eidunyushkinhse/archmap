@@ -18,6 +18,7 @@ from typing import Any, Literal
 from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 
+from app import code_changes
 from app.connectivity import connected_components
 from app.data_refs import ProjectCatalog, RefStatus, catalog_for_project, doc_ref_hits
 from app.models.business_process import BusinessProcess
@@ -167,7 +168,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     14) объекты с неописанными схемами логики (заглушки разведки — схемы без
        тела): одна запись на объект с числом заглушек, гаснет описанием;
     15) компоненты со своей спецификацией или своими параметрами конфигурации — факты
-       процесса, их место у ближайшего контейнера (класс называет его).
+       процесса, их место у ближайшего контейнера (класс называет его);
+    16) код ушёл вперёд документации: CI сообщил о слиянии в репозиторий, из которого у
+       проекта объекты (app/code_changes.py), гаснет обновлением из кода или вручную.
     Промежуточные узлы в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -190,6 +193,7 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         broker_edge_channels=_broker_edge_channels(ctx),
         descendant_edges=ctx.descendant_edges,
         component_facts=_component_facts(ctx),
+        code_changes=code_changes.alerts(db, project_id, ctx.nodes),
     )
 
 

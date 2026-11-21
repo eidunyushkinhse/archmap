@@ -41,6 +41,9 @@ NO_DELETE_DETAIL = (
     "сохраняет версию, и удалённое возвращается откатом к ней в интерфейсе"
 )
 SESSION_ONLY_DETAIL = "Это делается в интерфейсе ArchMap, не токеном"
+CI_ONLY_DETAIL = (
+    "Этот токен только сообщает ArchMap о слиянии в репозитории: POST /api/v1/code-changes"
+)
 DEMO_DETAIL = "На демо-стенде токены недоступны"
 LIMIT_DETAIL = f"Токенов может быть не больше {MAX_PER_USER}. Отзовите ненужный"
 NAME_TAKEN_DETAIL = "Токен с таким именем уже есть"
@@ -90,8 +93,13 @@ def issue(
     name: str,
     read_only: bool,
     lifetime_days: TokenLifetimeDays | None,
+    ci_only: bool = False,
 ) -> Issued:
-    """Выпустить токен: строка в сессии (flush, без коммита) и секрет."""
+    """Выпустить токен: строка в сессии (flush, без коммита) и секрет. ci_only — токен
+    «только сигнал CI» (app/code_changes.py): «только чтение» у него смысла не имеет и
+    не ставится, а «Пользователю» он не положен, как любой токен не только для чтения."""
+    if ci_only:
+        read_only = False
     if user.role == "viewer" and not read_only:
         raise TokenForbidden(VIEWER_READ_ONLY_DETAIL)
     count = db.query(func.count(PersonalToken.id)).filter(PersonalToken.user_id == user.id).scalar() or 0
@@ -108,6 +116,7 @@ def issue(
         prefix=secret[:SHOWN_PREFIX_LEN],
         token_hash=secret_hash(secret),
         read_only=read_only,
+        ci_only=ci_only,
         created_at=now,
         expires_at=now + timedelta(days=lifetime_days) if lifetime_days is not None else None,
     )

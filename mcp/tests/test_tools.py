@@ -543,6 +543,7 @@ async def test_применение_синка_шлёт_contents_текстам�
         updated_edges=["Маркетплейс / Заказы → Маркетплейс / Kafka"],
         skipped=["Маркетплейс / Склад: тип не изменён. У объекта есть вложенные объекты — базой данных, брокером или «Пользователем» ему не стать"],
         graph_rev=12,
+        code_changes_cleared=["gitlab.example.org/market/shop"],
     ).model_dump(mode="json"))
 
     out = await tools.call(
@@ -561,6 +562,11 @@ async def test_применение_синка_шлёт_contents_текстам�
     assert "Пропущено (причина в строке): 1" in out
     assert "• Маркетплейс / Склад: тип не изменён." in out
     assert "graph_rev=12" in out
+    # обновление из кода с объектами репозитория снимает напоминание о слиянии из CI
+    assert (
+        "Напоминание «Документацию пора обновить» снято для репозитория "
+        "gitlab.example.org/market/shop." in out
+    )
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == ["прогон"]
     assert body["base_graph_rev"] == 7  # курсор схемы не потерялся вместе с формой
@@ -1153,23 +1159,20 @@ async def test_дерево_не_помечает_внешнюю_систему(
     assert "• Банк [система, внешний]  id=n1" in out.splitlines()
 
 
-async def test_план_синка_помечает_вход_сборщика(client: ArchMapClient, api: FakeApi) -> None:
-    """scanner выровнен по входам: у входа не от сборщика null, и номер «Вход N»
-    совпадает с порядком файлов, как в окне «Обновить из кода»."""
-    note = "Собрано сборщиком фактов ArchMap 0.1.0: у объектов и связей есть основание"
-    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(files=2, scanner=[None, note]))
+async def test_план_синка_отказ_схеме_сборщика(client: ArchMapClient, api: FakeApi) -> None:
+    """Схему сборщика обновление из кода не принимает: отказ печатается строкой ошибки."""
+    rejected = backend("scan_origin").SCHEMA_REJECTED
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(ok=False, errors=[f"файл 2: {rejected}"]))
 
-    out = await tools.call(
-        "archmap_sync_preview",
-        {"project": "Ярмарка", "files": [{"name": "a.yaml", "content": "x"},
-                                         {"name": "schema.yaml", "content": "y"}]},
-        client,
-    )
+    with pytest.raises(ArchMapError) as e:
+        await tools.call(
+            "archmap_sync_preview",
+            {"project": "Ярмарка", "files": [{"name": "a.yaml", "content": "x"},
+                                             {"name": "schema.yaml", "content": "y"}]},
+            client,
+        )
 
-    lines = out.splitlines()
-    assert "Вход 1:" not in lines
-    i = lines.index("Вход 2:")
-    assert lines[i + 1] == "  • собрано сборщиком фактов ArchMap 0.1.0: у объектов и связей есть основание"
+    assert str(e.value).splitlines()[-1] == f"  • файл 2: {rejected}"
 
 
 async def test_удаление_процесса_говорит_как_вернуть(api: FakeApi, client) -> None:

@@ -27,6 +27,7 @@ const EMPTY: Alerts = {
   unlinked_messages: [],
   undescribed_docs: [],
   component_facts: [],
+  code_changes: [],
 };
 
 const DANGLING = {

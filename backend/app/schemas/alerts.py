@@ -2,6 +2,7 @@
 и сводки MCP. Вынесены из schemas/node.py (аудит Q-42)."""
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -278,6 +279,30 @@ class BrokerEdgeChannelAlert(BaseModel):
     reason: Literal["missing", "unknown"]
 
 
+class CodeChangeNode(BaseModel):
+    node_id: uuid.UUID
+    node_name: str
+
+
+class CodeChangeAlert(BaseModel):
+    """Код ушёл вперёд документации (AL37, app/code_changes.py): CI сообщил о слиянии в
+    репозиторий, из которого у проекта объекты, а обновления из кода с тех пор не было.
+    Гаснет обновлением из кода с объектами этого репозитория или кнопкой «Документация
+    актуальна» (DELETE /api/v1/code-changes/{id})."""
+
+    id: uuid.UUID
+    # Репозиторий без схемы, учётных данных и порта: «host/org/repo».
+    repo: str
+    merges: int
+    first_at: datetime
+    last_at: datetime
+    first_commit: str | None
+    last_commit: str | None
+    branch: str | None
+    # Объекты с источником в репозитории: сначала верхние (контейнеры), потом вложенные.
+    nodes: list[CodeChangeNode]
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
@@ -304,6 +329,8 @@ class AlertsResponse(BaseModel):
     undescribed_docs: list[UndescribedDocsAlert] = []
     # Конфигурация и спецификации у компонентов (AL36) — дефолт [] по той же причине.
     component_facts: list[ComponentFactsAlert] = []
+    # Код ушёл вперёд документации: сигнал CI о слиянии (AL37) — дефолт [] по той же причине.
+    code_changes: list[CodeChangeAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

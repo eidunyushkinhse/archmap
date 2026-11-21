@@ -276,6 +276,8 @@ export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
 // И для конфигурации: «зависит от:» без параметра у ближайшего контейнера (AL33).
 export type UnresolvedConfigRefAlert = Schemas["UnresolvedConfigRefAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
+// Напоминание «Документацию пора обновить»: CI сообщил о слиянии в репозиторий (AL37).
+export type CodeChangeAlert = Schemas["CodeChangeAlert"];
 
 export type Token = Schemas["Token"];
 // Текущий пользователь (GET /auth/me): роль и признак администратора — из БД,
@@ -413,5 +415,3 @@ export type VersionItemStatus = VersionItem["status"];
 // Метка строки дельты: «» контекст, add/del, mod (заголовок куска или «было → стало»),
 // move (только переставлена).
 export type DiffMark = Schemas["DiffLine"]["mark"];
-// Файл сборщика фактов, который раздаёт этот сервер (GET /scan): версия, sha256, размер.
-export type ScanInfo = Schemas["ScanInfo"];

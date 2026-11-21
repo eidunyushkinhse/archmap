@@ -1988,6 +1988,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/code-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report Merge
+         * @description В основную ветку репозитория слиты изменения: напомнить проектам с объектами из
+         *     этого репозитория, что документацию пора обновить. Проектов нет — 200 с пустым
+         *     списком: CI не падает из-за репозитория, который ещё не описан.
+         */
+        post: operations["report_merge_api_v1_code_changes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/code-changes/{change_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Dismiss
+         * @description «Документация актуальна»: снять напоминание о слиянии вручную.
+         */
+        delete: operations["dismiss_api_v1_code_changes__change_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/views/{view_id}/state": {
         parameters: {
             query?: never;
@@ -3323,6 +3365,11 @@ export interface components {
              * @default []
              */
             component_facts: components["schemas"]["ComponentFactsAlert"][];
+            /**
+             * Code Changes
+             * @default []
+             */
+            code_changes: components["schemas"]["CodeChangeAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -3931,6 +3978,83 @@ export interface components {
         ChannelsPromptOut: {
             /** Prompt */
             prompt: string;
+        };
+        /**
+         * CodeChangeAlert
+         * @description Код ушёл вперёд документации (AL37, app/code_changes.py): CI сообщил о слиянии в
+         *     репозиторий, из которого у проекта объекты, а обновления из кода с тех пор не было.
+         *     Гаснет обновлением из кода с объектами этого репозитория или кнопкой «Документация
+         *     актуальна» (DELETE /api/v1/code-changes/{id}).
+         */
+        CodeChangeAlert: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Repo */
+            repo: string;
+            /** Merges */
+            merges: number;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /**
+             * Last At
+             * Format: date-time
+             */
+            last_at: string;
+            /** First Commit */
+            first_commit: string | null;
+            /** Last Commit */
+            last_commit: string | null;
+            /** Branch */
+            branch: string | null;
+            /** Nodes */
+            nodes: components["schemas"]["CodeChangeNode"][];
+        };
+        /** CodeChangeIn */
+        CodeChangeIn: {
+            /** Repo */
+            repo: string;
+            /** Commit */
+            commit?: string | null;
+            /** Branch */
+            branch?: string | null;
+        };
+        /** CodeChangeNode */
+        CodeChangeNode: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+        };
+        /** CodeChangeOut */
+        CodeChangeOut: {
+            /** Repo */
+            repo: string;
+            /** Projects */
+            projects: components["schemas"]["CodeChangeProject"][];
+        };
+        /**
+         * CodeChangeProject
+         * @description Проект, которому ушло напоминание, и сколько в нём объектов из репозитория.
+         */
+        CodeChangeProject: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Objects */
+            objects: number;
         };
         /**
          * CollectCandidateOut
@@ -5631,8 +5755,6 @@ export interface components {
              * @default []
              */
             warnings: string[];
-            /** Scanner */
-            scanner?: string | null;
         };
         /** FragmentCreate */
         FragmentCreate: {
@@ -7064,6 +7186,11 @@ export interface components {
              */
             read_only: boolean;
             /**
+             * Ci Only
+             * @default false
+             */
+            ci_only: boolean;
+            /**
              * Lifetime Days
              * @default 90
              */
@@ -7113,6 +7240,8 @@ export interface components {
             prefix: string;
             /** Read Only */
             read_only: boolean;
+            /** Ci Only */
+            ci_only: boolean;
             /**
              * Created At
              * Format: date-time
@@ -7915,6 +8044,11 @@ export interface components {
              * @default 0
              */
             graph_rev: number;
+            /**
+             * Code Changes Cleared
+             * @default []
+             */
+            code_changes_cleared: string[];
         };
         /** SyncEdgeActionOut */
         SyncEdgeActionOut: {
@@ -8055,11 +8189,6 @@ export interface components {
              */
             graph_rev: number;
             demo_excess?: components["schemas"]["DemoExcess"] | null;
-            /**
-             * Scanner
-             * @default []
-             */
-            scanner: (string | null)[];
         };
         /**
          * TableUsage
@@ -12662,6 +12791,70 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeletionOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_merge_api_v1_code_changes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeChangeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeChangeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_api_v1_code_changes__change_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

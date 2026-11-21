@@ -26,6 +26,7 @@ from app.database import Base
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
+from app.models.code_change import CodeChange
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
@@ -253,6 +254,8 @@ NOT_COPIED: dict[type[Base], str] = {
     "автор у копии свои)",
     User: "пользователи глобальны и проекту не принадлежат",
     PersonalToken: "личные токены доступа принадлежат пользователю, а не проекту",
+    CodeChange: "напоминания о слиянии в репозитории адресованы проекту, к которому пришёл "
+    "сигнал CI: копия их не наследует, следующий сигнал придёт и ей",
     Upload: "загрузки файлов с машины агента принадлежат пользователю и живут 10 минут — "
     "к проекту не привязаны",
     ProjectMember: "участники у копии свои: владелец — тот, кто копировал, остальных "
