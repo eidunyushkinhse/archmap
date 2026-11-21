@@ -89,16 +89,21 @@ describe("SchemaAlerts: кнопка «Рекомендации»", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("на холсте кнопка той же формы, но с тенью; размер задаёт место", () => {
-    const { unmount } = render(<SchemaAlerts alerts={EMPTY} placement="canvas" />);
-    const onCanvas = screen.getByRole("button", { name: "Рекомендации" });
-    expect(onCanvas.className).toContain("sa-btn--canvas");
-    expect(onCanvas.style.width).toBe("32px");
+  // С холста редактора кнопка ушла в его шапку (редизайн, фаза 4б): там она — тихая
+  // кнопка-значок нового языка, как её сосед «Действия со схемой»; в шапке оболочки —
+  // прежняя кнопка в рамке, размер задаёт место.
+  it("в шапке редактора — тихая кнопка-значок, в шапке оболочки — в рамке своего размера", () => {
+    const { unmount } = render(<SchemaAlerts alerts={EMPTY} placement="editor" />);
+    const inEditor = screen.getByRole("button", { name: "Рекомендации" });
+    expect(inEditor).toHaveClass("ds-icon-btn");
+    expect(inEditor).not.toHaveClass("sa-btn");
+    expect(inEditor.style.width).toBe("");
     unmount();
 
     render(<SchemaAlerts alerts={EMPTY} size={34} />);
     const inHeader = screen.getByRole("button", { name: "Рекомендации" });
-    expect(inHeader.className).not.toContain("sa-btn--canvas");
+    expect(inHeader).toHaveClass("sa-btn");
+    expect(inHeader).not.toHaveClass("ds-icon-btn");
     expect(inHeader.style.width).toBe("34px");
   });
 });

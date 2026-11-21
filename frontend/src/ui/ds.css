@@ -218,6 +218,36 @@ button.ds-sub:hover {
   outline: 2px solid var(--c-accent);
   outline-offset: 1px;
 }
+/* Кнопка-значок: тихая, без рамки, подложка при наведении, 28px. Одна на все экраны:
+   шапка редактора-карты, сворачивание дерева и списка процессов, отмена и повтор в шапке
+   процесса, заголовок панели объекта. Открытое меню держит подложку (aria-expanded).
+   position: relative — для точки-признака у значка («Рекомендации»). */
+.ds-icon-btn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.ds-icon-btn:hover:not(:disabled),
+.ds-icon-btn:focus-visible,
+.ds-icon-btn[aria-expanded="true"] {
+  background: var(--c-hover);
+  color: var(--c-fg);
+  outline: none;
+}
+.ds-icon-btn:disabled {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
 
 /* ── Поле ввода формы: рамка на токенах, фокус акцентом ──────────────────── */
 .ds-input {
@@ -310,6 +340,19 @@ button.ds-sub:hover {
   padding: 6px 10px 2px;
   font-size: var(--fs-caption);
   color: var(--c-fg-muted);
+}
+.ds-menu-item:disabled {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+.ds-menu-item:disabled:hover {
+  background: none;
+}
+/* Черта между группами пунктов. */
+.ds-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--c-line);
 }
 /* Подложка открытого меню: клик мимо закрывает его. Ниже меню (z-index 20). */
 .ds-backdrop {

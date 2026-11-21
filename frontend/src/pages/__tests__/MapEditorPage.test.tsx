@@ -152,7 +152,7 @@ const transitionProps = vi.hoisted(() => ({ current: null as Record<string, unkn
 vi.mock("../../components/TransitionConfirm", () => ({
   default: (p: Record<string, unknown>) => { transitionProps.current = p; return null; },
 }));
-vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
+vi.mock("../../components/RelayoutConfirm", () => ({ default: () => <div data-testid="relayout-confirm" /> }));
 // Кнопка «Рекомендации» (алерты): метка присутствия + кнопка, дёргающая
 // onOpenProcess — как строка процессного класса (AL26/AL27) в настоящей панели.
 vi.mock("../../components/SchemaAlerts", () => ({
@@ -286,6 +286,56 @@ describe("MapEditorPage", () => {
     expect(screen.getByRole("menuitem", { name: "Догрузить архив" })).toBeEnabled();
   });
 
+  // Редизайн, фаза 4б: «Скрыть подписи связей» и «Переразложить уровень» — пункты меню
+  // «Действия со схемой», отдельных кнопок в шапке нет.
+  it("подписи связей — пунктом меню: текст по состоянию, режим уходит холсту", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    expect(screen.queryByTitle("Скрыть подписи связей")).toBeNull();
+    const mode = () => levelGraphProps.current!.mode as { edgeLabelsHidden: boolean };
+    const before = mode().edgeLabelsHidden;
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: before ? "Показать подписи связей" : "Скрыть подписи связей" }));
+    expect(mode().edgeLabelsHidden).toBe(!before);
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: before ? "Скрыть подписи связей" : "Показать подписи связей" }));
+    expect(mode().edgeLabelsHidden).toBe(before);
+  });
+
+  it("«Переразложить уровень» — пункт меню редактора проекта: подтверждение, на пустом уровне выключен", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    expect(screen.queryByTitle("Переразложить уровень")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    expect(screen.getByRole("menuitem", { name: "Переразложить уровень" })).toBeDisabled();
+  });
+
+  it("«Переразложить уровень» открывает подтверждение", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")] }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Переразложить уровень" }));
+    expect(screen.getByTestId("relayout-confirm")).toBeInTheDocument();
+  });
+
+  it("читателю: подписи связей в меню есть, «Переразложить уровень» и «Принять переход» нет", async () => {
+    role.current = "reader";
+    try {
+      vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")], has_status_info: true }) as never);
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+      expect(screen.getByRole("menuitem", { name: /подписи связей/ })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Переразложить уровень" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Принять переход" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Готово" })).toBeInTheDocument();
+    } finally {
+      role.current = "owner";
+    }
+  });
+
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       node("a", { name: "Корень", parent_id: null }),
@@ -363,14 +413,17 @@ describe("MapEditorPage", () => {
     expect(props.onDone).not.toHaveBeenCalled();
   });
 
-  it("корень редактора на новом языке, шапка, дерево, холст и окна — на прежних метриках", async () => {
+  it("корень и шапка на новом языке; дерево, холст и окна — на прежних метриках", async () => {
     const { container } = render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     const root = container.querySelector(".map-editor");
     expect(root).toHaveClass("ds");
+    const head = container.querySelector(".me-head");
+    expect(head?.parentElement).toBe(root);
+    expect(head?.closest(".legacy-root")).toBeNull();
     const pinned = [...(root?.children ?? [])].filter((el) => el.classList.contains("legacy-root"));
-    // Шапка, обёртка окон; в теле — обёртка дерева и область холста.
-    expect(pinned).toHaveLength(2);
+    // Обёртка окон; в теле — обёртка дерева и область холста.
+    expect(pinned).toHaveLength(1);
     expect(screen.getByTestId("tree-panel").parentElement).toHaveClass("legacy-root");
     expect(screen.getByTestId("level-graph").closest(".legacy-root")).not.toBeNull();
   });
@@ -416,11 +469,15 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
-  // Рекомендации — только тем, кто правит проект (AL10): у читателя кнопки на холсте нет.
-  it("кнопка «Рекомендации» на холсте есть у владельца и нет у читателя проекта", async () => {
+  // Рекомендации — только тем, кто правит проект (AL10): у читателя кнопки нет. С холста
+  // кнопка ушла в шапку (редизайн, фаза 4б), перед меню «Действия со схемой».
+  it("кнопка «Рекомендации» в шапке есть у владельца и нет у читателя проекта", async () => {
     const { unmount } = render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
-    expect(screen.getByTestId("recs-button")).toBeInTheDocument();
+    const recs = screen.getByTestId("recs-button");
+    expect(recs.closest(".me-head")).not.toBeNull();
+    const menuBtn = screen.getByRole("button", { name: "Действия со схемой" });
+    expect(recs.compareDocumentPosition(menuBtn) & document.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     unmount();
 
     // Роль возвращаем в finally: у соседних describe свои beforeEach без сброса роли.

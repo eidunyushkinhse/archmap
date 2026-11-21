@@ -8,3 +8,96 @@
   border: 0 !important;
   border-radius: 0 !important;
 }
+
+/* ── Шапка (pages/MapEditorHeader) ────────────────────────────────────────
+   Высота 59px и поля 20px — как у шапки оболочки проекта (ui/pageChrome.workTopBar:
+   поля 11px вокруг переключателя режима 36px и черта 1px): при входе в редактор логотип
+   и первая строка не прыгают. Своя плоскость наложения выше тела страницы: меню и панель
+   «Рекомендации» раскрываются из шапки поверх холста. */
+.me-head {
+  position: relative;
+  z-index: 50;
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  min-height: 59px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-bg);
+}
+.me-head-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.me-head-sep {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  margin: 0 var(--space-1);
+  background: var(--c-line);
+}
+/* Крошки уровней: 13px, звенья тихие, текущий уровень — 600 и не нажимается. */
+.me-crumb-step {
+  display: flex;
+  align-items: center;
+}
+.me-crumb {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.me-crumb:hover:not(:disabled) {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.me-crumb:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.me-crumb--current,
+.me-crumb--current:disabled {
+  font-weight: 600;
+  color: var(--c-fg);
+  cursor: default;
+}
+.me-crumb-chev {
+  display: inline-flex;
+  margin: 0 1px;
+  color: var(--c-fg-faint);
+}
+/* Справа: значки вплотную друг к другу, дальше вид схемы и кнопки. */
+.me-head-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.me-head-icons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.me-head-legacy {
+  display: contents;
+}
+.me-head-btns {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

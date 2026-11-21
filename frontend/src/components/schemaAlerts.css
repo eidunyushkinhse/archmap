@@ -20,8 +20,6 @@
 .sa-btn:hover { background: #f8fafc; }
 .sa-btn[aria-expanded="true"] { background: #f1f5f9; }
 .sa-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
-/* На холсте кнопка висит над схемой — лёгкая тень отделяет её от фона. */
-.sa-btn--canvas { box-shadow: 0 1px 3px rgba(15, 23, 42, .1); }
 
 /* Точка «рекомендации есть»: серая, без числа. Белое кольцо отделяет её от иконки. */
 .sa-dot {

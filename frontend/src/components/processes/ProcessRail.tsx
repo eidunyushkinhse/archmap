@@ -91,7 +91,7 @@ export default function ProcessRail({
   if (!expanded) {
     return (
       <aside className="pr-rail pr-rail--collapsed">
-        <button type="button" className="pr-toggle" onClick={onToggle} title="Развернуть список процессов">
+        <button type="button" className="ds-icon-btn" onClick={onToggle} title="Развернуть список процессов">
           <CollapseIcon size={15} dir="right" />
         </button>
       </aside>
@@ -229,7 +229,7 @@ export default function ProcessRail({
         )}
       </div>
 
-      <button type="button" className="pr-toggle pr-toggle--end" onClick={onToggle} title="Свернуть список процессов">
+      <button type="button" className="ds-icon-btn pr-toggle--end" onClick={onToggle} title="Свернуть список процессов">
         <CollapseIcon size={15} dir="left" />
       </button>
     </aside>

@@ -1,13 +1,13 @@
 // Редактор-карта (MapEditorPage) — полноэкранный редактор схем (pages_pivot, Фаза 4).
-// Роут: #/p/<pid>/map/<nodeId?>. Топбар: breadcrumb + undo/redo + «Готово».
+// Роут: #/p/<pid>/map/<nodeId?>. Шапка (MapEditorHeader): крошки уровней, «Рекомендации»,
+// меню «Действия со схемой», вид схемы, «Принять переход», «Готово».
 // Слева: дерево объектов (дизайн страниц + секция «Добавить объект» внизу).
 // Центр: LevelGraph со всеми жестами. Справа: панель объекта или связи (ObjectInspector,
 // 320px) — только пока что-то выбрано.
 import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { workBodyRow as bodyRow, workDivider as divider, workPage, workTopBar as topBar, workTopLeft as topLeft } from "../ui/pageChrome";
+import { workBodyRow as bodyRow, workPage } from "../ui/pageChrome";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
-import { getIsGuest } from "../api/auth";
 import { canEditProject, useProjectRole } from "./projectRole";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
@@ -34,19 +34,15 @@ import { useMessageToast, useToast } from "./useToast";
 import { remoteToastInRail } from "../ui/remoteToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
-import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
+import type { LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
-import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "../components/graph/labelsPref";
-import SchemaActions, { type ExportScope } from "../components/SchemaActions";
+import type { ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
-import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon } from "../ui/icons";
-import "../ui/chrome.css";
 import "../ui/ds.css";
 import "./MapEditorPage.css";
-import BrandLink from "../ui/BrandLink";
-import TourHelpButton from "../components/tour/TourHelpButton";
+import MapEditorHeader from "./MapEditorHeader";
 import DemoLimitToast from "../components/demo/DemoLimitToast";
 import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
@@ -138,9 +134,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(schemaView); }, [schemaView]);
   // «Скрыть подписи связей» (CV32) — редактор владеет тумблером сам (управляемый
-  // режим канваса): правый верхний угол холста здесь занят рейлом алертов (AL10),
-  // поэтому кнопка живёт в топбаре, рядом с «Переразложить» — как на страницах,
-  // где обе соседствуют в углу холста.
+  // режим канваса): пункт меню «Действия со схемой» в шапке, рядом с «Переразложить
+  // уровень» — как на страницах, где обе кнопки соседствуют в углу холста.
   const [edgeLabelsHidden, setEdgeLabelsHidden] = useState(readEdgeLabelsHidden);
   useEffect(() => { writeEdgeLabelsHidden(edgeLabelsHidden); }, [edgeLabelsHidden]);
   const [remoteToast, showRemoteToast] = useToast();
@@ -415,7 +410,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       : { kind: "node", ids: [f.id], token: ++locateSeq.current, flash: false });
   }), []);
 
-  // Алерты схемы — в интерфейсе «Рекомендации» (кнопка в рейле холста, архитектор).
+  // Алерты схемы — в интерфейсе «Рекомендации» (кнопка в шапке, архитектор).
   const { alerts, loaded: alertsLoaded, reload: reloadAlerts } = useSchemaAlerts(isArchitect);
 
   // Переход к проблемному объекту/связи/группе из алертов: общий предок → уровень,
@@ -933,79 +928,38 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   }), [schemaView, edgeLabelsHidden]);
 
   // ── Рендер ───────────────────────────────────────────────────────
-  // Корень — на новом языке (класс ds), но перестроена пока только правая панель. Шапка,
-  // дерево с палитрой, холст с тостами и окна закреплены на прежних метриках текста
-  // (legacy-root, ui/tokens.css): шапку и левую панель перестраивает фаза 4б, холст
-  // закреплён своим правилом там же.
+  // Корень — на новом языке (класс ds): шапка, правая панель. Дерево с палитрой, холст с
+  // тостами и окна закреплены на прежних метриках текста (legacy-root, ui/tokens.css):
+  // дерево и палитру перестраивает фаза 4б, холст закреплён своим правилом там же.
   return (
     <div ref={rootRef} className="map-editor ds" style={page}>
-      {/* Топбар */}
-      <div className="legacy-root" style={topBar}>
-        <div style={topLeft}>
-          <BrandLink onClick={onAllProjects} />
-          <span style={divider} />
-          {/* Breadcrumb уровней */}
-          <button className="crumb" style={crumbLink} data-tour="crumb-root" onClick={() => { void navigateToLevel(null); }}>
-            {breadcrumb.length === 0 ? "Контекст" : "Проект"}
-          </button>
-          {crumbs.map((n, i) => (
-            <span key={n.id} style={{ display: "flex", alignItems: "center" }}>
-              <span style={crumbSep}><ChevronIcon /></span>
-              {i < crumbs.length - 1 ? (
-                <button className="crumb" style={crumbLink} onClick={() => navigateTo(i)}>{n.name}</button>
-              ) : (
-                <button style={crumbCurrent} disabled>{n.name}</button>
-              )}
-            </span>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Undo/Redo — только на канвасе (тулбар LevelGraph, левый верхний угол);
-              из топбара убраны как дубль. */}
-          {isArchitect && (
-            <button className="icon-btn" style={iconBtn} onClick={() => setRelayoutOpen(true)} disabled={!hasNodes} title="Переразложить уровень">
-              <RelayoutIcon />
-            </button>
-          )}
-          {/* Тумблер «Скрыть подписи связей» (CV32) — сосед «Переразложить», как в
-              углу холста на страницах; сам угол в редакторе занят рейлом алертов. */}
-          <button
-            className="icon-btn"
-            style={edgeLabelsHidden ? { ...iconBtn, background: "#e2e8f0", color: "#1e293b" } : iconBtn}
-            onClick={() => setEdgeLabelsHidden((v) => !v)}
-            aria-pressed={edgeLabelsHidden}
-            title={edgeLabelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
-          >
-            <EdgeLabelsIcon off={edgeLabelsHidden} />
-          </button>
-          {/* Экспорт и обновление из репозитория — тот же компонент, что в шапке
-              оболочки: в редакторе их не было вовсе (находка проверки 2026-08-08),
-              а копия разметки разъехалась бы с оболочкой на первой же правке. */}
-          <SchemaActions
-            projectId={projectId}
-            isArchitect={isArchitect}
-            exportScope={exportScope}
-            size={32}
-            onSynced={() => {
-              void load(currentParentId);
-              setTreeReload((t) => t + 1);
-            }}
-          />
-          {hasStatusInfo && <SchemaViewFilter view={schemaView} onChange={setSchemaView} variant="inline" />}
-          {/* «Принять переход» стоит рядом с переключателем вида, а не среди
-              иконок: обе вещи про статусы, и появляться должны там, где статусы
-              видны. Кнопка есть, только когда принимать есть что. */}
-          {isArchitect && hasStatusInfo && (
-            <button className="btn-soft" onClick={() => setTransitionOpen(true)}>
-              Принять переход
-            </button>
-          )}
-          <button style={doneBtn} onClick={() => onDone()}>Готово</button>
-          {/* Гость демо-стенда: пилюля «Обучение» — пройти обучение заново, как в
-              шапках оболочки и списка. */}
-          {getIsGuest() && <TourHelpButton />}
-        </div>
-      </div>
+      <MapEditorHeader
+        onAllProjects={onAllProjects}
+        crumbs={crumbs}
+        onRoot={() => { void navigateToLevel(null); }}
+        onCrumb={navigateTo}
+        isArchitect={isArchitect}
+        alerts={alerts}
+        onLocate={handleLocate}
+        onOpenProcess={openProcess}
+        projectId={projectId}
+        exportScope={exportScope}
+        // Экспорт и обновление из репозитория — тот же компонент, что в шапке оболочки:
+        // в редакторе их не было вовсе (находка проверки 2026-08-08), а копия разметки
+        // разъехалась бы с оболочкой на первой же правке.
+        onSynced={() => {
+          void load(currentParentId);
+          setTreeReload((t) => t + 1);
+        }}
+        edgeLabelsHidden={edgeLabelsHidden}
+        onToggleEdgeLabels={() => setEdgeLabelsHidden((v) => !v)}
+        canRelayout={hasNodes}
+        onRelayout={() => setRelayoutOpen(true)}
+        schemaView={hasStatusInfo ? schemaView : null}
+        onSchemaView={setSchemaView}
+        onAcceptTransition={() => setTransitionOpen(true)}
+        onDone={onDone}
+      />
 
       {/* Тело: дерево + холст + инспектор */}
       <div style={bodyRow}>
@@ -1032,22 +986,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         {/* Холст — от левой панели до правого края окна или до панели объекта, без поля
             и рамки (pages/MapEditorPage.css). */}
         <div className="legacy-root" style={graphArea}>
-          {/* Рейл тостов холста (правый верхний угол, спека AL10): кнопка
-              «Рекомендации» + тост чужой сессии. Прозрачен для мыши,
-              интерактивны только кнопка и панель (pointerEvents у них auto). */}
+          {/* Рейл тостов холста (правый верхний угол): тост чужой сессии, итог перехода,
+              отказ. Прозрачен для мыши, интерактивны только тосты (pointerEvents auto).
+              Кнопка «Рекомендации» отсюда ушла в шапку (редизайн, фаза 4б). */}
           <div style={toastRail}>
-            {isArchitect && (
-              <SchemaAlerts
-                alerts={alerts}
-                placement="canvas"
-                onLocate={handleLocate}
-                // Процессные классы (AL26/AL27) на холсте чинить нечем: у повисшего
-                // сообщения связь удалена, у непривязанного участника узла нет —
-                // локализовать нечего. Уводим в процесс, редактор при этом
-                // закрывается (решение пользователя: без вопроса и без возврата).
-                onOpenProcess={openProcess}
-              />
-            )}
             {remoteToast && <div style={remoteToastInRail}>Схему только что изменили в другом окне</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
             {errorToast && <div role="alert" style={errorToastStyle}>{errorToast}</div>}
@@ -1170,13 +1112,8 @@ const NO_DROP_FRAMES: DropFrameTarget[] = [];
 
 const page: CSSProperties = { ...workPage, background: "#f8fafc" };
 const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" };
-const doneBtn: CSSProperties = { padding: "7px 20px", fontSize: 13.5, fontWeight: 600, color: "#fff", background: "#2563eb", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" };
-const crumbLink: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", borderRadius: 7, fontSize: 13.5, color: "#64748b", cursor: "pointer", background: "none", border: "none" };
-const crumbCurrent: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", fontSize: 13.5, color: "#1e293b", fontWeight: 600, background: "none", border: "none", cursor: "default" };
-const crumbSep: CSSProperties = { color: "#cbd5e1", display: "inline-flex", alignItems: "center", margin: "0 1px" };
-const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, flex: "none", background: "#fff", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer" };
 // Рейл тостов холста (правый верхний угол): колонка, прозрачна для мыши —
-// интерактивны только вложенные кнопка/панель рекомендаций и тост (у них pointerEvents auto).
+// интерактивны только сами тосты (у них pointerEvents auto).
 const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
 const errorToastStyle: CSSProperties = { background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

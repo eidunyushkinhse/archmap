@@ -58,25 +58,10 @@
   font-weight: 600;
   line-height: var(--lh-tight);
 }
+/* Кнопки-значки заголовка — общий ds-icon-btn (ui/ds.css, 28px). В строке они занимают
+   26px, как строка названия: заголовок не выше прежнего, текст не сдвигается. */
 .ip-icon {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--c-fg-muted);
-  cursor: pointer;
-}
-.ip-icon:hover,
-.ip-icon:focus-visible {
-  background: var(--c-hover);
-  color: var(--c-fg);
-  outline: none;
+  margin-block: -1px;
 }
 .ip-head > .ip-icon:last-child {
   margin-right: -6px;

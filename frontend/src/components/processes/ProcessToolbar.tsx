@@ -75,7 +75,7 @@ export default function ProcessToolbar({
           <>
             <button
               type="button"
-              className="proc-iconbtn"
+              className="ds-icon-btn proc-iconbtn"
               onClick={history.undo}
               disabled={!history.canUndo || history.busy}
               title="Отменить (Ctrl+Z)"
@@ -85,7 +85,7 @@ export default function ProcessToolbar({
             </button>
             <button
               type="button"
-              className="proc-iconbtn"
+              className="ds-icon-btn proc-iconbtn"
               onClick={history.redo}
               disabled={!history.canRedo || history.busy}
               title="Повторить (Ctrl+Shift+Z)"

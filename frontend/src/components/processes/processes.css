@@ -738,30 +738,9 @@ button.seq-doc:focus-visible {
   align-items: center;
   gap: 16px;
 }
-/* Отмена и повтор — значками, тихо. */
+/* Отмена и повтор — тихими кнопками-значками (ui/ds.css, ds-icon-btn) вплотную. */
 .proc-iconbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
   margin: 0 -10px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--c-fg-muted);
-  cursor: pointer;
-}
-.proc-iconbtn:hover:not(:disabled),
-.proc-iconbtn:focus-visible {
-  background: var(--c-hover);
-  color: var(--c-fg);
-  outline: none;
-}
-.proc-iconbtn:disabled {
-  color: var(--c-fg-faint);
-  cursor: default;
 }
 .proc-iconbtn + .ds-add {
   margin-left: 4px;
@@ -923,25 +902,7 @@ button.seq-doc:focus-visible {
   right: 4px;
   min-width: 160px;
 }
-.pr-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--c-fg-muted);
-  cursor: pointer;
-}
-.pr-toggle:hover,
-.pr-toggle:focus-visible {
-  background: var(--c-hover);
-  color: var(--c-fg);
-  outline: none;
-}
+/* Сворачивание списка — тихая кнопка-значок (ui/ds.css, ds-icon-btn) внизу справа. */
 .pr-toggle--end {
   align-self: flex-end;
   margin: 4px 10px 10px 0;

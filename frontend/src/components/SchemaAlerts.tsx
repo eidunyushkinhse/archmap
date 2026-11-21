@@ -9,6 +9,7 @@ import type {
 import { plural } from "../ui/plural";
 import { BulbIcon } from "../ui/icons";
 import "./schemaAlerts.css";
+import "../ui/ds.css";
 import { useDismiss } from "../ui/useDismiss";
 
 /**
@@ -78,11 +79,12 @@ interface Props {
   // Переход к проблемному объекту/связи на схеме (pan + подсветка) — реализуется
   // вызывающей стороной (MapEditorPage). Если не передан — пункты не кликабельны.
   onLocate?: (target: LocateTarget) => void;
-  // Размер кнопки — как у соседних «трёх точек» (SchemaActions): в шапке оболочки
-  // 34, на холсте редактора 32.
+  // Размер кнопки в шапке оболочки — как у соседних «трёх точек» (SchemaActions), 34.
   size?: number;
-  // Где стоит кнопка: на холсте она висит над схемой и получает лёгкую тень.
-  placement?: "header" | "canvas";
+  // Где стоит кнопка: в шапке оболочки — в рамке, размер задаёт size; в шапке
+  // редактора-карты — тихая кнопка-значок нового языка (ui/ds.css, ds-icon-btn), как её
+  // сосед «Действия со схемой» (редизайн, фаза 4б: с холста кнопка ушла в шапку).
+  placement?: "header" | "editor";
 }
 
 // Почему пометка не срослась. Текст обязан подсказывать действие: неоднозначность
@@ -484,8 +486,8 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
     <div ref={ref} style={wrap}>
       <button
         type="button"
-        className={"sa-btn" + (placement === "canvas" ? " sa-btn--canvas" : "")}
-        style={{ width: size, height: size }}
+        className={placement === "editor" ? "ds-icon-btn" : "sa-btn"}
+        style={placement === "editor" ? undefined : { width: size, height: size }}
         onClick={() => setOpen((o) => !o)}
         title="Рекомендации"
         aria-label="Рекомендации"

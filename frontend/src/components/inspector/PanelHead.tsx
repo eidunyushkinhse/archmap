@@ -3,6 +3,7 @@
 // кнопки-значки «Открыть страницу объекта» (если страница есть) и «Закрыть».
 import type { ReactNode } from "react";
 import { CloseIcon } from "../../ui/icons";
+import "../../ui/ds.css";
 import "./panel.css";
 
 // «Открыть страницу объекта»: лист со стрелкой наружу.
@@ -28,11 +29,11 @@ export default function PanelHead({ glyph, title, onOpenPage, onClose }: {
       {glyph && <span className="ip-glyph">{glyph}</span>}
       <div className="ip-title-cell">{title}</div>
       {onOpenPage && (
-        <button type="button" className="ip-icon" title="Открыть страницу объекта" aria-label="Открыть страницу объекта" onClick={onOpenPage}>
+        <button type="button" className="ds-icon-btn ip-icon" title="Открыть страницу объекта" aria-label="Открыть страницу объекта" onClick={onOpenPage}>
           <OpenPageIcon />
         </button>
       )}
-      <button type="button" className="ip-icon" title="Закрыть" aria-label="Закрыть" onClick={onClose}>
+      <button type="button" className="ds-icon-btn ip-icon" title="Закрыть" aria-label="Закрыть" onClick={onClose}>
         <CloseIcon size={15} />
       </button>
     </div>
