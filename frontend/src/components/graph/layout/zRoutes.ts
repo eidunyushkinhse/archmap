@@ -61,6 +61,7 @@ import { cleanup, pathCrossesRects, type EdgeSide, type NodeRect } from "../edge
 import type { PortPair } from "./ports";
 import type { Size } from "./labelBox";
 import { NUDGE_GAP } from "./channelNudge";
+import { diag } from "./diag";
 
 const EPS = 0.5;
 // Отладочный след выбора вариантов: полигон стрелок включает его флагом (в проде молчит).
@@ -171,6 +172,7 @@ interface Cand {
 
 interface ZEdge {
   id: string;
+  ix: number;              // номер в списке связей вызова (адрес в памяти проб)
   orient: Orient;
   sIsU: boolean;
   kind: "z" | "zz";
@@ -482,6 +484,30 @@ function slotsOf(n: number, dag: Dep[]): number[] {
 const runOverlap = (a: { lo: number; hi: number }, b: { lo: number; hi: number }): number =>
   Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo);
 
+/** Неподвижные препятствия, применимые к сегменту раздачи (см. distribute). */
+interface Applicable {
+  app: Array<{ f: Fixed; up: boolean; down: boolean }>;
+  hasSlot: boolean;   // среди них есть слот подписи
+  hasThick: boolean;  // есть отрезок с толщиной плашки (не слот)
+}
+
+// Применимые препятствия сегмента (чужие, с общим пробегом) и сторона, откуда к слоту
+// подписи приходит вертикаль дорожки. От зазора не зависят: считаются один раз на раздачу,
+// а не в каждом из до четырёх вариантов разрешения при каждом прогоне (и входят в ключ
+// памяти раздачи компоненты).
+function applicableOf(s: Seg, fixed: ReadonlyArray<Fixed>): Applicable {
+  const app: Array<{ f: Fixed; up: boolean; down: boolean }> = [];
+  let hasSlot = false, hasThick = false;
+  for (const f of fixed) {
+    if (f.edge === s.edge || !(runOverlap(f, s) > EPS)) continue;
+    const up = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "up");
+    const down = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "down");
+    app.push({ f, up, down });
+    if (f.slot) hasSlot = true; else if (f.thick !== 0) hasThick = true;
+  }
+  return { app, hasSlot, hasThick };
+}
+
 /**
  * Раздача позиций дорожек одного компонента: желаемые позиции — равный шаг вокруг
  * середины канала по номерам; ограничения — зазор между взаимодействующими дорожками в
@@ -494,7 +520,7 @@ const runOverlap = (a: { lo: number; hi: number }, b: { lo: number; hi: number }
  * проверка наложений (уступят A*).
  */
 function distribute(
-  M: Seg[], slots: number[], interacts: (a: Seg, b: Seg) => boolean, fixed: ReadonlyArray<Fixed>,
+  M: Seg[], slots: number[], interacts: (a: Seg, b: Seg) => boolean, apps: ReadonlyArray<Applicable>,
 ): { lanes: number[]; gap: number } {
   const m = M.length;
   const K = Math.max(...slots) + 1;
@@ -543,22 +569,7 @@ function distribute(
   // потеряны), толщины чужих стабов; в крайнем случае полоса остаётся как есть (дорожка
   // ляжет на линию и уступит A* по наложению, как прежде).
   const band0 = M.map((_, i) => [lo[i], hi[i]] as [number, number]);
-  // Применимые препятствия сегмента (чужие, с общим пробегом) и сторона, откуда к слоту
-  // подписи приходит вертикаль дорожки, от зазора не зависят: они считаются один раз на
-  // раздачу, а не в каждом из до четырёх вариантов разрешения при каждом прогоне.
-  // hasSlot — среди них есть слот подписи; hasThick — есть отрезок с толщиной плашки.
-  const apps = M.map((s) => {
-    const app: Array<{ f: Fixed; up: boolean; down: boolean }> = [];
-    let hasSlot = false, hasThick = false;
-    for (const f of fixed) {
-      if (f.edge === s.edge || !(runOverlap(f, s) > EPS)) continue;
-      const up = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "up");
-      const down = f.slot && s.verts.some((v) => within(v.along, f.lo, f.hi) && v.dir === "down");
-      app.push({ f, up, down });
-      if (f.slot) hasSlot = true; else if (f.thick !== 0) hasThick = true;
-    }
-    return { app, hasSlot, hasThick };
-  });
+  // применимые препятствия каждого сегмента (applicableOf) считает вызывающий
   const resolveAll = (): void => {
     M.forEach((s, i) => {
       [lo[i], hi[i]] = band0[i];
@@ -669,6 +680,93 @@ function distribute(
   return { lanes: x.map(half), gap };
 }
 
+// ── ПАМЯТЬ ПРОБ СПУСКА (perf, эпик render-scale, docs/plan-render-scale.md) ─────────
+// Спуск пробует вариант одной связи и ради одного числа пересчитывает цену всей сцены. Перебор
+// остаётся прежним (те же пробы в том же порядке, те же решения), дешевле становится каждая
+// проба: вычисления, чьи входы не изменились, берутся из памяти. Память держится по ТОЧНЫМ
+// входам (все числа, которые вычисление читает), а не по набору вариантов: состояние
+// переезжает между пробами (дорожки отвергнутой пробы остаются соседям), и другой вход — это
+// просто промах. Живёт память внутри одного вызова zRoutes; под отладочным следом выключена
+// (след прежний), при diag.__ARCHMAP_Z_SELFCHECK каждое попадание считается ещё и честно.
+
+/** Побитовое равенство чисел: -0 и 0 различаются, NaN равен NaN. */
+const sameNum = (a: number, b: number): boolean => (a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b);
+
+/**
+ * Ключ точных входов: числа подряд в буфер, хэш по битам, сверка при совпадении хэша — тоже
+ * по битам (строже равенства: лишний промах безопасен, ложное попадание нет). Строковый
+ * ключ на каждую компоненту съел бы весь выигрыш.
+ */
+class ExactKey {
+  private f = new Float64Array(256);
+  private u = new Uint32Array(this.f.buffer);
+  private n = 0;
+  reset(): void { this.n = 0; }
+  push(v: number): void {
+    if (this.n === this.f.length) {
+      const g = new Float64Array(this.f.length * 2);
+      g.set(this.f);
+      this.f = g;
+      this.u = new Uint32Array(g.buffer);
+    }
+    this.f[this.n++] = v;
+  }
+  hash(): number {
+    let h = 0x811c9dc5 ^ this.n;
+    const w = 2 * this.n, u = this.u;
+    for (let i = 0; i < w; i++) h = Math.imul(h ^ u[i], 0x01000193);
+    return (h ^ (h >>> 15)) >>> 0;
+  }
+  copy(): Uint32Array { return this.u.slice(0, 2 * this.n); }
+  same(k: Uint32Array): boolean {
+    if (k.length !== 2 * this.n) return false;
+    const u = this.u;
+    for (let i = 0; i < k.length; i++) if (k[i] !== u[i]) return false;
+    return true;
+  }
+}
+
+/**
+ * Память «точный ключ → результат» с двумя поколениями: заполненное поколение уходит в
+ * старое, старое выбрасывается. Попадание в старое поколение переносит запись в текущее, так
+ * что живые записи переживают смену поколения, а память вызова ограничена.
+ */
+class ExactMemo<V> {
+  private cur = new Map<number, Array<{ key: Uint32Array; v: V }>>();
+  private old = new Map<number, Array<{ key: Uint32Array; v: V }>>();
+  private size = 0;
+  private readonly limit: number;
+  constructor(limit: number) { this.limit = limit; }
+  get(h: number, k: ExactKey): V | undefined {
+    const a = this.cur.get(h);
+    if (a) for (const it of a) if (k.same(it.key)) return it.v;
+    const b = this.old.get(h);
+    if (b) for (const it of b) if (k.same(it.key)) { this.put(h, k, it.v); return it.v; }
+    return undefined;
+  }
+  put(h: number, k: ExactKey, v: V): void {
+    if (this.size >= this.limit) { this.old = this.cur; this.cur = new Map(); this.size = 0; }
+    const it = { key: k.copy(), v };
+    const a = this.cur.get(h);
+    if (a) a.push(it); else this.cur.set(h, [it]);
+    this.size++;
+  }
+}
+/** Записей в поколении памяти раздачи компонент: с запасом на все компоненты нескольких проб. */
+const COMP_MEMO_LIMIT = 4096;
+
+/** Результат раздачи компоненты: номера дорожек, позиции, шаг. */
+interface CompResult { slots: number[]; lanes: number[]; gap: number }
+
+const selfCheckFail = (name: string): never => {
+  throw new Error(`самопроверка кэша Z-роутера «${name}»: готовый результат разошёлся с честным расчётом`);
+};
+const sameNums = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): boolean =>
+  a.length === b.length && a.every((v, i) => sameNum(v, b[i]));
+const samePts = (a: EdgePoint[] | null, b: EdgePoint[] | null): boolean =>
+  a === null || b === null ? a === b
+    : a.length === b.length && a.every((p, i) => sameNum(p.x, b[i].x) && sameNum(p.y, b[i].y));
+
 export interface ZRoutesResult {
   /** groupId → Z/ZZ-маршрут (source → target, со стабами) либо прямая. */
   routes: Map<string, EdgePoint[]>;
@@ -709,6 +807,9 @@ export function zRoutes(params: {
   labelBoxOf?: (groupId: string) => Size | undefined;
 }): ZRoutesResult {
   const { groups, ports, shares, obstacles, rectOf, hardOf, softOf, labelBoxOf } = params;
+  // память проб спуска (см. «ПАМЯТЬ ПРОБ СПУСКА»): под отладочным следом выключена
+  const cacheOn = !__zDebug.on && !__zDebug.trace;
+  const selfCheck = cacheOn && diag.__ARCHMAP_Z_SELFCHECK === true;
   const routes = new Map<string, EdgePoint[]>();
   const portKeys = new Map<string, { s?: number; t?: number }>();
   const hintXs = new Set<number>(), hintYs = new Set<number>();
@@ -744,7 +845,7 @@ export function zRoutes(params: {
     if (dAcross - uAcross < 2 * Z_CLEAR - EPS) continue; // узлы вплотную/перекрыты — не Z
     const lab = labelBoxOf?.(g.id);
     const edge: ZEdge = {
-      id: g.id, orient: o, sIsU, kind: "z", uAlong, dAlong, uAcross, dAcross,
+      id: g.id, ix: -1, orient: o, sIsU, kind: "z", uAlong, dAlong, uAcross, dAcross,
       x: NaN, colLo: NaN, colHi: NaN, freeLo: NaN, freeHi: NaN, lanes: [], slots: [], adjU: true, adjD: true,
       cand: null, cands: [], exclude, hard, bodies, blockers: [...bodies, ...hard], label: lab,
       lenFlow: lab ? (o === "v" ? lab.h : lab.w) : 0, thickFlow: lab ? (o === "v" ? lab.w : lab.h) : 0,
@@ -886,6 +987,7 @@ export function zRoutes(params: {
       continue;
     }
     edge.cands = cands;
+    edge.ix = edges.length;
     edges.push(edge);
     if (__zDebug.on) zlog(g.id.slice(0, 8), "free", freeColumns(o, uAcross, dAcross, obstacles, exclude, frames, softOf?.(g.id) ?? []).map(([a, b]) => `${a.toFixed(0)}..${b.toFixed(0)}`).join(" "), "hard", hard.map((r) => `[${r.x.toFixed(0)},${r.y.toFixed(0)} ${r.w.toFixed(0)}x${r.h.toFixed(0)}]`).join(""));
     if (__zDebug.on) zlog(g.id.slice(0, 8), "cands", cands.map((c) => `${c.kind}${c.bands.map((b) => `[${b[0].toFixed(0)}..${b[1].toFixed(0)}]`).join("")}${c.kind === "zz" ? `x${c.x}(${c.colLo.toFixed(0)}..${c.colHi.toFixed(0)})` : ""}`).join(" "));
@@ -1162,6 +1264,67 @@ export function zRoutes(params: {
   // Раздача дорожек одной ориентации: компоненты по перекрытию пробега (с зазором) и
   // полос, внутри — зависимости, разрыв циклов, топологические номера, позиции через
   // решатель. hints — собирать ли свободные дорожки (финальный вызов).
+  // Раздача одной компоненты: зависимости пар, разрыв циклов, номера дорожек, позиции.
+  const solveComp = (M: Seg[], apps: ReadonlyArray<Applicable>): CompResult => {
+    const m = M.length;
+    const deps: Dep[] = [];
+    for (let i = 0; i < m; i++) {
+      for (let j = i + 1; j < m; j++) if (interacts(M[i], M[j])) deps.push(...pairDeps(i, j, M[i], M[j]));
+    }
+    const slots = slotsOf(m, breakCycles(m, deps));
+    const { lanes, gap } = distribute(M, slots, interacts, apps);
+    return { slots, lanes, gap };
+  };
+  // ПАМЯТЬ РАЗДАЧИ КОМПОНЕНТЫ. Результат компоненты зависит только от её сегментов (в их
+  // порядке: разрыв циклов идёт по индексам) и применимых к ним препятствий. При пробе одной
+  // связи почти все компоненты получают ровно те же входы, что в прошлый раз, и берутся из
+  // памяти. Ключ — все числа, которые читает solveComp (pairDeps, tieBreak, distribute,
+  // interacts):
+  //   сегмент — вид (idx), члены (номера связей; первый — владелец: его uAlong/dAlong читает
+  //   tieBreak, они в вызове неизменны), вертикали (along, направление), пробег, полоса,
+  //   толщина, preShrunk; дорожка — только при бесконечной полосе (её читают natural и
+  //   tieBreak, при конечной — середина полосы); у колонны — естественное место (cand.x);
+  //   препятствие — pos, толщина и вид: обычный отрезок либо слот со стороной вертикали
+  //   (up/down). Пробег препятствия и его связь участвуют лишь в применимости, она уже
+  //   отражена составом списка.
+  const compMemo = new ExactMemo<CompResult>(COMP_MEMO_LIMIT);
+  const compKey = new ExactKey();
+  const keyOfComp = (M: Seg[], apps: ReadonlyArray<Applicable>): void => {
+    const k = compKey;
+    k.reset();
+    k.push(M.length);
+    for (let i = 0; i < M.length; i++) {
+      const s = M[i];
+      k.push(s.idx);
+      k.push(s.members.length);
+      for (const mem of s.members) k.push(mem.ix);
+      k.push(s.verts.length);
+      for (const v of s.verts) { k.push(v.along); k.push(v.dir === "up" ? 0 : 1); }
+      k.push(s.lo); k.push(s.hi); k.push(s.bandLo); k.push(s.bandHi);
+      k.push(Number.isFinite(s.bandLo) && Number.isFinite(s.bandHi) ? 0 : s.lane);
+      k.push(s.thick); k.push(s.preShrunk ? 1 : 0);
+      k.push(s.idx === 2 ? (s.edge.cand?.x ?? s.lane) : 0);
+      const app = apps[i].app;
+      k.push(app.length);
+      for (const { f, up, down } of app) { k.push(f.pos); k.push(f.thick); k.push(f.slot ? 1 + (up ? 1 : 0) + (down ? 2 : 0) : 0); }
+    }
+  };
+  const solveCompMemo = (M: Seg[], apps: ReadonlyArray<Applicable>): CompResult => {
+    if (!cacheOn) return solveComp(M, apps);
+    keyOfComp(M, apps);
+    const h = compKey.hash();
+    const hit = compMemo.get(h, compKey);
+    if (hit) {
+      if (selfCheck) {
+        const honest = solveComp(M, apps);
+        if (!sameNums(hit.slots, honest.slots) || !sameNums(hit.lanes, honest.lanes) || !sameNum(hit.gap, honest.gap)) selfCheckFail("раздача компоненты");
+      }
+      return hit;
+    }
+    const res = solveComp(M, apps);
+    compMemo.put(h, compKey, res);
+    return res;
+  };
   const assign = (o: Orient, hints: boolean): void => {
     const S = segsOf(o);
     const n = S.length;
@@ -1181,12 +1344,8 @@ export function zRoutes(params: {
     for (const members of comps.values()) {
       const M = members.map((k) => S[k]);
       const m = M.length;
-      const deps: Dep[] = [];
-      for (let i = 0; i < m; i++) {
-        for (let j = i + 1; j < m; j++) if (interacts(M[i], M[j])) deps.push(...pairDeps(i, j, M[i], M[j]));
-      }
-      const slots = slotsOf(m, breakCycles(m, deps));
-      const { lanes, gap } = distribute(M, slots, interacts, F);
+      const apps = M.map((s) => applicableOf(s, F));
+      const { slots, lanes, gap } = solveCompMemo(M, apps);
       M.forEach((s, i) => {
         s.slot = slots[i];
         s.lane = lanes[i];
@@ -1295,16 +1454,60 @@ export function zRoutes(params: {
   // креста, иначе ZZ сквозь прямую «бесплатна» и побеждает чистый Z
   const straightPts: EdgePoint[][] = [];
   for (const [id, pts] of routes) if (pts.length === 2 && straights.length > 0 && groups.some((g) => g.id === id)) straightPts.push(pts);
+  // ПАМЯТЬ МАРШРУТОВ, ПАР И СЛОТОВ (см. «ПАМЯТЬ ПРОБ СПУСКА»). Маршрут связи — чистая
+  // функция её геометрии (вид, дорожки, колонна; порты и тела в вызове неизменны): последний
+  // построенный маршрут держится, пока геометрия та же, и несёт номер. Кресты и наложение
+  // пары зависят только от двух маршрутов, касание слота подписи чужой линией — от слота и
+  // маршрута: их результаты держатся по номерам и пересчитываются только там, где маршрут
+  // или слот сменился. Цена собирается из тех же слагаемых в прежнем порядке: связи
+  // (недопустимые, крюки), пары (i, j) — наложения и кресты в порядке первого появления
+  // точки, потерянные носители по связям.
+  interface BuiltRoute { kind: "z" | "zz"; l0: number; l1: number; x: number; pts: EdgePoint[] | null; id: number }
+  let routeSerial = 0;
+  const routeMemo: Array<BuiltRoute | null> = edges.map(() => null);
+  const routeOf = (e: ZEdge): BuiltRoute => {
+    const zz = e.kind === "zz";
+    const l0 = e.lanes[0], l1 = zz ? e.lanes[1] : 0, x = zz ? e.x : 0;
+    const m = routeMemo[e.ix];
+    if (cacheOn && m && m.kind === e.kind && sameNum(m.l0, l0) && sameNum(m.l1, l1) && sameNum(m.x, x)) {
+      if (selfCheck && !samePts(m.pts, buildRoute(e))) selfCheckFail("маршрут связи");
+      return m;
+    }
+    const r: BuiltRoute = { kind: e.kind, l0, l1, x, pts: buildRoute(e), id: ++routeSerial };
+    routeMemo[e.ix] = r;
+    return r;
+  };
+  // Готовые маршруты пробы: сначала прямые (место k), потом связи с маршрутом (место
+  // nS + номер связи) — места растут в порядке обхода, пара (i, j) — ячейка места i × места j.
+  const nS = straightPts.length, nP = nS + edges.length;
+  const bPts: EdgePoint[][] = [...straightPts];
+  const bId: number[] = straightPts.map(() => ++routeSerial);
+  const bPlace: number[] = straightPts.map((_, k) => k);
+  const bEdge: Array<ZEdge | null> = straightPts.map(() => null);
+  const nameOf = (i: number): string => { const e = bEdge[i]; return e ? e.id.slice(0, 8) : "straight"; };
+  const pairIdA = new Int32Array(nP * nP), pairIdB = new Int32Array(nP * nP);   // 0 — пусто
+  const pairOv = new Uint8Array(nP * nP);
+  const pairKeys: Array<CrossKey[]> = new Array<CrossKey[]>(nP * nP);
+  const NO_KEYS: CrossKey[] = [];
+  // слот подписи связи: прямоугольник и его номер (сменился прямоугольник — новый номер)
+  const lostRect: Array<NodeRect | null> = edges.map(() => null);
+  const lostGen = new Int32Array(edges.length);
+  let lostSerial = 0;
+  const lostAtGen = new Int32Array(edges.length * nP), lostAtId = new Int32Array(edges.length * nP);
+  const lostAtHit = new Uint8Array(edges.length * nP);
+  const slotCut = (pts: EdgePoint[], r: NodeRect): boolean => {
+    for (let k = 1; k < pts.length; k++) if (segInRect(pts[k - 1], pts[k], r)) return true;
+    return false;
+  };
+  const crossAt = new Map<CrossKey, number>();
   const sceneCost = (): number => {
     assignLanes(false);
-    const built: EdgePoint[][] = [...straightPts];
-    const builtIds: string[] = straightPts.map(() => "straight");
-    const builtEdges: Array<ZEdge | null> = straightPts.map(() => null);
+    let nb = nS;
     let cost = 0;
     costParts.cr = 0; costParts.ov = 0; costParts.inv = 0; costParts.det = 0; costParts.lost = 0; costParts.ovPairs = []; costParts.crPairs = [];
     for (const e of edges) {
-      const pts = buildRoute(e);
-      if (pts) { built.push(pts); builtIds.push(e.id.slice(0, 8)); builtEdges.push(e); } else { cost += INVALID_COST; costParts.inv++; }
+      const r = routeOf(e);
+      if (r.pts) { bPts[nb] = r.pts; bId[nb] = r.id; bPlace[nb] = nS + e.ix; bEdge[nb] = e; nb++; } else { cost += INVALID_COST; costParts.inv++; }
       if (e.kind === "zz") {
         const d = Math.abs(e.x - e.uAlong) + Math.abs(e.x - e.dAlong) - Math.abs(e.uAlong - e.dAlong);
         cost += d; costParts.det += d;
@@ -1313,18 +1516,36 @@ export function zRoutes(params: {
     // кресты — по ТОЧКАМ (Ф3): члены общего плеча режут чужую линию в одной точке — это
     // один крест и для глаза, и для метрики E23; поштучный счёт по парам маршрутов
     // переоценивал ствол в N раз и уводил спуск от эталона
-    const crossAt = new Map<string, number>();
-    for (let i = 0; i < built.length; i++) {
-      for (let j = i + 1; j < built.length; j++) {
-        const ei = builtEdges[i], ej = builtEdges[j];
-        const twins = ei !== null && ej !== null && twinOf.get(ei) === ej;
-        for (const key of crossingKeys(built[i], built[j])) {
-          crossAt.set(key, Math.max(crossAt.get(key) ?? 0, twins ? TWIN_CROSS_FACTOR : 1));
-          if (__zDebug.trace) costParts.crPairs.push(`${builtIds[i]}×${builtIds[j]}`);
+    crossAt.clear();
+    for (let i = 0; i < nb; i++) {
+      const ei = bEdge[i], idI = bId[i], rowI = bPlace[i] * nP;
+      for (let j = i + 1; j < nb; j++) {
+        const ej = bEdge[j];
+        const cell = rowI + bPlace[j];
+        let keys: CrossKey[], ov: boolean;
+        if (cacheOn && pairIdA[cell] === idI && pairIdB[cell] === bId[j]) {
+          keys = pairKeys[cell]; ov = pairOv[cell] === 1;
+          if (selfCheck) {
+            const k2 = crossingKeys(bPts[i], bPts[j]);
+            const ov2 = !(ei !== null && ej !== null && sharesEnd(ei, ej)) && overlapping(bPts[i], bPts[j]);
+            if (ov2 !== ov || k2.length !== keys.length || k2.some((k, n) => k !== keys[n])) selfCheckFail("пара маршрутов");
+          }
+        } else {
+          const k2 = crossingKeys(bPts[i], bPts[j]);
+          keys = k2.length > 0 ? k2 : NO_KEYS;
+          ov = !(ei !== null && ej !== null && sharesEnd(ei, ej)) && overlapping(bPts[i], bPts[j]);
+          pairIdA[cell] = idI; pairIdB[cell] = bId[j]; pairKeys[cell] = keys; pairOv[cell] = ov ? 1 : 0;
         }
-        if (!(ei !== null && ej !== null && sharesEnd(ei, ej)) && overlapping(built[i], built[j])) {
+        if (keys.length > 0) {
+          const w = ei !== null && ej !== null && twinOf.get(ei) === ej ? TWIN_CROSS_FACTOR : 1;
+          for (const key of keys) {
+            crossAt.set(key, Math.max(crossAt.get(key) ?? 0, w));
+            if (__zDebug.trace) costParts.crPairs.push(`${nameOf(i)}×${nameOf(j)}`);
+          }
+        }
+        if (ov) {
           cost += OVERLAP_COST_Z; costParts.ov++;
-          if (__zDebug.on) costParts.ovPairs.push(`${builtIds[i]}~${builtIds[j]}`);
+          if (__zDebug.on) costParts.ovPairs.push(`${nameOf(i)}~${nameOf(j)}`);
         }
       }
     }
@@ -1337,10 +1558,24 @@ export function zRoutes(params: {
       if (e.host === "none") { cost += LABEL_HOSTS.lostCost; costParts.lost++; continue; }
       const r = slotRectOf(e);
       if (r) {
-        for (let i = 0; i < built.length && !e.hostLost; i++) {
-          if (builtEdges[i] === e) continue;
-          const pts = built[i];
-          for (let k = 1; k < pts.length; k++) if (segInRect(pts[k - 1], pts[k], r)) { e.hostLost = true; break; }
+        const prevRect = lostRect[e.ix];
+        if (!(cacheOn && prevRect && sameNum(prevRect.x, r.x) && sameNum(prevRect.y, r.y) && sameNum(prevRect.w, r.w) && sameNum(prevRect.h, r.h))) {
+          lostRect[e.ix] = r;
+          lostGen[e.ix] = ++lostSerial;
+        }
+        const gen = lostGen[e.ix], row = e.ix * nP;
+        for (let i = 0; i < nb && !e.hostLost; i++) {
+          if (bEdge[i] === e) continue;
+          const cell = row + bPlace[i];
+          let cut: boolean;
+          if (cacheOn && lostAtGen[cell] === gen && lostAtId[cell] === bId[i]) {
+            cut = lostAtHit[cell] === 1;
+            if (selfCheck && slotCut(bPts[i], r) !== cut) selfCheckFail("слот подписи");
+          } else {
+            cut = slotCut(bPts[i], r);
+            lostAtGen[cell] = gen; lostAtId[cell] = bId[i]; lostAtHit[cell] = cut ? 1 : 0;
+          }
+          if (cut) e.hostLost = true;
         }
       }
       if (e.hostLost) { cost += LABEL_HOSTS.lostCost; costParts.lost++; }
@@ -1531,11 +1766,23 @@ export function zRoutes(params: {
   return { routes, portKeys, gridHints: { xs: [...hintXs].sort(asc), ys: [...hintYs].sort(asc) }, labelAnchors };
 }
 
+// Ключ точки креста — пара (half(x), half(y)), как прежняя строка «x|y», но числом: удвоенные
+// полупиксели — целые, и в пределах ±2^25 пара упаковывается в одно число без коллизий
+// (X·2^26 + Y при |Y| < 2^25). За пределами — прежняя строка: в Map строка с числом не
+// совпадает никогда. -0 и 0 дают одну точку и тут, и в строке («0»).
+type CrossKey = number | string;
+const CROSS_KEY_LIM = 2 ** 25;
+function crossKey(x: number, y: number): CrossKey {
+  const hx = half(x), hy = half(y);
+  const X = hx * 2, Y = hy * 2;
+  return Math.abs(X) < CROSS_KEY_LIM && Math.abs(Y) < CROSS_KEY_LIM ? X * 2 * CROSS_KEY_LIM + Y : `${hx}|${hy}`;
+}
+
 // Кресты двух ортогональных ломаных: перпендикулярные сегменты, пересечение строго
 // внутри обоих (та же семантика, что у метрик качества E23). Возвращает ключи точек
 // крестов (полпикселя), чтобы совпадающие плечи стволов давали один крест.
-function crossingKeys(a: EdgePoint[], b: EdgePoint[]): string[] {
-  const out: string[] = [];
+function crossingKeys(a: EdgePoint[], b: EdgePoint[]): CrossKey[] {
+  const out: CrossKey[] = [];
   for (let i = 1; i < a.length; i++) {
     const a0 = a[i - 1], a1 = a[i];
     const ah = Math.abs(a1.y - a0.y) <= EPS;
@@ -1546,7 +1793,7 @@ function crossingKeys(a: EdgePoint[], b: EdgePoint[]): string[] {
       const h0 = ah ? a0 : b0, h1 = ah ? a1 : b1, v0 = ah ? b0 : a0, v1 = ah ? b1 : a1;
       const hx0 = Math.min(h0.x, h1.x), hx1 = Math.max(h0.x, h1.x);
       const vy0 = Math.min(v0.y, v1.y), vy1 = Math.max(v0.y, v1.y);
-      if (hx0 + EPS < v0.x && v0.x < hx1 - EPS && vy0 + EPS < h0.y && h0.y < vy1 - EPS) out.push(`${half(v0.x)}|${half(h0.y)}`);
+      if (hx0 + EPS < v0.x && v0.x < hx1 - EPS && vy0 + EPS < h0.y && h0.y < vy1 - EPS) out.push(crossKey(v0.x, h0.y));
     }
   }
   return out;
