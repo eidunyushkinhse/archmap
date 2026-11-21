@@ -118,6 +118,15 @@ export function IcoBrokenLink({ s = 14 }: { s?: number }) {
     </svg>
   );
 }
+// Документ — значок привязанной к шагу схемы логики (после подписи шага на диаграмме).
+export function IcoDoc({ s = 12 }: { s?: number }) {
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.9}>
+      <path d="M14 3 H7 a2 2 0 0 0-2 2 V19 a2 2 0 0 0 2 2 H17 a2 2 0 0 0 2-2 V8 Z" />
+      <path d="M14 3 V8 H19 M9 13 H15 M9 17 H13" />
+    </svg>
+  );
+}
 export function IcoSearch({ s = 14 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>

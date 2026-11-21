@@ -3,7 +3,7 @@
 // роли: тумблер «Редактировать/Готово» (только архитектор) переключает inline-правку.
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import { processesApi } from "../../api/processes";
 import type { FragmentKind, NodeStatus } from "../../types";
@@ -22,6 +22,7 @@ import { deriveActivations } from "./sequence/layout";
 import { detailToSeq } from "./sequence/fromDetail";
 import { BPT, BROKEN } from "./tokens";
 import { useProcessDetail } from "./useProcessDetail";
+import { useDiagramFit, type DiagramLayout } from "./useDiagramFit";
 import type { ProcessEditCtx } from "./editCtx";
 import { fragmentEdits } from "./fragmentEdits";
 import { messageEdits } from "./messageEdits";
@@ -76,6 +77,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Вид схемы — общий с C4-схемой ключ ЭТОГО проекта (в другом проекте свой).
   const [view, setView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(view); }, [view]);
+
+  // Вписывание в окно — только в чтении (useDiagramFit): «Вписать» по умолчанию,
+  // «100%» — полный размер с прокруткой вбок. В правке масштаб всегда 100%.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [fitPref, setFitPref] = useState(true);
+  const [layout, setLayout] = useState<DiagramLayout | null>(null);
+  const { fitWidth, scale, wider } = useDiagramFit(scrollRef, layout, !editing && fitPref, !editing);
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
@@ -525,14 +533,15 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       hasStatus={hasStatus}
       view={view}
       onViewChange={setView}
+      fit={wider ? { on: fitPref, onChange: setFitPref } : null}
     />
   );
 
   return (
-    <div style={canvasShell} className="bp">
+    <div style={canvasShell} className="bp ds">
       {toolbar}
       {hasStatus && <ViewHint view={view} />}
-      <div className="bp-canvas" style={{ flex: 1, overflow: "auto", position: "relative" }}>
+      <div className="proc-scroll" ref={scrollRef}>
         {error && <div style={{ padding: "8px 14px 0", color: "#dc2626", fontSize: 12 }}>{error}</div>}
         {/* Итог подхвата каналов: гасится кликом — это не ошибка, а сводка. */}
         {bindNote && (
@@ -552,8 +561,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               : "В процессе пока нет участников и сообщений."}
           </div>
         ) : (
-          // data-tour: диаграмма процесса — вторая цель шага «Бизнес-процессы» тура демо
-          <div style={{ padding: "8px 12px 18px", width: "max-content" }} data-tour="process-diagram">
+          // data-tour: диаграмма процесса — вторая цель шага «Бизнес-процессы» тура демо.
+          // zoom, а не transform: он меняет раскладку — прокрутка знает настоящий размер,
+          // а шапки участников держатся сверху (sticky под transform отставал бы).
+          <div className="proc-diagram" style={scale !== 1 ? { zoom: scale } : undefined} data-tour="process-diagram">
             <SequenceDiagram
               participants={seq.participants}
               messages={seq.messages}
@@ -563,6 +574,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               ghost={editing}
               // Переход на страницу объекта — не правка: доступен и в просмотре.
               onOpenNode={onOpenNode}
+              fitWidth={fitWidth}
+              onLayout={setLayout}
               {...diagramModeProps}
             />
           </div>

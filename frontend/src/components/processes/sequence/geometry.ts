@@ -132,7 +132,7 @@ export function fitLabelCap(input: Omit<SeqColumnsInput, "labelCap">, maxW: numb
 export function computeSeqGeometry({
   participants, messages, fragments, labelW, headW, labelCap, labelH, reorder, rowDrag, fragDrag, ghost,
 }: SeqGeometryInput) {
-  const { idx, xs, gaps, W, lw } = computeColumns({ participants, messages, labelW, headW, labelCap });
+  const { idx, xs, gaps, W, hw } = computeColumns({ participants, messages, labelW, headW, labelCap });
   const pById: Record<string, SeqParticipant> = {};
   participants.forEach((p) => { pById[p.id] = p; });
   const n = participants.length;
@@ -294,7 +294,9 @@ export function computeSeqGeometry({
     .filter((b): b is NonNullable<typeof b> => b !== null);
 
   return {
-    idx, pById, n, PX, slotAt, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf, labelWOf: lw,
+    idx, pById, n, PX, slotAt, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf,
+    // Ширина шапки участника по id (замер, зажатый в пределы).
+    headWOf: (id: string) => hw(idx[id]),
     fragRows, fragBranches, rowY, rowFromY, shownRow, msgY, ghostY, W, H, fragBoxes,
   };
 }

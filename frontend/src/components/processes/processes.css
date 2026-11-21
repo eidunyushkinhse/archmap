@@ -502,11 +502,129 @@
   color: #60a5fa;
 }
 
-/* Холст диаграммы в точку (viewer/editor body) */
-.bp-canvas {
-  background: #f8fafc;
-  background-image: radial-gradient(#e6ebf2 1px, transparent 1px);
-  background-size: 22px 22px;
+/* Область диаграммы процесса: белый фон без сетки. Ширина под полосой прокрутки
+   зарезервирована (scrollbar-gutter): появление вертикальной полосы не меняет ширину,
+   от которой считается вписывание, — иначе вписывание и полоса раскачивали бы друг
+   друга. */
+.proc-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+  background: var(--c-bg);
+  scrollbar-gutter: stable;
+}
+/* Обёртка диаграммы: её масштабирует zoom режима чтения (ProcessCanvas). */
+.proc-diagram {
+  width: max-content;
+  padding: 8px 8px 24px;
+}
+
+/* ── Подпись шага на диаграмме (SequenceDiagram) ──
+   Ширина — естественная (width: max-content), предел задаёт max-width из геометрии:
+   шире — перенос по словам, внутри слова — только у слова длиннее предела. Номер —
+   тихим текстом, цифры одной ширины. */
+.seq-label {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  width: max-content;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  border-radius: var(--radius);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  overflow-wrap: break-word;
+}
+.seq-num {
+  flex: none;
+  color: var(--c-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.seq-text {
+  min-width: 0;
+}
+/* Последнее слово подписи вместе с причиной поломки и значком схемы — без переноса. */
+.seq-tail {
+  white-space: nowrap;
+}
+/* Причина поломки рядом с подписью сломанного шага: цвет — янтарь из tokens.ts. */
+.seq-broken {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+/* Значок привязанной схемы логики после подписи. */
+.seq-doc {
+  display: inline-flex;
+  vertical-align: -1px;
+  margin-left: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-fg-faint);
+}
+button.seq-doc {
+  cursor: pointer;
+}
+button.seq-doc:hover,
+button.seq-doc:focus-visible {
+  color: var(--c-accent);
+  outline: none;
+}
+/* Невидимые копии подписей и шапок в одну строку: по ним меряется естественная
+   ширина. Копии — в портале вне диаграммы и вне её масштаба (SequenceDiagram), поэтому
+   шрифт и трекинг заданы явно: наследовать их неоткуда. */
+.seq-measure {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.seq-t::before {
+  content: attr(data-t);
+}
+.seq-label--measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  white-space: nowrap;
+}
+/* Копия шапки участника: значок формы (14px), зазор и имя одной строкой — так же, как
+   в самой шапке (SequenceDiagram); рамка 1px. Поля на 3px шире, чем у шапки (10px):
+   запас на то, что под масштабом текст чуть шире замера. */
+.seq-head-measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  box-sizing: border-box;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.seq-head-glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 /* Поле ввода композитора: связь достраивается прямо в окне сообщения, поэтому
@@ -538,15 +656,3 @@
   color: #64748b;
 }
 
-/* Просмотр: подпись шага, к которому привязана схема логики, — ссылка на неё
-   (SequenceDiagram). Намёк спокойный — бледный пунктир под тёмным текстом: в
-   документированном процессе схема есть почти у каждого шага, и сплошь синие подписи
-   превратили бы диаграмму в страницу ссылок. При наведении — синяя. */
-.seq-doclink {
-  text-decoration: underline dotted rgba(37, 99, 235, 0.5);
-  text-underline-offset: 3px;
-}
-[data-mid]:hover .seq-doclink {
-  color: #1d4ed8;
-  text-decoration-color: currentColor;
-}

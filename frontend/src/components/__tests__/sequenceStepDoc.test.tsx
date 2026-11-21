@@ -3,12 +3,14 @@
 // В просмотре шаг, к которому привязана схема логики, открывает её кликом (стрелка или
 // подпись); шаг без схемы не кликается вовсе — курсор-рука на нём обещала бы то, чего
 // нет. В правке клик по любому шагу открывает его карточку, как прежде.
-// Подпись: номер и type-глиф — колонкой слева, текст и под ним технология — колонкой
-// справа с одним отступом у всех строк.
+// Подпись (редизайн, фаза 3а): номер тихим текстом и текст; технологии и знака вида
+// стрелки в ней нет, привязанную схему показывает значок документа после текста с
+// подсказкой «Схема логики: ИМЯ».
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import SequenceDiagram from "../processes/SequenceDiagram";
 import { toSeqMessages } from "../processes/sequence/fromDetail";
+import { SQ } from "../processes/tokens";
 import type { ProcessMessage } from "../../types";
 import type { SeqMessage, SeqParticipant } from "../processes/sequence/layout";
 
@@ -30,7 +32,8 @@ describe("шаг процесса в просмотре: схема логики
       <SequenceDiagram participants={[P("a"), P("b")]} messages={[WITH_DOC, NO_DOC]} onOpenDoc={onOpenDoc} />,
     );
     expect(label("m1").style.cursor).toBe("pointer");
-    expect(label("m1")).toHaveAttribute("title", "Схема логики «POST /orders»");
+    const doc = label("m1").querySelector("button[title]");
+    expect(doc).toHaveAttribute("title", "Схема логики: POST /orders");
     fireEvent.click(label("m1"));
     expect(onOpenDoc).toHaveBeenCalledWith("m1");
     // невидимая полоса поверх стрелки — та же цель клика
@@ -40,9 +43,12 @@ describe("шаг процесса в просмотре: схема логики
     expect(onOpenDoc).toHaveBeenCalledTimes(2);
     // шаг без схемы — ни руки, ни клика, ни полосы
     expect(label("m2").style.pointerEvents).toBe("none");
-    expect(label("m2")).not.toHaveAttribute("title");
+    expect(label("m2").querySelector("[title]")).toBeNull();
     fireEvent.click(label("m2"));
     expect(onOpenDoc).toHaveBeenCalledTimes(2);
+    // значок схемы открывает её сам
+    fireEvent.click(doc!);
+    expect(onOpenDoc).toHaveBeenCalledTimes(3);
   });
 
   it("в правке клик по любому шагу открывает его карточку, ссылкой подпись не выделяется", () => {
@@ -55,6 +61,12 @@ describe("шаг процесса в просмотре: схема логики
     fireEvent.click(label("m2"));
     expect(onMessageClick).toHaveBeenCalledWith("m2");
     expect(label("m1")).not.toHaveAttribute("title");
+  });
+
+  it("без обработчика схемы значок — не кнопка, но подсказку держит", () => {
+    render(<SequenceDiagram participants={[P("a"), P("b")]} messages={[WITH_DOC]} />);
+    expect(label("m1").querySelector("button")).toBeNull();
+    expect(label("m1").querySelector("[title]")).toHaveAttribute("title", "Схема логики: POST /orders");
   });
 
   it("схема шага доезжает из контракта: только когда известны и схема, и её узел", () => {
@@ -72,19 +84,22 @@ describe("шаг процесса в просмотре: схема логики
 });
 
 describe("подпись шага", () => {
-  it("номер слева, текст и под ним технология — колонкой справа: у всех строк один отступ", () => {
+  it("номер — своей колонкой, справа текст; технологии в подписи нет", () => {
     render(<SequenceDiagram participants={[P("a"), P("b")]} messages={[WITH_DOC]} />);
-    const wrap = label("m1").firstElementChild as HTMLElement;
-    expect(wrap.style.display).toBe("flex");
-    const [meta, col] = Array.from(wrap.children) as HTMLElement[];
-    // номер — своя колонка, текст её не обтекает: строки под ней не уходят влево
-    expect(meta.style.float).toBe("");
-    expect(meta.textContent).toBe("1");
-    // справа одна колонка: текст, под ним технология — с тем же отступом
-    expect(col.style.flexDirection).toBe("column");
-    expect(col.style.minWidth).toBe("0px");
-    const [text, tech] = Array.from(col.children) as HTMLElement[];
+    const [num, text] = Array.from(label("m1").children) as HTMLElement[];
+    expect(num).toHaveClass("seq-num");
+    expect(num.textContent).toBe("1");
+    expect(text).toHaveClass("seq-text");
     expect(text.textContent).toBe("создать заказ");
-    expect(tech.textContent).toBe("REST");
+    expect(label("m1").textContent).not.toContain("REST");
+  });
+
+  it("предел ширины подписи приходит из геометрии; естественная ширина меряется копией вне диаграммы", () => {
+    render(<SequenceDiagram participants={[P("a"), P("b")]} messages={[WITH_DOC]} />);
+    expect(label("m1").style.maxWidth).toBe(`${SQ.LABEL_MAX}px`);
+    // копия — в body, вне корня диаграммы, текст в ней не ищется
+    const copy = document.querySelector<HTMLElement>('[data-mw="m1"]')!;
+    expect(copy.closest("[data-mid]")).toBeNull();
+    expect(copy.textContent).toBe("");
   });
 });

@@ -8,6 +8,7 @@ import { IcoEdit, IcoPlus } from "./icons";
 import { SchemaViewSeg } from "./SchemaViewChrome";
 import { BPT, BROKEN } from "./tokens";
 import type { SchemaView } from "../schemaView";
+import "../../ui/ds.css";
 
 const FRAGMENTS: FragmentKind[] = ["alt", "opt", "loop", "par"];
 
@@ -31,11 +32,13 @@ interface Props {
   hasStatus: boolean;
   view: SchemaView;
   onViewChange: (view: SchemaView) => void;
+  // Переключатель «Вписать / 100%»: только в чтении и только когда диаграмма шире окна.
+  fit: { on: boolean; onChange: (on: boolean) => void } | null;
 }
 
 export default function ProcessToolbar({
   name, scopeName, isArchitect, editing, onToggleEditing, danglingCount, onReattach,
-  fragSelect, onFragSelect, canFragment, onAddParticipant, history, hasStatus, view, onViewChange,
+  fragSelect, onFragSelect, canFragment, onAddParticipant, history, hasStatus, view, onViewChange, fit,
 }: Props) {
   return (
     <div style={toolbarRow} className="bp">
@@ -92,6 +95,16 @@ export default function ProcessToolbar({
           </>
         )}
         {hasStatus && <SchemaViewSeg view={view} onChange={onViewChange} />}
+        {fit && (
+          <div className="ds-tabs" role="radiogroup" aria-label="Масштаб">
+            <button type="button" role="radio" aria-checked={fit.on} className={"ds-tab" + (fit.on ? " is-active" : "")} onClick={() => fit.onChange(true)}>
+              Вписать
+            </button>
+            <button type="button" role="radio" aria-checked={!fit.on} className={"ds-tab" + (fit.on ? "" : " is-active")} onClick={() => fit.onChange(false)}>
+              100%
+            </button>
+          </div>
+        )}
         {isArchitect && (
           <button
             className="bp-btn-ghost"

@@ -1,18 +1,24 @@
-// UML sequence-диаграмма: участники = линии жизни (узлы C4), сообщения = стрелки
-// плеч задокументированных каналов (вызов/ответ/событие), полосы активации, фрагмент
-// alt. Цвет = статус жизненного цикла узла (единообразно с C4), тип плеча = форма
-// (линия + наконечник). Чистый презентационный компонент: раскладка выводится из пропсов.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+// UML sequence-диаграмма: участники = линии жизни (узлы C4), шаги = стрелки плеч
+// задокументированных каналов (вызов/ответ/событие), полосы активации, фрагменты.
+// Цвет = статус жизненного цикла узла (единообразно с C4), тип плеча = форма (линия +
+// наконечник). Чистый презентационный компонент: раскладка выводится из пропсов и
+// замеров. Редизайн, фаза 3а: промежутки по содержимому (подпись шага в одну строку,
+// шире предела — перенос по словам), у шага только номер и подпись, привязанная схема
+// логики — значок документа после подписи; шапки плоские, шрифт и серые — токены
+// нового языка (ui/tokens.css), цвета статусов и янтарь — processes/tokens.ts.
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { FragmentKind, NodeStatus } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { viewShows, type SchemaView } from "../schemaView";
-import { C4Glyph, IcoArrowR, IcoBrokenLink, IcoClose, IcoPlus, IcoSelf } from "./icons";
+import { C4Glyph, IcoArrowR, IcoBrokenLink, IcoClose, IcoDoc, IcoPlus, IcoSelf } from "./icons";
 import { legMeta } from "./legMeta";
 import { arrayMove, strongestStatus } from "./sequence/layout";
 import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
-import { computeSeqGeometry, LABEL_GAP } from "./sequence/geometry";
+import { computeColumns, computeSeqGeometry, fitLabelCap, LABEL_GAP } from "./sequence/geometry";
 import type { FragDragGesture, ReorderGesture, RowDragGesture } from "./sequence/geometry";
+import { useSizes } from "./sequence/useSizes";
 import { BPT, BROKEN, SQ, STATUS_LEG, withAlpha } from "./tokens";
 import "./processes.css";
 
@@ -94,6 +100,13 @@ interface Props {
   onSelectRange?: (fromRow: number, toRow: number) => void;
   // Клик по шапке фрагмента (kind+условие) — запрос на удаление фрагмента.
   onFragmentClick?: (id: string) => void;
+  // Вписывание в окно (режим чтения): наибольшая ширина холста. Предел ширины подписи
+  // опускается, пока диаграмма не уместится, — подписи переносятся ровно настолько,
+  // насколько нужно. Не задана — предел обычный (SQ.LABEL_MAX).
+  fitWidth?: number;
+  // Ширина холста после раскладки: сейчас и при обычном пределе подписи. По ней холст
+  // процесса считает масштаб и решает, показывать ли переключатель «Вписать / 100%».
+  onLayout?: (w: { width: number; fullWidth: number }) => void;
 }
 
 export default function SequenceDiagram({
@@ -119,6 +132,8 @@ export default function SequenceDiagram({
   selectMode = null,
   onSelectRange,
   onFragmentClick,
+  fitWidth,
+  onLayout,
 }: Props) {
   // Состояние drag-to-connect: откуда тянем и текущая точка курсора (в координатах
   // контейнера); hover — ближайший участник-цель под курсором.
@@ -161,56 +176,48 @@ export default function SequenceDiagram({
     return () => io.disconnect();
   }, []);
 
-  // Подписи сообщений переносятся по словам, поэтому их высота заранее неизвестна.
-  // Замеряем реальную высоту каждой подписи (ResizeObserver — переживает и смену
-  // ширины при перестановке колонок) и раздвигаем строки под самую высокую подпись,
-  // чтобы текст влезал целиком и не наезжал на соседнюю стрелку/шапки.
-  const labelEls = useRef<Map<string, HTMLElement>>(new Map());
-  const [labelH, setLabelH] = useState<Record<string, number>>({});
-  // Ref-колбэк с очисткой (React 19, аудит F-54): подпись удалённого шага уходит из
-  // словаря, а не копится в нём до размонтирования диаграммы.
-  const bindLabel = useCallback((el: HTMLDivElement | null) => {
-    const mid = el?.dataset.mid;
-    if (!el || !mid) return;
-    labelEls.current.set(mid, el);
-    return () => {
-      if (labelEls.current.get(mid) === el) labelEls.current.delete(mid);
+  // Замеры (sequence/useSizes): высота подписи на холсте (подпись шире предела
+  // переносится, высота строки растёт под неё), естественная ширина подписи в одну
+  // строку и естественная ширина шапки участника — по невидимым копиям. Копии живут вне
+  // диаграммы (портал в body), то есть вне масштаба режима чтения: под CSS zoom ширина
+  // текста гуляет на проценты (кегль меняется, метрики глифов округляются), и замер
+  // внутри масштаба замкнул бы петлю «ширина → масштаб → ширина». Снаружи ни одна из
+  // ширин от геометрии и масштаба не зависит.
+  const { bind: bindLabel, sizes: labelH } = useSizes("height", "mid", messages);
+  const { bind: bindNatural, sizes: labelW } = useSizes("width", "mw", messages);
+  const { bind: bindHead, sizes: headW } = useSizes("width", "hw", participants);
+
+  // Предел ширины подписи: обычный либо подобранный под окно (вписывание в режиме
+  // чтения). Ширина при обычном пределе нужна холсту процесса — переключателю масштаба.
+  const fit = useMemo(() => {
+    const cols = { participants, messages, labelW, headW };
+    return {
+      cap: fitWidth != null ? fitLabelCap(cols, fitWidth) : SQ.LABEL_MAX,
+      fullWidth: computeColumns({ ...cols, labelCap: SQ.LABEL_MAX }).W,
     };
-  }, []);
-  useLayoutEffect(() => {
-    const ro = new ResizeObserver(() => {
-      const next: Record<string, number> = {};
-      for (const m of messages) {
-        const el = labelEls.current.get(m.id);
-        if (el) next[m.id] = el.offsetHeight;
-      }
-      setLabelH((prev) => {
-        const keys = Object.keys(next);
-        if (keys.length === Object.keys(prev).length && keys.every((k) => prev[k] === next[k])) return prev;
-        return next;
-      });
-    });
-    for (const m of messages) {
-      const el = labelEls.current.get(m.id);
-      if (el) ro.observe(el);
-    }
-    return () => ro.disconnect();
-  }, [messages]);
+  }, [participants, messages, labelW, headW, fitWidth]);
 
   // Геометрия — чистая функция данных, замеров подписей и живых жестов: мемо держит её
   // от пересчёта на событиях, которые раскладку не меняют (протяжка связи, наведение,
   // выделение диапазона), — раньше она считалась на каждом pointermove.
   const geo = useMemo(
-    () => computeSeqGeometry({ participants, messages, fragments, labelH, reorder, rowDrag, fragDrag, ghost: !!ghost }),
-    [participants, messages, fragments, labelH, reorder, rowDrag, fragDrag, ghost],
+    () => computeSeqGeometry({
+      participants, messages, fragments, labelW, headW, labelCap: fit.cap, labelH, reorder, rowDrag, fragDrag, ghost: !!ghost,
+    }),
+    [participants, messages, fragments, labelW, headW, fit.cap, labelH, reorder, rowDrag, fragDrag, ghost],
   );
   const {
-    idx, pById, PX, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf,
+    idx, pById, PX, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf, headWOf,
     fragRows, fragBranches, rowY, rowFromY, shownRow, msgY, ghostY, W, H, fragBoxes,
   } = geo;
   // Крайние колонки: от них считаются полоса-призрак и рамка выделения диапазона.
   const xFirst = PX(0);
   const xLast = PX(Math.max(0, participants.length - 1));
+
+  // Ширина холста — наружу, до отрисовки: холст процесса ставит по ней масштаб, и
+  // кадр в прежнем масштабе не мелькает.
+  const reportLayout = useEffectEvent((width: number, fullWidth: number) => onLayout?.({ width, fullWidth }));
+  useLayoutEffect(() => { reportLayout(W, fit.fullWidth); }, [W, fit.fullWidth]);
 
   // Приглушение по виду схемы: участник со статусом вне вида гаснет (см. ТЗ статусов).
   // ⚠️ Гашение — ТОЛЬКО визуальный слой: управление оно не отбирает (на C4-холсте
@@ -420,12 +427,84 @@ export default function SequenceDiagram({
     setSelfHover(false);
   }
 
+  // Копия подписи для замера ширины: те же части и классы, что у подписи на холсте
+  // (labelBody; правишь одну — правь и другую, замер обязан видеть ровно нарисованное),
+  // но текст — в CSS-псевдоэлементе (data-t): по ширине то же самое, а поиску по тексту
+  // и чтению с экрана копии не видны.
+  function measureBody(m: SeqMessage): ReactNode {
+    return (
+      <>
+        <span className="seq-num">
+          {m.valid ? <span className="seq-t" data-t={String(m.n)} /> : <IcoBrokenLink s={11} />}
+        </span>
+        <span className="seq-text">
+          <span className="seq-t" data-t={m.label ?? ""} />
+          {!m.valid && <span className="seq-broken seq-t" data-t={m.invalidReason === "leg_gone" ? "связь без ответа" : "связь удалена"} />}
+          {m.doc != null && <span className="seq-doc"><IcoDoc s={11} /></span>}
+        </span>
+      </>
+    );
+  }
+
+  // Содержимое подписи шага на холсте. Сломанный шаг заметен янтарём (это сигнал):
+  // вместо номера знак разрыва, подпись зачёркнута, рядом причина словами.
+  function labelBody(m: SeqMessage): ReactNode {
+    const docTitle = m.doc != null ? `Схема логики: ${m.doc || "без имени"}` : undefined;
+    const textStyle: CSSProperties | undefined = m.valid ? undefined : { color: BROKEN.ink, textDecoration: "line-through" };
+    // Хвост подписи: причина поломки и значок схемы. Он держится за последнее слово —
+    // при переносе значок не уезжает на строку один.
+    const tail = (
+      <>
+        {!m.valid && (
+          <span className="seq-broken" style={{ color: BROKEN.ink, background: BROKEN.soft, borderColor: BROKEN.border }}>
+            {m.invalidReason === "leg_gone" ? "связь без ответа" : "связь удалена"}
+          </span>
+        )}
+        {/* Привязанная схема логики — значок документа после подписи; кликом
+            открывается сама схема. */}
+        {docTitle && (onOpenDoc ? (
+          <button
+            type="button"
+            className="seq-doc"
+            title={docTitle}
+            aria-label={docTitle}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onOpenDoc(m.id); }}
+          >
+            <IcoDoc s={11} />
+          </button>
+        ) : (
+          <span className="seq-doc" title={docTitle}><IcoDoc s={11} /></span>
+        ))}
+      </>
+    );
+    const hasTail = !m.valid || !!docTitle;
+    const label = m.label ?? "";
+    const cut = hasTail ? label.lastIndexOf(" ") + 1 : label.length;
+    return (
+      <>
+        <span className="seq-num" style={m.valid ? undefined : { color: BROKEN.ink }}>
+          {m.valid ? m.n : <IcoBrokenLink s={11} />}
+        </span>
+        <span className="seq-text">
+          {cut > 0 && <span style={textStyle}>{label.slice(0, cut)}</span>}
+          {hasTail && (
+            <span className="seq-tail">
+              <span style={textStyle}>{label.slice(cut)}</span>
+              {tail}
+            </span>
+          )}
+        </span>
+      </>
+    );
+  }
+
   return (
     <div
       ref={rootRef}
       onPointerMove={ghost ? onRootMove : undefined}
       onPointerUp={ghost ? onRootUp : undefined}
-      style={{ position: "relative", width: W, height: H, fontFamily: "system-ui, sans-serif" }}
+      style={{ position: "relative", width: W, height: H, fontFamily: "var(--font-ui)" }}
     >
       {/* Фрагменты (под сообщениями): рамка + кликабельная шапка (kind+условие) + ветка else */}
       {fragBoxes.map((box) => {
@@ -611,7 +690,7 @@ export default function SequenceDiagram({
           // стрелка: расхождение со схемой выглядит одинаково, где бы ни встретилось.
           const stroke = p.nodeId === null
             ? BROKEN.ln
-            : st === "existing" ? "#94a3b8" : STATUS_LEG[st];
+            : st === "existing" ? "var(--c-fg-faint)" : STATUS_LEG[st];
           const op = dimmed ? 0.12 : st === "existing" ? 0.85 : 0.7;
           const x = colX(p.id);
           return (
@@ -708,54 +787,42 @@ export default function SequenceDiagram({
         })}
       </svg>
 
-      {/* подписи сообщений (над стрелкой) */}
+      {/* Подписи шагов (над стрелкой): номер тихим текстом и подпись. Ширина подписи —
+          естественная, но не шире предела (шире — перенос по словам); центр — над
+          серединой стрелки, у шага внутри участника — справа от петли. Невидимые копии
+          в одну строку ниже меряют естественную ширину (от неё считаются промежутки). */}
       {messages.map((m) => {
         const xa = colX(m.from);
         const xb = colX(m.to);
-        // Самосообщение: подпись справа от петли (стрелка нулевой ширины не годится).
         const isSelf = m.from === m.to;
-        // Ширина плашки во время драга ЗАМОРОЖЕНА на базе исходных колонок (иначе
-        // текст сжимается до буквы в строке на пограничных ширинах) — плашка лишь
-        // центруется по живому центру стрелки; новая ширина (и переносы) применятся
-        // только после отпускания, при пересчёте на reload.
-        const baseSpan = Math.abs(PX(idx[m.to]) - PX(idx[m.from]));
-        const w = isSelf ? 168 : baseSpan;
-        const left = isSelf ? xa + SQ.ACT_W / 2 + 34 : (xa + xb) / 2 - (w - 16) / 2 - 8;
         const dragged = isDraggedK(idx[m.from]) || isDraggedK(idx[m.to]);
-        const shape = legMeta(m.kind);
-        const st = strongestStatus(statusOf(m.from), statusOf(m.to));
-        const sc = getNodeColors(false, 0, st);
-        const badgeBg = m.valid ? withAlpha(sc.bg, 0.14) : BROKEN.soft;
-        const badgeBorder = m.valid ? sc.border : BROKEN.border;
-        const badgeInk = m.valid ? STATUS_LEG[st] : BROKEN.ink;
         const click = clickOf(m);
-        // Просмотр: подпись шага со схемой логики — ссылка на неё (в правке шаг
-        // открывает карточку, и выделять ссылку незачем).
-        const docLink = !onMessageClick && !!click && m.valid;
+        // Помещается в предел — одной строкой без права переноса: под масштабом ширина
+        // текста чуть другая, чем у замера, и лишний перенос был бы случайным.
+        const natural = labelW[m.id];
+        const oneLine = natural === undefined || natural <= fit.cap;
         return (
           <div
             key={"l" + m.id}
             data-mid={m.id}
             ref={bindLabel}
+            className="seq-label"
             onPointerDown={onReorderMessages ? (e) => onLabelDown(e, m.r) : undefined}
             onClick={click ? clickGuarded(click) : undefined}
-            title={docLink ? (m.doc ? `Схема логики «${m.doc}»` : "Схема логики шага") : undefined}
             style={{
               position: "absolute",
-              left: left + 8,
+              left: isSelf ? xa + SQ.SELF_OFF : (xa + xb) / 2,
+              transform: isSelf ? undefined : "translateX(-50%)",
               // подпись висит над стрелкой: её низ — на LABEL_GAP выше линии
               top: msgY(m.r) - lhOf(m.id) - LABEL_GAP,
-              width: w - 16,
-              display: "flex",
-              alignItems: "flex-start",
-              justifyContent: "center",
-              gap: 6,
+              maxWidth: fit.cap,
+              whiteSpace: oneLine ? "nowrap" : undefined,
               zIndex: 3,
               opacity: dimMsg(m) ? 0.12 : 1,
               pointerEvents: click ? "auto" : "none",
               cursor: click ? "pointer" : "default",
               transition:
-                dragged || rowDrag ? undefined : "left .15s ease, width .15s ease, top .15s ease",
+                dragged || rowDrag ? undefined : "left .15s ease, top .15s ease",
               // Тянущаяся подпись поверх остальных, чтобы не ныряла под соседние.
               ...(rowDrag?.fromR === m.r && rowDrag.moved
                 ? { zIndex: 6, cursor: "grabbing" }
@@ -765,110 +832,34 @@ export default function SequenceDiagram({
               userSelect: onReorderMessages ? "none" : undefined,
             }}
           >
-            {/* Номер и type-глиф — колонкой слева, текст и под ним технология — колонкой
-                справа: у всех строк один отступ (обтекание блока давало рваный край —
-                строки под ним уходили влево), и он одинаков у всех шагов. Технология под
-                номером съедала бы ширину текста на всех строках: JSON/HTTPS или Email/SMS
-                сжимали текст между соседними участниками до 5–6 строк. Естественная
-                ширина обёртки = номер + текст: короткая подпись не переносится зря и
-                центрована над стрелкой. */}
-            <span style={{ display: "flex", alignItems: "flex-start", gap: 6, flex: "0 1 auto", minWidth: 0, textAlign: "left", fontSize: 11.5, lineHeight: 1.35 }}>
-              <span style={{ flex: "none", display: "flex", alignItems: "center", gap: 5 }}>
-                <span
-                  style={{
-                    width: 16,
-                    height: 15,
-                    borderRadius: 5,
-                    background: badgeBg,
-                    color: badgeInk,
-                    border: "1px solid " + badgeBorder,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 9,
-                    fontWeight: 800,
-                    flex: "none",
-                  }}
-                >
-                  {m.valid ? m.n : <IcoBrokenLink s={11} />}
-                </span>
-                {/* маленький type-глиф рядом с цифрой — тип читается даже в ч/б */}
-                {m.valid && (
-                  <span style={{ color: badgeInk, display: "inline-flex", flex: "none" }}>
-                    <shape.Icon s={12} />
-                  </span>
-                )}
-              </span>
-              <span style={{ flex: "0 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                {/* текст с пометкой «связь удалена» — одним строчным блоком */}
-                <span style={{ maxWidth: "100%" }}>
-                  <span
-                    className={docLink ? "seq-doclink" : undefined}
-                    style={{
-                      fontSize: 11.5,
-                      fontWeight: 500,
-                      color: m.valid ? BPT.head : BROKEN.ink,
-                      // у ссылки на схему подчёркивание — из класса (processes.css)
-                      ...(docLink ? null : { textDecoration: m.valid ? "none" : "line-through" }),
-                      // переносим по словам, длинные — по слогам (lang="ru" у страницы), и рвём
-                      // только то, что не делится
-                      whiteSpace: "normal",
-                      hyphens: "auto",
-                      overflowWrap: "anywhere",
-                      textAlign: "left",
-                      lineHeight: 1.35,
-                    }}
-                  >
-                    {m.label}
-                  </span>
-                  {!m.valid && (
-                    <span
-                      style={{
-                        display: "inline-block",
-                        marginLeft: 5,
-                        fontSize: 9.5,
-                        fontWeight: 700,
-                        color: BROKEN.ink,
-                        background: BROKEN.soft,
-                        border: "1px solid " + BROKEN.border,
-                        borderRadius: 4,
-                        padding: "1px 5px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {m.invalidReason === "leg_gone" ? "связь без ответа" : "связь удалена"}
-                    </span>
-                  )}
-                </span>
-                {m.valid && m.tech && (
-                  <span
-                    style={{
-                      fontSize: 9.5,
-                      fontWeight: 600,
-                      letterSpacing: ".02em",
-                      lineHeight: 1.2,
-                      color: BPT.micro,
-                      background: "#f1f5f9",
-                      border: "1px solid " + BPT.line,
-                      borderRadius: 4,
-                      padding: "0 5px",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {m.tech}
-                  </span>
-                )}
-              </span>
-            </span>
+            {labelBody(m)}
           </div>
         );
       })}
+      {createPortal(
+        <div aria-hidden="true" className="seq-measure">
+          {messages.map((m) => (
+            <div key={"w" + m.id} data-mw={m.id} ref={bindNatural} className="seq-label seq-label--measure">
+              {measureBody(m)}
+            </div>
+          ))}
+          {participants.map((p) => (
+            <div key={"h" + p.id} data-hw={p.id} ref={bindHead} className="seq-head-measure">
+              <span className="seq-head-glyph" />
+              <span className="seq-t" data-t={p.name} />
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
 
       {/* Шапки участников (линии жизни) — «липкая» полоса: при вертикальном скролле
           длинной диаграммы остаются на виду (position: sticky), диаграмма
           прокручивается под сплошным фоном полосы и не просвечивает. Горизонтально
           полоса скроллится вместе с диаграммой (единая ширина W), поэтому шапки
-          всегда стоят над своими колонками. */}
+          всегда стоят над своими колонками. Масштаб режима чтения — CSS zoom обёртки:
+          он меняет раскладку, и sticky работает (под transform: scale шапки отставали
+          бы от прокрутки). */}
       {/* sentinel: невидимая точка на верху диаграммы — индикатор прилипания шапок
           (IntersectionObserver в stuck). Вне потока, на раскладку не влияет. */}
       <div ref={sentinelRef} style={{ position: "absolute", top: 0, left: 0, width: 1, height: 1, pointerEvents: "none" }} />
@@ -877,10 +868,10 @@ export default function SequenceDiagram({
           position: "sticky",
           top: 0,
           height: SQ.TOP + SQ.PHEAD_H,
-          background: BPT.canvas,
+          background: "var(--c-bg)",
           // Грань видна только когда шапки прилипли (диаграмма прокручена); в самом
           // верху она растворена — шапки сливаются с холстом. Проявляется плавно.
-          borderBottom: "1px solid " + (stuck ? BPT.line : "transparent"),
+          borderBottom: "1px solid " + (stuck ? "var(--c-line)" : "transparent"),
           transition: "border-color .15s ease",
           zIndex: 7,
         }}
@@ -903,22 +894,26 @@ export default function SequenceDiagram({
             className="bp-phead"
             // Роль и признак «внешний» из шапки ушли в подсказку (2026-10-28): строка
             // роли под именем съедала высоту, а имя резалось на шести знаках.
-            title={[p.name, unbound ? "нет объекта на схеме" : p.role, p.external ? "внешний" : ""].filter(Boolean).join(" · ")}
+            title={[p.name, unbound ? "нет объекта на схеме" : p.role, p.external ? "внешний объект" : ""].filter(Boolean).join(", ")}
             onPointerDown={(e) => onHeaderDown(e, k)}
             style={{
               position: "absolute",
-              left: colX(p.id) - 78,
+              // Шапка по ширине имени (в пределах HEAD_MIN…HEAD_MAX, длиннее — две
+              // строки) и по центру своей колонки; ширину считает геометрия по замеру.
+              left: colX(p.id) - headWOf(p.id) / 2,
               top: SQ.TOP,
-              width: 156,
+              width: headWOf(p.id),
               height: SQ.PHEAD_H,
-              background: unbound ? BROKEN.soft : isStatus ? withAlpha(sc.bg, 0.1) : "#fff",
-              border: "1px solid " + (unbound ? BROKEN.border : isStatus ? sc.border : p.external ? BPT.line : "#d6dee8"),
-              borderRadius: 9,
-              boxShadow: isDragged ? "0 6px 18px rgba(15,23,42,.22)" : "0 1px 3px rgba(15,23,42,.06)",
+              // Плоская: рамка 1 px, радиус 6, белый фон. Тень — только у тянущейся.
+              background: unbound ? BROKEN.soft : "var(--c-bg)",
+              border: "1px solid " + (unbound ? BROKEN.border : isStatus ? sc.border : p.external ? "var(--c-line)" : "var(--c-line-strong)"),
+              borderRadius: "var(--radius)",
+              boxShadow: isDragged ? "0 6px 18px rgba(15,23,42,.22)" : undefined,
               display: "flex",
               alignItems: "center",
-              gap: 7,
-              padding: "0 9px",
+              justifyContent: "center",
+              gap: 6,
+              padding: "0 10px",
               boxSizing: "border-box",
               zIndex: isDragged ? 7 : 4,
               opacity: dimmed ? 0.12 : 1,
@@ -928,26 +923,24 @@ export default function SequenceDiagram({
               cursor: onReorderParticipants && !selectMode ? (isDragged ? "grabbing" : "grab") : undefined,
             }}
           >
-            {/* плавающий статус-бейдж «новый»/«выводится» (как на C4-узле) */}
+            {/* статус «новый»/«выводится» над шапкой — сигнал вида схемы, как у C4-узла */}
             {badge && (
               <span
                 style={{
                   position: "absolute",
-                  top: -8,
-                  left: 10,
-                  height: 16,
+                  top: -9,
+                  left: 8,
+                  height: 18,
                   display: "inline-flex",
                   alignItems: "center",
-                  fontSize: 9.5,
-                  fontWeight: 700,
-                  letterSpacing: ".03em",
+                  fontSize: "var(--fs-caption)",
+                  fontWeight: 500,
                   lineHeight: 1,
-                  padding: "0 7px",
-                  borderRadius: 20,
+                  padding: "0 6px",
+                  borderRadius: "var(--radius)",
                   color: "#fff",
                   background: sc.border,
                   whiteSpace: "nowrap",
-                  boxShadow: "0 1px 3px rgba(0,0,0,.18)",
                   pointerEvents: "none",
                   zIndex: 5,
                 }}
@@ -978,15 +971,16 @@ export default function SequenceDiagram({
                 style={{
                   position: "absolute",
                   left: 6,
-                  top: -9,
-                  height: 18,
-                  padding: "0 7px",
+                  top: -10,
+                  height: 20,
+                  padding: "0 6px",
                   background: BROKEN.soft,
                   border: "1px solid " + BROKEN.border,
-                  borderRadius: 5,
+                  borderRadius: "var(--radius)",
                   color: BROKEN.ink,
-                  fontSize: 10,
-                  fontWeight: 700,
+                  fontFamily: "inherit",
+                  fontSize: "var(--fs-caption)",
+                  fontWeight: 500,
                   cursor: "pointer",
                   zIndex: 6,
                 }}
@@ -994,45 +988,40 @@ export default function SequenceDiagram({
                 привязать
               </button>
             )}
+            {/* Значок формы; у непривязанного формы нет — знак разрыва, как у повисшей
+                стрелки. */}
             <span
               style={{
-                width: 22,
-                height: 22,
-                borderRadius: 6,
-                background: unbound ? BROKEN.soft : isStatus ? sc.bg : p.external ? "#f8fafc" : BPT.wash,
-                color: unbound ? BROKEN.ink : isStatus ? "#fff" : p.external ? BPT.mut : BPT.accent,
+                color: unbound ? BROKEN.ink : isStatus ? sc.border : p.external ? "var(--c-fg-faint)" : "var(--c-fg-muted)",
                 display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
                 flex: "none",
               }}
             >
-              {/* Формы у непривязанного нет — вместо неё знак разрыва, как у
-                  повисшей стрелки. */}
               {p.shape ? <C4Glyph shape={p.shape} s={14} /> : <IcoBrokenLink s={13} />}
             </span>
             <div style={{ minWidth: 0 }}>
-              {/* Имя — до двух строк, длинное слово ломается, а не режется; у
-                  непривязанного одна строка: вторую занимает причина. Форму
-                  показывает значок, роль — подсказка шапки. */}
+              {/* Имя — до двух строк, перенос по словам; у непривязанного одна строка:
+                  вторую занимает причина. Форму показывает значок, роль — подсказка. */}
               <div
                 style={{
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  lineHeight: 1.2,
-                  color: BPT.head,
+                  fontSize: "var(--fs-ui)",
+                  fontWeight: 500,
+                  lineHeight: "var(--lh-tight)",
+                  color: "var(--c-fg)",
                   display: "-webkit-box",
                   WebkitLineClamp: unbound ? 1 : 2,
                   WebkitBoxOrient: "vertical",
                   overflow: "hidden",
-                  hyphens: "auto",
-                  overflowWrap: "anywhere",
+                  overflowWrap: "break-word",
+                  // Имя, которое помещается в шапку, — одной строкой: под масштабом
+                  // ширина текста чуть другая, чем у замера, и перенос был бы случайным.
+                  whiteSpace: (headW[p.id] ?? 0) <= SQ.HEAD_MAX ? "nowrap" : undefined,
                 }}
               >
                 {p.name}
               </div>
               {unbound && (
-                <div style={{ fontSize: 9.5, color: BPT.mut, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ fontSize: "var(--fs-caption)", color: "var(--c-fg-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   нет объекта на схеме
                 </div>
               )}
@@ -1095,7 +1084,7 @@ export default function SequenceDiagram({
             return (
               <button
                 key={"g" + p.id}
-                title={drag ? `Связь с «${p.name}»` : `Сообщение от «${p.name}»`}
+                title={drag ? `Связь с «${p.name}»` : `Шаг от «${p.name}»`}
                 onPointerDown={(e) => onCircleDown(e, p.id, k)}
                 style={{
                   ...circleBase,
@@ -1168,7 +1157,7 @@ export default function SequenceDiagram({
               />
               <button
                 tabIndex={-1}
-                title="Сообщение самому себе"
+                title="Шаг внутри участника"
                 style={{
                   ...circleBase,
                   left: colX(drag.from),
@@ -1237,9 +1226,9 @@ const pheadDel: CSSProperties = {
   width: 20,
   height: 20,
   borderRadius: "50%",
-  border: "1px solid #fecaca",
-  background: "#fff",
-  color: "#dc2626",
+  border: "1px solid var(--c-line)",
+  background: "var(--c-bg)",
+  color: "var(--c-danger)",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1259,9 +1248,9 @@ const pheadOpen: CSSProperties = {
   width: 20,
   height: 20,
   borderRadius: "50%",
-  border: "1px solid " + BPT.line,
-  background: "#fff",
-  color: BPT.mut,
+  border: "1px solid var(--c-line)",
+  background: "var(--c-bg)",
+  color: "var(--c-fg-muted)",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
