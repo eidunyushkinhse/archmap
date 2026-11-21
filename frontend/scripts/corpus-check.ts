@@ -17,10 +17,13 @@
 //   --ref-times <файл>    показать ускорение против опорного замера
 //   --save-stats <файл>   записать по сценам время, оценки цены сцены и вызовы zRoutes
 //   --ref-stats <файл>    показать оценки «было → стало» против записанных --save-stats
-//   --quality             ВОРОТА КАЧЕСТВА (шаг «меньше проб»): метрики качества «база →
-//                         сейчас» по каждой сцене, ИТОГО по корпусу и вердикт ворот;
-//                         код возврата 1 — ворота не пройдены (отличия от базы сами по
-//                         себе ошибкой в этом режиме не считаются)
+//   --quality             ВОРОТА КАЧЕСТВА: метрики качества «база → сейчас» по каждой
+//                         сцене, ИТОГО по корпусу и вердикт ворот; код возврата 1 — ворота
+//                         не пройдены (отличия от базы сами по себе ошибкой в этом режиме
+//                         не считаются)
+//   --gates <набор>       набор пределов ворот качества (scripts/lib/qualityGates.ts):
+//                         search — шаг «меньше проб» (по умолчанию, сцена со сценой),
+//                         elk — шаг «быстрый ELK и один прогон» (только суммы по корпусу)
 //   --selfcheck           самопроверка кэшей Z-роутера (diag.__ARCHMAP_Z_SELFCHECK): каждое
 //                         попадание в кэш дополнительно считается честно и сверяется,
 //                         расхождение — исключение с названием кэша (прогон медленнее);
@@ -45,7 +48,7 @@ import { __clearElkCacheForTests } from "../src/components/graph/layout/engine";
 import { diag } from "../src/components/graph/layout/diag";
 import { measureQuality, type QualityMetrics, type RouteDump } from "../src/components/graph/layout/routeQualityMetrics";
 import { buildRouteDump, reviveInput } from "./lib/routeDump";
-import { checkQualityGates, type SceneQuality } from "./lib/qualityGates";
+import { checkQualityGates, isGateSetName, type GateSetName, type SceneQuality } from "./lib/qualityGates";
 
 const argv = process.argv.slice(2);
 const flag = (name: string): string | undefined => {
@@ -54,7 +57,7 @@ const flag = (name: string): string | undefined => {
 };
 const [inputsDir, baselineDir] = argv;
 if (!inputsDir || !baselineDir || inputsDir.startsWith("--") || baselineDir.startsWith("--")) {
-  console.error("использование: npm run corpus-check -- <каталог входов> <каталог базовых дампов> [--only a,b] [--skip a,b] [--write dir] [--write-all dir] [--save-times f] [--ref-times f] [--save-stats f] [--ref-stats f] [--quality] [--selfcheck] [--skipcheck]");
+  console.error("использование: npm run corpus-check -- <каталог входов> <каталог базовых дампов> [--only a,b] [--skip a,b] [--write dir] [--write-all dir] [--save-times f] [--ref-times f] [--save-stats f] [--ref-stats f] [--quality] [--gates search|elk] [--selfcheck] [--skipcheck]");
   process.exit(2);
 }
 const list = (v: string | undefined): string[] => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : []);
@@ -67,6 +70,12 @@ const refTimesFile = flag("--ref-times");
 const saveStats = flag("--save-stats");
 const refStatsFile = flag("--ref-stats");
 const quality = argv.includes("--quality");
+const gatesArg = flag("--gates") ?? "search";
+if (!isGateSetName(gatesArg)) {
+  console.error(`неизвестный набор ворот: ${gatesArg} (есть search, elk)`);
+  process.exit(2);
+}
+const gateSet: GateSetName = gatesArg;
 const selfCount: Record<string, number> = {};
 if (argv.includes("--selfcheck")) {
   diag.__ARCHMAP_Z_SELFCHECK = true;
@@ -180,7 +189,7 @@ if (diag.__ARCHMAP_Z_SELFCHECK) {
 }
 if (differ > 0) console.log(`отличаются: ${differing.join(", ")}`);
 if (quality) {
-  const gate = checkQualityGates(scenes);
+  const gate = checkQualityGates(scenes, gateSet);
   for (const line of gate.lines) console.log(line);
   process.exit(gate.ok ? 0 : 1);
 }
