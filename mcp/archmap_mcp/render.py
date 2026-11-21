@@ -13,7 +13,7 @@ Uuid остаются там, где агент обязан ими оперир
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -2538,6 +2538,8 @@ def _version_kind(version: dict[str, Any]) -> str | None:
         return "перед откатом"
     if kind == "pre_delete":
         return "перед удалением"
+    if kind == "pre_replace":
+        return "перед заменой процесса"
     if kind == "restore":
         source = version.get("restored_from")
         return f"откат к v{source}" if source is not None else "откат"
@@ -2706,9 +2708,12 @@ def version_created(data: dict[str, Any]) -> str:
 
 # ── Удаление пачкой (POST /deletions) ────────────────────────────────────────
 
-DELETION_KIND_WORD = {"node": "объект", "edge": "связь", "doc": "схема логики"}
+DELETION_KIND_WORD = {
+    "node": "объект", "edge": "связь", "doc": "схема логики", "process": "процесс",
+}
 # Итог «сколько уйдёт»: поле DeletionTotals → формы числительного. Порядок — порядок фразы.
 DELETION_TOTALS = (
+    ("processes", ("процесс", "процесса", "процессов")),
     ("nodes", ("объект", "объекта", "объектов")),
     ("edges", ("связь", "связи", "связей")),
     ("docs", ("схема логики", "схемы логики", "схем логики")),
@@ -2767,4 +2772,133 @@ def deletion_report(pname: str, data: dict[str, Any]) -> str:
             f"Вернуть удалённое может человек: откат к v{number} в истории версий {where} "
             "в интерфейсе ArchMap."
         )
+    if int(totals.get("processes") or 0):
+        out.append(
+            "Процесс откат не вернёт: его текст остаётся в версии всего проекта "
+            "(archmap_version_doc с process_id), ввезти заново можно archmap_process_apply."
+        )
+    return "\n".join(out)
+
+
+# ── Ввоз процесса из mermaid (POST /processes/import…) ───────────────────────
+
+# Почему шаг не встал на связь — словами для агента (ImportStepStatus бэкенда).
+STEP_PROBLEM = {
+    "no_channel": "связи между объектами в эту сторону нет",
+    "ambiguous": "подходящих связей несколько, выбрать может только человек",
+    "unbound": "участник без объекта",
+}
+
+
+def _participant_line(part: dict[str, Any], overrides: set[str]) -> str:
+    name = f"{part.get('name')}"
+    alias = str(part.get("alias"))
+    head = f"  • {name}" + (f" (алиас {alias})" if alias != name else "")
+    cands: list[dict[str, Any]] = part.get("candidates") or []
+    if alias in overrides:
+        return head + ": сопоставление из mapping"
+    if part.get("node_id"):
+        chosen = next((c for c in cands if str(c.get("id")) == str(part["node_id"])), {})
+        where = f" в «{chosen['parent_name']}»" if chosen.get("parent_name") else ""
+        return head + f": объект «{chosen.get('name', name)}»{where}  id={part['node_id']}"
+    if not cands:
+        return head + ": объекта с таким именем нет, участник будет без объекта"
+    options = "; ".join(
+        f"«{c.get('name')}»" + (f" в «{c['parent_name']}»" if c.get("parent_name") else "")
+        + f" id={c.get('id')}"
+        for c in cands
+    )
+    return head + f": объектов с таким именем несколько, выберите в mapping: {options}"
+
+
+def _step_problems(data: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for st in data.get("steps") or []:
+        number = int(st.get("order", 0)) + 1
+        caption = f" «{st['caption']}»" if st.get("caption") else ""
+        what = f"  {number}. {st.get('from_name')} → {st.get('to_name')}{caption}"
+        problem = STEP_PROBLEM.get(str(st.get("status")))
+        if problem:
+            lines.append(f"{what}: {problem}")
+        if st.get("doc_status") == "unresolved":
+            lines.append(f"{what}: схема логики «{st.get('doc_address')}» не найдена или неоднозначна")
+    return lines
+
+
+def _steps_summary(data: dict[str, Any], total: int) -> str:
+    return (
+        f"Шагов {total}: на связях {int(data.get('attached') or 0)}, внутренних "
+        f"{int(data.get('self_messages') or 0)}, без связи {int(data.get('dangling') or 0)}."
+    )
+
+
+def process_import_preview(
+    pname: str,
+    data: dict[str, Any],
+    *,
+    name: str,
+    replacing: str | None,
+    overrides: Iterable[str] = (),
+) -> str:
+    """Превью ввоза процесса (ProcessImportPreview): сопоставление участников, прогноз
+    по шагам (только проблемные), не разобранные строки и что делать дальше. name —
+    каким процесс будет называться (при замене без имени — прежнее)."""
+    head = f"Проект «{pname}» · проверка процесса «{name}»"
+    if replacing is not None:
+        head += (
+            f" вместо содержимого процесса «{replacing}» (перед заменой ArchMap сохранит "
+            "версию проекта)"
+        )
+    keys = set(overrides)
+    out = [head, "УЧАСТНИКИ:", *(_participant_line(p, keys) for p in data.get("participants") or [])]
+    out.append(_steps_summary(data, int(data.get("message_count") or 0)))
+    problems = _step_problems(data)
+    if problems:
+        out += ["ШАГИ, КОТОРЫЕ НЕ ВСТАНУТ НА СВЯЗЬ ИЛИ СХЕМУ:", *problems]
+    unsupported: list[str] = data.get("unsupported") or []
+    if unsupported:
+        out += ["НЕ РАЗОБРАНО (в процесс не попадёт):", *(f"  {line}" for line in unsupported)]
+    out.append("Записать: archmap_process_apply с тем же text и mapping.")
+    return "\n".join(out)
+
+
+def process_import_result(
+    pname: str, result: dict[str, Any], preview: dict[str, Any], *, name: str, replaced: bool
+) -> str:
+    """Итог записи процесса (ProcessImportResult / ProcessReplaceResult)."""
+    pid = result.get("process_id")
+    head = (
+        f"В проекте «{pname}» заменено содержимое процесса «{name}»  id={pid}"
+        if replaced
+        else f"В проекте «{pname}» создан процесс «{name}»  id={pid}"
+    )
+    parts = int(result.get("participants") or 0)
+    unbound = int(result.get("unbound") or 0)
+    out = [
+        head,
+        f"Участников {parts}" + (f", из них без объекта {unbound}" if unbound else "")
+        + f"; фрагментов {int(result.get('fragments') or 0)}.",
+        _steps_summary(result, int(result.get("messages") or 0)),
+    ]
+    linked, unresolved = int(result.get("doc_linked") or 0), int(result.get("doc_unresolved") or 0)
+    if linked or unresolved:
+        out.append(f"Привязок к схемам логики: {linked}, не найдено {unresolved}.")
+    problems = _step_problems(preview)
+    if problems:
+        out += ["ШАГИ БЕЗ СВЯЗИ ИЛИ СХЕМЫ (видны в рекомендациях проекта):", *problems]
+    unsupported: list[str] = result.get("unsupported") or []
+    if unsupported:
+        out += ["НЕ РАЗОБРАНО (в процесс не попало):", *(f"  {line}" for line in unsupported)]
+    if replaced:
+        number = result.get("version_number")
+        if result.get("version_created"):
+            out.append(
+                f"Перед заменой сохранена версия v{number} всего проекта: прежний текст процесса "
+                "в ней (archmap_version_doc с process_id)."
+            )
+        else:
+            out.append(
+                f"С последней версии v{number} всего проекта изменений не было: прежний текст "
+                "процесса лежит в ней."
+            )
     return "\n".join(out)

@@ -45,6 +45,8 @@ class DeletionTarget(BaseModel):
 class DeletionTotals(BaseModel):
     """Всё, что исчезнет, вместе с поддеревьями объектов пачки."""
 
+    # Процессы пачки: откат их не вернёт, текст остаётся в версии всего проекта.
+    processes: int
     nodes: int
     edges: int
     docs: int

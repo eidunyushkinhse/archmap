@@ -15,7 +15,8 @@
 
 Чего откат не вернёт, ответ говорит прямо: привязки процессов к удалённому (участник,
 область процесса, шаг на связи и шаг со схемой логики) остаются пустыми, процессы откат
-не трогает.
+не трогает. Удалённый процесс откатом не возвращается тоже: версия всего проекта,
+сохранённая перед удалением, хранит его текст, и процесс ввозят заново из него.
 
 Домен без HTTP и без коммита: роутер переводит DeletionError и коммитит с курсорами.
 """
@@ -37,7 +38,6 @@ from app.models.deployment_instance import DeploymentInstance
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
-from app.models.node_version import NodeVersion
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
@@ -55,6 +55,7 @@ NOT_FOUND = {
     "node": "Объекта {id} в проекте нет",
     "edge": "Связи {id} в проекте нет",
     "doc": "Схемы логики {id} в проекте нет",
+    "process": "Процесса {id} в проекте нет",
 }
 PRE_DELETE = "Перед удалением агентом: {what}"
 # Сколько имён перечислять в комментарии версии, остальное — числом.
@@ -74,12 +75,13 @@ class DeletionError(Exception):
 @dataclass
 class _Target:
     kind: DeletionKind
-    row: Node | Edge | NodeDoc
+    row: Node | Edge | NodeDoc | BusinessProcess
     label: str
     # Имя для комментария версии — короче пути.
     short: str
     # Узлы, от которых считается общий родитель: у объекта — его родитель (None —
-    # верхний уровень), у связи — оба конца, у схемы — её объект.
+    # верхний уровень), у связи — оба конца, у схемы — её объект, у процесса — None
+    # (процессы лежат в версии всего проекта).
     anchors: list[uuid.UUID | None]
     covered_by: uuid.UUID | None = None
 
@@ -122,12 +124,16 @@ def _resolve(
                 f"{src.name} → {tgt.name}",
                 [edge.source_id, edge.target_id],
             )
-    else:
+    elif item.kind == "doc":
         doc = db.get(NodeDoc, item.id)
         if doc is not None and doc.node_id in all_nodes:
             return _Target(
                 "doc", doc, f"«{doc.name}» у {path(doc.node_id)}", doc.name, [doc.node_id]
             )
+    else:
+        proc = db.get(BusinessProcess, item.id)
+        if proc is not None and proc.project_id == project.id:
+            return _Target("process", proc, f"«{proc.name}»", proc.name, [None])
     raise DeletionError(NOT_FOUND[item.kind].format(id=item.id))
 
 
@@ -143,12 +149,14 @@ def _unique(items: Iterable[DeletionItem]) -> list[DeletionItem]:
 
 def _owners(target: _Target) -> list[uuid.UUID]:
     """Узлы, вместе с которыми пункт уходит каскадом: сам объект, концы связи, объект
-    схемы."""
+    схемы. Процесс удаление объекта переживает (участник остаётся без объекта)."""
     if isinstance(target.row, Node):
         return [target.row.id]
     if isinstance(target.row, Edge):
         return [target.row.source_id, target.row.target_id]
-    return [target.row.node_id]
+    if isinstance(target.row, NodeDoc):
+        return [target.row.node_id]
+    return []
 
 
 def _mark_covered(
@@ -235,6 +243,7 @@ def _totals(
             db, select(func.count()).where(DeploymentInstance.node_id.in_(gone_nodes))
         )
     return DeletionTotals(
+        processes=sum(1 for t in live if t.kind == "process"),
         nodes=len(gone_nodes),
         edges=len(edge_ids),
         docs=len(doc_ids),
@@ -322,16 +331,9 @@ def apply(db: Session, project: Project, user: User, p: Plan, reason: str | None
     другого."""
     slice_node = p.all_nodes.get(p.slice_id) if p.slice_id is not None else None
     live = p.live
-    snapshot = versions.live_snapshot(db, project, slice_node)
-    created = versions.has_pending(db, project, slice_node, snapshot)
-    row: NodeVersion | None
-    if created:
-        row = versions.create_version(
-            db, project, user, slice_node, _comment(live, reason), kind="pre_delete"
-        )
-    else:
-        # has_pending без версий отвечает True, поэтому последняя здесь есть всегда.
-        row = versions.last_version(db, project, slice_node)
+    row, created = versions.ensure_version(
+        db, project, user, slice_node, _comment(live, reason), kind="pre_delete"
+    )
     number = row.number if row is not None else None
     for target in live:
         if isinstance(target.row, Node):

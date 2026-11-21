@@ -330,7 +330,8 @@ export type FragmentUpdate = Schemas["FragmentUpdate"];
 export type BindResult = Schemas["BindResult"];
 export type ReattachResult = Schemas["ReattachResult"];
 // Импорт процесса из mermaid: превью → применение.
-export type ProcessImportIn = Schemas["ProcessImportIn"];
+// Тело превью: текст, имя и необязательные уточнения сопоставления (overrides — для агента).
+export type ProcessImportIn = Schemas["ProcessImportPreviewIn"];
 export type ProcessImportApply = Schemas["ProcessImportApply"];
 export type ProcessImportPreview = Schemas["ProcessImportPreview"];
 export type ProcessImportResult = Schemas["ProcessImportResult"];

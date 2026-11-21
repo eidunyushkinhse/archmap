@@ -45,6 +45,6 @@ def delete_batch(
         user.id,
         graph=bool(totals.nodes or totals.edges),
         meta=bool(totals.docs or totals.facts),
-        process=bool(totals.process_links),
+        process=bool(totals.processes or totals.process_links),
     )
     return out

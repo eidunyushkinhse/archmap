@@ -206,9 +206,9 @@ async def test_одна_схема_не_найдена(client: ArchMapClient, ap
         )
 
 
-def test_каталог_43_инструментов_и_описание_поиска_направляет() -> None:
+def test_каталог_45_инструментов_и_описание_поиска_направляет() -> None:
     names = [t["name"] for t in tools.TOOLS]
-    assert len(names) == 43 and len(set(names)) == 43
+    assert len(names) == 45 and len(set(names)) == 45
     assert {"archmap_search", "archmap_doc"} <= set(names)
     desc = tools.BY_NAME["archmap_search"]["description"]
     assert "ЦЕЛИКОМ" in desc and "ПЕРЕД тем, как открывать карточки" in desc
