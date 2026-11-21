@@ -221,6 +221,8 @@ button.ds-sub:hover {
 /* Кнопка-значок: тихая, без рамки, подложка при наведении, 28px. Одна на все экраны:
    шапка редактора-карты, сворачивание дерева и списка процессов, отмена и повтор в шапке
    процесса, заголовок панели объекта. Открытое меню держит подложку (aria-expanded).
+   Фокус с клавиатуры — кольцом, как у остальных кнопок языка: подложка значит «под
+   мышью» или «открыто», и фокус от неё должен отличаться.
    position: relative — для точки-признака у значка («Рекомендации»). */
 .ds-icon-btn {
   position: relative;
@@ -238,11 +240,14 @@ button.ds-sub:hover {
   cursor: pointer;
 }
 .ds-icon-btn:hover:not(:disabled),
-.ds-icon-btn:focus-visible,
 .ds-icon-btn[aria-expanded="true"] {
   background: var(--c-hover);
   color: var(--c-fg);
-  outline: none;
+}
+.ds-icon-btn:focus-visible {
+  color: var(--c-fg);
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
 }
 .ds-icon-btn:disabled {
   color: var(--c-fg-faint);

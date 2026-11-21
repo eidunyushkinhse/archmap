@@ -13,29 +13,35 @@
    Высота 59px и поля 20px — как у шапки оболочки проекта (ui/pageChrome.workTopBar:
    поля 11px вокруг переключателя режима 36px и черта 1px): при входе в редактор логотип
    и первая строка не прыгают. Своя плоскость наложения выше тела страницы: меню и панель
-   «Рекомендации» раскрываются из шапки поверх холста. */
+   «Рекомендации» раскрываются из шапки поверх холста.
+   Шапка всегда в одну строку: когда места мало, сжимаются только имена крошек (ниже),
+   правая группа и логотип не сжимаются. */
 .me-head {
   position: relative;
   z-index: 50;
   flex: none;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   box-sizing: border-box;
-  min-height: 59px;
+  height: 59px;
   padding: 0 20px;
   border-bottom: 1px solid var(--c-line);
   background: var(--c-bg);
 }
 .me-head-left {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-1);
+}
+/* Логотип, разделитель и корневая крошка («Контекст» / «Проект») не сжимаются. */
+.me-head-left > * {
+  flex: none;
 }
 .me-head-sep {
   flex: none;
@@ -44,14 +50,30 @@
   margin: 0 var(--space-1);
   background: var(--c-line);
 }
-/* Крошки уровней: 13px, звенья тихие, текущий уровень — 600 и не нажимается. */
+/* Крошки уровней: 13px, звенья тихие, текущий уровень — 600 и не нажимается.
+   Нехватка места сжимает имена многоточием, сначала у звеньев-предков. Сжатие во флексе
+   делится пропорционально коэффициентам, приоритета у него нет: при отношении 1000 к 1
+   текущему уровню доставались сотые доли пикселя, и этого хватало на многоточие
+   («Зака…» на окне 900). При миллионе к одному его доля меньше единицы раскладки
+   (1/64 px), и он начинает сжиматься, только когда предки дошли до своего минимума.
+   Минимум звена — шеврон и «…» (40px): шеврон не наезжает на соседа. */
 .me-crumb-step {
   display: flex;
   align-items: center;
+  min-width: 40px;
+}
+.me-head-left > .me-crumb-step {
+  flex: 0 1000000 auto;
+}
+.me-head-left > .me-crumb-step--current {
+  flex: 0 1 auto;
 }
 .me-crumb {
-  display: inline-flex;
-  align-items: center;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   padding: 3px 7px;
   border: 0;
   border-radius: var(--radius);
@@ -77,6 +99,7 @@
   cursor: default;
 }
 .me-crumb-chev {
+  flex: none;
   display: inline-flex;
   margin: 0 1px;
   color: var(--c-fg-faint);

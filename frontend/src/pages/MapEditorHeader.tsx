@@ -62,19 +62,24 @@ export default function MapEditorHeader({
         <BrandLink onClick={onAllProjects} />
         <span className="me-head-sep" aria-hidden="true" />
         {/* Корневую крошку называют тексты обучающего тура: «Контекст» и «Проект». */}
-        <button type="button" className="me-crumb" data-tour="crumb-root" onClick={onRoot}>
+        <button type="button" className="me-crumb me-crumb--root" data-tour="crumb-root" onClick={onRoot}>
           {crumbs.length === 0 ? "Контекст" : "Проект"}
         </button>
-        {crumbs.map((n, i) => (
-          <span key={n.id} className="me-crumb-step">
-            <span className="me-crumb-chev" aria-hidden="true"><ChevronIcon /></span>
-            {i < crumbs.length - 1 ? (
-              <button type="button" className="me-crumb" onClick={() => onCrumb(i)}>{n.name}</button>
-            ) : (
-              <button type="button" className="me-crumb me-crumb--current" disabled>{n.name}</button>
-            )}
-          </span>
-        ))}
+        {/* Шапка в одну строку: длинный путь не переносится, а обрезает имена многоточием,
+            сначала у предков, текущий уровень последним. Полное имя — в подсказке. */}
+        {crumbs.map((n, i) => {
+          const current = i === crumbs.length - 1;
+          return (
+            <span key={n.id} className={"me-crumb-step" + (current ? " me-crumb-step--current" : "")}>
+              <span className="me-crumb-chev" aria-hidden="true"><ChevronIcon /></span>
+              {current ? (
+                <button type="button" className="me-crumb me-crumb--current" title={n.name} disabled>{n.name}</button>
+              ) : (
+                <button type="button" className="me-crumb" title={n.name} onClick={() => onCrumb(i)}>{n.name}</button>
+              )}
+            </span>
+          );
+        })}
       </div>
       <div className="me-head-acts">
         <div className="me-head-icons">

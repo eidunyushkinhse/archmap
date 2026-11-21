@@ -363,6 +363,11 @@ describe("MapEditorPage", () => {
     // Текущий уровень — не ссылка (disabled)
     const current = screen.getByRole("button", { name: "Уровень B" });
     expect(current).toBeDisabled();
+    // Шапка в одну строку: имена звеньев могут обрезаться многоточием, полное — в
+    // подсказке. Корневая крошка не обрезается, подсказка ей не нужна.
+    expect(current).toHaveAttribute("title", "Уровень B");
+    expect(screen.getByRole("button", { name: "Корень" })).toHaveAttribute("title", "Корень");
+    expect(screen.getByRole("button", { name: "Проект" })).not.toHaveAttribute("title");
   });
 
   it("кнопка «Готово» вызывает onDone", async () => {
