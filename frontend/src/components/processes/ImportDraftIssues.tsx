@@ -1,8 +1,9 @@
 // Проблемы черновика импорта процесса (редизайн, фаза 3б). Показывается только то, что
-// требует решения или говорит о потере: участники без объекта схемы (с выбором),
-// шаги, которые не встанут на связь схемы, непонятые строки, ненайденные привязки к
-// схемам логики, потеря привязок при замене, отказ. Сопоставившиеся сами участники
-// свёрнуты в тихую строку «Сопоставлено N». Счётчиков «шагов · фрагментов» нет.
+// требует решения или говорит о потере: участники без объекта схемы (с выбором любого
+// объекта схемы, NodeChoice), шаги, которые не встанут на связь схемы, непонятые строки,
+// ненайденные привязки к схемам логики, потеря привязок при замене, отказ.
+// Сопоставившиеся сами участники свёрнуты в тихую строку «Сопоставлено N» с тем же
+// выбором. Счётчиков «шагов · фрагментов» нет.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { ProcessImportPreview } from "../../types";
@@ -11,6 +12,8 @@ import { plural } from "../../ui/plural";
 import { LimitText } from "../demo/DemoLimitToast";
 import { chosenNode, issuesOf } from "./importIssues";
 import type { DocKeep, DraftFailure, Participant } from "./importIssues";
+import NodeChoice from "./NodeChoice";
+import type { SchemaNodes } from "./schemaNodes";
 
 interface Props {
   preview: ProcessImportPreview | null;
@@ -19,10 +22,24 @@ interface Props {
   // Отказы: файл не прочитан, превью не посчиталось, импорт или замена не прошли.
   errors: DraftFailure[];
   keep: DocKeep | null;
+  // Объекты схемы для выбора участнику: окно грузит их один раз на всё время жизни.
+  schema: SchemaNodes;
 }
 
-export default function ImportDraftIssues({ preview, choice, onChoose, errors, keep }: Props) {
+export default function ImportDraftIssues({ preview, choice, onChoose, errors, keep, schema }: Props) {
   const i = preview ? issuesOf(preview) : null;
+  // Объекты, выбранные участникам черновика: другому участнику они не предлагаются.
+  const chosen = (preview?.participants ?? []).map((p) => [p.alias, chosenNode(p, choice)] as const);
+  const row = (p: Participant) => (
+    <ParticipantRow
+      key={p.alias}
+      p={p}
+      value={chosenNode(p, choice)}
+      taken={new Set(chosen.filter(([a, id]) => a !== p.alias && id !== "").map(([, id]) => id))}
+      schema={schema}
+      onChoose={onChoose}
+    />
+  );
   return (
     <div className="pim-issues">
       {errors.map((e, n) => (
@@ -32,20 +49,10 @@ export default function ImportDraftIssues({ preview, choice, onChoose, errors, k
       ))}
       {preview && i && (
         <>
-          {i.unmatched.length > 0 && (
-            <div className="pim-parts">
-              {i.unmatched.map((p) => (
-                <ParticipantRow key={p.alias} p={p} value={chosenNode(p, choice)} onChoose={onChoose} />
-              ))}
-            </div>
-          )}
+          {i.unmatched.length > 0 && <div className="pim-parts">{i.unmatched.map(row)}</div>}
           {i.matched.length > 0 && (
             <Expand label={`Сопоставлено ${i.matched.length}`} quiet>
-              <div className="pim-parts">
-                {i.matched.map((p) => (
-                  <ParticipantRow key={p.alias} p={p} value={chosenNode(p, choice)} onChoose={onChoose} />
-                ))}
-              </div>
+              <div className="pim-parts">{i.matched.map(row)}</div>
             </Expand>
           )}
           {i.noLink.length > 0 && (
@@ -95,31 +102,20 @@ function docLostLabel(n: number): string {
   ]);
 }
 
-// Участник и выбор объекта схемы. У тёзок в скобках родитель: иначе одинаковые строки
-// не различить. Без кандидатов выбирать не из чего, строка говорит о потере.
-function ParticipantRow({ p, value, onChoose }: {
+// Участник (имя из текста диаграммы) и его объект схемы: значение-кнопка с панелью
+// выбора из всей схемы, кандидаты по имени сверху.
+function ParticipantRow({ p, value, taken, schema, onChoose }: {
   p: Participant;
   value: string;
+  taken: ReadonlySet<string>;
+  schema: SchemaNodes;
   onChoose: (alias: string, nodeId: string) => void;
 }) {
-  const namesakes = p.candidates.length > 1;
   return (
-    <label className="pim-part">
+    <div className="pim-part">
       <span className="pim-part-name">{p.name}</span>
-      <select
-        className="ds-input pim-select"
-        value={value}
-        disabled={p.candidates.length === 0}
-        onChange={(e) => onChoose(p.alias, e.target.value)}
-      >
-        <option value="">Без объекта схемы</option>
-        {p.candidates.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}{namesakes && c.parent_name ? ` (${c.parent_name})` : ""}
-          </option>
-        ))}
-      </select>
-    </label>
+      <NodeChoice participant={p} value={value} taken={taken} schema={schema} onChoose={(id) => onChoose(p.alias, id)} />
+    </div>
   );
 }
 

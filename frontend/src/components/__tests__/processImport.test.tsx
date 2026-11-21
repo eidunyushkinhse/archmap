@@ -10,14 +10,34 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import ProcessImportModal from "../processes/ProcessImportModal";
 import { processesApi } from "../../api/processes";
+import { nodesApi } from "../../api/nodes";
 import { ApiError, DEMO_LIMIT_CODE } from "../../api/client";
-import type { ProcessImportPreview, ProcessImportResult } from "../../types";
+import type { Node, ProcessImportPreview, ProcessImportResult } from "../../types";
 
 // Modal настоящий (test-setup открывает <dialog> атрибутом open): подтверждение по Enter
 // идёт через него.
 vi.mock("../../api/processes", () => ({
   processesApi: { importPreview: vi.fn(), importProcess: vi.fn() },
 }));
+vi.mock("../../api/nodes", () => ({ nodesApi: { getAll: vi.fn() } }));
+
+function node(id: string, name: string, parent_id: string | null = null): Node {
+  return {
+    id, name, description: null, role: null, technology: null, parent_id,
+    openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
+    child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
+    element: null, element_effective: "container", container_name: null,
+    version: 1, created_at: "", updated_at: "", sites: [],
+  };
+}
+
+// Объекты схемы проекта: тёзки «Биллинг» у двух родителей.
+const NODES: Node[] = [
+  node("n1", "Покупатель"), node("n2", "Веб-витрина"), node("k1", "Kafka"),
+  node("s1", "Сервис оплаты"), node("b1", "Биллинг", "s1"),
+  node("a1", "Бухгалтерия"), node("b2", "Биллинг", "a1"),
+  node("r1", "Сервис возвратов"),
+];
 
 const WAIT = { timeout: 3000 };
 
@@ -62,6 +82,16 @@ const PROBLEMS: ProcessImportPreview = {
   ],
 };
 
+// Участник без кандидатов: объекта с таким именем на схеме нет.
+const NO_CANDIDATES: ProcessImportPreview = {
+  ...CLEAN,
+  participants: [
+    CLEAN.participants[0],
+    { alias: "X", name: "Склад возвратов", node_id: null, candidates: [] },
+  ],
+  steps: [step(0, "unbound"), step(1, "unbound")],
+};
+
 const RESULT: ProcessImportResult = {
   process_id: "p9", participants: 2, unbound: 1, messages: 2,
   attached: 1, dangling: 1, self_messages: 0, fragments: 1, unsupported: [],
@@ -96,7 +126,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(processesApi.importPreview).mockResolvedValue(CLEAN);
   vi.mocked(processesApi.importProcess).mockResolvedValue(RESULT);
+  vi.mocked(nodesApi.getAll).mockResolvedValue(NODES);
 });
+
+const optionNames = () => screen.getAllByRole("option").map((o) => o.textContent);
+const search = () => screen.getByRole("combobox", { name: "Поиск объекта" });
 
 describe("импорт процессов: превью без кнопки", () => {
   it("кнопки «Разобрать» нет; пустой текст импортировать нечего", () => {
@@ -166,8 +200,8 @@ describe("импорт процессов: только проблемы", () =>
     await pasteAndWait(SEQ);
 
     expect(screen.getByText("Биллинг")).toBeTruthy();
-    // Тёзки различаются родителем в скобках.
-    expect(screen.getByRole("option", { name: "Биллинг (Сервис оплаты)" })).toBeTruthy();
+    // Объект не выбран: тихое «Выбрать объект» вместо выключенного списка.
+    expect(screen.getByRole("button", { name: "Биллинг: Выбрать объект" }).textContent).toBe("Выбрать объект");
     expect(screen.getByRole("button", { name: /1 шаг без связи на схеме/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Не разобрана 1 строка/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /1 привязка к схеме логики не найдена/ })).toBeTruthy();
@@ -189,7 +223,8 @@ describe("импорт процессов: сопоставление", () => {
     renderModal();
     await pasteAndWait(SEQ);
 
-    await userEvent.selectOptions(screen.getByRole("combobox"), "b2");
+    await userEvent.click(screen.getByRole("button", { name: "Биллинг: Выбрать объект" }));
+    await userEvent.click(screen.getByRole("option", { name: "Биллинг (Бухгалтерия)" }));
     await waitFor(() => expect(processesApi.importPreview).toHaveBeenCalledTimes(2), WAIT);
     expect(processesApi.importPreview).toHaveBeenLastCalledWith({ text: SEQ, overrides: { P2: "b2" } });
     await waitFor(() => expect(importButton()).not.toBeDisabled(), WAIT);
@@ -202,13 +237,17 @@ describe("импорт процессов: сопоставление", () => {
     );
   });
 
-  it("снятое сопоставление уходит как null", async () => {
+  it("«Без объекта» снимает выбор: в превью и в импорт уходит null", async () => {
     renderModal();
     await pasteAndWait(SEQ);
     await userEvent.click(screen.getByRole("button", { name: /Сопоставлено/ }));
 
-    await userEvent.selectOptions(screen.getAllByRole("combobox")[0], "");
+    await userEvent.click(screen.getByRole("button", { name: "Покупатель: Покупатель" }));
+    expect(optionNames()[0]).toBe("Без объекта"); // первым пунктом
+    await userEvent.click(screen.getByRole("option", { name: "Без объекта" }));
+    expect(screen.getByRole("button", { name: "Покупатель: Выбрать объект" })).toBeTruthy();
     await waitFor(() => expect(processesApi.importPreview).toHaveBeenCalledTimes(2), WAIT);
+    expect(processesApi.importPreview).toHaveBeenLastCalledWith({ text: SEQ, overrides: { P1: null } });
     await waitFor(() => expect(importButton()).not.toBeDisabled(), WAIT);
     await userEvent.click(importButton());
 
@@ -217,6 +256,123 @@ describe("импорт процессов: сопоставление", () => {
         expect.objectContaining({ mapping: { P1: null, P2: "n2" } }),
       ),
     );
+  });
+});
+
+// Редизайн, фаза 3в: участнику можно выбрать любой объект схемы, а не только совпадения
+// по имени (агент часто называет участника не так, как объект назван на схеме).
+describe("импорт процессов: объект участнику из всей схемы", () => {
+  it("участнику без кандидатов объект находится поиском и уходит в превью и в импорт", async () => {
+    vi.mocked(processesApi.importPreview).mockResolvedValue(NO_CANDIDATES);
+    renderModal();
+    await pasteAndWait(SEQ);
+
+    const btn = screen.getByRole("button", { name: "Склад возвратов: Выбрать объект" });
+    expect(btn).not.toBeDisabled();
+    expect(nodesApi.getAll).not.toHaveBeenCalled(); // объекты — по первому открытию панели
+    await userEvent.click(btn);
+    expect(search()).toHaveFocus();
+    await waitFor(() => expect(optionNames()).toContain("Kafka"));
+    await userEvent.type(search(), "kaf");
+    expect(optionNames()).toEqual(["Без объекта", "Kafka"]);
+    await userEvent.click(screen.getByRole("option", { name: "Kafka" }));
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    const chosen = screen.getByRole("button", { name: "Склад возвратов: Kafka" });
+    expect(chosen.textContent).toBe("Kafka");
+    expect(chosen).toHaveFocus();
+    await waitFor(() => expect(processesApi.importPreview).toHaveBeenCalledTimes(2), WAIT);
+    expect(processesApi.importPreview).toHaveBeenLastCalledWith({ text: SEQ, overrides: { X: "k1" } });
+    await waitFor(() => expect(importButton()).not.toBeDisabled(), WAIT);
+
+    await userEvent.click(importButton());
+    await waitFor(() =>
+      expect(processesApi.importProcess).toHaveBeenCalledWith({
+        text: SEQ, name: "Оплата", mapping: { P1: "n1", X: "k1" },
+      }),
+    );
+  });
+
+  it("стрелки ходят по списку, Enter выбирает и окно не подтверждает; объекты грузятся один раз", async () => {
+    vi.mocked(processesApi.importPreview).mockResolvedValue(NO_CANDIDATES);
+    renderModal();
+    await pasteAndWait(SEQ);
+    await userEvent.click(screen.getByRole("button", { name: "Склад возвратов: Выбрать объект" }));
+    await waitFor(() => expect(optionNames()).toContain("Kafka"));
+
+    await userEvent.type(search(), "сервис");
+    expect(optionNames()).toEqual(["Без объекта", "Сервис возвратов", "Сервис оплаты"]);
+    // Набранное имя — сразу на первом найденном; стрелка вниз — на следующем.
+    const activeName = () => document.getElementById(search().getAttribute("aria-activedescendant") ?? "")?.textContent;
+    expect(activeName()).toBe("Сервис возвратов");
+    await userEvent.keyboard("{ArrowDown}");
+    expect(activeName()).toBe("Сервис оплаты");
+    await userEvent.keyboard("{ArrowUp}{ArrowUp}");
+    expect(activeName()).toBe("Без объекта");
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+
+    await waitFor(() => expect(processesApi.importPreview).toHaveBeenCalledTimes(2), WAIT);
+    expect(processesApi.importPreview).toHaveBeenLastCalledWith({ text: SEQ, overrides: { X: "s1" } });
+    expect(processesApi.importProcess).not.toHaveBeenCalled(); // Enter выбрал, а не импортировал
+
+    await userEvent.click(screen.getByRole("button", { name: "Склад возвратов: Сервис оплаты" }));
+    expect(screen.getByRole("option", { name: "Сервис оплаты" })).toHaveAttribute("aria-selected", "true");
+    expect(nodesApi.getAll).toHaveBeenCalledOnce();
+  });
+
+  it("сверху кандидаты с родителем у тёзок, объект другого участника не предлагается", async () => {
+    vi.mocked(processesApi.importPreview).mockResolvedValue(PROBLEMS);
+    renderModal();
+    await pasteAndWait(SEQ);
+
+    await userEvent.click(screen.getByRole("button", { name: "Биллинг: Выбрать объект" }));
+    await waitFor(() => expect(optionNames()).toContain("Kafka"));
+    const names = optionNames();
+    expect(names.slice(0, 3)).toEqual(["Без объекта", "Биллинг (Сервис оплаты)", "Биллинг (Бухгалтерия)"]);
+    // «Покупатель» уже у участника P1: второй участник с тем же объектом остался бы без него.
+    expect(new Set(names.slice(3))).toEqual(new Set(["Kafka", "Бухгалтерия", "Веб-витрина", "Сервис возвратов", "Сервис оплаты"]));
+
+    await userEvent.click(screen.getByRole("option", { name: "Биллинг (Бухгалтерия)" }));
+    expect(screen.getByRole("button", { name: "Биллинг: Биллинг (Бухгалтерия)" })).toBeTruthy();
+  });
+
+  it("Escape и клик мимо закрывают панель, а не окно; фокус — на значении", async () => {
+    vi.mocked(processesApi.importPreview).mockResolvedValue(NO_CANDIDATES);
+    const { onClose } = renderModal();
+    await pasteAndWait(SEQ);
+    const btn = screen.getByRole("button", { name: "Склад возвратов: Выбрать объект" });
+    await userEvent.click(btn);
+
+    // Браузер закрывает <dialog> по Escape событием cancel, если keydown не погашен.
+    const notPrevented = fireEvent.keyDown(search(), { key: "Escape" });
+    if (notPrevented) fireEvent(document.querySelector("dialog")!, new Event("cancel", { cancelable: true }));
+    expect(notPrevented).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(btn).toHaveFocus();
+
+    await userEvent.click(btn);
+    fireEvent.mouseDown(document.querySelector(".pim-pop-backdrop")!);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(btn).toHaveFocus();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("объекты не загрузились: кандидаты на месте, отказ виден, следующее открытие пробует снова", async () => {
+    vi.mocked(nodesApi.getAll).mockRejectedValueOnce(new Error("Нет связи с сервером"));
+    vi.mocked(processesApi.importPreview).mockResolvedValue(PROBLEMS);
+    renderModal();
+    await pasteAndWait(SEQ);
+    const btn = screen.getByRole("button", { name: "Биллинг: Выбрать объект" });
+    await userEvent.click(btn);
+
+    expect(await screen.findByText("Не удалось загрузить объекты. Нет связи с сервером")).toBeTruthy();
+    expect(optionNames()).toEqual(["Без объекта", "Биллинг (Сервис оплаты)", "Биллинг (Бухгалтерия)"]);
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(btn);
+    await waitFor(() => expect(optionNames()).toContain("Kafka"));
+    expect(nodesApi.getAll).toHaveBeenCalledTimes(2);
   });
 });
 

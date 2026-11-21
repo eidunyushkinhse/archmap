@@ -7,6 +7,8 @@
 //
 // Пользователь НЕ обязан сопоставить каждого участника (его решение): оставленные без
 // объекта заводятся непривязанными, их шаги — без связи; об этом сказано до импорта.
+// Объект участнику выбирается из всей схемы (NodeChoice); объекты окно грузит один раз,
+// при первом открытии панели выбора (schemaNodes).
 //
 // Замена (replace): один черновик, название подставлено текущее, содержимое процесса
 // заменяется, id и область остаются, перед заменой бэкенд сохраняет версию проекта.
@@ -29,6 +31,8 @@ import type { PreviewResult } from "./useImportPreviews";
 import ImportDraftIssues from "./ImportDraftIssues";
 import { chosenNode, hasIssues, issuesOf } from "./importIssues";
 import type { DocKeep, DraftFailure } from "./importIssues";
+import { useSchemaNodes } from "./schemaNodes";
+import type { SchemaNodes } from "./schemaNodes";
 import "../../ui/ds.css";
 import "./processes.css";
 
@@ -78,6 +82,7 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
   const [busy, setBusy] = useState(false);
   const [dropping, setDropping] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const schema = useSchemaNodes();
 
   // Замена: сколько шагов процесса привязаны к схемам логики сейчас (K). Пока процесс не
   // прочитан, окно не знает, что потеряется, и «Заменить» заперта; отказ чтения держит
@@ -264,6 +269,7 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
             onName={(name) => patch(view[0].d.key, { name })}
             onText={(raw) => patch(view[0].d.key, { raw, failure: null, fileError: null })}
             onChoose={(alias, id) => patch(view[0].d.key, { choice: { ...view[0].d.choice, [alias]: id } })}
+            schema={schema}
           />
         ) : (
           <div className="pim-rows">
@@ -310,9 +316,15 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
                       <ImportDraftIssues
                         preview={v.preview}
                         choice={v.d.choice}
-                        onChoose={(alias, id) => patch(v.d.key, { choice: { ...v.d.choice, [alias]: id } })}
+                        onChoose={(alias, id) => {
+                          patch(v.d.key, { choice: { ...v.d.choice, [alias]: id } });
+                          // Строка раскрыта сама (были проблемы); выбор их может снять, и
+                          // строка свернулась бы из-под рук: раскрытие закрепляется.
+                          setOpen((o) => ({ ...o, [v.d.key]: o[v.d.key] ?? true }));
+                        }}
                         errors={v.errors}
                         keep={v.keep}
+                        schema={schema}
                       />
                     </div>
                   )}
@@ -351,7 +363,7 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
 }
 
 // Один черновик: поле названия, текст диаграммы и его проблемы. Без списка.
-function SingleDraft({ v, replace, onName, onText, onChoose }: {
+function SingleDraft({ v, replace, onName, onText, onChoose, schema }: {
   v: {
     d: Draft;
     preview: ProcessImportPreview | null;
@@ -363,6 +375,7 @@ function SingleDraft({ v, replace, onName, onText, onChoose }: {
   onName: (name: string) => void;
   onText: (raw: string) => void;
   onChoose: (alias: string, nodeId: string) => void;
+  schema: SchemaNodes;
 }) {
   return (
     <>
@@ -391,6 +404,7 @@ function SingleDraft({ v, replace, onName, onText, onChoose }: {
         onChoose={onChoose}
         errors={v.errors}
         keep={v.keep}
+        schema={schema}
       />
     </>
   );

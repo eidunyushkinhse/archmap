@@ -1034,9 +1034,95 @@ button.seq-doc:focus-visible {
   font-weight: 500;
   overflow-wrap: anywhere;
 }
-.pim-select:disabled {
+/* Объект участника: значение-кнопка и плавающая панель выбора (NodeChoice). Панель —
+   fixed с координатами от кнопки (их ставит NodeChoice): прокрутка содержимого окна её
+   не обрезает. Подложка ловит клик мимо. Оболочка панели — как у меню (.ds-menu). */
+.pim-choice {
+  min-width: 0;
+}
+.pim-choice-text {
+  overflow-wrap: anywhere;
+}
+.pim-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.pim-pop {
+  position: fixed;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 8px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.pim-pop .ds-input {
+  flex: none;
+}
+.pim-pop-list {
+  position: relative; /* опора offsetTop пунктов: список докручивается до пункта под клавиатурой */
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 0 -4px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.pim-pop-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.pim-pop-opt.is-active {
+  background: var(--c-hover);
+}
+.pim-pop-opt--none {
   color: var(--c-fg-muted);
-  background: var(--c-bg-subtle);
+}
+/* Черта между кандидатами по имени и остальными объектами. */
+.pim-pop-opt--sep {
+  position: relative;
+  margin-top: 9px;
+}
+.pim-pop-opt--sep::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 8px;
+  right: 8px;
+  border-top: 1px solid var(--c-line);
+}
+.pim-pop-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pim-pop-check {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-accent);
+}
+.pim-pop-note {
+  margin: 0;
+  padding: 0 4px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.pim-pop-note--err {
+  color: var(--c-danger);
 }
 .pim-exp-btn--warn,
 .pim-exp-btn--warn:hover {

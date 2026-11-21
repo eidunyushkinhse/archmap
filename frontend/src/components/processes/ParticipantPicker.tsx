@@ -1,10 +1,10 @@
 // Выбор участников процесса деревом узлов C4 (а не поиском по имени): браузишь
 // архитектуру глазами. Раскрытие шевронами, фильтр по имени (раскрывает путь к
 // совпадениям), мультивыбор чекбоксами и добавление пачкой. Уже добавленные участники
-// помечены и недоступны. Дерево собирается на клиенте из плоского /nodes/all.
+// помечены и недоступны. Дерево собирается на клиенте из плоского /nodes/all. Источник
+// объектов и правило отбора участников общие с окном импорта (schemaNodes).
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { nodesApi } from "../../api/nodes";
 import type { Node } from "../../types";
 import { treeNesting } from "../../types";
 import { Chevron, ShapeGlyph } from "../nodeTree.shared";
@@ -12,6 +12,7 @@ import { IcoSearch } from "./icons";
 import { BPT } from "./tokens";
 import "../NodeTreePanel.css";
 import { noAutofill } from "../../ui/noAutofill";
+import { useSchemaNodes } from "./schemaNodes";
 
 interface Props {
   added: Set<string>; // node_id уже добавленных участников
@@ -19,20 +20,13 @@ interface Props {
 }
 
 export default function ParticipantPicker({ added, onAdd }: Props) {
-  const [nodes, setNodes] = useState<Node[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { nodes, error, request } = useSchemaNodes();
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    let alive = true;
-    nodesApi
-      .getAll()
-      .then((ns) => alive && setNodes(ns))
-      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Не удалось загрузить объекты"));
-    return () => { alive = false; };
-  }, []);
+  // Пикер открыт — объекты нужны сразу.
+  useEffect(() => { request(); }, [request]);
 
   // Дерево: дети по parent_id + корни; сорт по имени.
   const { childrenOf, byId, roots } = useMemo(() => {
