@@ -30,6 +30,7 @@ import { safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
 import DialogTitle from "../ui/DialogTitle";
 import type { WorkMode } from "./workMode";
+import { warmLayoutWorker } from "../components/graph/layout/pipelineClient";
 
 interface Props {
   projectId: string;
@@ -73,6 +74,9 @@ export default function ProjectShell({
   // процесс на втором проходе.
   const [pendingProc] = useState<string | null>(() => safeSession.getItem(PENDING_PROCESS_KEY));
   useEffect(() => { safeSession.removeItem(PENDING_PROCESS_KEY); }, []);
+  // Прогрев воркера раскладки (эпик render-scale): конвейер и ELK грузятся, пока страница
+  // ждёт данные схемы, — первый прогон холста не платит их загрузку.
+  useEffect(() => { warmLayoutWorker(); }, []);
   // «Объекты» и «Процессы» — состояние оболочки, «Развёртывание» задаёт адрес
   // (#/p/<pid>/deploy — перезагрузка страницы его сохраняет). Памяти режима между заходами
   // нет (приёмка 2026-10-31): проект открывается в «Объектах», в «Процессах» — только когда

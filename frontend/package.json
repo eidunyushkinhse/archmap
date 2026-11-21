@@ -17,6 +17,9 @@
     "gen:api": "(cd ../backend && venv/bin/python -c \"from app.main import app; import json,sys; json.dump(app.openapi(), sys.stdout)\") | openapi-typescript /dev/stdin -o src/types/api.gen.ts",
     "replay-prof": "tsx scripts/replay-prof.ts",
     "route-quality": "tsx scripts/route-quality.ts",
+    "stage-table": "tsx scripts/stage-table.ts",
+    "corpus-check": "tsx scripts/corpus-check.ts",
+    "arrows-gate": "tsx scripts/arrows-gate.ts",
     "knip": "knip"
   },
   "dependencies": {

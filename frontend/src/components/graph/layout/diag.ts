@@ -21,6 +21,29 @@ export interface ArchmapDiag {
   __archmapLayoutInflight?: number;
   __archmapLayoutRuns?: number;
   __archmapSizesVersion?: number;
+  // САМОПРОВЕРКА КЭШЕЙ Z-РОУТЕРА (эпик render-scale): каждое попадание в кэш (повторный
+  // круг портов в buildAutoRoutes, раздача компоненты, маршрут связи, пара маршрутов,
+  // слот подписи) дополнительно считается честно и сверяется; расхождение — исключение с
+  // названием кэша. Ставят corpus-check --selfcheck и тест zRoutesCache.
+  __ARCHMAP_Z_SELFCHECK?: boolean;
+  // Счёт сверок самопроверки по названию кэша: заводит тот, кто включил самопроверку (тест
+  // zRoutesCache проверяет, что каждый кэш на фазз-сценах действительно сверялся;
+  // corpus-check --selfcheck печатает итог).
+  __ARCHMAP_Z_SELFCHECK_COUNT?: Record<string, number>;
+  // СЧЁТЧИКИ ПЕРЕБОРА Z-РОУТЕРА (эпик render-scale, шаг «меньше проб»): заводит тот, кто
+  // меряет (corpus-check), zRoutes прибавляет по названию: calls — вызовы, evals — полные
+  // оценки цены сцены (evals.c1, evals.c2, evals.c3 — они же в первом, втором, третьем и
+  // дальнейших вызовах), tries / hostTries — пробы вариантов и носителей, accepted /
+  // hostAccepted — принятые из них, skip.<правило> — пробы, отсеянные до полной оценки,
+  // skipWould.<правило> — из них было бы принято (только с __ARCHMAP_Z_SKIPCHECK).
+  // Дешёвый счёт без отладочного следа: под следом память выключена и прогон в разы дольше.
+  __ARCHMAP_Z_STATS?: Record<string, number>;
+  // ЧЕСТНАЯ ПРОБА ОТСЕЯННОГО: каждая проба, отсеянная правилом до полной оценки цены сцены,
+  // всё же считается (на восстанавливаемом состоянии — решения роутера от этого не меняются),
+  // и «было бы принято» идёт в счёт; правило, заявленное точным, при самопроверке
+  // (__ARCHMAP_Z_SELFCHECK, она включает и эту проверку) кидает исключение. Ставит
+  // corpus-check --skipcheck.
+  __ARCHMAP_Z_SKIPCHECK?: boolean;
 }
 
 export const diag = globalThis as typeof globalThis & ArchmapDiag;

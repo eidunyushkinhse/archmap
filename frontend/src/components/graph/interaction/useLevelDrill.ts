@@ -139,9 +139,14 @@ export function useLevelDrill({
   projectedChildren,
 }: UseLevelDrillArgs): LevelDrill {
   const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(new Map());
+  // СБРОСЫ «НА СМЕНУ УРОВНЯ» НЕ ТРОГАЮТ УЖЕ ПУСТОЕ СОСТОЯНИЕ (эпик render-scale): эффект
+  // исполняется и на маунте, и новая пустая копия меняла ссылку expanded/localChildren при
+  // том же содержимом — computeNow пересоздавался, и каждый маунт холста гнал в конвейер
+  // второй, побитово тот же вход (на входе на уровень это второй полный расчёт).
+  // Возврат прежнего значения из сеттера — штатный отказ React от обновления.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс эфемерных правок на смену уровня — осознанный reset-on-prop-change
-    setExpandOverrides(new Map());
+    setExpandOverrides((cur) => (cur.size === 0 ? cur : new Map()));
   }, [containerId]);
   const expanded = useMemo(() => {
     const s = new Set<string>();
@@ -202,10 +207,11 @@ export function useLevelDrill({
   // эффекта догрузки от прихода детей соседней рамки — окно шире из-за повтора).
   const inFlightRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    // пустое состояние не пересоздаётся (см. сброс expandOverrides выше)
     // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс кэша детей на смену уровня — осознанный reset-on-prop-change
-    setChildrenCache({});
+    setChildrenCache((cur) => (Object.keys(cur).length === 0 ? cur : {}));
     // (тот же reset-on-prop-change: сбои прошлого уровня к новому отношения не имеют)
-    setChildrenFailed(new Set());
+    setChildrenFailed((cur) => (cur.size === 0 ? cur : new Set()));
   }, [containerId]);
   // Снятие пометки сбоя по удачному ответу — реестр не копит историю.
   const clearFailed = useCallback((id: string) => {
