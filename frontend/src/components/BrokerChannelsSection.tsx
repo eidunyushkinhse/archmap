@@ -7,8 +7,14 @@
 // пометок из схем логики, и собрать его из текста mermaid было бы нечем. Сам индекс
 // (Ф2) СВОЕГО ввода не имеет: он производен от текста доков и правится в них.
 //
-// Правки идут по blur/change поштучно (как инлайн-поля свойств узла), без формы и
-// кнопки «Сохранить»: каналов много, а правка — точечная.
+// Правки идут по blur/change поштучно (как поля свойств узла), без формы и кнопки
+// «Сохранить»: каналов много, а правка — точечная.
+//
+// Вид (редизайн, направление А «Документ») — тот же, что у «Структуры» базы: без рамок,
+// между каналами волосяная линия, имя моноширинным, назначение строкой ниже; пустые
+// необязательные поля и крестик видны при наведении (factRows.css). «Добавить» — в
+// строке заголовка. Пустой список: у редактора только заголовок и «Добавить», у
+// читателя раздела нет.
 import { useRef, useState } from "react";
 import { brokerChannelsApi } from "../api/nodes";
 import AddDocsMenu from "./AddDocsMenu";
@@ -17,11 +23,15 @@ import { useCollapse } from "./useCollapse";
 import { useShrinkAnchor } from "./useShrinkAnchor";
 import FactGroups from "./FactGroups";
 import { freeName, useFactRows, useToggleSet } from "./useFactRows";
-import { ChevronDownIcon } from "../ui/icons";
+import { ChevronDownIcon, PlusIcon } from "../ui/icons";
 import type { BrokerChannel, ChannelField, ChannelUsage } from "../types";
+import "./factRows.css";
 import "./brokerChannels.css";
 import { LimitNotice } from "./demo/DemoLimitNotice";
 import { noAutofill } from "../ui/noAutofill";
+import GrowField from "../ui/GrowField";
+import Section from "../ui/Section";
+import "../ui/ds.css";
 
 interface Props {
   nodeId: string;
@@ -79,8 +89,13 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
     }));
   };
 
+  // Пока список не приехал, раздела нет: строка «Загрузка» у каждого брокера была бы шумом.
+  if (channels === null && error === null) return null;
+  const list = channels ?? [];
+  if (error === null && list.length === 0 && !isArchitect) return null;
+
   const renderChannel = (c: BrokerChannel) => (
-    <ChannelCard
+    <ChannelItem
       key={c.id}
       channel={c}
       nodeId={nodeId}
@@ -97,46 +112,33 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
     />
   );
 
-  if (channels === null && error === null) {
-    return (
-      <div className="np-card">
-        <h3 className="np-card-title">Каналы</h3>
-        <p className="np-empty">Загрузка</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="np-card">
-      <h3 className="np-card-title">Каналы</h3>
+    <Section
+      title="Каналы"
+      // Тот же вход, что у «Логики», «OpenAPI» и структуры базы: «вручную / через
+      // агента» — пункты одного меню.
+      actions={isArchitect && (
+        <AddDocsMenu
+          align="right"
+          groups={[
+            [{ label: "Вручную", onSelect: addChannel }],
+            [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
+          ]}
+        />
+      )}
+    >
       {error && <p className="np-warn">{error}</p>}
       {limit && <LimitNotice message={limit} />}
       {/* Каналы по группам (vhost/namespace/account — см. подпись поля). */}
-      <FactGroups
-        items={channels ?? []}
-        idOf={(c) => c.id}
-        groupOf={(c) => c.group_name}
-        ungrouped="без группы"
-        groupClass="bch-group"
-        bodyClass="bch-groupbody"
-        flatClass="bch-channels"
-        empty={<p className="np-empty">Каналы не описаны</p>}
-        holdScroll={holdScroll}
-        render={renderChannel}
-      />
-      {isArchitect && (
-        <div className="bch-actions">
-          {/* Тот же вход, что у «Логики», «OpenAPI» и структуры базы: одна кнопка с
-              шевроном, а «вручную / через агента» — пункты меню. Два способа завести
-              одну и ту же сущность не должны выглядеть как две разные кнопки. */}
-          <AddDocsMenu
-            label="+ Канал"
-            groups={[
-              [{ label: "Вручную", onSelect: addChannel }],
-              [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
-            ]}
-          />
-        </div>
+      {list.length > 0 && (
+        <FactGroups
+          items={list}
+          idOf={(c) => c.id}
+          groupOf={(c) => c.group_name}
+          ungrouped="без группы"
+          holdScroll={holdScroll}
+          render={renderChannel}
+        />
       )}
       {agentOpen && (
         <ChannelsAgentModal
@@ -146,11 +148,11 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
           onApplied={reload}
         />
       )}
-    </div>
+    </Section>
   );
 }
 
-function ChannelCard({
+function ChannelItem({
   channel, nodeId, isArchitect, usage, expanded, onToggle, apply, onAddField,
 }: {
   channel: BrokerChannel;
@@ -167,184 +169,173 @@ function ChannelCard({
       ...data, base_version: channel.version,
     }));
 
-  // Раскрывашка тела едет с той же длительностью, что переезд карточек, а секция
-  // вокруг растёт за ней сама: у неё высота auto, и фиксировать её здесь не нужно.
+  // Раскрывашка тела едет с той же длительностью, что переезд записей, а раздел
+  // вокруг растёт за ней сам: у него высота auto, и фиксировать её здесь не нужно.
   const bodyRef = useRef<HTMLDivElement>(null);
   const showBody = useCollapse(bodyRef, expanded);
 
   return (
-    <div className="bch-channel" data-flip-id={channel.id}>
-      <div className="bch-head">
-        <button type="button" className="bch-chev" onClick={(e) => onToggle(e.currentTarget)}
+    <div className="fact-item" data-flip-id={channel.id}>
+      <div className="fact-head bch-head">
+        <button type="button" className="fact-chev" onClick={(e) => onToggle(e.currentTarget)}
           aria-expanded={expanded}
           aria-label={expanded ? "Свернуть канал" : "Развернуть канал"}>
-          <span className="np-doc-group-chev"
-            style={{ transform: expanded ? "none" : "rotate(-90deg)" }}>
-            <ChevronDownIcon />
-          </span>
+          <span className={"ds-chev" + (expanded ? "" : " is-closed")}><ChevronDownIcon /></span>
         </button>
         {isArchitect ? (
-          <input
+          <GrowField
             {...noAutofill("broker-channels-section-1")}
-            className="np-field bch-name"
-            defaultValue={channel.name}
+            className="fact-name"
+            aria-label="Канал"
+            initial={channel.name}
             key={`n:${channel.id}:${channel.version}`}
-            onBlur={(e) => { if (e.target.value !== channel.name) patch({ name: e.target.value }); }}
+            onCommit={(v) => { if (v !== channel.name) patch({ name: v }); }}
           />
         ) : (
-          <span className="bch-name bch-ro">{channel.name}</span>
+          <span className="fact-name">{channel.name}</span>
         )}
         {isArchitect ? (
-          <input
+          <GrowField
             {...noAutofill("broker-channels-section-2")}
-            className="np-field bch-group-field"
+            className="fact-aux"
+            aria-label="Группа"
             // ГРУППА — намеренно нейтральное слово: у каждого движка свой термин для
             // этого уровня (vhost в RabbitMQ, namespace в Pulsar, account в NATS), а
             // уровня может не быть вовсе (Kafka) — тогда поле просто пустое.
-            placeholder="vhost/namespace"
+            placeholder="группа"
             title={GROUP_TITLE}
-            defaultValue={channel.group_name}
+            initial={channel.group_name}
             key={`g:${channel.id}:${channel.version}`}
-            onBlur={(e) => {
-              if (e.target.value !== channel.group_name) patch({ group_name: e.target.value });
-            }}
+            onCommit={(v) => { if (v !== channel.group_name) patch({ group_name: v }); }}
           />
         ) : (
-          <span className="bch-ro bch-group-field">{channel.group_name}</span>
+          <span className="fact-aux">{channel.group_name}</span>
         )}
         {isArchitect ? (
-          <input
+          <GrowField
             {...noAutofill("broker-channels-section-3")}
-            className="np-field bch-kind"
-            placeholder="topic/queue/exchange"
+            className="fact-aux"
+            aria-label="Вид"
+            placeholder="вид"
             title={KIND_TITLE}
-            defaultValue={channel.kind}
+            initial={channel.kind}
             key={`k:${channel.id}:${channel.version}`}
-            onBlur={(e) => { if (e.target.value !== channel.kind) patch({ kind: e.target.value }); }}
+            onCommit={(v) => { if (v !== channel.kind) patch({ kind: v }); }}
           />
         ) : (
-          <span className="bch-ro bch-kind">{channel.kind}</span>
+          <span className="fact-aux">{channel.kind}</span>
         )}
         {isArchitect && (
-          <button type="button" className="bch-del" title="Удалить канал"
+          <button type="button" className="ds-del" title="Удалить канал"
+            aria-label={`Удалить канал ${channel.name}`}
             onClick={() => void apply(() => brokerChannelsApi.delete(nodeId, channel.id))}>×</button>
         )}
+        {isArchitect ? (
+          <GrowField
+            {...noAutofill("broker-channels-section-7")}
+            className="fact-desc"
+            aria-label="Назначение канала"
+            placeholder="назначение канала"
+            multiline
+            initial={channel.description ?? ""}
+            key={`d:${channel.id}:${channel.version}`}
+            onCommit={(v) => { if (v !== (channel.description ?? "")) patch({ description: v }); }}
+          />
+        ) : channel.description ? (
+          <p className="fact-desc">{channel.description}</p>
+        ) : null}
       </div>
 
       {showBody && (
-        // Голая обёртка ведёт высоту, косметика — на .bch-body (см. GroupBody в FactGroups).
+        // Голая обёртка ведёт высоту, косметика — на .fact-body (см. GroupBody в FactGroups).
         <div ref={bodyRef} className="anim-box">
-          <div className="bch-body">
+          <div className="fact-body">
           {/* Мета доставки — ради неё канал отдельная сущность, а не «таблица». Именно
               эти три поля отвечают на инциденты эпика: порядок применения событий
               (ключ), повторная обработка (гарантия), «при переигрывании ничего не
               нашлось» (retention). */}
-          <div className="bch-meta">
-            {isArchitect ? (
-              <input {...noAutofill("broker-channels-section-4")} className="np-field" placeholder="ключ партиционирования"
-                title={KEY_TITLE}
-                defaultValue={channel.partition_key}
-                key={`p:${channel.id}:${channel.version}`}
-                onBlur={(e) => {
-                  if (e.target.value !== channel.partition_key) {
-                    patch({ partition_key: e.target.value });
-                  }
-                }} />
-            ) : channel.partition_key ? (
-              <span className="bch-ro" title={KEY_TITLE}>ключ: {channel.partition_key}</span>
-            ) : null}
-            {isArchitect ? (
-              <input {...noAutofill("broker-channels-section-5")} className="np-field" placeholder="at-least-once / at-most-once"
-                title={DELIVERY_TITLE}
-                defaultValue={channel.delivery}
-                key={`dl:${channel.id}:${channel.version}`}
-                onBlur={(e) => {
-                  if (e.target.value !== channel.delivery) patch({ delivery: e.target.value });
-                }} />
-            ) : channel.delivery ? (
-              <span className="bch-ro" title={DELIVERY_TITLE}>доставка: {channel.delivery}</span>
-            ) : null}
-            {isArchitect ? (
-              <input {...noAutofill("broker-channels-section-6")} className="np-field" placeholder="retention: 7d / до ack"
-                title={RETENTION_TITLE}
-                defaultValue={channel.retention}
-                key={`r:${channel.id}:${channel.version}`}
-                onBlur={(e) => {
-                  if (e.target.value !== channel.retention) patch({ retention: e.target.value });
-                }} />
-            ) : channel.retention ? (
-              <span className="bch-ro" title={RETENTION_TITLE}>хранение: {channel.retention}</span>
-            ) : null}
-          </div>
           {isArchitect ? (
-            <input
-              {...noAutofill("broker-channels-section-7")}
-              className="np-field bch-desc"
-              placeholder="назначение канала"
-              defaultValue={channel.description ?? ""}
-              key={`d:${channel.id}:${channel.version}`}
-              onBlur={(e) => {
-                if (e.target.value !== (channel.description ?? "")) {
-                  patch({ description: e.target.value });
-                }
-              }}
-            />
-          ) : channel.description ? (
-            <p className="bch-desc bch-ro">{channel.description}</p>
+            <div className="bch-meta">
+              <label className="bch-meta-cell" title={KEY_TITLE}>
+                <span className="bch-meta-label">Ключ партиционирования</span>
+                <GrowField {...noAutofill("broker-channels-section-4")} placeholder="—"
+                  initial={channel.partition_key}
+                  key={`p:${channel.id}:${channel.version}`}
+                  onCommit={(v) => { if (v !== channel.partition_key) patch({ partition_key: v }); }} />
+              </label>
+              <label className="bch-meta-cell" title={DELIVERY_TITLE}>
+                <span className="bch-meta-label">Гарантия доставки</span>
+                <GrowField {...noAutofill("broker-channels-section-5")} placeholder="—"
+                  initial={channel.delivery}
+                  key={`dl:${channel.id}:${channel.version}`}
+                  onCommit={(v) => { if (v !== channel.delivery) patch({ delivery: v }); }} />
+              </label>
+              <label className="bch-meta-cell" title={RETENTION_TITLE}>
+                <span className="bch-meta-label">Хранение</span>
+                <GrowField {...noAutofill("broker-channels-section-6")} placeholder="—"
+                  initial={channel.retention}
+                  key={`r:${channel.id}:${channel.version}`}
+                  onCommit={(v) => { if (v !== channel.retention) patch({ retention: v }); }} />
+              </label>
+            </div>
+          ) : (channel.partition_key || channel.delivery || channel.retention) ? (
+            <div className="bch-meta-ro">
+              {channel.partition_key && <span title={KEY_TITLE}>ключ: {channel.partition_key}</span>}
+              {channel.delivery && <span title={DELIVERY_TITLE}>доставка: {channel.delivery}</span>}
+              {channel.retention && <span title={RETENTION_TITLE}>хранение: {channel.retention}</span>}
+            </div>
           ) : null}
 
           {/* Поля сообщения — «колонки» канала: вопрос сопровождения «откуда в событии
               X значение Y» без них не отвечается. */}
-          <div className="bch-fields">
-            {channel.fields.length === 0 && <p className="np-empty">Поля сообщения не описаны</p>}
-            {/* Шапка: без неё колонка типа неотличима от колонки смысла. Ширины — те же
-                классы, что у строк, поэтому заголовки стоят ровно над своими полями. */}
-            {channel.fields.length > 0 && (
-              <div className={"bch-field bch-fieldhead" + (isArchitect ? "" : " bch-field--ro")}
-                aria-hidden>
-                <span className="bch-fname">Поле</span>
-                <span className="bch-ftype">Тип</span>
-                {isArchitect ? <span>обяз.</span> : <span>признаки</span>}
-                <span className="bch-fdesc">Смысл значения</span>
+          {channel.fields.length > 0 && (
+            <div className={"fact-sub" + (isArchitect ? " bch-fields" : " bch-fields--ro")}>
+              {/* Шапка: без неё колонка типа неотличима от колонки смысла. Треки — те
+                  же, что у строк. */}
+              <div className="fact-subrow fact-subhead" aria-hidden>
+                <span>Поле</span>
+                <span>Тип</span>
+                {isArchitect ? <span>Обязательное</span> : <span>Признаки</span>}
+                <span>Смысл значения</span>
                 {isArchitect && <span />}
               </div>
-            )}
-            {channel.fields.map((f) => (
-              <FieldRow
-                key={f.id}
-                field={f}
-                channelId={channel.id}
-                nodeId={nodeId}
-                isArchitect={isArchitect}
-                apply={apply}
-              />
-            ))}
-            {isArchitect && (
-              <button type="button" className="np-addbtn bch-addfield" onClick={onAddField}>
-                + Поле
-              </button>
-            )}
-          </div>
+              {channel.fields.map((f) => (
+                <FieldRow
+                  key={f.id}
+                  field={f}
+                  channelId={channel.id}
+                  nodeId={nodeId}
+                  isArchitect={isArchitect}
+                  apply={apply}
+                />
+              ))}
+            </div>
+          )}
+          {isArchitect && (
+            <button type="button" className="ds-add fact-addrow" onClick={onAddField}>
+              <PlusIcon size={12} />Добавить поле
+            </button>
+          )}
 
           {/* Кто трогает этот канал. Пометок нет — так и говорим, и говорим
               КОНКРЕТНО: молчание значило бы «событие никому не нужно», а «обращений
               не описано» отправляло бы искать форму ввода, которой нет — публикация
               и потребление живут строкой в тексте схемы логики вызывающего. */}
-          <div className="bch-usage">
-            <div className="np-sublabel">Кто публикует / кто потребляет</div>
+          <div className="fact-usage">
+            <div className="ds-sub">Кто публикует / кто потребляет</div>
             {usage.length === 0 ? (
-              <p className="np-empty">
+              <p className="fact-usage-empty">
                 Ни одна схема логики не говорит, кто публикует в этот канал и кто его читает
               </p>
             ) : usage.map((u) => (
-              <div key={`${u.doc_id}:${u.field_id ?? ""}:${u.mode}`} className="bch-usagerow">
-                <span className={`bch-mode bch-mode--${u.mode}`}>
+              <div key={`${u.doc_id}:${u.field_id ?? ""}:${u.mode}`} className="fact-usage-row">
+                <span className={"fact-mode" + (u.mode === "publish" ? " fact-mode--strong" : "")}>
                   {u.mode === "publish" ? "публикует" : "потребляет"}
                 </span>
-                <span className="bch-ro bch-uname">
+                <span className="fact-mono">
                   {u.field_name ? `${u.channel_name}.${u.field_name}` : u.channel_name}
                 </span>
-                <span className="bch-ro bch-udesc">{u.node_name} · {u.doc_name}</span>
+                <span>{u.node_name} · {u.doc_name}</span>
               </div>
             ))}
           </div>
@@ -369,41 +360,43 @@ function FieldRow({
 
   if (!isArchitect) {
     return (
-      <div className="bch-field bch-field--ro bch-ro">
-        <span className="bch-fname">{field.name}</span>
-        <span className="bch-ftype">{field.type}</span>
+      <div className="fact-subrow">
+        <span className="fact-mono">{field.name}</span>
+        <span>{field.type}</span>
         {/* Признаки — ОДНОЙ ячейкой: иначе их отсутствие сдвигало бы «смысл» влево и
             колонки строк перестали бы стоять друг под другом. */}
-        <span style={{ display: "flex", gap: 4, minWidth: 0 }}>
-          {field.required && <span className="bch-flag">обяз.</span>}
+        <span className="fact-flags">
+          {field.required && <span>обяз.</span>}
         </span>
-        <span className="bch-fdesc">{field.description}</span>
+        <span>{field.description}</span>
       </div>
     );
   }
   // Поля неуправляемые, версии у поля сообщения нет: ключ — серверное значение (аудит
   // F-55), как у колонок базы.
   return (
-    <div className="bch-field">
-      <input {...noAutofill("broker-channels-section-8")} className="np-field bch-fname" defaultValue={field.name}
+    <div className="fact-subrow">
+      <GrowField {...noAutofill("broker-channels-section-8")} className="fact-mono" aria-label="Поле"
+        initial={field.name}
         key={`n:${field.id}:${field.name}`}
-        onBlur={(e) => { if (e.target.value !== field.name) patch({ name: e.target.value }); }} />
-      <input {...noAutofill("broker-channels-section-9")} className="np-field bch-ftype" placeholder="тип" defaultValue={field.type}
+        onCommit={(v) => { if (v !== field.name) patch({ name: v }); }} />
+      <GrowField {...noAutofill("broker-channels-section-9")} aria-label="Тип" placeholder="—"
+        initial={field.type}
         key={`t:${field.id}:${field.type}`}
-        onBlur={(e) => { if (e.target.value !== field.type) patch({ type: e.target.value }); }} />
-      {/* Подпись «обяз.» называет шапка — в каждой строке она читалась бы столбиком-шумом. */}
-      <input type="checkbox" className="bch-check" checked={field.required}
+        onCommit={(v) => { if (v !== field.type) patch({ type: v }); }} />
+      {/* Подпись называет шапка — в каждой строке она читалась бы столбиком-шумом. */}
+      <input type="checkbox" className="fact-check" checked={field.required}
         title="Обязательное поле" aria-label="Обязательное поле"
         onChange={(e) => patch({ required: e.target.checked })} />
       {/* Смысл значения ОСОБЕННО важен у enum-подобных полей (event_type, status):
           перечень значений — это и есть ответ на «что означает это событие». */}
-      <input {...noAutofill("broker-channels-section-10")} className="np-field bch-fdesc" placeholder="смысл значения"
-        defaultValue={field.description ?? ""}
+      <GrowField {...noAutofill("broker-channels-section-10")} aria-label="Смысл значения" placeholder="—"
+        multiline
+        initial={field.description ?? ""}
         key={`d:${field.id}:${field.description ?? ""}`}
-        onBlur={(e) => {
-          if (e.target.value !== (field.description ?? "")) patch({ description: e.target.value });
-        }} />
-      <button type="button" className="bch-del" title="Удалить поле"
+        onCommit={(v) => { if (v !== (field.description ?? "")) patch({ description: v }); }} />
+      <button type="button" className="ds-del" title="Удалить поле"
+        aria-label={`Удалить поле ${field.name}`}
         onClick={() => void apply(() => brokerChannelsApi.deleteField(nodeId, channelId, field.id))}
       >×</button>
     </div>

@@ -1,133 +1,91 @@
-/* Секция «Конфигурация» страницы объекта: параметры и переменные окружения.
-   Базовые примитивы (np-card, np-field, np-addbtn, np-empty, np-warn) берутся из
-   NodePage.css — здесь только сетка строки параметра.
+/* Раздел «Конфигурация» страницы объекта: параметры и переменные окружения.
+   Редизайн (направление А «Документ»): тихая таблица без рамок, шапка 12px, строки с
+   волосяной линией; поля выглядят текстом и растут по тексту (ui/GrowField), крестик
+   удаления — при наведении на строку и фокусе в ней.
 
-   Сетка ПЛОСКАЯ и без раскрывашек, в отличие от соседних секций: у параметра нет ни
-   второго уровня, ни групп, и строка исчерпывает его целиком. Классы свои (cfg-*):
-   у каналов и таблиц сетки другие, и общий класс пришлось бы переопределять. */
+   Сетка ПЛОСКАЯ и без раскрывашек, в отличие от соседних разделов: у параметра нет ни
+   второго уровня, ни групп, и строка исчерпывает его целиком. Таблица — сеткой, а не
+   <table>: поле шириной 100% в ячейке сетки ведёт себя предсказуемо. */
 
-.cfg-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.cfg-table {
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
 }
 
-.cfg-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* Строка — ГРИД, а не флекс: у .np-field стоит width:100%, и в потоке флекса поля
-   раздували строку, а имя схлопывалось в ноль (урок сетки .bch-head). */
+/* Треки одни у шапки и строк — подписи стоят ровно над текстом значений. */
 .cfg-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) 52px minmax(0, 0.8fr) minmax(0, 1.8fr) 26px;
-  align-items: center;
-  gap: 6px;
+  grid-template-columns:
+    minmax(0, 1.3fr) minmax(0, 0.7fr) 96px minmax(0, 0.9fr) minmax(0, 2fr) 22px;
+  align-items: start;
+  column-gap: 12px;
+  padding: 3px 0;
+  border-top: 1px solid var(--c-line);
 }
-/* Наблюдательский вариант: полей ввода нет, кнопки удаления тоже — трек под неё
-   убираем, иначе справа висит пустая колонка. */
-.cfg-row--ro {
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) 52px minmax(0, 0.8fr) minmax(0, 1.8fr);
+/* Читатель: крестика нет — трек под него убираем, иначе справа висит пустая колонка. */
+.cfg-table--ro .cfg-row {
+  grid-template-columns:
+    minmax(0, 1.3fr) minmax(0, 0.7fr) 96px minmax(0, 0.9fr) minmax(0, 2fr);
 }
-
-.cfg-name, .cfg-type, .cfg-default, .cfg-desc { min-width: 0; }
+.cfg-row > * {
+  min-width: 0;
+}
+/* Голый текст читателя — с теми же полями по вертикали, что у поля ввода. */
+.cfg-table--ro .cfg-row:not(.cfg-head) > span {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
 
 .cfg-head {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: #94a3b8;
-  padding: 0 2px 2px;
+  padding: 0 0 4px;
+  border-top: 0;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
 }
 
 /* Имя параметра — моноширинным: это идентификатор из кода, и «I» с «l» в нём
-   различать приходится глазами. */
+   различать приходится глазами. Дефолт — тоже текст из кода. */
+.cfg-name,
+.cfg-default {
+  font-family: var(--font-mono);
+}
 .cfg-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px;
-}
-.cfg-head .cfg-name {
-  font-family: inherit;
-  font-size: 11px;
+  font-weight: 500;
 }
 
-.cfg-ro {
-  color: #334155;
-  font-size: 13px;
+.cfg-req {
+  display: flex;
 }
-/* Читатель видит текст целиком, с переносом, как «смысл значения» у колонок базы и
-   полей канала: многоточие прятало конец описания и дефолта без способа его прочесть.
-   anywhere — для дефолтов без пробелов (адреса, длинные идентификаторы). */
-.cfg-row--ro .cfg-type,
-.cfg-row--ro .cfg-default,
-.cfg-row--ro .cfg-desc {
-  overflow-wrap: anywhere;
-}
-
-.cfg-flag {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: #b45309;
-  background: #fef3c7;
-  border-radius: 999px;
-  padding: 1px 6px;
-}
-
 .cfg-check {
-  justify-self: center;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
+  margin: 6px 0 0;
   cursor: pointer;
 }
 
-.cfg-del {
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: none;
-  color: #cbd5e1;
-  font-size: 17px;
-  line-height: 1;
-  cursor: pointer;
-  border-radius: 6px;
+.cfg-row .ds-del {
+  margin-top: 1px;
 }
-.cfg-del:hover {
-  color: #ef4444;
-  background: #fef2f2;
+.cfg-row:hover .ds-del,
+.cfg-row:focus-within .ds-del {
+  opacity: 1;
 }
 
-/* Где используется — подстрокой под параметром, а не колонкой: схем бывает
+/* «Зависит» — тихой строкой под описанием параметра, а не колонкой: схем бывает
    несколько, и колонка либо обрезала бы их, либо развалила сетку. */
 .cfg-usage {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  padding-left: 2px;
-  font-size: 12px;
-}
-.cfg-usagelabel {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: #0369a1;
-  background: #e0f2fe;
-  border-radius: 999px;
-  padding: 1px 7px;
-  flex: none;
-}
-.cfg-usagedocs {
-  min-width: 0;
+  padding: 0 0 2px;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
   overflow-wrap: anywhere;
-  font-size: 12px;
-  color: #475569;
 }
 
-.cfg-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  /* Рядом с «+ Параметр» — «Перенести документацию» или «Собрать с компонентов» (Р19). */
-  gap: 8px;
+/* Компонент: от каких параметров контейнера зависят его схемы — одной тихой строкой. */
+.cfg-depends {
+  margin: 0;
+  max-width: 68ch;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
 }

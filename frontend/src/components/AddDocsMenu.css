@@ -1,38 +1,23 @@
-/* Универсальное меню «+ Добавить» (разделы «Логика» и «OpenAPI»): триггер —
-   стиль np-addbtn, выпадающий список — стиль np-dropdown. Свой файл:
-   компонент общий для страницы узла и правой панели редактора. */
+/* Универсальное меню «+ Добавить» (разделы страницы объекта) и «Изменить»/«Описать»
+   окна схемы/спеки. Триггер разделов страницы — общий примитив ds-add (ui/ds.css),
+   здесь — залитый триггер окна и выпадающий список. Свой файл: компонент общий для
+   страницы и окна документации. */
 .adm-wrap {
   position: relative;
   display: inline-block;
-  margin-top: 10px;
-}
-
-.adm-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
-  border: 1px dashed #bfdbfe;
-  border-radius: 8px;
-  background: #f5f9ff;
-  color: #2563eb;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.adm-btn:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
 }
 
 /* Залитый триггер действия (шапка окна схемы/спеки, «Описать» у заглушки) —
    тон кнопки .btn.primary прототипа вьюера. */
-.adm-wrap--inline {
-  margin-top: 0;
-}
 .adm-btn--primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
   padding: 7px 13px;
   border: 1px solid #2563eb;
   background: #2563eb;
@@ -106,4 +91,23 @@
   height: 1px;
   background: #eef0f2;
   margin: 4px 6px;
+}
+
+/* Список тихой «+ Добавить» страницы объекта — в общем виде меню нового языка. */
+.adm-menu--quiet {
+  min-width: 200px;
+  border-color: var(--c-line);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.adm-menu--quiet button {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  color: var(--c-fg);
+}
+.adm-menu--quiet button:hover {
+  background: var(--c-hover);
+}
+.adm-menu--quiet .adm-sep {
+  background: var(--c-line);
 }

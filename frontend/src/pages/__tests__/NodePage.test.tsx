@@ -420,90 +420,74 @@ describe("NodePage: правила контейнеров", () => {
     return render(<NodePage nodeId="c1" isArchitect {...nav} />);
   }
 
-  it("объединение схем детей: левая часть открывает схему ребёнка напрямую, правая ведёт на его страницу", async () => {
+  it("объединение схем детей: строка открывает схему ребёнка напрямую, подпись подгруппы ведёт на его страницу", async () => {
     setupContainer({ children: [node("k1", { name: "Шлюз", docs: [docMeta()] })] });
     await screen.findByText("Схема оплаты");
-    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
-    // Левая (широкая) часть — открыть схему ребёнка напрямую: оверлей в контексте
-    // ребёнка (nodeId=k1, не контейнера) на конкретной схеме (d1).
+    // Строка — открыть схему ребёнка напрямую: оверлей в контексте ребёнка (nodeId=k1,
+    // не контейнера) на конкретной схеме (d1).
     const mainBtn = screen.getByText("Схема оплаты").closest("button");
     await userEvent.click(mainBtn as HTMLButtonElement);
     const overlay = screen.getByTestId("doc-overlay");
     expect(overlay).toHaveAttribute("data-node-id", "k1");
     expect(overlay).toHaveAttribute("data-doc-id", "d1");
     expect(overlay).toHaveAttribute("data-mode", "flowchart");
-    // Правая (узкая) часть — на страницу ребёнка.
-    const childBtn = screen.getByText("от Шлюз →").closest("button");
-    await userEvent.click(childBtn as HTMLButtonElement);
+    // Подпись подгруппы — имя ребёнка — ведёт на его страницу.
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest("section") as HTMLElement;
+    await userEvent.click(within(logic).getByRole("button", { name: "Шлюз" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
   });
 
-  it("группировка по детям: схемы ребёнка плоско, схемы внуков — в раскрываемой группе под родителем", async () => {
-    // k1 — непосредственный ребёнок со своей схемой, g1 — внук (parent_id=k1)
-    // со схемой: она уходит в группу под «Шлюз», свёрнутую по умолчанию.
+  it("подгруппы по детям всегда раскрыты: схемы ребёнка и внуков видны сразу, владелец внука назван справа", async () => {
+    // k1 — непосредственный ребёнок со своей схемой, g1 — внук (parent_id=k1) со
+    // схемой: она лежит в подгруппе «Шлюз» рядом со схемой ребёнка.
     const kid = node("k1", { name: "Шлюз", docs: [docMeta({ id: "dk", name: "Схема шлюза" })] });
     const grand = node("g1", { name: "Внук", parent_id: "k1", docs: [docMeta({ id: "dg", name: "Схема внука" })] });
     setupContainer({ children: [kid, grand] });
-    // Собственная схема ребёнка — плоская split-кнопка, видна сразу.
     await screen.findByText("Схема шлюза");
-    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
-    // Схема внука — в свёрнутой группе: скрыта, но есть кнопка-группа с именем
-    // ребёнка и счётчиком (aria-expanded=false).
-    expect(screen.queryByText("Схема внука")).not.toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 схема/ });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    // Клик раскрывает группу: схема внука видна, пометка «от Внук».
-    await userEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // Ни свёртки, ни счётчика: схема внука видна без клика.
     expect(screen.getByText("Схема внука")).toBeInTheDocument();
-    expect(screen.getByText("от Внук →")).toBeInTheDocument();
-    // Левая часть группы открывает схему внука в его контексте.
-    const deepBtn = screen.getByText("Схема внука").closest("button");
-    await userEvent.click(deepBtn as HTMLButtonElement);
+    expect(screen.queryByRole("button", { name: /1 схема/ })).toBeNull();
+    // Строка внука открывает его схему в его контексте.
+    await userEvent.click(screen.getByText("Схема внука").closest("button") as HTMLButtonElement);
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-node-id", "g1");
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "dg");
-    // Левая часть собственной схемы ребёнка — в контексте ребёнка.
-    const ownBtn = screen.getByText("Схема шлюза").closest("button");
-    await userEvent.click(ownBtn as HTMLButtonElement);
+    // Строка собственной схемы ребёнка — в контексте ребёнка.
+    await userEvent.click(screen.getByText("Схема шлюза").closest("button") as HTMLButtonElement);
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-node-id", "k1");
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "dk");
-    // Правая часть split-кнопки внука ведёт на его страницу.
-    await userEvent.click(screen.getByText("от Внук →"));
+    // Владелец глубже подгруппы назван тихой ссылкой справа и ведёт на свою страницу.
+    await userEvent.click(screen.getByRole("button", { name: "Внук" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
   });
 
-  it("спеки потомков: спека ребёнка плоско, спека внука — в раскрываемой группе", async () => {
+  it("спецификации потомков: спецификация ребёнка и внука видны сразу, внук назван справа", async () => {
     const kid = node("k1", { name: "Шлюз", openapi_spec: "openapi: 3.0.0" });
     const grand = node("g1", { name: "Внук", parent_id: "k1", openapi_spec: "openapi: 3.0.0" });
     setupContainer({ children: [kid, grand] });
-    // Спека ребёнка — плоская split-кнопка, видна сразу; спека внука скрыта
-    // в свёрнутой группе (видима только одна «Спецификация»).
-    await screen.findByText("Спецификация");
-    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
-    expect(screen.getAllByText("Спецификация")).toHaveLength(1);
-    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 спецификация/ });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await userEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await screen.findByTitle("Открыть спецификацию «Внук»");
     expect(screen.getAllByText("Спецификация")).toHaveLength(2);
-    // Левая часть спеки внука открывает оверлей в его контексте (режим openapi).
+    // Строка спецификации внука открывает оверлей в его контексте (режим openapi).
     await userEvent.click(screen.getByTitle("Открыть спецификацию «Внук»"));
     const overlay = screen.getByTestId("doc-overlay");
     expect(overlay).toHaveAttribute("data-node-id", "g1");
     expect(overlay).toHaveAttribute("data-mode", "openapi");
-    // Правая часть ведёт на страницу внука.
-    await userEvent.click(screen.getByText("от Внук →"));
+    // Ссылка справа ведёт на страницу внука, подпись подгруппы — на страницу ребёнка.
+    await userEvent.click(screen.getByRole("button", { name: "Внук" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
+    await userEvent.click(screen.getByRole("button", { name: "Шлюз" }));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
   });
 
   it("свои схемы: предупреждение и «Перенести документацию», создание скрыто", async () => {
     setupContainer({ own: { docs: [docMeta()] } });
     await screen.findByText("У контейнера есть свои схемы логики. Схемы описывают код, их можно перенести компонентам");
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
-    // Создания схем в «Логике» нет; «+ Добавить» в «OpenAPI» у контейнера есть — его
+    // Создания схем в «Логике» нет; «Добавить» в «OpenAPI» у контейнера есть — его
     // спецификация своя (Ф8).
-    const logic = screen.getByRole("heading", { name: "Логика" }).closest(".np-card") as HTMLElement;
-    expect(within(logic).queryByText("+ Добавить")).not.toBeInTheDocument();
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest("section") as HTMLElement;
+    expect(within(logic).queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
+    const api = screen.getByRole("heading", { name: "OpenAPI" }).closest("section") as HTMLElement;
+    expect(within(api).getByRole("button", { name: "Добавить" })).toBeInTheDocument();
   });
 
   it("система: технология — агрегированная из детей, только чтение", async () => {
@@ -948,7 +932,7 @@ describe("NodePage: документация по форме узла", () => {
     await waitFor(() => expect(screen.getByDisplayValue("Очередь")).toBeInTheDocument());
     expect(screen.queryByText("Логика")).not.toBeInTheDocument();
     expect(screen.queryByText("OpenAPI")).not.toBeInTheDocument();
-    expect(screen.getByText("Каналы")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Каналы" })).toBeInTheDocument();
   });
 
   it("«Каналы» — только у брокера: у сервиса их нет", async () => {
@@ -966,28 +950,32 @@ describe("NodePage: документация по форме узла", () => {
     expect(screen.getByText(/у этого объекта его нет\. Перенесите их объекту, который с ним работает\./)).toBeInTheDocument();
     expect(screen.getByText(/OpenAPI описывает HTTP-API/)).toBeInTheDocument();
     // Заводить новое всё равно нельзя — только унести существующее.
-    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest("section") as HTMLElement;
+    expect(within(logic).queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
+    const api = screen.getByRole("heading", { name: "OpenAPI" }).closest("section") as HTMLElement;
+    expect(within(api).queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
   });
 
   // ── OpenAPI: окно спеки вместо отдельной модалки (вьюер v2) ───────────────
   async function меню_OpenAPI(пункт: string) {
-    const карточка = screen.getByText("OpenAPI").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    const раздел = screen.getByRole("heading", { name: "OpenAPI" }).closest("section") as HTMLElement;
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: пункт }));
   }
 
-  it("спеки нет: «+ Добавить → Вручную» открывает окно спеки сразу в редакторе", async () => {
+  it("спеки нет: «Добавить → Вручную» открывает окно спеки сразу в редакторе", async () => {
     setupShape({ shape: "service" });
-    await waitFor(() => expect(screen.getByText("Спецификация не описана")).toBeInTheDocument());
+    await screen.findByRole("heading", { name: "OpenAPI" });
+    expect(screen.queryByText("Спецификация не описана")).toBeNull();
     await меню_OpenAPI("Вручную");
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "openapi");
     expect(окно).toHaveAttribute("data-stage", "manual");
   });
 
-  it("спеки нет: «+ Добавить → Через ИИ-агента» открывает то же окно панелью агента", async () => {
+  it("спеки нет: «Добавить → Через ИИ-агента» открывает то же окно панелью агента", async () => {
     setupShape({ shape: "service" });
-    await waitFor(() => expect(screen.getByText("Спецификация не описана")).toBeInTheDocument());
+    await screen.findByRole("heading", { name: "OpenAPI" });
     await меню_OpenAPI("Через ИИ-агента");
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "openapi");
@@ -1049,9 +1037,10 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByText("email_senders")).toBeNull();
     expect(screen.queryByText(/описано \d+/)).toBeNull();
     expect(screen.queryByText("не описана")).toBeNull();
-    // Заголовок группы — только размер, без «остатка работы»; пустая группа не рисуется.
-    expect(screen.getByRole("button", { name: /^Операции/ })).toHaveTextContent("(1)");
-    expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
+    // Подгруппа — тихая подпись без счётчика и свёртки; пустая подгруппа не рисуется.
+    expect(screen.getByText("Операции")).toHaveClass("ds-sub");
+    expect(screen.queryByRole("button", { name: /^Операции/ })).toBeNull();
+    expect(screen.queryByText("Воркеры")).toBeNull();
   });
 
   it("блок «Не описано» свёрнут, в шапке счётчик в скобках как у групп; раскрывается кликом", async () => {
@@ -1069,8 +1058,8 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(шапка).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("GET /orders")).toBeInTheDocument();
     expect(screen.getByText("email_senders")).toBeInTheDocument();
-    // Блок — часть карточки «Логика» под чертой, а не карточка наравне с ней.
-    expect(шапка.closest(".np-card")).toBe(screen.getByText("Логика").closest(".np-card"));
+    // Блок — часть раздела «Логика» под чертой, а не раздел наравне с ним.
+    expect(шапка.closest("section")).toBe(screen.getByRole("heading", { name: "Логика" }).closest("section"));
   });
 
   it("заглушек нет — блока «Не описано» нет вовсе", async () => {
@@ -1080,11 +1069,11 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByRole("button", { name: "Описать все" })).toBeNull();
   });
 
-  it("одни заглушки: «Логика» говорит, что описанных пока нет, блок лежит ниже", async () => {
-    // Так выглядит объект сразу после разведки; «не описаны» тут соврало бы.
+  it("одни заглушки: в «Логике» только свёрнутый «Не описано», без пустой строки", async () => {
+    // Так выглядит объект сразу после разведки: бэклог со счётчиком говорит сам за себя.
     setupDocs([док({ id: "d2", name: "GET /orders", described: false })]);
-    await waitFor(() => expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(1)");
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(1)"));
+    expect(screen.queryByText("Описанных схем логики пока нет")).toBeNull();
   });
 
   it("кнопки «Описать все» у блока «Не описано» нет", async () => {
@@ -1104,36 +1093,29 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("двести схем: свёрнута только группа-стена, воркеры видны сразу", async () => {
+  it("двести схем: подгруппы всегда раскрыты, сворачивания по порогу нет (редизайн)", async () => {
     const много = Array.from({ length: 200 }, (_, i) => док({ id: `o${i}`, name: `GET /r${i}` }));
     setupDocs([
       ...много,
       док({ id: "w1", name: "email_senders", kind: "worker" }),
     ]);
-    // Стены из двухсот кнопок нет, а соседняя группа — не стена, и прятать её незачем.
     await waitFor(() => expect(screen.getByText("email_senders")).toBeInTheDocument());
-    expect(screen.queryByText("GET /r0")).toBeNull();
-    expect(screen.getByRole("button", { name: /^Операции/ })).toHaveTextContent("(200)");
-
-    await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
     expect(screen.getByText("GET /r0")).toBeInTheDocument();
     expect(screen.getByText("GET /r199")).toBeInTheDocument();
   });
 
-  it("двести заглушек: внутри «Не описано» группа-стена тоже свёрнута", async () => {
-    // Тот же порог, что и в «Логике»: раскрытый блок не должен разворачивать стену.
+  it("двести заглушек: «Не описано» свёрнут со счётчиком, раскрытый показывает все", async () => {
     const много = Array.from({ length: 200 }, (_, i) =>
       док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
     setupDocs([...много, док({ id: "w1", name: "email_senders", kind: "worker", described: false })]);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(201)");
+    expect(screen.queryByText("GET /r0")).toBeNull();
 
     await раскрытьНеОписано();
 
-    expect(screen.queryByText("GET /r0")).toBeNull();
-    expect(screen.getByText("email_senders")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
     expect(screen.getByText("GET /r199")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
   it("тринадцать схем: порог считается по группе, а не по объекту", async () => {
@@ -1151,23 +1133,21 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("в заголовке группы — число строк, и только оно", async () => {
+  it("подпись подгруппы — только название вида, без счётчика", async () => {
     setupDocs([
       док({ id: "d1", name: "POST /orders" }),
       док({ id: "d2", name: "GET /orders" }),
       док({ id: "d3", name: "email_senders", kind: "worker" }),
     ]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    const операции = screen.getByRole("button", { name: /^Операции/ });
-    expect(операции).toHaveTextContent("(2)");
-    expect(операции).not.toHaveTextContent("описано");
-    expect(screen.getByRole("button", { name: /^Воркеры/ })).toHaveTextContent("(1)");
+    expect(screen.getByText("Операции")).toHaveTextContent(/^Операции$/);
+    expect(screen.getByText("Воркеры")).toHaveTextContent(/^Воркеры$/);
   });
 
   it("пустая группа не рисуется вовсе", async () => {
     setupDocs([док({ id: "d1", name: "POST /orders" })]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
+    expect(screen.queryByText("Воркеры")).toBeNull();
   });
 
   // ── Неописанная строка открывает своё окно (внутри блока «Не описано») ─────
@@ -1208,7 +1188,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
   });
 
   it("у описанной строки кнопки «Описать» нет", async () => {
-    // Описанную открывают («открыть →»), описывать заново нечего.
+    // Описанную открывают кликом по строке, описывать заново нечего.
     setupDocs([
       док({ id: "d1", name: "POST /orders", described: true }),
     ]);
@@ -1216,35 +1196,32 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
   });
 
-  it("«+ Добавить → Вручную»: окно новой схемы, а не созданная заранее схема", async () => {
+  it("«Добавить → Вручную»: окно новой схемы, а не созданная заранее схема", async () => {
     setupDocs([]);
-    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
-    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    const раздел = (await screen.findByRole("heading", { name: "Логика" })).closest("section") as HTMLElement;
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "flowchart");
     expect(окно).toHaveAttribute("data-create", "true");
   });
 
-  it("«+ Добавить → Через ИИ-агента» в «Логике» — пакетная модалка", async () => {
+  it("«Добавить → Через ИИ-агента» в «Логике» — пакетная модалка", async () => {
     setupDocs([]);
-    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
-    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    const раздел = (await screen.findByRole("heading", { name: "Логика" })).closest("section") as HTMLElement;
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
     expect(screen.getByTestId("docs-modal")).toBeInTheDocument();
     expect(screen.queryByTestId("doc-overlay")).toBeNull();
   });
 
-  it("меню «+ Добавить» ведёт в составление списка операций", async () => {
+  it("меню «Добавить» ведёт в составление списка операций", async () => {
     setupDocs([]);
-    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    const раздел = (await screen.findByRole("heading", { name: "Логика" })).closest("section") as HTMLElement;
     expect(screen.queryByTestId("recon-modal")).toBeNull();
 
-    // «+ Добавить» на странице два (Логика и OpenAPI) — берём меню секции «Логика».
-    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    // «Добавить» на странице несколько (Логика, OpenAPI, Конфигурация) — берём раздел «Логика».
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Составить список операций" }));
     expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-name", "Сервис оплаты");
   });
@@ -1263,8 +1240,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
     render(<NodePage nodeId="n1" isArchitect={false} {...nav} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
-    expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument();
-    expect(screen.queryByText("+ Добавить")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
     // «Описать» и «Описать все» — действия над документацией, читателю их не предлагаем.
     expect(screen.queryByRole("button", { name: "Описать все" })).toBeNull();
     await раскрытьНеОписано();

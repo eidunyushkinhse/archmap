@@ -522,45 +522,10 @@ function NodePageInner({
         </div>
 
         {/* ── Документация под схемой — одним блоком: на него смотрит обучающий тур
-            (шаг «Не только схема»), раскладка та же, что у колонки карточек ── */}
+            (шаг «Не только схема»). Порядок разделов (редизайн, направление А):
+            Логика, OpenAPI, Конфигурация, Структура/Каналы, Связи, Процессы; раздел,
+            которому нечего показать и нечего предложить, не рисуется вовсе ── */}
         <div className="np-docs" data-tour="node-docs">
-          {/* ── Связи (одноимённые — строкой со счётчиком, карточка сворачивается) ── */}
-          <EdgesSection
-            edges={edges}
-            nodeName={node.name}
-            isArchitect={isArchitect}
-            onNavigateNode={onNavigateNode}
-            onEdit={setEdgeEditId}
-          />
-
-          {/* ── Участвует в процессах ─────────────────────────────── */}
-          <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
-
-          {/* ── Структура (таблицы БД) ────────────────────────────── */}
-          {allow.structure && (
-            <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
-          )}
-
-          {/* ── Каналы (структура брокера) ────────────────────────── */}
-          {allow.channels && (
-            <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
-          )}
-
-          {/* ── Конфигурация (параметры сервиса) ──────────────────── */}
-          {/* Монтируется ВСЕГДА, в отличие от двух секций выше: параметров нет в теле
-              узла, и узнать про легаси-записи у неподходящей формы можно только
-              запросом. Секция сама промолчит, если их нет (спрятать применённое было
-              бы хуже, чем показать с предупреждением). */}
-          <ConfigParamsSection
-            nodeId={node.id}
-            element={element}
-            isArchitect={isArchitect}
-            allowed={allow.config}
-            onTransfer={isSystem ? facts.openTransfer : undefined}
-            onCollect={facts.collectParams}
-            onNavigateNode={onNavigateNode}
-          />
-
           {/* ── Логика (node_docs) ────────────────────────────────── */}
           <LogicSection
             node={node}
@@ -569,7 +534,6 @@ function NodePageInner({
             allowed={allow.logic}
             legacy={legacyLogic}
             groups={container.docGroups}
-            loading={container.loading}
             onOpen={setDoc}
             onTransfer={facts.openTransfer}
             onDocsAgent={openDocsAgent}
@@ -581,20 +545,53 @@ function NodePageInner({
           {/* ── OpenAPI ───────────────────────────────────────────── */}
           <OpenApiSection
             spec={node.openapi_spec}
-            docs={node.docs}
             element={element}
-            containerHasSpec={containerNode ? (containerNode.openapi_spec ?? "").trim() !== "" : null}
             isArchitect={isArchitect}
             allowed={allow.spec}
             legacy={legacySpec}
             groups={container.specGroups}
-            loading={container.loading}
             onOpen={setDoc}
             onOpenChildSpec={openChildSpec}
             onTransfer={isSystem ? facts.openTransfer : undefined}
             onCollect={facts.collectSpec}
             onNavigateNode={onNavigateNode}
           />
+
+          {/* ── Конфигурация (параметры сервиса) ──────────────────── */}
+          {/* Монтируется ВСЕГДА, в отличие от двух разделов ниже: параметров нет в теле
+              узла, и узнать про легаси-записи у неподходящей формы можно только
+              запросом. Раздел сам промолчит, если их нет (спрятать применённое было
+              бы хуже, чем показать с предупреждением). */}
+          <ConfigParamsSection
+            nodeId={node.id}
+            element={element}
+            isArchitect={isArchitect}
+            allowed={allow.config}
+            onTransfer={isSystem ? facts.openTransfer : undefined}
+            onCollect={facts.collectParams}
+          />
+
+          {/* ── Структура (таблицы БД) ────────────────────────────── */}
+          {allow.structure && (
+            <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+          )}
+
+          {/* ── Каналы (структура брокера) ────────────────────────── */}
+          {allow.channels && (
+            <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+          )}
+
+          {/* ── Связи (одноимённые — строкой со счётчиком, карточка сворачивается) ── */}
+          <EdgesSection
+            edges={edges}
+            nodeName={node.name}
+            isArchitect={isArchitect}
+            onNavigateNode={onNavigateNode}
+            onEdit={setEdgeEditId}
+          />
+
+          {/* ── Участвует в процессах ─────────────────────────────── */}
+          <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
         </div>
         </Fragment>
       </div>

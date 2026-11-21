@@ -1,14 +1,16 @@
 // Универсальное меню добавления для разделов документации («Логика», «OpenAPI»,
 // «Структура» базы): создание вручную и дозаливка от ИИ-агента (BYOA). Пункты
 // задаются группами — между группами рисуется разделитель («Логика»:
-// вручную | пакетом/по одной; «OpenAPI»: вручную | от агента). Единый вход
-// для страницы узла и правой панели редактора (NodeInspector): триггер в духе
-// np-addbtn, выпадающий список в духе np-dropdown (adm-*). Тот же список живёт и в
-// окне схемы/спеки (DocOverlay): кнопка «Изменить» в шапке и «Описать» у
-// неописанной схемы — там триггер залитый (variant="primary"), без отступа сверху.
+// вручную | пакетом/по одной; «OpenAPI»: вручную | от агента). На странице объекта
+// триггер — тихая текстовая кнопка «+ Добавить» в строке заголовка раздела (ui/ds.css,
+// ds-add; редизайн, направление А). Тот же список живёт и в окне схемы/спеки
+// (DocOverlay): кнопка «Изменить» в шапке и «Описать» у неописанной схемы — там триггер
+// залитый (variant="primary").
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { PlusIcon } from "../ui/icons";
 import "./AddDocsMenu.css";
+import "../ui/ds.css";
 
 export interface AddDocsMenuItem {
   label: string;
@@ -22,17 +24,17 @@ interface Props {
   // панель редактора и шапка окна (кнопка у правого края, список не выходит за
   // край), center — кнопка посреди карточки.
   align?: "left" | "right" | "center";
-  // Подпись триггера. Разделы документации говорят «+ Добавить», структура базы —
-  // «+ Таблица»: там добавляется сущность одного вида, и называть её стоит прямо.
+  // Подпись триггера: у разделов страницы — «Добавить» (плюс рисуется значком).
   label?: string;
-  // Вид триггера: «add» — пунктирная «+ Добавить» разделов страницы, «primary» —
+  // Вид триггера: «add» — тихая «+ Добавить» разделов страницы, «primary» —
   // залитая кнопка действия (шапка окна схемы/спеки).
   variant?: "add" | "primary";
   // Значок перед подписью (карандаш у «Изменить»). Пункты меню — всегда без значков.
   icon?: ReactNode;
 }
 
-export default function AddDocsMenu({ groups, align = "left", label = "+ Добавить", variant = "add", icon }: Props) {
+export default function AddDocsMenu({ groups, align = "left", label = "Добавить", variant = "add", icon }: Props) {
+  const primary = variant === "primary";
   const [open, setOpen] = useState(false);
   // Меню раскрывается вверх, если под кнопкой не хватает места (кнопка у низа
   // экрана — например, «+ Добавить» в разделе OpenAPI в подвале страницы).
@@ -74,33 +76,31 @@ export default function AddDocsMenu({ groups, align = "left", label = "+ Доб�
   };
 
   return (
-    <div
-      className={"adm-wrap" + (variant === "primary" ? " adm-wrap--inline" : "")}
-      ref={wrapRef}
-      onKeyDown={onKeyDown}
-    >
+    <div className="adm-wrap" ref={wrapRef} onKeyDown={onKeyDown}>
       <button
         type="button"
-        className={"adm-btn" + (variant === "primary" ? " adm-btn--primary" : "")}
+        className={primary ? "adm-btn adm-btn--primary" : "ds-add"}
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        {icon}
+        {icon ?? (primary ? null : <PlusIcon size={12} />)}
         {label}
-        <span className={"adm-chev" + (open ? " adm-chev--open" : "")} aria-hidden="true">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 9 L12 15 L18 9" />
-          </svg>
-        </span>
+        {primary && (
+          <span className={"adm-chev" + (open ? " adm-chev--open" : "")} aria-hidden="true">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 9 L12 15 L18 9" />
+            </svg>
+          </span>
+        )}
       </button>
       {open && (
         <>
           <div className="adm-backdrop" onClick={() => setOpen(false)} />
           <div
             ref={menuRef}
-            className={"adm-menu" + (align === "left" ? "" : ` adm-menu--${align}`) + (up ? " adm-menu--up" : "")}
+            className={"adm-menu" + (primary ? "" : " adm-menu--quiet") + (align === "left" ? "" : ` adm-menu--${align}`) + (up ? " adm-menu--up" : "")}
             role="menu"
           >
             {groups.map((items, gi) => (

@@ -5,7 +5,9 @@
 //   • «где используется» приходит РАЗВОРОТОМ пометок, своей формы ввода не имеет;
 //     своя схема называется одним именем, схема компонента — с именем компонента;
 //   • секция монтируется всегда, но у неподходящей формы молчит — кроме случая,
-//     когда записи уже есть: тогда показывает их с предупреждением.
+//     когда записи уже есть: тогда показывает их с предупреждением;
+//   • видимость (редизайн, направление А): пустая подходящая конфигурация у редактора —
+//     заголовок и «Добавить», у читателя раздела нет.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -46,7 +48,6 @@ const usage = (over: Partial<ConfigParamUsage> = {}): ConfigParamUsage => ({
   ...over,
 });
 
-const onNavigateNode = vi.fn();
 const onTransfer = vi.fn();
 
 function renderSection({
@@ -60,7 +61,6 @@ function renderSection({
     <ConfigParamsSection
       nodeId="n1" element={element} isArchitect={isArchitect} allowed={allowed}
       onTransfer={element.kind === "system" ? onTransfer : undefined}
-      onNavigateNode={onNavigateNode}
     />,
   );
 }
@@ -68,10 +68,13 @@ function renderSection({
 describe("ConfigParamsSection", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("показывает параметр со всей его метой", async () => {
+  it("показывает параметр со всей его метой — тихой таблицей с шапкой", async () => {
     renderSection();
 
     await waitFor(() => expect(screen.getByText("Конфигурация")).toBeInTheDocument());
+    for (const заголовок of ["Параметр", "Тип", "Обязательный", "По умолчанию", "Что переключает"]) {
+      expect(screen.getByRole("columnheader", { name: заголовок })).toBeInTheDocument();
+    }
     expect(await screen.findByDisplayValue("FEATURE_NEW_CHECKOUT")).toBeInTheDocument();
     expect(screen.getByDisplayValue("bool")).toBeInTheDocument();
     // «По умолчанию» — текст дефолта ИЗ КОДА, не значение среды: значений в модели нет.
@@ -79,20 +82,14 @@ describe("ConfigParamsSection", () => {
     expect(screen.getByDisplayValue("включает новую корзину")).toBeInTheDocument();
   });
 
-  it("зависимости показываются разворотом пометок и своей формы ввода не имеют", async () => {
+  it("зависимости показываются разворотом пометок тихой строкой и своей формы ввода не имеют", async () => {
     renderSection({ use: [usage(), usage({ doc_id: "d2", doc_name: "GET /cart" })] });
 
-    await waitFor(() => expect(screen.getByText(/POST \/orders, GET \/cart/)).toBeInTheDocument());
-    // Подсказка говорит, ОТКУДА это берётся: иначе пользователь ищет форму ввода,
-    // которой нет. Она спрятана за «?» у заголовка (2026-09-28): видна по нажатию.
-    expect(screen.queryByText(/зависит от: ИМЯ/)).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Откуда берётся «Зависит от»" }));
-    expect(
-      screen.getByText(
-        "«Зависит от» собирается из пометок «зависит от: ИМЯ» в схемах логики этого"
-        + " объекта. Своей формы ввода у зависимости нет.",
-      ),
-    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Зависит: POST /orders, GET /cart")).toBeInTheDocument());
+    // Пояснения «?» у заголовка больше нет (редизайн): строка «Зависит» сама говорит,
+    // из каких схем она собрана, а полей ввода у неё нет.
+    expect(screen.queryByRole("button", { name: "Откуда берётся «Зависит от»" })).toBeNull();
+    expect(screen.getByText("Зависит: POST /orders, GET /cart").closest("textarea, input")).toBeNull();
   });
 
   it("схема компонента называет компонент, своя — только имя схемы", async () => {
@@ -104,7 +101,7 @@ describe("ConfigParamsSection", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByText("POST /orders, GET /cart · api")).toBeInTheDocument(),
+      expect(screen.getByText("Зависит: POST /orders, GET /cart · api")).toBeInTheDocument(),
     );
   });
 
@@ -113,7 +110,7 @@ describe("ConfigParamsSection", () => {
 
     await waitFor(() => expect(screen.getByDisplayValue("FEATURE_NEW_CHECKOUT")).toBeInTheDocument());
     // «Ссылок нет» у каждой из двадцати ручек — шум, а не факт.
-    expect(screen.queryByText("зависит:")).toBeNull();
+    expect(screen.queryByText(/Зависит:/)).toBeNull();
   });
 
   it("наблюдателю — только чтение, без полей и кнопок", async () => {
@@ -121,9 +118,10 @@ describe("ConfigParamsSection", () => {
 
     await waitFor(() => expect(screen.getByText("FEATURE_NEW_CHECKOUT")).toBeInTheDocument());
     expect(screen.queryByDisplayValue("FEATURE_NEW_CHECKOUT")).toBeNull();
-    expect(screen.queryByText("+ Параметр")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Удалить параметр/ })).toBeNull();
     // Факты наблюдателю видны все — включая зависимости.
-    expect(screen.getByText("POST /orders")).toBeInTheDocument();
+    expect(screen.getByText("Зависит: POST /orders")).toBeInTheDocument();
   });
 
   it("правка уходит с CAS-версией параметра", async () => {
@@ -158,13 +156,13 @@ describe("ConfigParamsSection", () => {
     await waitFor(() => expect(configParamsApi.list).toHaveBeenCalledTimes(2));
   });
 
-  it("«+ Параметр» не упирается в занятое имя", async () => {
+  it("«Добавить» не упирается в занятое имя", async () => {
     vi.mocked(configParamsApi.create).mockResolvedValue(param({ id: "p2" }));
     renderSection({ params: [param({ name: "ПАРАМЕТР" })] });
 
     // Вход тот же, что у соседних секций: кнопка с шевроном, а способы — пунктами
     // меню. Два способа завести одну сущность не должны выглядеть как две кнопки.
-    await userEvent.click(await screen.findByText("+ Параметр"));
+    await userEvent.click(await screen.findByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByText("Вручную"));
 
     await waitFor(() =>
@@ -181,7 +179,7 @@ describe("ConfigParamsSection", () => {
     const { container } = renderSection({ params: [], allowed: false });
 
     await waitFor(() => expect(configParamsApi.list).toHaveBeenCalled());
-    expect(container.querySelector(".np-card")).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("форме не положено, а записи есть — показываем с предупреждением", async () => {
@@ -193,20 +191,52 @@ describe("ConfigParamsSection", () => {
     expect(warn.textContent).toContain("Параметры конфигурации описывают настройки контейнера");
     expect(warn.textContent).not.toMatch(/ручк|сервис/);
     // Заводить новые у неподходящей формы всё же не даём — это уже не спасение данных.
-    expect(screen.queryByText("+ Параметр")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
   });
 
-  it("пустая конфигурация сервиса зовёт описать, а не молчит", async () => {
+  it("пустая конфигурация сервиса у редактора — заголовок и «Добавить», без пустой строки", async () => {
     renderSection({ params: [] });
 
-    await waitFor(() => expect(screen.getByText("Параметры не описаны")).toBeInTheDocument());
-    expect(screen.getByText("+ Параметр")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Конфигурация" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить" })).toBeInTheDocument();
+    expect(screen.queryByText("Параметры не описаны")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("пустая конфигурация у читателя — раздела нет", async () => {
+    const { container } = renderSection({ params: [], isArchitect: false });
+
+    await waitFor(() => expect(configParamsApi.list).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("крестик удаления назван по параметру и удаляет его", async () => {
+    vi.mocked(configParamsApi.delete).mockResolvedValue(undefined as never);
+    renderSection();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Удалить параметр FEATURE_NEW_CHECKOUT" }));
+    await waitFor(() => expect(configParamsApi.delete).toHaveBeenCalledWith("n1", "p1"));
+  });
+
+  it("длинное описание растёт по тексту: поле многострочное, Enter в имени заканчивает правку", async () => {
+    vi.mocked(configParamsApi.update).mockResolvedValue(param({ version: 2 }));
+    renderSection();
+
+    const описание = await screen.findByDisplayValue("включает новую корзину");
+    expect(описание.tagName).toBe("TEXTAREA");
+    const имя = screen.getByDisplayValue("FEATURE_NEW_CHECKOUT");
+    await userEvent.clear(имя);
+    await userEvent.type(имя, "НОВОЕ{Enter}");
+    await waitFor(() =>
+      expect(configParamsApi.update).toHaveBeenCalledWith("n1", "p1", { name: "НОВОЕ", base_version: 1 }),
+    );
+    expect(имя).toHaveValue("НОВОЕ");
   });
 
   it("«Через ИИ-агента» — второй пункт того же меню", async () => {
     renderSection();
 
-    await userEvent.click(await screen.findByText("+ Параметр"));
+    await userEvent.click(await screen.findByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByText("Через ИИ-агента"));
 
     // Окно называет объект в подзаголовке: к нему уедут параметры без адреса в файле.
@@ -218,20 +248,17 @@ describe("ConfigParamsSection", () => {
 });
 
 // ── По элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md) ────────────────────
-// Конфигурацию читает контейнер. У системы её нет: меню «+ Параметр» нет, старые
-// параметры — с предупреждением и «Перенести документацию». У компонента — где его
-// конфигурация и от каких параметров контейнера зависят его схемы.
+// Конфигурацию читает контейнер. У системы её нет: «Добавить» нет, старые параметры — с
+// предупреждением и «Перенести документацию». У компонента раздел есть, только если его
+// схемы зависят от параметров контейнера (одной строкой) или у него старые параметры.
 describe("ConfigParamsSection: элемент архитектуры", () => {
   beforeEach(() => vi.clearAllMocks());
   const COMPONENT: PageElement = { kind: "component", container: { id: "c", name: "orders" } };
 
-  it("система без параметров — своей конфигурации нет, меню «+ Параметр» нет", async () => {
-    renderSection({ params: [], element: { kind: "system" } });
-    expect(await screen.findByText(
-      "Это система, своей конфигурации у неё нет. Параметры можно описать у её контейнеров",
-    )).toBeInTheDocument();
-    expect(screen.queryByText("+ Параметр")).toBeNull();
-    expect(screen.queryByText("Параметры не описаны")).toBeNull();
+  it("система без параметров — раздела нет", async () => {
+    const { container } = renderSection({ params: [], element: { kind: "system" } });
+    await waitFor(() => expect(configParamsApi.list).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("система с параметрами — предупреждение, список и «Перенести документацию»", async () => {
@@ -240,22 +267,18 @@ describe("ConfigParamsSection: элемент архитектуры", () => {
       "Конфигурацию читают контейнеры, у системы её нет. Перенесите параметры одному из них",
     )).toBeInTheDocument();
     expect(screen.getByDisplayValue("FEATURE_NEW_CHECKOUT")).toBeInTheDocument();
-    expect(screen.queryByText("+ Параметр")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Перенести документацию" }));
     expect(onTransfer).toHaveBeenCalled();
   });
 
-  it("контейнер с компонентами — «Зависит от» из схем контейнера и его компонентов", async () => {
-    renderSection({ element: { kind: "container" } });
-    await userEvent.click(await screen.findByRole("button", { name: "Откуда берётся «Зависит от»" }));
-    expect(screen.getByText(
-      "«Зависит от» собирается из пометок «зависит от: ИМЯ» в схемах логики этого контейнера"
-      + " и его компонентов. Своей формы ввода у зависимости нет.",
-    )).toBeInTheDocument();
-    expect(screen.getByText("+ Параметр")).toBeInTheDocument();
+  it("контейнер с компонентами — «Добавить» есть, схема компонента названа с компонентом", async () => {
+    renderSection({ element: { kind: "container" }, use: [usage({ node_id: "n2", node_name: "api" })] });
+    expect(await screen.findByText("Зависит: POST /orders · api")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить" })).toBeInTheDocument();
   });
 
-  it("компонент — конфигурацию читает контейнер, «Открыть» ведёт к нему, зависимости его схем", async () => {
+  it("компонент — одна строка: от каких параметров контейнера зависят его схемы", async () => {
     renderSection({
       params: [],
       element: COMPONENT,
@@ -267,30 +290,28 @@ describe("ConfigParamsSection: элемент архитектуры", () => {
       ],
     });
     expect(await screen.findByText(
-      "Схемы этого компонента зависят от: FEATURE_NEW_CHECKOUT, TOLERANCE_PERCENT",
+      "Схемы этого компонента зависят от параметров контейнера «orders»: FEATURE_NEW_CHECKOUT, TOLERANCE_PERCENT",
     )).toBeInTheDocument();
     expect(configParamsApi.usage).toHaveBeenCalledWith("c");
-    expect(screen.getByText(/Конфигурацию читает контейнер «orders», параметры описаны у него/)).toBeInTheDocument();
-    expect(screen.queryByText("+ Параметр")).toBeNull();
-    expect(screen.queryByText("Параметры не описаны")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
-    expect(onNavigateNode).toHaveBeenCalledWith("c");
+    // Пояснение «конфигурацию читает контейнер» с кнопкой «Открыть» убрано: контейнер
+    // назван в строке «Тип» свойств, и ссылка на него там же.
+    expect(screen.queryByText(/параметры описаны у него/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
   });
 
-  it("компонент без зависимостей — строки нет", async () => {
-    renderSection({ params: [], element: COMPONENT });
-    await screen.findByText(/Конфигурацию читает контейнер «orders»/);
+  it("компонент без зависимостей и параметров — раздела нет", async () => {
+    const { container } = renderSection({ params: [], element: COMPONENT });
     await waitFor(() => expect(configParamsApi.usage).toHaveBeenCalledWith("c"));
-    expect(screen.queryByText(/Схемы этого компонента зависят от/)).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it("свои параметры у компонента (старые данные) — куда их собрать, список без «+ Параметр»", async () => {
+  it("свои параметры у компонента (старые данные) — куда их собрать, список без «Добавить»", async () => {
     renderSection({ element: COMPONENT });
     expect(await screen.findByText(
       "Конфигурацию читает контейнер целиком. Параметры можно перенести в «orders» кнопкой"
       + " «Собрать с компонентов» на его странице",
     )).toBeInTheDocument();
     expect(screen.getByDisplayValue("FEATURE_NEW_CHECKOUT")).toBeInTheDocument();
-    expect(screen.queryByText("+ Параметр")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
   });
 });

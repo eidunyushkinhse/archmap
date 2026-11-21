@@ -1,10 +1,9 @@
-// Список СОБСТВЕННЫХ схем логики объекта — группами по видам, со сворачиванием.
+// Список СОБСТВЕННЫХ схем логики объекта — подгруппами по видам («Операции»,
+// «Воркеры»).
 //
-// Зачем группы: разведка монолита кладёт в «Логику» двести с лишним строк (у Zulip
-// посчитано 212 точек входа), а до неё полевым максимумом были тринадцать. Плоский
-// столбец из двухсот кнопок — не витрина, а стена. Сворачиваемые заголовки с числами
-// дают обзор, а свёрнутой стартует только та группа, которая сама стена (порог
-// считается по её строкам): на маленьком объекте список выглядит как раньше.
+// С редизайна (направление А «Документ») группы всегда раскрыты, без рамок и счётчиков:
+// подпись подгруппы — тихий текст, строка — имя схемы и операция моноширинным, «в N
+// процессах» — отдельная тихая часть строки справа.
 //
 // Список НЕ различает описанные схемы и заглушки: делит их владелец. «Логика»
 // отдаёт сюда только описанные, блок «Не описано» (UndescribedDocs) — только
@@ -16,14 +15,11 @@
 //
 // Компоненты объявлены НА ВЕРХНЕМ УРОВНЕ МОДУЛЯ: объявленный внутри другого
 // ремаунтится каждый рендер (ловушка проекта — так ломался drag палитры).
-import { useCallback, useMemo, useState } from "react";
-import type { CSSProperties, MouseEvent } from "react";
+import { useMemo, useState } from "react";
 import type { NodeDocKind, NodeDocMeta, NodeDocUsage } from "../types";
-import { ChevronDownIcon } from "../ui/icons";
 import { plural } from "../ui/plural";
-import { OPEN_LIMIT } from "./docsList";
 import { DocRowLabel } from "./docRow";
-import { useShrinkAnchor } from "./useShrinkAnchor";
+import "../ui/ds.css";
 
 // Порядок групп — тот же, что у вида схемы во всём проекте: операция → воркер.
 // Внутри группы порядок приходит с бэка (по имени) и фильтром сохраняется —
@@ -40,32 +36,19 @@ interface Props {
   onOpen: (docId: string) => void;
   // Обратный индекс «используется в процессах» (Ф8, У10): строки для ВСЕХ схем узла
   // разом, фильтруются по doc_id здесь. Отвечает про КОНКРЕТНУЮ схему — узловой
-  // вопрос закрывает секция «Участвует в процессах», и дублировать её нельзя,
-  // поэтому подсписок процессов раскрывается ПО ЗАПРОСУ, а не висит на экране.
+  // вопрос закрывает раздел «Процессы», и дублировать его нельзя, поэтому подсписок
+  // процессов раскрывается ПО ЗАПРОСУ, а не висит на экране.
   usage?: NodeDocUsage[];
-  // Переход в процесс из подсписка. Не передан — счётчик остаётся некликабельным.
+  // Переход в процесс из подсписка. Не передан — подсписок некликабельный.
   onOpenProcess?: (processId: string) => void;
 }
 
 export default function NodeDocsList({ docs, onOpen, usage, onOpenProcess }: Props) {
   // Группы — ПРОИЗВОДНОЕ в рендере (эффект с setState тут запрещён линтом и
   // рассинхронился бы с метой). Пустая группа не рисуется вовсе.
-  //
-  // Стартовая поза считается ПО СВОЕЙ ГРУППЕ, а не по объекту целиком: свернуть
-  // надо то, что реально стена. У объекта на тринадцать схем (полевой Zulip до
-  // разведки) стены нет ни в одной группе — список остаётся читаемым, как был; у
-  // монолита свёрнуты «Операции (198)», а воркеры видны сразу, и на экране видно,
-  // где работа. Порог общий с превью окна разведки.
-  //
-  // Ключом идёт и сама поза: пока группа не перешла порог, поза пользователя живёт,
-  // а перешла (приехал перечень на две сотни) — встаёт в новую, иначе развёрнутая
-  // вчера «Операции» вернулась бы стеной.
   const groups = useMemo(
     () => GROUPS
-      .map((g) => {
-        const items = docs.filter((d) => d.kind === g.kind);
-        return { ...g, items, startOpen: items.length <= OPEN_LIMIT };
-      })
+      .map((g) => ({ ...g, items: docs.filter((d) => d.kind === g.kind) }))
       .filter((g) => g.items.length > 0),
     [docs],
   );
@@ -83,98 +66,54 @@ export default function NodeDocsList({ docs, onOpen, usage, onOpenProcess }: Pro
   }, [usage]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div>
       {groups.map((g) => (
-        <DocKindGroup
-          key={`${g.kind}:${g.startOpen}`}
-          title={g.title}
-          items={g.items}
-          startOpen={g.startOpen}
-          onOpen={onOpen}
-          usageByDoc={usageByDoc}
-          onOpenProcess={onOpenProcess}
-        />
+        <div key={g.kind} className="ds-subgroup">
+          <div className="ds-sub">{g.title}</div>
+          <div className="ds-rows">
+            {g.items.map((d) => (
+              <DocRow
+                key={d.id}
+                doc={d}
+                onOpen={onOpen}
+                usage={usageByDoc.get(d.id)}
+                onOpenProcess={onOpenProcess}
+              />
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );
 }
 
-// Группа одного вида: заголовок с числом строк, тело — строки.
-// Состояние «свёрнуто/развёрнуто» живёт здесь и никуда не сохраняется: это поза
-// списка на время просмотра, а не настройка.
-function DocKindGroup({ title, items, startOpen, onOpen, usageByDoc, onOpenProcess }: {
-  title: string;
-  items: NodeDocMeta[];
-  startOpen: boolean;
-  onOpen: (docId: string) => void;
-  usageByDoc: Map<string, NodeDocUsage[]>;
-  onOpenProcess?: (processId: string) => void;
-}) {
-  const [open, setOpen] = useState(startOpen);
-  // Сворачивание у низа страницы не должно ронять верх страницы вниз: якорь скролла.
-  const holdScroll = useShrinkAnchor();
-  const toggle = useCallback((e: MouseEvent<HTMLButtonElement>) => {
-    if (open) holdScroll(e.currentTarget);
-    setOpen((o) => !o);
-  }, [open, holdScroll]);
-  // Рамка .np-group охватывает и заголовок, и раскрытое содержимое: по ней видно,
-  // что строки принадлежат группе (решение пользователя 2026-09-29).
-  return (
-    <div className="np-group">
-      <button type="button" className="np-doc-group-toggle" onClick={toggle} aria-expanded={open}>
-        <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
-          <ChevronDownIcon />
-        </span>
-        {title}
-        <span style={groupCount}>({items.length})</span>
-      </button>
-      {open && (
-        <div className="np-doc-group-body">
-          {items.map((d) => (
-            <DocRow
-              key={d.id}
-              doc={d}
-              onOpen={onOpen}
-              usage={usageByDoc.get(d.id)}
-              onOpenProcess={onOpenProcess}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Строка схемы. Счётчик «в N процессах» — СОСЕД строки, а не вложенная кнопка:
+// Строка схемы. «В N процессах» — СОСЕД главной кнопки строки, а не вложенная кнопка:
 // <button> внутри <button> невалиден, и клик по вложенной открывал бы заодно схему.
-// Форма та же, что у split-строк объединения контейнера.
 function DocRow({ doc, onOpen, usage, onOpenProcess }: {
   doc: NodeDocMeta;
   onOpen: (docId: string) => void;
   usage?: NodeDocUsage[];
   onOpenProcess?: (processId: string) => void;
 }) {
-  // Подсписок «используется в процессах» раскрыт/свёрнут — поза на время просмотра,
-  // как у групп видов: на экране по умолчанию нет второго списка процессов рядом с
-  // узловой секцией «Участвует в процессах» (барьер У10).
+  // Подсписок «используется в процессах» раскрыт/свёрнут — поза на время просмотра: на
+  // экране по умолчанию нет второго списка процессов рядом с разделом «Процессы» (У10).
   const [usageOpen, setUsageOpen] = useState(false);
   const used = usage ?? [];
   return (
     <>
-      <div className="np-doc-split">
+      <div className="ds-row">
         <button
           type="button"
-          className="np-doc-split-main"
+          className="ds-row-main"
           onClick={() => onOpen(doc.id)}
           title={`Открыть схему «${doc.name}»`}
         >
-          <DocRowLabel name={doc.name} kind={doc.kind} operation={doc.operation} />
+          <DocRowLabel name={doc.name} operation={doc.operation} />
         </button>
         {used.length > 0 && (
           <button
             type="button"
-            className="np-doc-split-child"
-            style={usageBtn}
+            className="ds-row-side"
             onClick={() => setUsageOpen((o) => !o)}
             aria-expanded={usageOpen}
             title="Шаги каких процессов задокументированы этой схемой"
@@ -184,17 +123,17 @@ function DocRow({ doc, onOpen, usage, onOpenProcess }: {
         )}
       </div>
       {usageOpen && used.length > 0 && (
-        <div style={usageList}>
+        <div className="ds-nested">
           {used.map((u) => (
             <button
               key={u.process_id}
               type="button"
-              style={usageRow}
+              className="ds-nested-row"
               onClick={onOpenProcess ? () => onOpenProcess(u.process_id) : undefined}
               disabled={!onOpenProcess}
             >
               {u.process_name}
-              <span style={usageSteps}>
+              <span className="ds-nested-note">
                 {u.steps} {plural(u.steps, ["шаг", "шага", "шагов"])}
               </span>
             </button>
@@ -204,19 +143,3 @@ function DocRow({ doc, onOpen, usage, onOpenProcess }: {
     </>
   );
 }
-
-// ── inline-стили строк и заголовков групп ─────────────────────────────
-const groupCount: CSSProperties = { fontSize: 12, fontWeight: 400, color: "#94a3b8" };
-// Счётчик «в N процессах» — знание, а не действие: спокойный серый; раскрытие
-// подсписка — его единственная работа.
-const usageBtn: CSSProperties = { color: "#64748b", fontWeight: 600, whiteSpace: "nowrap" };
-const usageList: CSSProperties = {
-  display: "flex", flexDirection: "column", gap: 2,
-  margin: "2px 0 4px", paddingLeft: 14,
-};
-const usageRow: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 8, width: "100%",
-  padding: "4px 8px", border: "none", borderRadius: 6, background: "none",
-  cursor: "pointer", textAlign: "left", fontSize: 12.5, color: "#2563eb", fontWeight: 600,
-};
-const usageSteps: CSSProperties = { fontSize: 11.5, color: "#94a3b8", fontWeight: 400 };

@@ -33,17 +33,20 @@
 }
 
 /* Подгруппа внутри раздела («Операции», «Воркеры», имя компонента): подпись без
-   рамок, счётчиков и верхнего регистра. */
+   рамок, счётчиков и верхнего регистра. Отступ между подгруппами держит обёртка
+   .ds-subgroup; первая подгруппа сразу под заголовком раздела — ближе к нему. */
+.ds-subgroup {
+  margin-top: 16px;
+}
+.ds-sec-head + * > .ds-subgroup:first-child {
+  margin-top: 4px;
+}
 .ds-sub {
-  margin: 16px 0 4px;
+  margin: 0 0 4px;
   font-size: var(--fs-caption);
   font-weight: 500;
   line-height: var(--lh-ui);
   color: var(--c-fg-muted);
-}
-.ds-sec-head + .ds-sub,
-.ds-sec-head + * > .ds-sub:first-child {
-  margin-top: 4px;
 }
 /* Подпись-ссылка (имя компонента ведёт на его страницу). */
 button.ds-sub {
@@ -381,4 +384,170 @@ button.ds-sub:hover {
 /* Пустое значение («не указана», «не задан»). */
 .ds-empty {
   color: var(--c-fg-faint);
+}
+
+/* ── Поле, растущее по тексту (ui/GrowField) ─────────────────────────────
+   Обёртка — сетка с одной ячейкой: невидимая копия текста (::after из data-value) и
+   само поле лежат друг на друге, высоту ячейки задаёт копия. Поля, шрифт и перенос у
+   копии и поля одинаковые, иначе высота разойдётся с текстом. */
+.ds-grow {
+  display: grid;
+  min-width: 0;
+  margin-left: -6px;
+}
+.ds-grow::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+  white-space: pre-wrap;
+}
+.ds-grow::after,
+.ds-grow-input {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 6px;
+  border: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  overflow-wrap: anywhere;
+}
+.ds-grow-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  resize: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  outline: none;
+}
+.ds-grow-input:hover {
+  background: var(--c-hover);
+}
+.ds-grow-input:focus {
+  background: var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.ds-grow-input::placeholder {
+  color: var(--c-fg-faint);
+  opacity: 1;
+}
+
+/* ── Удаление записи: тихий крестик ──────────────────────────────────────
+   Скрыт, пока строку не навели и не поставили в неё фокус: какой элемент считать
+   строкой, решает место вызова (.cfg-row:hover .ds-del и т. п.). */
+.ds-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--c-fg-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+.ds-del:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.ds-del:hover {
+  color: var(--c-danger);
+  background: var(--c-hover);
+}
+
+/* ── Шеврон раскрывашки: вниз — раскрыто, вправо — свёрнуто ──────────────── */
+.ds-chev {
+  display: inline-flex;
+  color: var(--c-fg-muted);
+  transition: transform 0.12s;
+}
+.ds-chev.is-closed {
+  transform: rotate(-90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-chev {
+    transition: none;
+  }
+}
+
+/* ── Свёрнутый блок под чертой («Не описано» в «Логике») ──────────────────
+   Заголовок — тихий текст с шевроном и числом в скобках, как макрос Expand в
+   Confluence: бэклог, а не ещё одна подгруппа. */
+.ds-expand-block {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-line);
+}
+.ds-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.ds-expand:hover {
+  color: var(--c-fg);
+}
+.ds-expand:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+}
+.ds-expand-count {
+  font-weight: 400;
+  color: var(--c-fg-faint);
+}
+.ds-expand-body {
+  margin-top: 4px;
+}
+
+/* ── Вложенный список под строкой (в каких процессах используется схема) ── */
+.ds-nested {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 4px 16px;
+}
+.ds-nested-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ds-nested-row:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-nested-row:disabled {
+  color: var(--c-fg-muted);
+  cursor: default;
+}
+.ds-nested-note {
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
 }

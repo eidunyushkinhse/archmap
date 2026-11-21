@@ -1,10 +1,15 @@
-// Секция «Логика» по элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md, Р34):
+// Раздел «Логика» по элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md, Р34):
 // схемы логики описывают код, поэтому у узла с вложенными объектами своих схем быть не
-// должно (предупреждение и «Перенести документацию», меню «+ Добавить» нет). Система
+// должно (предупреждение и «Перенести документацию», меню «Добавить» нет). Система
 // документацию потомков не собирает; контейнер с компонентами и составной компонент
-// показывают схемы компонентов группами. Лист — как раньше. Три элемента × (пусто / свои
-// схемы / схемы потомков).
+// показывают схемы компонентов подгруппами. Три элемента × (пусто / свои схемы / схемы
+// потомков).
+//
+// Видимость (редизайн, направление А): раздел, которому нечего показать и нечего
+// предложить, не рисуется вовсе. Подходит объекту и пуст — у редактора заголовок и
+// «Добавить», у читателя ничего; не подходит и пуст — раздела нет ни у кого.
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import LogicSection from "../nodePage/LogicSection";
 import type { PageElement } from "../element/elementView";
@@ -32,7 +37,7 @@ function node(over: Partial<Node> = {}): Node {
 const kid = node({ id: "k1", name: "api", has_children: false, child_count: 0, parent_id: "n1" });
 const groups: ContainerDocGroup[] = [{ child: kid, own: [doc({ id: "dk", name: "Схема api" })], deep: [] }];
 
-function renderSection(element: PageElement, over: { docs?: NodeDocMeta[]; groups?: ContainerDocGroup[]; isArchitect?: boolean } = {}) {
+function renderSection(element: PageElement, over: { docs?: NodeDocMeta[]; groups?: ContainerDocGroup[]; isArchitect?: boolean; onNavigateNode?: (id: string) => void } = {}) {
   return render(
     <LogicSection
       node={node({ docs: over.docs ?? [] })}
@@ -41,12 +46,11 @@ function renderSection(element: PageElement, over: { docs?: NodeDocMeta[]; group
       allowed
       legacy={false}
       groups={over.groups ?? []}
-      loading={false}
       onOpen={vi.fn()}
       onTransfer={vi.fn()}
       onDocsAgent={vi.fn()}
       onReconAgent={vi.fn()}
-      onNavigateNode={vi.fn()}
+      onNavigateNode={over.onNavigateNode ?? vi.fn()}
     />,
   );
 }
@@ -56,12 +60,12 @@ const CONTAINER: PageElement = { kind: "container" };
 const COMPOSITE: PageElement = { kind: "composite", container: { id: "c", name: "orders" } };
 
 describe("LogicSection: система", () => {
-  it("пусто — система, своих схем нет; меню «+ Добавить» нет", () => {
-    renderSection(SYSTEM);
-    expect(screen.getByText(
-      "Это система, своих схем логики у неё нет. Схемы логики можно описать у её контейнеров и компонентов",
-    )).toBeInTheDocument();
-    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+  it("пусто — раздела нет ни у редактора, ни у читателя", () => {
+    const { container, unmount } = renderSection(SYSTEM);
+    expect(container).toBeEmptyDOMElement();
+    unmount();
+    const reader = renderSection(SYSTEM, { isArchitect: false });
+    expect(reader.container).toBeEmptyDOMElement();
   });
 
   it("свои схемы — предупреждение, список и «Перенести документацию»", () => {
@@ -71,21 +75,19 @@ describe("LogicSection: система", () => {
     )).toBeInTheDocument();
     expect(screen.getByText("Оформление заказа")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
   });
 
   it("схемы потомков страница системы не показывает (Р34)", () => {
-    // Страница групп системе не отдаёт; секция их и не ждёт — пустое состояние системы.
     renderSection(SYSTEM, { groups: [] });
     expect(screen.queryByText("Схема api")).not.toBeInTheDocument();
-    expect(screen.queryByText("Схемы компонентов")).not.toBeInTheDocument();
   });
 });
 
 describe("LogicSection: контейнер с компонентами", () => {
-  it("пусто — схемы компонентов появятся, когда их опишут", () => {
-    renderSection(CONTAINER);
-    expect(screen.getByText("Схемы логики компонентов появятся здесь, когда их опишут")).toBeInTheDocument();
-    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+  it("пусто — раздела нет: новую логику заводят у компонентов", () => {
+    const { container } = renderSection(CONTAINER);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("свои схемы — предупреждение «их можно перенести компонентам» и «Перенести документацию»", () => {
@@ -94,21 +96,30 @@ describe("LogicSection: контейнер с компонентами", () => {
       "У контейнера есть свои схемы логики. Схемы описывают код, их можно перенести компонентам",
     )).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
-    expect(screen.getByText("Схемы компонентов")).toBeInTheDocument();
+    expect(screen.getByText("Схема api")).toBeInTheDocument();
   });
 
-  it("схемы компонентов — группами по детям, без пустого пояснения", () => {
-    renderSection(CONTAINER, { groups });
+  it("схемы компонентов — подгруппами по детям: подпись ведёт на страницу ребёнка", async () => {
+    const onNavigateNode = vi.fn();
+    renderSection(CONTAINER, { groups, onNavigateNode });
+    expect(screen.getByRole("heading", { name: "Логика" })).toBeInTheDocument();
     expect(screen.getByText("Схема api")).toBeInTheDocument();
-    expect(screen.getByText("от api →")).toBeInTheDocument();
+    // Подгруппа без рамки и счётчика: подпись — имя ребёнка.
+    await userEvent.click(screen.getByRole("button", { name: "api" }));
+    expect(onNavigateNode).toHaveBeenCalledWith("k1");
     expect(screen.queryByText(/появятся здесь/)).not.toBeInTheDocument();
+  });
+
+  it("у читателя схемы компонентов видны так же", () => {
+    renderSection(CONTAINER, { groups, isArchitect: false });
+    expect(screen.getByText("Схема api")).toBeInTheDocument();
   });
 });
 
 describe("LogicSection: составной компонент", () => {
-  it("пусто, свои схемы и схемы вложенных — как у контейнера, словами компонента", () => {
-    const { unmount } = renderSection(COMPOSITE);
-    expect(screen.getByText("Схемы логики компонентов появятся здесь, когда их опишут")).toBeInTheDocument();
+  it("пусто — раздела нет; свои схемы и схемы вложенных — как у контейнера, словами компонента", () => {
+    const { container, unmount } = renderSection(COMPOSITE);
+    expect(container).toBeEmptyDOMElement();
     unmount();
     renderSection(COMPOSITE, { docs: [doc()], groups });
     expect(screen.getByText(
@@ -118,17 +129,39 @@ describe("LogicSection: составной компонент", () => {
   });
 });
 
-describe("LogicSection: объект без вложенных — как раньше", () => {
-  it("контейнер без компонентов, компонент и внешняя система: свои схемы, меню «+ Добавить»", () => {
+describe("LogicSection: объект без вложенных", () => {
+  it("пусто у редактора — заголовок и «Добавить», без пустой строки", () => {
     const elements = [
       { kind: "leaf" }, { kind: "component", container: { id: "c", name: "orders" } }, { kind: "external" },
     ] as PageElement[];
     for (const element of elements) {
       const { unmount } = renderSection(element);
-      expect(screen.getByText("Схемы логики не описаны")).toBeInTheDocument();
-      expect(screen.getByText("+ Добавить")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Логика" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Добавить" })).toBeInTheDocument();
+      expect(screen.queryByText("Схемы логики не описаны")).toBeNull();
       unmount();
     }
+  });
+
+  it("пусто у читателя — раздела нет", () => {
+    const { container } = renderSection({ kind: "leaf" }, { isArchitect: false });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("одни заглушки — свёрнутый «Не описано» со счётчиком, а не «описанных пока нет»", () => {
+    renderSection({ kind: "leaf" }, { docs: [doc({ described: false }), doc({ id: "d2", name: "GET /x", described: false })] });
+    expect(screen.getByRole("button", { name: /Не описано/ })).toHaveTextContent("(2)");
+    expect(screen.queryByText("Описанных схем логики пока нет")).toBeNull();
+  });
+
+  it("строка схемы: имя и операция моноширинным, без пилюли вида и «открыть →»", () => {
+    renderSection({ kind: "leaf" }, { docs: [doc({ operation: "POST /orders" })] });
+    const row = screen.getByRole("button", { name: /Оформление заказа/ });
+    expect(row).toHaveTextContent("POST /orders");
+    expect(screen.getByText("POST /orders")).toHaveClass("ds-mono");
+    expect(screen.getByText("Операции")).toHaveClass("ds-sub");
+    expect(screen.queryByText("операция")).toBeNull();
+    expect(screen.queryByText(/открыть/)).toBeNull();
   });
 });
 
@@ -142,7 +175,6 @@ describe("LogicSection: схемы у формы без кода", () => {
         allowed={false}
         legacy
         groups={[]}
-        loading={false}
         onOpen={vi.fn()}
         onTransfer={vi.fn()}
         onDocsAgent={vi.fn()}
@@ -153,15 +185,33 @@ describe("LogicSection: схемы у формы без кода", () => {
     expect(screen.getByText(
       "Схемы логики описывают код контейнера или компонента, а у этого объекта его нет. Перенесите их объекту, который с ним работает.",
     )).toBeInTheDocument();
-    expect(screen.queryByText("+ Добавить")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+  });
+
+  it("база данных без схем — раздела нет", () => {
+    const { container } = render(
+      <LogicSection
+        node={node({ docs: [], shape: "database", has_children: false, child_count: 0, element_effective: null })}
+        element={{ kind: "leaf" }}
+        isArchitect
+        allowed={false}
+        legacy={false}
+        groups={[]}
+        onOpen={vi.fn()}
+        onTransfer={vi.fn()}
+        onDocsAgent={vi.fn()}
+        onReconAgent={vi.fn()}
+        onNavigateNode={vi.fn()}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 });
 
 describe("LogicSection: внешняя система (Р42)", () => {
   it("свои схемы без предупреждения и без «Перенести документацию»: чёрный ящик описывают у него", () => {
     renderSection({ kind: "external" }, { docs: [doc()] });
-    expect(screen.queryByText("Схемы логики не описаны")).toBeNull();
-    expect(screen.getByText("+ Добавить")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить" })).toBeInTheDocument();
     expect(screen.queryByText(/остались собственные схемы/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Перенести документацию" })).toBeNull();
   });

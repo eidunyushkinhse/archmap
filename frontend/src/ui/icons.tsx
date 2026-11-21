@@ -40,8 +40,8 @@ export const EdgeLabelsIcon = ({ size = 17, off = false }: IcoProps & { off?: bo
 export const ChevronIcon = ({ size = 13 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M9 6 L15 12 L9 18" /></svg>);
-// Шеврон «вниз» для раскрывающихся групп (группы доков на странице объекта, разделы
-// базы в секции «Структура»). Поворот задаёт вызывающий — см. .np-doc-group-chev.
+// Шеврон «вниз» для раскрывающихся групп (разделы базы и группы каналов, таблица и
+// канал на странице объекта). Поворот задаёт вызывающий — см. .ds-chev в ui/ds.css.
 export const ChevronDownIcon = ({ size = 12 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={2.2} aria-hidden
     style={{ marginLeft: 2 }}>
