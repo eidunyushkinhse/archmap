@@ -537,18 +537,33 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // своим cancel — обработчик клавишу не гасит, а пропускает; открытое всплывающее с
   // document-обработчиком (меню «⋮», «Рекомендации», легенда — ui/useDismiss) закрывает
   // себя само: его кнопка ещё помечена aria-expanded. Шевроны дерева — не всплывающие.
+  // Открыто ли окно или всплывающее, смотрим в фазе ЗАХВАТА, до всех обработчиков: в
+  // браузере между обработчиком всплывающего на document и этим на window React успевает
+  // перерисовать закрытое меню (микрозадача между слушателями), и на всплытии
+  // aria-expanded уже снят — Escape закрыл бы меню и тут же вывел из редактора.
   const rootRef = useRef<HTMLDivElement>(null);
+  const escapeTaken = useRef(false);
   const onEscape = useEffectEvent((e: KeyboardEvent) => {
     if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
-    if (document.querySelector("dialog[open]")) return;
-    if (rootRef.current?.querySelector('[aria-expanded="true"]:not(.nt-chevzone)')) return;
+    if (escapeTaken.current) return;
     if (selectedObject) { closePanel(); return; }
     onDone();
   });
   useEffect(() => {
+    // Слушатель захвата добавлен первым: у события, нацеленного на сам window, оба
+    // слушателя срабатывают на месте, и снимок должен успеть раньше.
+    const onCapture = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      escapeTaken.current = !!document.querySelector("dialog[open]")
+        || !!rootRef.current?.querySelector('[aria-expanded="true"]:not(.nt-chevzone)');
+    };
     const onKey = (e: KeyboardEvent) => onEscape(e);
+    window.addEventListener("keydown", onCapture, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onCapture, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   // ── Обработчики (порты из TreePage) ──────────────────────────────

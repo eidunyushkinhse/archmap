@@ -4,6 +4,7 @@
 // модалки и поллинг замоканы — тестируем оболочку редактора и её диспетчеры.
 import { render as rtlRender, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
+import { flushSync } from "react-dom";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
@@ -59,7 +60,14 @@ vi.mock("../../components/graph/interaction/useHistory", () => ({
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 vi.mock("../useSchemaAlerts", () => ({
   useSchemaAlerts: () => ({
-    alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [] },
+    // Полный пустой набор: настоящая панель «Рекомендации» (тест Escape) читает все разделы.
+    alerts: {
+      disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [],
+      persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [],
+      unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [],
+      broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [],
+      component_facts: [], code_changes: [],
+    },
     loaded: true,
     reload: vi.fn(),
   }),
@@ -155,16 +163,23 @@ vi.mock("../../components/TransitionConfirm", () => ({
 vi.mock("../../components/RelayoutConfirm", () => ({ default: () => <div data-testid="relayout-confirm" /> }));
 // Кнопка «Рекомендации» (алерты): метка присутствия + кнопка, дёргающая
 // onOpenProcess — как строка процессного класса (AL26/AL27) в настоящей панели.
-vi.mock("../../components/SchemaAlerts", () => ({
-  default: ({ onOpenProcess }: { onOpenProcess?: (id: string) => void }) => (
-    <>
-      <span data-testid="recs-button" />
-      {onOpenProcess && (
-        <button data-testid="alert-proc" onClick={() => onOpenProcess("proc-7")}>алерт-процесс</button>
-      )}
-    </>
-  ),
-}));
+// realAlerts.current — настоящая кнопка с панелью (тест Escape при открытой панели).
+const realAlerts = vi.hoisted(() => ({ current: false }));
+vi.mock("../../components/SchemaAlerts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../components/SchemaAlerts")>();
+  const Real = actual.default;
+  return {
+    ...actual,
+    default: (p: Parameters<typeof Real>[0]) => realAlerts.current ? <Real {...p} /> : (
+      <>
+        <span data-testid="recs-button" />
+        {p.onOpenProcess && (
+          <button data-testid="alert-proc" onClick={() => p.onOpenProcess?.("proc-7")}>алерт-процесс</button>
+        )}
+      </>
+    ),
+  };
+});
 vi.mock("../../components/SchemaViewFilter", () => ({ SchemaViewFilter: () => null }));
 
 function node(id: string, over: Partial<Node> = {}): Node {
@@ -215,6 +230,7 @@ describe("MapEditorPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     role.current = "owner";
+    realAlerts.current = false;
     levelGraphProps.current = null;
     sessionStorage.clear();
     historyMock.canUndo.mockReturnValue(false);
@@ -411,6 +427,69 @@ describe("MapEditorPage", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByTestId("object-inspector")).toBeNull();
     expect(props.onDone).not.toHaveBeenCalled();
+  });
+
+  // Escape при открытом всплывающем шапки (меню «Действия со схемой», панель
+  // «Рекомендации»): настоящие компоненты и настоящий ui/useDismiss. В браузере между
+  // слушателями одного события проходит контрольная точка микрозадач, и React успевает
+  // перерисовать меню, закрытое слушателем на document, ещё до слушателя редактора на
+  // window. Когда событие шлёт сам тест, jsdom такой точки не делает. Эмулируем её:
+  // слушатель, добавленный после открытия всплывающего (то есть после его собственного),
+  // досрочно выполняет отложенную работу React.
+  function escapeLikeBrowser(target: Element) {
+    const flush = () => { flushSync(() => {}); };
+    document.addEventListener("keydown", flush);
+    try {
+      act(() => {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      });
+    } finally {
+      document.removeEventListener("keydown", flush);
+    }
+  }
+
+  it("Esc при открытом меню «Действия со схемой» закрывает только меню, следующий выходит", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const btn = screen.getByRole("button", { name: "Действия со схемой" });
+    await userEvent.click(btn);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    escapeLikeBrowser(btn);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    escapeLikeBrowser(btn);
+    expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  it("Esc при открытой панели «Рекомендации» закрывает только её, следующий выходит", async () => {
+    realAlerts.current = true;
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const lamp = screen.getByRole("button", { name: "Рекомендации" });
+    await userEvent.click(lamp);
+    expect(lamp).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: "Рекомендации" })).toBeInTheDocument();
+    escapeLikeBrowser(lamp);
+    expect(screen.queryByRole("dialog", { name: "Рекомендации" })).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    escapeLikeBrowser(lamp);
+    expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  it("Esc при открытом меню и открытой панели объекта: меню, потом панель, потом выход", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    const btn = screen.getByRole("button", { name: "Действия со схемой" });
+    await userEvent.click(btn);
+    escapeLikeBrowser(btn);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    escapeLikeBrowser(btn);
+    expect(screen.queryByTestId("object-inspector")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    escapeLikeBrowser(btn);
+    expect(props.onDone).toHaveBeenCalledOnce();
   });
 
   it("корень, шапка и дерево на новом языке; холст и окна — на прежних метриках", async () => {
