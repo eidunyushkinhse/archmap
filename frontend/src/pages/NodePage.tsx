@@ -369,7 +369,7 @@ function NodePageInner({
 
   return (
     <div className="np-page ds">
-      {metaToast && <div style={metaToastStyle}>Объект только что изменили в другом окне</div>}
+      {metaToast && <div className="legacy-root" style={metaToastStyle}>Объект только что изменили в другом окне</div>}
       <div className="np-inner">
         {/* ── Шапка: крошки, название, статус страницы и меню, описание ── */}
         <header className="np-header">

@@ -245,7 +245,7 @@ export default function SchemaSection({
 
   return (
     <div style={{ position: "relative" }}>
-      {remoteToast && <div style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
+      {remoteToast && <div className="legacy-root" style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
       <EmbeddedSchemaBlock
         nodes={view.nodes}
         endpoints={view.endpoints}

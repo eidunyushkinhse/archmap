@@ -50,7 +50,7 @@ export default function EdgesSection({ edges, nodeName, isArchitect, onNavigateN
       <table className="ds-table np-edges">
         <thead>
           <tr>
-            <th>Объект</th>
+            <th className="np-edges-obj">Объект</th>
             <th>Описание</th>
             <th className="np-edges-tech">Технология</th>
           </tr>

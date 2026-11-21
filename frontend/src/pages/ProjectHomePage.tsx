@@ -158,7 +158,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
 
         {/* ── Схема (корневой уровень) ──────────────────────────── */}
         <div style={{ position: "relative" }}>
-          {remoteToast && <div style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
+          {remoteToast && <div className="legacy-root" style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
           {/* Пустой проект: в строке заголовка «Редактировать» нет (onEdit не передаём) —
               её место занимает «Начать наполнение» внутри пустого окна, и ведёт она туда
               же, в редактор-карту (решение пользователя 2026-09-05; прежняя «+ Объект» звала
