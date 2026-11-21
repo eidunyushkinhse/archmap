@@ -2536,6 +2536,8 @@ def _version_kind(version: dict[str, Any]) -> str | None:
     kind = version.get("kind")
     if kind == "pre_restore":
         return "перед откатом"
+    if kind == "pre_delete":
+        return "перед удалением"
     if kind == "restore":
         source = version.get("restored_from")
         return f"откат к v{source}" if source is not None else "откат"
@@ -2700,3 +2702,69 @@ def version_created(data: dict[str, Any]) -> str:
         else "; относительно предыдущей версии ничего не изменилось"
     )
     return f"v{data.get('number', '?')} зафиксирована: {data.get('comment', '')}{tail}"
+
+
+# ── Удаление пачкой (POST /deletions) ────────────────────────────────────────
+
+DELETION_KIND_WORD = {"node": "объект", "edge": "связь", "doc": "схема логики"}
+# Итог «сколько уйдёт»: поле DeletionTotals → формы числительного. Порядок — порядок фразы.
+DELETION_TOTALS = (
+    ("nodes", ("объект", "объекта", "объектов")),
+    ("edges", ("связь", "связи", "связей")),
+    ("docs", ("схема логики", "схемы логики", "схем логики")),
+    ("facts", ("запись фактов", "записи фактов", "записей фактов")),
+    ("instances", ("размещение", "размещения", "размещений")),
+)
+
+
+def _deletion_totals(totals: dict[str, Any]) -> str:
+    parts = [
+        f"{n} {_plural(n, forms)}"
+        for key, forms in DELETION_TOTALS
+        if (n := int(totals.get(key) or 0))
+    ]
+    return ", ".join(parts) if parts else "ничего"
+
+
+def deletion_report(pname: str, data: dict[str, Any]) -> str:
+    """Итог удаления пачкой (DeletionOut): пункты, сколько уйдёт всего, к какой версии
+    откатывать. dry_run — то же в будущем времени, без номера версии."""
+    dry = bool(data.get("dry_run"))
+    items: list[dict[str, Any]] = data.get("items") or []
+    label_of = {str(i.get("id")): str(i.get("label", "")) for i in items}
+    out = [f"В проекте «{pname}» " + ("будет удалено:" if dry else "удалено:")]
+    for item in items:
+        word = DELETION_KIND_WORD.get(str(item.get("kind")), str(item.get("kind")))
+        line = f"  • {word} {item.get('label', '')}  id={item.get('id')}"
+        covered = item.get("covered_by")
+        if covered:
+            line += f" (вместе с «{label_of.get(str(covered), covered)}»)"
+        out.append(line)
+    totals: dict[str, Any] = data.get("totals") or {}
+    out.append(("Всего уйдёт: " if dry else "Всего ушло: ") + _deletion_totals(totals) + ".")
+    links = int(totals.get("process_links") or 0)
+    if links:
+        out.append(
+            f"В процессах опустеют привязки к удалённому: {links} (участник без объекта, "
+            "процесс без области, шаг без связи или схемы логики). Откат версии их не вернёт."
+        )
+    version: dict[str, Any] = data.get("version") or {}
+    where = (
+        f"объекта «{version['label']}»" if version.get("label") else "всего проекта"
+    )
+    number = version.get("number")
+    if dry:
+        out.append(
+            f"Перед удалением ArchMap сохранит версию {where}, если с последней были изменения. "
+            "Удалить: тот же вызов без dry_run."
+        )
+    elif version.get("created"):
+        out.append(f"Перед удалением сохранена версия v{number} {where}.")
+    else:
+        out.append(f"С последней версии v{number} {where} изменений не было, удалённое лежит в ней.")
+    if not dry:
+        out.append(
+            f"Вернуть удалённое может человек: откат к v{number} в истории версий {where} "
+            "в интерфейсе ArchMap."
+        )
+    return "\n".join(out)

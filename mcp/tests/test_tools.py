@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
+from pathlib import Path
 from typing import Any, get_args
 
 import httpx
@@ -606,10 +608,76 @@ async def test_создание_связи_шлёт_тип_канала(client: 
     assert body["label"] == "событие оплаты"
 
 
-async def test_удалений_в_каталоге_нет() -> None:
-    # Решение пользователя 2026-08-10: снос узла уводит поддерево, связи, доки и
-    # спеки — такое делают глазами. Тест держит границу каталога.
-    assert not [t for t in tools.TOOLS if "delete" in t["name"] or "remove" in t["name"]]
+async def test_удаление_только_пачкой_с_версией() -> None:
+    # Решение владельца 2026-11-21 (вместо прежнего «удалений нет» от 2026-08-10):
+    # агент удаляет лишнее сам, но ТОЛЬКО через archmap_delete, то есть POST /deletions,
+    # где сервер сперва сохраняет версию. Метод DELETE не шлёт ни один инструмент:
+    # личным токеном он закрыт, а без версии удалённое не вернуть.
+    assert [t["name"] for t in tools.TOOLS if "delete" in t["name"] or "remove" in t["name"]] == [
+        "archmap_delete"
+    ]
+    source = Path(tools.__file__).read_text(encoding="utf-8")
+    assert '"DELETE"' not in source
+
+
+async def test_удаление_пачкой_тело_по_схеме_бэкенда_и_отчёт(api: FakeApi, client) -> None:
+    schemas = backend("schemas.deletions")
+    cache, edge, doc, shop = (str(uuid.uuid4()) for _ in range(4))
+    api.post("/deletions", schemas.DeletionOut(
+        dry_run=False,
+        items=[
+            schemas.DeletionTarget(kind="node", id=cache, label="Ярмарка / Заказы / Кэш", covered_by=None),
+            schemas.DeletionTarget(kind="doc", id=doc, label="«Прогрев» у Ярмарка / Заказы / Кэш", covered_by=cache),
+            schemas.DeletionTarget(kind="edge", id=edge, label="Ярмарка / Заказы → Ярмарка / Оплаты", covered_by=None),
+        ],
+        totals=schemas.DeletionTotals(nodes=1, edges=3, docs=1, facts=0, instances=0, process_links=2),
+        version=schemas.DeletionVersion(node_id=shop, label="Ярмарка", number=4, created=True),
+    ).model_dump(mode="json"))
+
+    text = await tools.call(
+        "archmap_delete",
+        {"project": "Ярмарка", "items": [{"kind": "node", "id": cache}, {"kind": "doc", "id": doc},
+                                         {"kind": "edge", "id": edge}], "reason": "дубль прогона"},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    schemas.DeletionRequest.model_validate(body)
+    assert body["reason"] == "дубль прогона" and body["dry_run"] is False
+    assert api.calls[-1].method == "POST"
+    assert "В проекте «Ярмарка» удалено:" in text
+    assert f"схема логики «Прогрев» у Ярмарка / Заказы / Кэш  id={doc} (вместе с «Ярмарка / Заказы / Кэш»)" in text
+    assert "Всего ушло: 1 объект, 3 связи, 1 схема логики." in text
+    assert "В процессах опустеют привязки к удалённому: 2" in text
+    assert "Перед удалением сохранена версия v4 объекта «Ярмарка»." in text
+    assert "откат к v4 в истории версий объекта «Ярмарка»" in text
+
+
+async def test_удаление_пачкой_dry_run_и_версия_проекта(api: FakeApi, client) -> None:
+    schemas = backend("schemas.deletions")
+    bank = str(uuid.uuid4())
+    api.post("/deletions", schemas.DeletionOut(
+        dry_run=True,
+        items=[schemas.DeletionTarget(kind="node", id=bank, label="Банк", covered_by=None)],
+        totals=schemas.DeletionTotals(nodes=1, edges=0, docs=0, facts=0, instances=0, process_links=0),
+        version=schemas.DeletionVersion(node_id=None, label=None, number=None, created=False),
+    ).model_dump(mode="json"))
+
+    text = await tools.call(
+        "archmap_delete", {"project": "Ярмарка", "items": [{"kind": "node", "id": bank}], "dry_run": True},
+        client,
+    )
+
+    assert json.loads(api.calls[-1].content)["dry_run"] is True
+    assert "будет удалено:" in text and "Всего уйдёт: 1 объект." in text
+    assert "сохранит версию всего проекта" in text and "опустеют" not in text
+    assert "Вернуть" not in text
+
+
+async def test_удаление_пачкой_кривой_пункт_до_запроса(api: FakeApi, client) -> None:
+    with pytest.raises(ArchMapError, match="Каждый пункт items"):
+        await tools.call("archmap_delete", {"project": "Ярмарка", "items": [{"id": "x"}]}, client)
+    assert not [c for c in api.calls if c.url.path.endswith("/deletions")]
 
 
 async def test_каждый_инструмент_описан_и_вызываем() -> None:
