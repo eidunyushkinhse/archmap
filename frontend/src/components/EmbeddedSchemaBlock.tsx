@@ -14,6 +14,7 @@ import type { SchemaView } from "./schemaView";
 import { responsiveCanvasHeight } from "./pageSchema";
 import "./EmbeddedSchemaBlock.css";
 import "../ui/smallButton.css";
+import "../ui/ds.css";
 
 interface Props {
   nodes: Node[];
@@ -63,13 +64,17 @@ interface Props {
   showViewFilter: boolean;
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
+  // Заголовок раздела (редизайн, направление А «Документ»): задан — блок живёт
+  // разделом страницы нового языка: заголовок, вкладки вида и «Редактировать» в одной
+  // строке, рамка 1px, высота окна — clamp от высоты экрана (CSS), а не от ширины.
+  title?: string;
 }
 
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, ancestorElements, ancestorExternals, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
-  height, toolbarHint, showViewFilter, empty,
+  height, toolbarHint, showViewFilter, empty, title,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -88,10 +93,12 @@ export default function EmbeddedSchemaBlock({
   }, []);
 
   // Высота = ширина × коэффициент, с ограничениями. До первого замера — height из пропсов.
+  // У раздела нового языка (title) высоту задаёт CSS (.esb-wrap--page).
   const responsiveHeight = useMemo(() => {
+    if (title) return undefined;
     if (measuredWidth <= 0) return height;
     return responsiveCanvasHeight(measuredWidth);
-  }, [measuredWidth, height]);
+  }, [measuredWidth, height, title]);
 
   // Esc — деактивация
   useEffect(() => {
@@ -183,8 +190,23 @@ export default function EmbeddedSchemaBlock({
   }), [onEdgesChoice]);
 
   return (
-    <div>
-      {/* Тулбар секции */}
+    <div className={title ? "ds-sec" : undefined}>
+      {/* Строка заголовка раздела нового языка: вкладки вида и «Редактировать» справа */}
+      {title ? (
+        <div className="ds-sec-head">
+          <h3 className="ds-sec-title">{title}</h3>
+          {(showViewFilter || (isArchitect && onEdit)) && (
+            <div className="ds-sec-acts">
+              {showViewFilter && (
+                <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} variant="tabs" />
+              )}
+              {isArchitect && onEdit && (
+                <button type="button" className="ds-btn" data-tour="schema-edit" onClick={onEdit}>Редактировать</button>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="esb-toolbar">
         {toolbarHint && <span className="esb-hint">{toolbarHint}</span>}
         <span style={{ flex: 1 }} />
@@ -198,12 +220,13 @@ export default function EmbeddedSchemaBlock({
           <button className="btn-sm-primary" data-tour="schema-edit" onClick={onEdit}>Редактировать</button>
         )}
       </div>
+      )}
 
       {/* Блок схемы */}
       <div
         ref={wrapRef}
         data-tour="schema-block"
-        className={"esb-wrap" + (active ? " esb-wrap--active" : "")}
+        className={"esb-wrap" + (title ? " esb-wrap--page" : "") + (active ? " esb-wrap--active" : "")}
         style={{ height: responsiveHeight }}
       >
         {empty ? (

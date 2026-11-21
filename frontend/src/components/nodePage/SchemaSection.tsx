@@ -1,4 +1,7 @@
-// Секция «Схема» страницы объекта (аудит F-5: вынесена из NodePage без изменений).
+// Раздел «Схема» страницы объекта (аудит F-5: вынесен из NodePage). С редизайна
+// (направление А «Документ») раздел рисует себя сам: заголовок «Схема» с вкладками вида
+// и «Редактировать» — у блока схемы (EmbeddedSchemaBlock title), загрузка, отказ и
+// пустое состояние — под тем же заголовком (ui/Section).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AncestorRef, GraphResponse, Node, ViewLayoutPayload } from "../../types";
 import { canHaveChildren } from "../../types";
@@ -12,8 +15,10 @@ import EmbeddedSchemaBlock from "../EmbeddedSchemaBlock";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../schemaView";
 import type { LevelPersistenceProps, NavigateMap, ViewMetaRef } from "../graph/types";
 import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../pageSchema";
-import "../../ui/smallButton.css";
 import { remoteToastStyle } from "../../ui/remoteToast";
+import Section from "../../ui/Section";
+import "../../ui/ds.css";
+import "./schemaSection.css";
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
 // Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
@@ -174,43 +179,55 @@ export default function SchemaSection({
   // рендере со старым viewLayout, вызывая визуальный откат узла при отпускании драга.
   const edges = useMemo(() => (view ? toLevelEdges(view) : []), [view]);
 
-  if (loading) return <p className="np-empty">Загрузка</p>;
+  if (loading) {
+    return (
+      <Section title="Схема">
+        <div className="np-schema-empty">Загрузка</div>
+      </Section>
+    );
+  }
   if (!view) {
     if (failure === null) return null;
     return (
-      <LoadError what="схему" error={failure}
-        onRetry={() => { setLoading(true); void refetch(); }} />
+      <Section title="Схема">
+        <LoadError what="схему" error={failure}
+          onRetry={() => { setLoading(true); void refetch(); }} />
+      </Section>
     );
   }
 
   // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
   // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).
   if (hasNoNeighbors(view, node.id) && !node.has_children) {
-    // Пустое состояние: секцию не прячем; архитектору — CTA в редактор схемы
-    // (наполнить состав / создать связи — правка живёт только там).
+    // Пустое состояние: раздел не прячем (context.md X15, X17); архитектору — CTA в
+    // редактор схемы (наполнить состав / создать связи — правка живёт только там).
+    // С редизайна тише: рамка-пунктир окна схемы, вторичные кнопки.
     return (
-      <div className="np-empty" style={{ textAlign: "center" }}>
-        Внешних связей нет. Объект пока не взаимодействует с соседями.
-        <br />
-        <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе схемы</span>
-        {isArchitect && onNavigateMap && (
-          <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
-            {/* Подпись называет, кем станет новый объект: компонентом — у контейнера (в
-                том числе листа) и внутри контейнера, у системы — вложенным объектом. */}
-            {canHaveChildren(node.shape) && (
-              <button className="btn-sm-primary" onClick={() => onNavigateMap(node.id)}>
-                {childIsComponent(node) ? "Добавить компонент" : "Добавить вложенный объект"}
+      <Section title="Схема">
+        <div className="np-schema-empty">
+          Внешних связей нет. Объект пока не взаимодействует с соседями.
+          <br />
+          <span className="np-schema-empty-note">Связи создаются в редакторе схемы</span>
+          {isArchitect && onNavigateMap && (
+            <div className="np-schema-empty-acts">
+              {/* Подпись называет, кем станет новый объект: компонентом — у контейнера (в
+                  том числе листа) и внутри контейнера, у системы — вложенным объектом. */}
+              {canHaveChildren(node.shape) && (
+                <button type="button" className="ds-btn" onClick={() => onNavigateMap(node.id)}>
+                  {childIsComponent(node) ? "Добавить компонент" : "Добавить вложенный объект"}
+                </button>
+              )}
+              <button
+                type="button"
+                className="ds-btn"
+                onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
+              >
+                Открыть в редакторе
               </button>
-            )}
-            <button
-              className="btn-sm-primary"
-              onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
-            >
-              Открыть в редакторе
-            </button>
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+      </Section>
     );
   }
 
@@ -252,6 +269,7 @@ export default function SchemaSection({
         mutationToken={mutationToken}
         height={height}
         showViewFilter={hasStatusInfo}
+        title="Схема"
       />
     </div>
   );

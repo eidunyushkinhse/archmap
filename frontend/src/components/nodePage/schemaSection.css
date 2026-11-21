@@ -1,0 +1,22 @@
+/* Раздел «Схема» страницы объекта: загрузка и пустое состояние («Внешних связей нет»,
+   context.md X15, X17) — тихой рамкой-пунктиром на месте окна схемы, кнопки вторичные. */
+.np-schema-empty {
+  padding: 32px 24px;
+  border: 1px dashed var(--c-line-strong);
+  border-radius: var(--radius-lg);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  text-align: center;
+}
+.np-schema-empty-note {
+  font-size: var(--fs-caption);
+  color: var(--c-fg-faint);
+}
+.np-schema-empty-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}

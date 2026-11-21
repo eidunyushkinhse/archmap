@@ -7,19 +7,17 @@ import "../ui/ds.css";
 // моноширинным, тихие пометки у правого края. Одна разметка вместо семи копий (аудит
 // F-5). С редизайна (направление А) пилюль вида и «открыть →» нет: строка нажимается
 // целиком, а вид, где группировки по виду нет, пишется тихим текстом справа.
-export function DocRowLabel({ name, kind, stub, operation, note }: {
+export function DocRowLabel({ name, kind, stub, operation }: {
   name: string;
   kind?: NodeDocKind;
   stub?: boolean;
   operation?: string | null;
-  note?: ReactNode;
 }) {
   const quiet = [kind ? KIND_LABEL[kind] : "", stub ? "не описана" : ""].filter(Boolean).join(", ");
   return (
     <>
       <span className="ds-row-name">{name}</span>
       {operation && <span className="ds-mono">{operation}</span>}
-      {note !== undefined && <span className="ds-row-quiet">{note}</span>}
       {quiet && <span className="ds-row-quiet">{quiet}</span>}
     </>
   );

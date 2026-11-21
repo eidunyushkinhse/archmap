@@ -29,6 +29,18 @@
   box-shadow: 0 0 0 3px #dbeafe;
 }
 
+/* Раздел «Схема» нового языка (редизайн, направление А): рамка 1px, радиус 10, высота
+   окна от высоты экрана — схема видна целиком вместе со строкой заголовка. */
+.esb-wrap--page {
+  height: clamp(380px, 56vh, 640px);
+  border-color: var(--c-line);
+  border-radius: var(--radius-lg);
+}
+.esb-wrap--page.esb-wrap--active {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
+
 /* ── Оверлей активации ───────────────────────────────────────────── */
 .esb-activate {
   position: absolute;

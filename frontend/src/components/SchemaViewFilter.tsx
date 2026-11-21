@@ -9,8 +9,12 @@
 //            ГОРИЗОНТАЛЬНЫХ тулбаров: вариант panel, вставленный в такой тулбар,
 //            растягивал его заголовком и второй строкой подписей, а сам получался
 //            непропорционально узким и высоким (находка ручной проверки №12).
+//   tabs   — та же строка вкладками-текстом нового языка (редизайн, направление А):
+//            активный вид подчёркнут, без подложки-сегмента. Для строки заголовка
+//            раздела «Схема» на страницах объекта и проекта.
 import { SCHEMA_VIEWS, VIEW_BY_ID, type SchemaView } from "./schemaView";
 import "./inspector/inspector.css";
+import "../ui/ds.css";
 
 // Микро-подзаголовок сегмента под крупной подписью (его роль — заменить прежнюю
 // строку-hint). По id вида. В inline-варианте не показывается. Говорит, что вид
@@ -25,11 +29,33 @@ const SEG_SUB: Record<SchemaView, string> = {
 interface Props {
   view: SchemaView;
   onChange: (v: SchemaView) => void;
-  /** Раскладка: секция панели (по умолчанию) или строка тулбара. */
-  variant?: "panel" | "inline";
+  /** Раскладка: секция панели (по умолчанию), строка тулбара или вкладки-текст. */
+  variant?: "panel" | "inline" | "tabs";
 }
 
 export function SchemaViewFilter({ view, onChange, variant = "panel" }: Props) {
+  if (variant === "tabs") {
+    return (
+      <div className="ds-tabs" role="radiogroup" aria-label="Вид схемы">
+        {SCHEMA_VIEWS.map((v) => {
+          const active = v.id === view;
+          return (
+            <button
+              key={v.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(v.id)}
+              className={"ds-tab" + (active ? " is-active" : "")}
+              title={VIEW_BY_ID[v.id].hint}
+            >
+              {v.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
   const inline = variant === "inline";
   const seg = (
     <div

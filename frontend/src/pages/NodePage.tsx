@@ -84,7 +84,7 @@ interface Props {
   onNavigateProject: () => void;
   // Навигация в редактор-карту
   onNavigateMap?: NavigateMap;
-  // Навигация в режим «Процессы» с выбором процесса (секция «Участвует в процессах»)
+  // Навигация в режим «Процессы» с выбором процесса (раздел «Процессы»)
   onNavigateProcesses?: (processId: string) => void;
   // Удаление узла со страницы → редирект на родителя
   onNodeDeleted?: (parentId: string | null) => void;
@@ -507,19 +507,16 @@ function NodePageInner({
         />
 
         {/* ── Схема (single-schema: контекст объекта виртуальным корневым уровнем) ── */}
-        <div className="np-card">
-          <h3 className="np-card-title">Схема</h3>
-          <SchemaSection
-            node={node}
-            ancestors={ancestors}
-            isArchitect={isArchitect}
-            onNavigateNode={onNavigateNode}
-            onNavigateMap={onNavigateMap}
-            onNodeChanged={handleNodeChanged}
-            viewMeta={viewMetaRef}
-            mutationToken={mutationToken}
-          />
-        </div>
+        <SchemaSection
+          node={node}
+          ancestors={ancestors}
+          isArchitect={isArchitect}
+          onNavigateNode={onNavigateNode}
+          onNavigateMap={onNavigateMap}
+          onNodeChanged={handleNodeChanged}
+          viewMeta={viewMetaRef}
+          mutationToken={mutationToken}
+        />
 
         {/* ── Документация под схемой — одним блоком: на него смотрит обучающий тур
             (шаг «Не только схема»). Порядок разделов (редизайн, направление А):
@@ -581,7 +578,7 @@ function NodePageInner({
             <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
           )}
 
-          {/* ── Связи (одноимённые — строкой со счётчиком, карточка сворачивается) ── */}
+          {/* ── Связи (одноимённые — одной строкой с тихим счётчиком) ── */}
           <EdgesSection
             edges={edges}
             nodeName={node.name}
@@ -590,7 +587,7 @@ function NodePageInner({
             onEdit={setEdgeEditId}
           />
 
-          {/* ── Участвует в процессах ─────────────────────────────── */}
+          {/* ── Процессы ──────────────────────────────────────────── */}
           <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
         </div>
         </Fragment>

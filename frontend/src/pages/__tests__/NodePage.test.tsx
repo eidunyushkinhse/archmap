@@ -279,6 +279,8 @@ describe("NodePage", () => {
   });
 
   // ── Таблица «Связи» без повторов (2026-11-02, идея владельца) ──
+  // С редизайна (направление А): три колонки «Объект» (стрелка и сосед), «Описание»,
+  // «Технология»; без счётчика в заголовке и без свёртки; связей нет — раздела нет.
   describe("таблица «Связи»", () => {
     beforeEach(() => localStorage.clear());
 
@@ -291,14 +293,16 @@ describe("NodePage", () => {
       id: "n1", label: "уведомляет", technology: "SMTP", direction: "outgoing", other_node_id: "user",
       other_node_name: "Пользователь", inner_node_id: "in-notify", inner_node_name: "Уведомления",
     });
-    const card = () => screen.getByRole("button", { name: /^Связи/ }).closest(".np-card") as HTMLElement;
+    const section = () => screen.getByRole("heading", { name: "Связи" }).closest("section") as HTMLElement;
 
     it("одноимённые связи с одним соседом — одна строка со счётчиком «×N» и подсказкой словами", async () => {
       setup({ edges: [bus[0], notify, bus[1], bus[2]] });
-      const toggle = await screen.findByRole("button", { name: /^Связи/ });
-      expect(toggle).toHaveTextContent("Связи· 2");
-      expect(toggle).toHaveAttribute("aria-expanded", "true");
-      const rows = within(card()).getAllByRole("row").slice(1);
+      const heading = await screen.findByRole("heading", { name: "Связи" });
+      // Ни счётчика строк, ни свёртки у заголовка.
+      expect(heading).toHaveTextContent(/^Связи$/);
+      expect(screen.queryByRole("button", { name: /^Связи/ })).toBeNull();
+      const [head, ...rows] = within(section()).getAllByRole("row");
+      expect(within(head).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Объект", "Описание", "Технология"]);
       expect(rows).toHaveLength(2);
       // порядок первого появления: сначала строка «пользуется», затем «уведомляет»
       expect(rows[0]).toHaveTextContent("пользуется×3");
@@ -309,10 +313,24 @@ describe("NodePage", () => {
       expect(rows[1]).toHaveAttribute("title", "Редактировать связь");
     });
 
+    it("колонка «Объект» — стрелка направления с подсказкой словами и сосед-ссылка", async () => {
+      setup({ edges: [bus[0], notify] });
+      await screen.findByRole("heading", { name: "Связи" });
+      const [, incoming, outgoing] = within(section()).getAllByRole("row");
+      expect(within(incoming).getByText("←")).toHaveAttribute("title", "вызывается из");
+      expect(within(outgoing).getByText("→")).toHaveAttribute("title", "вызывает");
+      // Своё имя в строке не повторяется: строка говорит о соседе.
+      expect(incoming).not.toHaveTextContent("Сервис оплаты");
+      await userEvent.click(within(outgoing).getByRole("button", { name: "Пользователь" }));
+      expect(nav.onNavigateNode).toHaveBeenCalledWith("user");
+      // Переход по соседу не открывает редактор строки.
+      expect(screen.queryByTestId("edge-edit")).toBeNull();
+    });
+
     it("клик по строке с несколькими связями — окно выбора по внутреннему концу, выбор открывает редактор", async () => {
       setup({ edges: [...bus, notify] });
-      await screen.findByRole("button", { name: /^Связи/ });
-      const [busRow] = within(card()).getAllByRole("row").slice(1);
+      await screen.findByRole("heading", { name: "Связи" });
+      const [busRow] = within(section()).getAllByRole("row").slice(1);
       await userEvent.click(within(busRow).getByText("пользуется"));
       const modal = screen.getByTestId("modal");
       expect(modal).toHaveTextContent("Выберите связь");
@@ -325,43 +343,27 @@ describe("NodePage", () => {
 
     it("одиночная строка открывает редактор сразу", async () => {
       setup({ edges: [...bus, notify] });
-      await screen.findByRole("button", { name: /^Связи/ });
-      await userEvent.click(within(card()).getByText("уведомляет"));
+      await screen.findByRole("heading", { name: "Связи" });
+      await userEvent.click(within(section()).getByText("уведомляет"));
       expect(screen.queryByText("Выберите связь")).toBeNull();
       expect(screen.getByTestId("edge-edit")).toHaveAttribute("data-edge-id", "n1");
     });
 
     it("наблюдателю строки не кликабельны и окна выбора нет", async () => {
       setup({ edges: [...bus], isArchitect: false });
-      await screen.findByRole("button", { name: /^Связи/ });
-      const [busRow] = within(card()).getAllByRole("row").slice(1);
+      await screen.findByRole("heading", { name: "Связи" });
+      const [busRow] = within(section()).getAllByRole("row").slice(1);
       expect(busRow).not.toHaveAttribute("title");
       await userEvent.click(within(busRow).getByText("пользуется"));
       expect(screen.queryByText("Выберите связь")).toBeNull();
     });
 
-    it("карточка сворачивается, состояние запоминается в браузере на все страницы объектов", async () => {
-      const view = setup({ edges: [...bus] });
-      const toggle = await screen.findByRole("button", { name: /^Связи/ });
-      await userEvent.click(toggle);
-      expect(toggle).toHaveAttribute("aria-expanded", "false");
-      expect(within(card()).queryByRole("table")).toBeNull();
-      expect(localStorage.getItem("archmap-node-edges-collapsed")).toBe("1");
-
-      view.unmount();
-      setup({ edges: [...bus] });
-      const again = await screen.findByRole("button", { name: /^Связи/ });
-      expect(again).toHaveAttribute("aria-expanded", "false");
-      await userEvent.click(again);
-      expect(again).toHaveAttribute("aria-expanded", "true");
-      expect(within(card()).getByRole("table")).toBeInTheDocument();
-      expect(localStorage.getItem("archmap-node-edges-collapsed")).toBeNull();
-    });
-
-    it("пустая карточка — без шеврона", async () => {
+    it("связей нет — раздела нет", async () => {
       setup({ edges: [] });
-      await screen.findByText("Связей нет");
-      expect(screen.queryByRole("button", { name: /^Связи/ })).toBeNull();
+      await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
+      await waitFor(() => expect(nodesApi.getEdges).toHaveBeenCalled());
+      expect(screen.queryByRole("heading", { name: "Связи" })).toBeNull();
+      expect(screen.queryByText("Связей нет")).toBeNull();
     });
   });
 
@@ -370,21 +372,24 @@ describe("NodePage", () => {
     await waitFor(() => expect(screen.getByTestId("schema-block")).toBeInTheDocument());
   });
 
-  it("секция «Участвует в процессах»: клик ведёт в процесс", async () => {
+  it("раздел «Процессы»: строка — имя процесса, клик ведёт в процесс", async () => {
     const proc = {
       id: "p1", name: "Оплата заказа", scope_node_id: null, scope_name: null,
       message_count: 3, statuses: [],
     } as ProcessListItem;
     setup({ processes: [proc] });
-    const link = await screen.findByText("Оплата заказа");
-    await userEvent.click(link);
+    const row = await screen.findByRole("button", { name: "Оплата заказа" });
+    expect(screen.getByRole("heading", { name: "Процессы" })).toBeInTheDocument();
+    // Число сообщений в строке не пишется: о роли объекта в процессе оно не говорит.
+    expect(screen.queryByText(/сообщени/)).toBeNull();
+    await userEvent.click(row);
     expect(nav.onNavigateProcesses).toHaveBeenCalledWith("p1");
   });
 
-  it("без процессов секция «Участвует в процессах» скрыта", async () => {
+  it("без процессов раздела «Процессы» нет", async () => {
     setup({ processes: [] });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
-    expect(screen.queryByText("Участвует в процессах")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Процессы" })).not.toBeInTheDocument();
   });
 });
 

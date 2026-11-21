@@ -7,7 +7,6 @@
 import type { ReactNode } from "react";
 import type { Node, NodeDocMeta } from "../../types";
 import { DocRowLabel, OwnerSplitRow } from "../docRow";
-import { ChevronDownIcon } from "../../ui/icons";
 import type { DocTarget } from "./docTarget";
 import "../../ui/ds.css";
 
@@ -87,15 +86,5 @@ export function SpecSplitRow({ child, deep = false, onOpen, onNavigateNode }: {
     >
       <DocRowLabel name="Спецификация" />
     </OwnerSplitRow>
-  );
-}
-
-// Шеврон сворачиваемого заголовка: смотрит вниз, когда раскрыто, и вправо — когда
-// свёрнуто. Им сворачивается карточка «Связи» (EdgesSection).
-export function GroupChevron({ open }: { open: boolean }) {
-  return (
-    <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
-      <ChevronDownIcon />
-    </span>
   );
 }

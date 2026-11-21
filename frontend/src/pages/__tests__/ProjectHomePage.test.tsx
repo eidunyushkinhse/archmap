@@ -15,7 +15,9 @@ vi.mock("../../api/projects", () => ({ projectsApi: { get: vi.fn() } }));
 vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
-vi.mock("../../components/EmbeddedSchemaBlock", () => ({ default: () => <div data-testid="schema" /> }));
+vi.mock("../../components/EmbeddedSchemaBlock", () => ({
+  default: ({ title }: { title?: string }) => <div data-testid="schema" data-title={title} />,
+}));
 // Панель версий — маркер с пропсами: здесь проверяется вход из ⋯-меню проекта, сама
 // панель покрыта своим тестом (VersionsPanel.test).
 vi.mock("../../components/nodePage/versions/VersionsPanel", () => ({
@@ -104,5 +106,51 @@ describe("ProjectHomePage: версии документации проекта"
     const panel = screen.getByTestId("versions-panel");
     expect(panel).toHaveAttribute("data-can-edit", "true");
     expect(panel).toHaveAttribute("data-can-delete", "true");
+  });
+});
+
+// Редизайн (направление А «Документ»): шапка — название, ⋯ справа и описание, без
+// подписи «Проект», глифа и чипов-счётчиков; раздел «Схема»; «Процессы» строками и
+// только когда процессы есть.
+describe("ProjectHomePage: шапка и разделы", () => {
+  const proc = (id: string, name: string) => ({
+    id, name, scope_node_id: null, scope_name: null, message_count: 7, statuses: [],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({
+      id: "p1", name: "Ярмарка", description: "Маркетплейс для продавцов и покупателей",
+      object_count: 12, edge_count: 30,
+    } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+  });
+
+  it("шапка: название заголовком и описание; ни «Проект», ни счётчиков", async () => {
+    render(<ProjectHomePage {...props} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Ярмарка" })).toBeInTheDocument();
+    expect(screen.getByText("Маркетплейс для продавцов и покупателей")).toHaveClass("np-desc");
+    expect(screen.queryByText("Проект")).toBeNull();
+    expect(screen.queryByText(/12 объектов/)).toBeNull();
+    expect(screen.queryByText(/30 связей/)).toBeNull();
+    expect(screen.getByTestId("schema")).toHaveAttribute("data-title", "Схема");
+  });
+
+  it("без процессов раздела «Процессы» нет", async () => {
+    render(<ProjectHomePage {...props} />);
+    await screen.findByTestId("schema");
+    expect(screen.queryByRole("heading", { name: "Процессы" })).toBeNull();
+  });
+
+  it("процессы — строками с именем; клик ведёт в процесс", async () => {
+    vi.mocked(processesApi.list).mockResolvedValue([proc("a", "Оформление заказа"), proc("b", "Оплата")] as never);
+    const onNavigateProcesses = vi.fn();
+    render(<ProjectHomePage {...props} onNavigateProcesses={onNavigateProcesses} />);
+    expect(await screen.findByRole("heading", { name: "Процессы" })).toBeInTheDocument();
+    expect(screen.queryByText(/сообщени/)).toBeNull();
+    expect(screen.queryByText(/открыть/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Оплата" }));
+    expect(onNavigateProcesses).toHaveBeenCalledWith("b");
   });
 });

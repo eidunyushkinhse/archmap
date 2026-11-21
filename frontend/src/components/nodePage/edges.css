@@ -1,0 +1,45 @@
+/* Раздел «Связи» страницы объекта (редизайн, направление А «Документ»): тихая таблица
+   ds-table из трёх колонок. Здесь — стрелка направления, ссылка на соседа, тихий
+   счётчик одноимённых связей и строка-кнопка у редактора. */
+.np-edges-tech {
+  width: 160px;
+}
+/* Стрелка направления перед соседом: «→» — вызывает, «←» — вызывается из. */
+.np-edge-dir {
+  display: inline-block;
+  width: 18px;
+  color: var(--c-fg-muted);
+  user-select: none;
+}
+/* Сосед — ссылка цветом текста, подчёркивание при наведении. */
+.np-edge-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.np-edge-link:hover {
+  text-decoration: underline;
+}
+.np-edge-link:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+/* Тихий счётчик одноимённых связей строки «×N». */
+.np-edge-count {
+  margin-left: 8px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-faint);
+  white-space: nowrap;
+}
+/* Редактор: строка открывает редактор связи — подложка при наведении. */
+.np-edge-rowclick {
+  cursor: pointer;
+}
+.np-edge-rowclick:hover td {
+  background: var(--c-hover);
+}
