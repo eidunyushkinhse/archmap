@@ -103,6 +103,40 @@ describe("окно замены процесса", () => {
     expect(processesApi.importProcess).not.toHaveBeenCalled();
   });
 
+  it("пока процесс не прочитан, «Заменить» заперта: окно ещё не знает, что потеряется", async () => {
+    let resolve: (p: ProcessDetail) => void = () => {};
+    vi.mocked(processesApi.get).mockReturnValue(new Promise<ProcessDetail>((r) => { resolve = r; }));
+    vi.mocked(processesApi.importPreview).mockResolvedValue(preview(["linked", null, null]));
+    renderReplace();
+    await userEvent.click(textarea());
+    await userEvent.paste(SEQ);
+
+    // Превью пришло, а процесс ещё в пути: строки о потере нет, кнопка заперта.
+    await waitFor(() => expect(processesApi.importPreview).toHaveBeenCalledOnce(), WAIT);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/Привязок к схемам логики останется/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Заменить" })).toBeDisabled();
+
+    resolve(DETAIL);
+    expect(await screen.findByText("Привязок к схемам логики останется 1 из 3", undefined, WAIT)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Заменить" })).not.toBeDisabled();
+  });
+
+  it("процесс не прочитался: текст отказа виден, «Заменить» заперта и Enter не заменяет", async () => {
+    vi.mocked(processesApi.get).mockRejectedValue(new Error("Процесс не найден"));
+    vi.mocked(processesApi.importPreview).mockResolvedValue(preview(["linked"]));
+    renderReplace();
+    await userEvent.click(textarea());
+    await userEvent.paste(SEQ);
+
+    expect((await screen.findByRole("alert")).textContent).toBe("Не удалось загрузить процесс. Процесс не найден");
+    await waitFor(() => expect(processesApi.importPreview).toHaveBeenCalledOnce(), WAIT);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole("button", { name: "Заменить" })).toBeDisabled();
+    await userEvent.type(screen.getByRole("textbox", { name: "Название процесса" }), "{Enter}");
+    expect(processesApi.replaceProcess).not.toHaveBeenCalled();
+  });
+
   it("все привязки разрешаются — строки о потере нет", async () => {
     vi.mocked(processesApi.importPreview).mockResolvedValue(preview(["linked", "linked", "linked"]));
     renderReplace();

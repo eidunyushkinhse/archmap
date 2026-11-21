@@ -79,7 +79,9 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
   const [dropping, setDropping] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  // Замена: сколько шагов процесса привязаны к схемам логики сейчас (K).
+  // Замена: сколько шагов процесса привязаны к схемам логики сейчас (K). Пока процесс не
+  // прочитан, окно не знает, что потеряется, и «Заменить» заперта; отказ чтения держит
+  // её запертой и виден текстом.
   const [keptNow, setKeptNow] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const replaceId = replace?.id;
@@ -88,7 +90,9 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
     let alive = true;
     processesApi.get(replaceId).then(
       (p) => { if (alive) setKeptNow(p.messages.filter((m) => !!m.doc_id).length); },
-      (e: unknown) => { if (alive) setLoadError(e instanceof Error ? e.message : "Не удалось загрузить процесс"); },
+      (e: unknown) => {
+        if (alive) setLoadError(`Не удалось загрузить процесс.${e instanceof Error && e.message ? ` ${e.message}` : ""}`);
+      },
     );
     return () => { alive = false; };
   }, [replaceId]);
@@ -122,12 +126,13 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
   });
 
   // Черновики с отказом (файл не прочитан, превью не посчиталось) не импортируются и
-  // кнопку не держат: ошибка видна у них самих. Держат кнопку превью в пути и пустое
-  // название.
+  // кнопку не держат: ошибка видна у них самих. Держат кнопку превью в пути, пустое
+  // название и (у замены) процесс, который ещё не прочитан или не прочитался.
   const toImport = view.filter((v) => v.importable);
   const canSubmit = !busy && toImport.length > 0
     && !view.some((v) => v.pending)
-    && toImport.every((v) => v.name.trim() !== "");
+    && toImport.every((v) => v.name.trim() !== "")
+    && (!replace || keptNow !== null);
 
   function patch(key: string, change: Partial<Draft>) {
     setDrafts((cur) => cur.map((d) => (d.key === key ? { ...d, ...change } : d)));
@@ -250,7 +255,7 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
         onDrop={onDrop}
       >
         <h2 className="pim-title">{title}</h2>
-        {loadError && <p className="ds-danger pim-line">{loadError}</p>}
+        {loadError && <p className="ds-danger pim-line" role="alert">{loadError}</p>}
 
         {single ? (
           <SingleDraft
