@@ -61,6 +61,9 @@ export default function ProcessWorkspace({
   isArchitect, initialProcessId, openForFix, onSelectedChange, onChanged, onOpenNode,
 }: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
+  // Отказ загрузки списка: рисуется вместо холста, пока списка нет. Отказы операций над
+  // процессами (создать, дублировать, переименовать, удалить) идут тостом (fail ниже):
+  // после загрузки списка эта строка не видна.
   const [error, setError] = useState<string | null>(null);
   // Демо-стенд (docs/tasks/demo-mode.md, экран 4): «Новый процесс» и дубль упёрлись в
   // предел — тост внизу холста процессов.
@@ -74,8 +77,19 @@ export default function ProcessWorkspace({
   // Поколение холста открытого процесса. Замена пишет шаги и участников заново (новые
   // id): холст перемонтируется, его история отмены и панель шага со старым id уходят.
   const [canvasGen, setCanvasGen] = useState(0);
-  // Итог замены — тем же тостом внизу холста, что и отказ по пределу демо-стенда.
-  const [replacedNote, showReplaced] = useMessageToast(6000);
+  // Итог замены и отказы операций — тем же тостом внизу холста, что и отказ по пределу
+  // демо-стенда: жирное начало (что случилось) и текст (подробности). Последний показ
+  // заменяет прежний.
+  const [noteText, showNoteText] = useMessageToast(6000);
+  const [noteHead, setNoteHead] = useState("");
+  const showNote = useCallback((head: string, text: string) => {
+    setNoteHead(head);
+    showNoteText(text);
+  }, [showNoteText]);
+  // Отказ операции: что не удалось и причина из ответа сервера одной строкой.
+  const fail = useCallback((what: string, e: unknown) => {
+    showNote(`Не удалось ${what}.`, e instanceof Error ? e.message : "");
+  }, [showNote]);
   // Ввод имени нового процесса в рейле: до Enter в базе ничего нет.
   const [creating, setCreating] = useState(false);
   const [railOpen, setRailOpen] = useState<boolean>(() => readPrefs().railOpen ?? true);
@@ -176,8 +190,7 @@ export default function ProcessWorkspace({
         setEditingPref(true); // новый процесс сразу в правке (как было в BusinessProcessSection)
       }
     } catch (e: unknown) {
-      if (showLimit(e, "process")) return;
-      setError(e instanceof Error ? e.message : "Не удалось создать процесс");
+      if (!showLimit(e, "process")) fail("создать процесс", e);
     }
   }
 
@@ -188,8 +201,7 @@ export default function ProcessWorkspace({
       await reload();
       if (opSeq.current === myOp) setPicked(copy.id);
     } catch (e: unknown) {
-      if (showLimit(e, "process")) return;
-      setError(e instanceof Error ? e.message : "Не удалось дублировать процесс");
+      if (!showLimit(e, "process")) fail("дублировать процесс", e);
     }
   }
 
@@ -199,7 +211,7 @@ export default function ProcessWorkspace({
     try {
       await processesApi.update(id, { name });
     } catch (e: unknown) {
-      if (!showLimit(e, "save")) setError(e instanceof Error ? e.message : "Не удалось переименовать процесс");
+      if (!showLimit(e, "save")) fail("переименовать процесс", e);
     }
     await reload();
   }
@@ -209,7 +221,7 @@ export default function ProcessWorkspace({
     setReplacing(null);
     setItems((cur) => cur && cur.map((p) => (p.id === id ? { ...p, name } : p)));
     if (id === selectedId) setCanvasGen((g) => g + 1);
-    showReplaced(res.version_number != null ? `Прежний вариант сохранён в версии ${res.version_number}` : "");
+    showNote("Процесс заменён.", res.version_number != null ? `Прежний вариант сохранён в версии ${res.version_number}` : "");
     void reload();
     onChanged?.(); // участники и шаги новые — знак алертов протух
   }
@@ -221,7 +233,7 @@ export default function ProcessWorkspace({
       if (picked === id) setPicked(null);
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось удалить процесс");
+      fail("удалить процесс", e);
     }
   }
 
@@ -308,7 +320,7 @@ export default function ProcessWorkspace({
         </div>
       )}
       <DemoLimitToast
-        message={limitToast ?? (replacedNote !== null ? { head: "Процесс заменён.", text: replacedNote } : null)}
+        message={limitToast ?? (noteText !== null ? { head: noteHead, text: noteText } : null)}
       />
     </div>
   );

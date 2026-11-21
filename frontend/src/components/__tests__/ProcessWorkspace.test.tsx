@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ProcessWorkspace from "../processes/ProcessWorkspace";
 import { processesApi } from "../../api/processes";
+import { ApiError } from "../../api/client";
 import type { ProcessListItem } from "../../types";
 
 // Канвас подменяем кнопкой, дёргающей его onChanged: тестируем проводку, а не
@@ -100,6 +101,37 @@ describe("ProcessWorkspace: новый процесс — только посл�
     fireEvent.blur(field);
     expect(screen.queryByRole("textbox", { name: "Имя нового процесса" })).toBeNull();
     expect(processesApi.create).not.toHaveBeenCalled();
+  });
+});
+
+// Редизайн, фаза 3в: отказ операции над процессом виден после загрузки списка. Раньше он
+// уходил в строку, которая рисуется только вместо ещё не загруженного списка.
+describe("ProcessWorkspace: отказы операций тостом", () => {
+  async function openMenu() {
+    vi.mocked(processesApi.list).mockResolvedValue([PROCESS]);
+    render(<ProcessWorkspace isArchitect />);
+    await screen.findByTestId("canvas");
+    await userEvent.click(screen.getByTitle("Действия"));
+  }
+
+  it("удаление не прошло: тост «Не удалось удалить процесс.» с причиной от сервера", async () => {
+    vi.mocked(processesApi.remove).mockRejectedValue(new ApiError(404, "Процесс не найден"));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Удалить процесс?" }));
+
+    const toast = await screen.findByRole("status");
+    expect(toast.textContent).toBe("Не удалось удалить процесс. Процесс не найден");
+    expect(toast.querySelector("b")?.textContent).toBe("Не удалось удалить процесс.");
+    expect(screen.getByTestId("canvas")).toBeInTheDocument(); // список и холст на месте
+  });
+
+  it("дублирование не прошло: тост «Не удалось дублировать процесс.»", async () => {
+    vi.mocked(processesApi.duplicate).mockRejectedValue(new ApiError(500, "Внутренняя ошибка"));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Дублировать" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Не удалось дублировать процесс. Внутренняя ошибка");
   });
 });
 
