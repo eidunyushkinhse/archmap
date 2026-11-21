@@ -394,35 +394,48 @@ function tieBreak(a: Seg, b: Seg): number {
 
 // Зависимости пары перекрывающихся дорожек: сколько крестов (и конфликтов с весом
 // LANE_CONFLICT_PENALTY) даёт порядок «i над j» и наоборот.
-function pairDeps(i: number, j: number, a: Seg, b: Seg): Dep[] {
+// (зависимости дописываются в общий список out — без массива на каждую пару)
+function pairDeps(out: Dep[], i: number, j: number, a: Seg, b: Seg): void {
   const dIJ = LANE_CONFLICT_PENALTY * orderConflicts(a, b) + orderCrossings(a, b);
   const dJI = LANE_CONFLICT_PENALTY * orderConflicts(b, a) + orderCrossings(b, a);
-  if (dIJ < dJI) return [{ from: i, to: j, weight: dJI - dIJ }];
-  if (dJI < dIJ) return [{ from: j, to: i, weight: dIJ - dJI }];
+  if (dIJ < dJI) { out.push({ from: i, to: j, weight: dJI - dIJ }); return; }
+  if (dJI < dIJ) { out.push({ from: j, to: i, weight: dIJ - dJI }); return; }
   const t = tieBreak(a, b);
-  if (t > 0) return [{ from: i, to: j, weight: TIE_WEIGHT }];
-  if (t < 0) return [{ from: j, to: i, weight: TIE_WEIGHT }];
+  if (t > 0) { out.push({ from: i, to: j, weight: TIE_WEIGHT }); return; }
+  if (t < 0) { out.push({ from: j, to: i, weight: TIE_WEIGHT }); return; }
   // порядок безразличен и для крестов, и для вложения, но дорожки обязаны быть разными:
   // пара нулевых зависимостей, одну из них снимет разрыв циклов
-  return [{ from: i, to: j, weight: 0 }, { from: j, to: i, weight: 0 }];
+  out.push({ from: i, to: j, weight: 0 }, { from: j, to: i, weight: 0 });
 }
 
 // Жадный разрыв циклов (Eades–Lin–Smyth): стоки — в хвост порядка, истоки — в голову,
 // при тупике — вершина с максимальным (out − in). Зависимости против порядка:
 // ненулевые разворачиваются, нулевые снимаются. Детерминизм — обход по индексам
 // (сегменты заранее отсортированы по id).
+// Исходящие (by = "from") или входящие (by = "to") зависимости каждой вершины списками в
+// порядке deps: вершина k — номера зависимостей list[start[k] .. start[k + 1]).
+function depsBy(n: number, deps: Dep[], by: "from" | "to"): { start: Int32Array; list: Int32Array } {
+  const start = new Int32Array(n + 1);
+  for (const d of deps) start[d[by] + 1]++;
+  for (let k = 0; k < n; k++) start[k + 1] += start[k];
+  const fill = start.slice(0, n), list = new Int32Array(deps.length);
+  for (let q = 0; q < deps.length; q++) list[fill[deps[q][by]]++] = q;
+  return { start, list };
+}
+
 function breakCycles(n: number, deps: Dep[]): Dep[] {
   const inW = new Array<number>(n).fill(0), outW = new Array<number>(n).fill(0);
   for (const d of deps) { outW[d.from] += d.weight; inW[d.to] += d.weight; }
   const alive = new Array<boolean>(n).fill(true);
   const left: number[] = [], right: number[] = [];
   let remaining = n;
+  // снятие вершины обходит только её зависимости (списки смежности в порядке deps), а не
+  // весь список на каждую вершину: правки одной ячейки inW/outW идут в прежнем порядке
+  const outs = depsBy(n, deps, "from"), ins = depsBy(n, deps, "to");
   const remove = (k: number): void => {
     alive[k] = false; remaining--;
-    for (const d of deps) {
-      if (d.from === k && alive[d.to]) inW[d.to] -= d.weight;
-      if (d.to === k && alive[d.from]) outW[d.from] -= d.weight;
-    }
+    for (let t = outs.start[k]; t < outs.start[k + 1]; t++) { const d = deps[outs.list[t]]; if (alive[d.to]) inW[d.to] -= d.weight; }
+    for (let t = ins.start[k]; t < ins.start[k + 1]; t++) { const d = deps[ins.list[t]]; if (alive[d.from]) outW[d.from] -= d.weight; }
   };
   while (remaining > 0) {
     let moved = true;
@@ -461,10 +474,13 @@ function slotsOf(n: number, dag: Dep[]): number[] {
   for (const d of dag) indeg[d.to]++;
   const queue: number[] = [];
   for (let k = 0; k < n; k++) if (indeg[k] === 0) queue.push(k);
+  // исходящие вершины k — её список смежности в порядке dag (тот же обход, что прежний
+  // перебор всего dag с пропуском чужих)
+  const outs = depsBy(n, dag, "from");
   for (let q = 0; q < queue.length; q++) {
     const k = queue[q];
-    for (const d of dag) {
-      if (d.from !== k) continue;
+    for (let t = outs.start[k]; t < outs.start[k + 1]; t++) {
+      const d = dag[outs.list[t]];
       slot[d.to] = Math.max(slot[d.to], slot[k] + 1);
       if (--indeg[d.to] === 0) queue.push(d.to);
     }
@@ -515,26 +531,42 @@ class FixedCols {
  * чужие препятствия с общим пробегом; от зазора это не зависит, поэтому список считается один
  * раз на раздачу, а не в каждом из до четырёх вариантов разрешения (и входит в ключ памяти
  * раздачи компоненты).
+ *
+ * БЛИЖНИЕ ЗАПИСИ (nStart/nq): у сегмента k — номера записей nq[nStart[k] .. nStart[k + 1]) в
+ * порядке списка, кроме ДАЛЬНИХ. Дальняя — двустороннее препятствие (отрезок или слот без
+ * стороны либо с обеими), чья наибольшая возможная зона (полузазор не больше
+ * max(NUDGE_GAP, полусуммы толщин) с запасом в пиксель) целиком вне внешней полосы
+ * сегмента. Вычитание такой зоны не меняет ни одного куска, пока все куски шире 2·EPS (см.
+ * resolvePieces) — полоса разрешения лежит внутри внешней полосы.
  */
 class AppTable {
   start = new Int32Array(65);
   flags = new Uint8Array(64);
   fi = new Int32Array(256);
   code = new Uint8Array(256);
+  nStart = new Int32Array(65);
+  nq = new Int32Array(256);
   build(S: ReadonlyArray<Seg>, F: FixedCols): void {
     const n = S.length;
-    if (this.flags.length < n) { this.flags = new Uint8Array(2 * n); this.start = new Int32Array(2 * n + 1); }
-    let m = 0;
+    if (this.flags.length < n) { this.flags = new Uint8Array(2 * n); this.start = new Int32Array(2 * n + 1); this.nStart = new Int32Array(2 * n + 1); }
+    let m = 0, nn = 0;
+    const fEdge = F.edge, fLoA = F.lo, fHiA = F.hi, fSlot = F.slot, fThick = F.thick, fPos = F.pos, nF = F.n;
     for (let k = 0; k < n; k++) {
-      const s = S[k], own = s.edge.ix;
+      const s = S[k], own = s.edge.ix, sLo = s.lo, sHi = s.hi;
+      const bLo = s.bandLo, bHi = s.bandHi, sTh = Math.max(s.thick, 0);
+      // запас зоны у препятствия без толщины — один на сегмент (у NaN-толщины его нет)
+      const G0 = Math.max(NUDGE_GAP, sTh / 2) + 1;
       this.start[k] = m;
+      this.nStart[k] = nn;
       let flags = 0;
-      for (let f = 0; f < F.n; f++) {
-        // runOverlap(f, s) > EPS, слово в слово
-        if (F.edge[f] === own || !(Math.min(F.hi[f], s.hi) - Math.max(F.lo[f], s.lo) > EPS)) continue;
+      for (let f = 0; f < nF; f++) {
+        // runOverlap(f, s) > EPS, слово в слово; перед ним — необходимое условие (разность
+        // больше EPS > 0 лишь при min > max, то есть fHi > sLo и fLo < sHi; с NaN оба ложны)
+        if (!(fHiA[f] > sLo && fLoA[f] < sHi)) continue;
+        if (fEdge[f] === own || !(Math.min(fHiA[f], sHi) - Math.max(fLoA[f], sLo) > EPS)) continue;
         let code = 0;
-        if (F.slot[f] === 1) {
-          const fLo = F.lo[f], fHi = F.hi[f];
+        if (fSlot[f] === 1) {
+          const fLo = fLoA[f], fHi = fHiA[f];
           let up = false, down = false;
           for (const v of s.verts) {
             if (!within(v.along, fLo, fHi)) continue;
@@ -542,18 +574,99 @@ class AppTable {
           }
           code = 1 + (up ? 1 : 0) + (down ? 2 : 0);
           flags |= 1;
-        } else if (F.thick[f] !== 0) flags |= 2;
+        } else if (fThick[f] !== 0) flags |= 2;
         if (m === this.fi.length) {
           const i32 = new Int32Array(2 * m); i32.set(this.fi); this.fi = i32;
           const u8 = new Uint8Array(2 * m); u8.set(this.code); this.code = u8;
+          const nq = new Int32Array(2 * m); nq.set(this.nq); this.nq = nq;
         }
+        let far = false;
+        if (code === 0 || code === 1 || code === 4) {
+          const th = fThick[f];
+          const G = th > 0 ? Math.max(NUDGE_GAP, (th + sTh) / 2) + 1 : th <= 0 ? G0 : NaN;
+          far = fPos[f] - G >= bHi || fPos[f] + G <= bLo;
+        }
+        if (!far) this.nq[nn++] = m;
         this.fi[m] = f; this.code[m] = code; m++;
       }
       this.flags[k] = flags;
     }
     this.start[n] = m;
+    this.nStart[n] = nn;
   }
 }
+
+// Куски полосы [lo0, hi0] за вычетом зон применимых препятствий [q0, q1) таблицы app (см.
+// distribute, «НЕПОДВИЖНЫЕ ПРЕПЯТСТВИЯ») и ближайший к d кусок — в RESOLVED; ложь — кусков
+// нет либо ни один не ближе бесконечности (расстояние не число). Куски — плоскими парами в
+// двух переиспользуемых массивах (функция не повторно входима: раздача однопоточна).
+const RESOLVED: [number, number] = [0, 0];
+let piecesA: number[] = [], piecesB: number[] = [];
+// Вычитание зоны записи q из кусков piecesA (результат — снова в piecesA).
+function cutPieces(q: number, app: AppTable, F: FixedCols, gap: number, ownThick: number, useSlots: boolean, useThick: boolean): void {
+  const f = app.fi[q], code = app.code[q];
+  const slot = code !== 0;
+  if (slot && !useSlots) return;
+  const up = slot && ((code - 1) & 1) !== 0, down = slot && ((code - 1) & 2) !== 0;
+  const g = Math.max(slot ? 0 : gap, ((useThick ? F.thick[f] : 0) + ownThick) / 2);
+  const z0 = F.pos[f] - g, z1 = F.pos[f] + g;
+  const keepLo = !(slot && down && !up), keepHi = !(slot && up && !down);
+  const cur = piecesA, nxt = piecesB;
+  nxt.length = 0;
+  for (let t = 0; t < cur.length; t += 2) {
+    const a = cur[t], b = cur[t + 1];
+    if (keepLo && z0 > a + EPS) { const nb = Math.min(b, z0); if (nb >= a - EPS) nxt.push(a, nb); }
+    if (keepHi && z1 < b - EPS) { const na = Math.max(a, z1); if (b >= na - EPS) nxt.push(na, b); }
+  }
+  piecesA = nxt; piecesB = cur;
+}
+// Все куски шире 2·EPS в обоих смыслах сравнений cutPieces: зона целиком выше куска
+// (z0 ≥ b) оставляет его как есть при b > a + EPS, целиком ниже (z1 ≤ a) — при a < b − EPS.
+function allWide(): boolean {
+  const cur = piecesA;
+  for (let t = 0; t < cur.length; t += 2) {
+    const a = cur[t], b = cur[t + 1];
+    if (!(b > a + EPS && a < b - EPS)) return false;
+  }
+  return true;
+}
+// Сегмент k таблицы app: сначала только его ближние записи (дальние, пока куски широкие,
+// ничего не режут — см. AppTable); как только кусок стал узким, — все оставшиеся записи
+// подряд, в том числе дальние, как в прежнем полном проходе. narrowSeen — был ли такой
+// переход (тогда итог раздачи зависит и от дальних записей; см. память компонент).
+let narrowSeen = false;
+function resolvePieces(
+  lo0: number, hi0: number, k: number, app: AppTable, F: FixedCols,
+  gap: number, ownThick: number, useSlots: boolean, useThick: boolean, d: number,
+): boolean {
+  piecesA.length = 0;
+  piecesA.push(lo0, hi0);
+  const q1 = app.start[k + 1];
+  let q = app.start[k];
+  if (allWide()) {
+    q = q1;
+    const n1 = app.nStart[k + 1];
+    for (let t = app.nStart[k]; t < n1; t++) {
+      const qq = app.nq[t];
+      cutPieces(qq, app, F, gap, ownThick, useSlots, useThick);
+      if (piecesA.length === 0) return false;
+      if (!allWide()) { q = qq + 1; narrowSeen = true; break; }
+    }
+  } else narrowSeen = true;
+  for (; q < q1; q++) {
+    cutPieces(q, app, F, gap, ownThick, useSlots, useThick);
+    if (piecesA.length === 0) return false;
+  }
+  const cur = piecesA;
+  let bestD = Infinity, found = false;
+  for (let t = 0; t < cur.length; t += 2) {
+    const a = cur[t], b = cur[t + 1];
+    const dist = d < a ? a - d : d > b ? d - b : 0;
+    if (dist < bestD - EPS) { bestD = dist; RESOLVED[0] = a; RESOLVED[1] = b; found = true; }
+  }
+  return found;
+}
+const distTo = (d: number, a: number, b: number): number => (d < a ? a - d : d > b ? d - b : 0);
 
 /**
  * Раздача позиций дорожек одного компонента: желаемые позиции — равный шаг вокруг
@@ -567,7 +680,7 @@ class AppTable {
  * проверка наложений (уступят A*).
  */
 function distribute(
-  M: Seg[], slots: number[], interacts: (a: Seg, b: Seg) => boolean,
+  M: Seg[], slots: number[], ipairs: ReadonlyArray<number>,
   ks: ReadonlyArray<number>, app: AppTable, F: FixedCols, edgeIds: ReadonlyArray<string>,
 ): { lanes: number[]; gap: number } {
   const m = M.length;
@@ -616,67 +729,52 @@ function distribute(
   // снимаются по мягкости: своя толщина (носитель потерян), чужие слоты (их носители
   // потеряны), толщины чужих стабов; в крайнем случае полоса остаётся как есть (дорожка
   // ляжет на линию и уступит A* по наложению, как прежде).
-  const band0 = M.map((_, i) => [lo[i], hi[i]] as [number, number]);
-  // применимые препятствия сегмента i — записи таблицы app у его номера ks[i] (AppTable)
+  const band0Lo = lo.slice(), band0Hi = hi.slice();
+  // применимые препятствия сегмента i — записи таблицы app у его номера ks[i] (AppTable);
+  // вариант разрешения (resolvePieces) — кусок (pLo, pHi), ok — он есть
   const resolveAll = (): void => {
-    M.forEach((s, i) => {
-      [lo[i], hi[i]] = band0[i];
-      const q0 = app.start[ks[i]], q1 = app.start[ks[i] + 1];
-      if (q0 === q1) return;
-      const hasSlot = (app.flags[ks[i]] & 1) !== 0, hasThick = (app.flags[ks[i]] & 2) !== 0;
+    for (let i = 0; i < m; i++) {
+      lo[i] = band0Lo[i]; hi[i] = band0Hi[i];
+      const k = ks[i], q0 = app.start[k], q1 = app.start[k + 1];
+      if (q0 === q1) continue;
+      const hasSlot = (app.flags[k] & 1) !== 0, hasThick = (app.flags[k] & 2) !== 0;
       const d = desired[i];
-      const resolve = (ownThick: number, useSlots: boolean, useThick: boolean): [number, number] | null => {
-        let pieces: Array<[number, number]> = [[lo[i], hi[i]]];
-        for (let q = q0; q < q1; q++) {
-          const f = app.fi[q], code = app.code[q];
-          const slot = code !== 0, up = slot && ((code - 1) & 1) !== 0, down = slot && ((code - 1) & 2) !== 0;
-          if (slot && !useSlots) continue;
-          const g = Math.max(slot ? 0 : gap, ((useThick ? F.thick[f] : 0) + ownThick) / 2);
-          const z0 = F.pos[f] - g, z1 = F.pos[f] + g;
-          const keepLo = !(slot && down && !up), keepHi = !(slot && up && !down);
-          const next: Array<[number, number]> = [];
-          for (const [a, b] of pieces) {
-            if (keepLo && z0 > a + EPS) { const nb = Math.min(b, z0); if (nb >= a - EPS) next.push([a, nb]); }
-            if (keepHi && z1 < b - EPS) { const na = Math.max(a, z1); if (b >= na - EPS) next.push([na, b]); }
-          }
-          pieces = next;
-          if (pieces.length === 0) return null;
-        }
-        let best: [number, number] | null = null, bestD = Infinity;
-        for (const pc of pieces) {
-          const dist = d < pc[0] ? pc[0] - d : d > pc[1] ? d - pc[1] : 0;
-          if (dist < bestD - EPS) { bestD = dist; best = pc; }
-        }
-        return best;
-      };
-      const distOf = (pc: [number, number] | null): number => (pc ? (d < pc[0] ? pc[0] - d : d > pc[1] ? d - pc[1] : 0) : Infinity);
-      let pc = resolve(thick[i], true, true);
+      let ok = resolvePieces(lo[i], hi[i], k, app, F, gap, thick[i], true, true, d);
+      let pLo = RESOLVED[0], pHi = RESOLVED[1];
       // своя толщина уводит слишком далеко — плашка ляжет впритык, зато без крюка
       if (thick[i] > 0) {
-        const thin = resolve(0, true, true);
-        if (!pc || distOf(pc) > distOf(thin) + LABEL_SHIFT_TOL) { degrade(i); pc = thin; }
+        const okThin = resolvePieces(lo[i], hi[i], k, app, F, gap, 0, true, true, d);
+        if (!ok || distTo(d, pLo, pHi) > (okThin ? distTo(d, RESOLVED[0], RESOLVED[1]) : Infinity) + LABEL_SHIFT_TOL) {
+          degrade(i); ok = okThin; pLo = RESOLVED[0]; pHi = RESOLVED[1];
+        }
       }
       // чужие слоты уводят слишком далеко — их носители потеряны (точная проверка это увидит).
       // Без слотов среди применимых вариант «без слотов» по построению равен уже выбранному
       // (та же толщина, те же препятствия) — повторный расчёт пропускается.
       if (hasSlot) {
-        const noSlots = resolve(thick[i], false, true);
-        if (!pc || distOf(pc) > distOf(noSlots) + LABEL_SHIFT_TOL) pc = noSlots;
+        const okNo = resolvePieces(lo[i], hi[i], k, app, F, gap, thick[i], false, true, d);
+        if (!ok || distTo(d, pLo, pHi) > (okNo ? distTo(d, RESOLVED[0], RESOLVED[1]) : Infinity) + LABEL_SHIFT_TOL) {
+          ok = okNo; pLo = RESOLVED[0]; pHi = RESOLVED[1];
+        }
       }
       // Сюда доходят, только если и вариант без слотов пуст; без толщин у чужих отрезков
       // вариант «без толщин» совпадает с ним и тоже пуст.
-      if (!pc && hasThick) pc = resolve(thick[i], false, false);
-      if (__zDebug.trace && s.members.some((m) => m.id.startsWith(__zDebug.trace))) {
+      if (!ok && hasThick) {
+        ok = resolvePieces(lo[i], hi[i], k, app, F, gap, thick[i], false, false, d);
+        pLo = RESOLVED[0]; pHi = RESOLVED[1];
+      }
+      const s = M[i];
+      if (__zDebug.trace && s.members.some((mm) => mm.id.startsWith(__zDebug.trace))) {
         const fs: string[] = [];
         for (let q = q0; q < q1; q++) {
           const f = app.fi[q];
           fs.push(`${F.edge[f] >= 0 ? edgeIds[F.edge[f]].slice(0, 8) : "straight"}@${F.pos[f].toFixed(0)}${F.slot[f] === 1 ? "s" : ""}${F.thick[f] > 0 ? `t${F.thick[f]}` : ""}`);
         }
-        zlog(s.edge.id.slice(0, 8), "fix", `#${s.idx}`, `d=${d.toFixed(0)}`, `gap=${gap}`, `band=${lo[i].toFixed(0)}..${hi[i].toFixed(0)}`, `→ ${pc ? `${pc[0].toFixed(0)}..${pc[1].toFixed(0)}` : "none"}`, fs.join(" "));
+        zlog(s.edge.id.slice(0, 8), "fix", `#${s.idx}`, `d=${d.toFixed(0)}`, `gap=${gap}`, `band=${lo[i].toFixed(0)}..${hi[i].toFixed(0)}`, `→ ${ok ? `${pLo.toFixed(0)}..${pHi.toFixed(0)}` : "none"}`, fs.join(" "));
       }
-      if (!pc) return;
-      lo[i] = pc[0]; hi[i] = pc[1];
-    });
+      if (!ok) continue;
+      lo[i] = pLo; hi[i] = pHi;
+    }
   };
   resolveAll();
   // СЖАТИЕ ШАГА ПОД СЛОТЫ (Ф3): слоты подписей отбирают у стопки часть канала; если
@@ -689,41 +787,47 @@ function distribute(
       if (g2 < gap - EPS) { gap = g2; resolveAll(); }
     }
   }
-  const pairs: Array<[number, number, number]> = [];   // [верхняя, нижняя, зазор]
-  for (let i = 0; i < m; i++) {
-    for (let j = i + 1; j < m; j++) {
-      if (!interacts(M[i], M[j]) || slots[i] === slots[j]) continue;
-      const gp = pairGap(i, j);
-      pairs.push(slots[i] < slots[j] ? [i, j, gp] : [j, i, gp]);
-    }
+  // взаимодействующие пары (ipairs: i·m + j по возрастанию — порядок перебора i < j): верхняя,
+  // нижняя, зазор — плоскими массивами; порядок — устойчивая сортировка по номерам дорожек
+  // (верхней, затем нижней), при равенстве — порядок перебора
+  const pTop: number[] = [], pBot: number[] = [], pGap: number[] = [];
+  for (const code of ipairs) {
+    const i = (code / m) | 0, j = code - i * m;
+    if (slots[i] === slots[j]) continue;
+    const gp = pairGap(i, j);
+    if (slots[i] < slots[j]) { pTop.push(i); pBot.push(j); } else { pTop.push(j); pBot.push(i); }
+    pGap.push(gp);
   }
-  pairs.sort((p, q) => slots[p[0]] - slots[q[0]] || slots[p[1]] - slots[q[1]]);
+  const pOrder = pTop.map((_, k) => k).sort((p, q) => slots[pTop[p]] - slots[pTop[q]] || slots[pBot[p]] - slots[pBot[q]] || p - q);
   // ОТСЕВ НЕВЫПОЛНИМЫХ ЦЕПОЧЕК: порядок номеров может через дорожку с широкой полосой
   // связать дорожки разных каналов и потребовать невозможного (нижняя дорожка верхнего
   // канала ниже верхней дорожки нижнего). Минимально достижимая позиция считается вперёд
   // по номерам; пара, которую полоса нижней дорожки не вмещает, отбрасывается — физически
   // такие дорожки и так в разных каналах. Остаток выполним, и прогоны ниже не качаются.
   const minPos = [...lo];
-  const feasible: Array<[number, number, number]> = [];
-  for (const [a, b, gp0] of pairs) {
-    let gp = gp0;
+  const fTop: number[] = [], fBot: number[] = [], fGap: number[] = [];   // выполнимые пары
+  for (const k of pOrder) {
+    const a = pTop[k], b = pBot[k];
+    let gp = pGap[k];
     // пара не вмещается с толщинами — сначала снимаем толщины (линии всё ещё разводятся
     // обычным зазором), и лишь невыполнимая и так пара отбрасывается
     if (gp > gap && minPos[a] + gp > hi[b] + EPS) { degrade(a); degrade(b); gp = gap; }
     if (minPos[a] + gp > hi[b] + EPS) continue;
     minPos[b] = Math.max(minPos[b], minPos[a] + gp);
-    feasible.push([a, b, gp]);
+    fTop.push(a); fBot.push(b); fGap.push(gp);
   }
   const x = desired.map((d, i) => clamp(d, lo[i], hi[i]));
+  const nF = fTop.length;
   for (let it = 0; it < 16; it++) {
     let changed = false;
-    for (const [a, b, gp] of feasible) {
-      const need = x[a] + gp;
+    for (let k = 0; k < nF; k++) {
+      const a = fTop[k], b = fBot[k];
+      const need = x[a] + fGap[k];
       if (x[b] < need - 1e-6) { x[b] = Math.min(need, hi[b]); changed = true; }
     }
-    for (let k = feasible.length - 1; k >= 0; k--) {
-      const [a, b, gp] = feasible[k];
-      const need = x[b] - gp;
+    for (let k = nF - 1; k >= 0; k--) {
+      const a = fTop[k], b = fBot[k];
+      const need = x[b] - fGap[k];
       if (x[a] > need + 1e-6) { x[a] = Math.max(need, lo[a]); changed = true; }
     }
     if (!changed) break;
@@ -731,7 +835,7 @@ function distribute(
   // страховка: несовместные ограничения не выталкивают дорожку из её полосы (на край тела)
   M.forEach((s, i) => { if (lo[i] > hi[i] + EPS) { x[i] = clamp(desired[i], s.bandLo, s.bandHi); if (__zDebug.on) zlog(s.edge.id.slice(0, 8), "band-empty", `#${s.idx}`, `lo=${lo[i].toFixed(0)}`, `hi=${hi[i].toFixed(0)}`, `band=${s.bandLo.toFixed(0)}..${s.bandHi.toFixed(0)}`, `col=${s.edge.colLo.toFixed(0)}..${s.edge.colHi.toFixed(0)}`, `free=${s.edge.freeLo.toFixed(0)}..${s.edge.freeHi.toFixed(0)}`, `thick=${s.thick}`, `gap=${gap}`); } });
   if (__zDebug.trace && M.some((sg) => sg.members.some((m) => m.id.startsWith(__zDebug.trace)))) {
-    zlog("dist", `gap=${gap.toFixed(1)} center=${center.toFixed(1)} K=${K}`, M.map((sg, i) => `${sg.edge.id.slice(0, 8)}#${sg.idx} s${slots[i]} lo=${lo[i].toFixed(0)} hi=${hi[i].toFixed(0)} d=${desired[i].toFixed(0)} x=${x[i].toFixed(0)}`).join(" "), `pairs=${feasible.map(([a, b, gp]) => `${a}>${b}:${gp.toFixed(0)}`).join(",")}`);
+    zlog("dist", `gap=${gap.toFixed(1)} center=${center.toFixed(1)} K=${K}`, M.map((sg, i) => `${sg.edge.id.slice(0, 8)}#${sg.idx} s${slots[i]} lo=${lo[i].toFixed(0)} hi=${hi[i].toFixed(0)} d=${desired[i].toFixed(0)} x=${x[i].toFixed(0)}`).join(" "), `pairs=${fTop.map((a, k) => `${a}>${fBot[k]}:${fGap[k].toFixed(0)}`).join(",")}`);
   }
   return { lanes: x.map(half), gap };
 }
@@ -1328,13 +1432,38 @@ export function zRoutes(params: {
   const appTable = new AppTable();
   const solveComp = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): CompResult => {
     const m = M.length;
+    const pairs = interactingPairs(M);
     const deps: Dep[] = [];
-    for (let i = 0; i < m; i++) {
-      for (let j = i + 1; j < m; j++) if (interacts(M[i], M[j])) deps.push(...pairDeps(i, j, M[i], M[j]));
+    for (const code of pairs) {
+      const i = (code / m) | 0, j = code - i * m;
+      pairDeps(deps, i, j, M[i], M[j]);
     }
     const slots = slotsOf(m, breakCycles(m, deps));
-    const { lanes, gap } = distribute(M, slots, interacts, ks, appTable, F, edgeIds);
+    const { lanes, gap } = distribute(M, slots, pairs, ks, appTable, F, edgeIds);
     return { slots, lanes, gap };
+  };
+  // Взаимодействующие пары сегментов компоненты (interacts), закодированные i·m + j (i < j)
+  // по возрастанию — в порядке прежнего перебора всех пар. У больших компонент пары с
+  // перекрытием пробега ищутся проходом по сегментам в порядке lo (как в assignFull), потом
+  // сортируются в порядок (i, j).
+  const interactingPairs = (M: Seg[]): number[] => {
+    const m = M.length, out: number[] = [];
+    let finite = m > 8;
+    if (finite) for (const sg of M) if (!Number.isFinite(sg.lo) || !Number.isFinite(sg.hi)) { finite = false; break; }
+    if (!finite) {
+      for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) if (interacts(M[i], M[j])) out.push(i * m + j);
+      return out;
+    }
+    const byLo = M.map((_, k) => k).sort((a, b) => M[a].lo - M[b].lo || a - b);
+    for (let p = 0; p < m; p++) {
+      const ia = byLo[p], a = M[ia];
+      for (let q = p + 1; q < m; q++) {
+        const ib = byLo[q], b = M[ib];
+        if (!(a.hi - b.lo > -NUDGE_GAP)) break;
+        if (interacts(a, b)) out.push(ia < ib ? ia * m + ib : ib * m + ia);
+      }
+    }
+    return out.sort((x, y) => x - y);
   };
   // ПАМЯТЬ РАЗДАЧИ КОМПОНЕНТЫ. Результат компоненты зависит только от её сегментов (в их
   // порядке: разрыв циклов идёт по индексам) и применимых к ним препятствий. При пробе одной
@@ -1348,8 +1477,37 @@ export function zRoutes(params: {
   //   препятствие — pos, толщина и вид: обычный отрезок либо слот со стороной вертикали
   //   (up/down). Пробег препятствия и его связь участвуют лишь в применимости, она уже
   //   отражена составом списка.
-  const compMemo = new ExactMemo<CompResult>(COMP_MEMO_LIMIT);
+  // ДВА УРОВНЯ. Первый ключ берёт из препятствий только ближние записи (AppTable): дальние
+  // ничего не режут, пока куски полосы широкие, а флаги таблицы (есть слот, есть толщина)
+  // при одних дальних лишь добавляют вариант разрешения, равный уже выбранному. Пока ни одно
+  // разрешение не перешло на полный проход (narrowSeen), итог — функция первого ключа; был ли
+  // переход, решают те же входы. Запись первого уровня помнит, был ли он: если был, итог
+  // ищется во втором уровне по полному ключу (все применимые записи), как прежде.
+  // Ближние записи — подмножество полного списка, поэтому с ним ключ первого уровня короче,
+  // а сдвиг дальнего чужого стаба по сцене компоненту больше не пересчитывает.
+  const compMemo = new ExactMemo<{ res: CompResult | null }>(COMP_MEMO_LIMIT);
+  const compMemoFull = new ExactMemo<CompResult>(COMP_MEMO_LIMIT);
   const compKey = new ExactKey();
+  const keyOfCompNear = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): void => {
+    const k = compKey, app = appTable;
+    k.reset();
+    k.push(M.length);
+    for (let i = 0; i < M.length; i++) {
+      const s = M[i];
+      k.push(s.idx);
+      k.push(s.members.length);
+      for (const mem of s.members) k.push(mem.ix);
+      k.push(s.verts.length);
+      for (const v of s.verts) { k.push(v.along); k.push(v.dir === "up" ? 0 : 1); }
+      k.push(s.lo); k.push(s.hi); k.push(s.bandLo); k.push(s.bandHi);
+      k.push(Number.isFinite(s.bandLo) && Number.isFinite(s.bandHi) ? 0 : s.lane);
+      k.push(s.thick); k.push(s.preShrunk ? 1 : 0);
+      k.push(s.idx === 2 ? (s.edge.cand?.x ?? s.lane) : 0);
+      const t0 = app.nStart[ks[i]], t1 = app.nStart[ks[i] + 1];
+      k.push(t1 - t0);
+      for (let t = t0; t < t1; t++) { const q = app.nq[t], f = app.fi[q]; k.push(F.pos[f]); k.push(F.thick[f]); k.push(app.code[q]); }
+    }
+  };
   const keyOfComp = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): void => {
     const k = compKey, app = appTable;
     k.reset();
@@ -1370,21 +1528,42 @@ export function zRoutes(params: {
       for (let q = q0; q < q1; q++) { const f = app.fi[q]; k.push(F.pos[f]); k.push(F.thick[f]); k.push(app.code[q]); }
     }
   };
-  const solveCompMemo = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): CompResult => {
-    if (!cacheOn) return solveComp(M, ks, F);
+  // Большие компоненты (канал во всю ширину уровня) меняются почти с каждой пробой: их
+  // повторы ловит память раздачи ориентации, а своя память попадает в единицы процентов
+  // (замер: 3–8% у компонент из 41+ сегментов) и тратит время на длинный ключ — её нет.
+  const COMP_MEMO_MAX = 20;
+  const checkComp = (hit: CompResult, M: Seg[], ks: ReadonlyArray<number>, F: FixedCols, name: string): void => {
+    const honest = solveComp(M, ks, F);
+    if (!sameNums(hit.slots, honest.slots) || !sameNums(hit.lanes, honest.lanes) || !sameNum(hit.gap, honest.gap)) selfCheckFail(name);
+  };
+  const solveFull = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols, known: CompResult | null): CompResult => {
     keyOfComp(M, ks, F);
+    const h = compKey.hash();
+    const hit = compMemoFull.get(h, compKey);
+    if (hit) {
+      if (selfCheck) checkComp(hit, M, ks, F, "раздача компоненты (полный ключ)");
+      return hit;
+    }
+    const res = known ?? solveComp(M, ks, F);
+    compMemoFull.put(h, compKey, res);
+    return res;
+  };
+  const solveCompMemo = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols): CompResult => {
+    if (!cacheOn || M.length > COMP_MEMO_MAX) return solveComp(M, ks, F);
+    keyOfCompNear(M, ks, F);
     const h = compKey.hash();
     const hit = compMemo.get(h, compKey);
     if (hit) {
-      if (selfCheck) {
-        const honest = solveComp(M, ks, F);
-        if (!sameNums(hit.slots, honest.slots) || !sameNums(hit.lanes, honest.lanes) || !sameNum(hit.gap, honest.gap)) selfCheckFail("раздача компоненты");
-      }
-      return hit;
+      if (hit.res === null) return solveFull(M, ks, F, null);
+      if (selfCheck) checkComp(hit.res, M, ks, F, "раздача компоненты (ближние препятствия)");
+      return hit.res;
     }
+    narrowSeen = false;
     const res = solveComp(M, ks, F);
-    compMemo.put(h, compKey, res);
-    return res;
+    const narrow = narrowSeen;
+    // ключ первого уровня ещё в compKey: запись — до того, как его сменит полный ключ
+    compMemo.put(h, compKey, { res: narrow ? null : res });
+    return narrow ? solveFull(M, ks, F, res) : res;
   };
   // Раздача ориентации o целиком. rec — запись того, что она пишет в связи (для памяти
   // раздачи ориентации): четвёрки «номер связи, вид отрезка (0/1 — дорожка, 2 — колонна),
