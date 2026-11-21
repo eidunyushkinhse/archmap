@@ -8,7 +8,6 @@ import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import PromptCopyButton from "../docsImport/PromptCopyButton";
-import ScanFileLink from "./ScanFileLink";
 import ImportPane from "./ImportPane";
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { firstTooBig, textBytes } from "../demo/demoLimits";
@@ -329,11 +328,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                 ))}
 
               {/* Серого абзаца «что принимается» в левой колонке ввоза больше нет
-                  (ТЗ §1.1): он обещал сводку со склейкой и подозрениями, которой
-                  теперь нет, а форматы входов называет плейсхолдер самой панели.
-                  Есть только ссылка на сборщик фактов: путь без агента начинается со
-                  скачивания файла (фаза 3 docs/tasks/fact-collector.md). */}
-              {mode === "import" && <ScanFileLink />}
+                  (ТЗ §1.1): форматы входов называет плейсхолдер самой панели. Ссылки на
+                  сборщик фактов тоже нет (золотое правило владельца 2026-11-21: его вывод
+                  документацией не становится, сервер такой вход отклоняет). */}
 
               {mode === "repo" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

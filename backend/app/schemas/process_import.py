@@ -8,6 +8,8 @@ import uuid
 
 from pydantic import BaseModel
 
+from app.domain_types import ImportDocStatus, ImportStepStatus
+
 
 class ImportNodeCandidate(BaseModel):
     """Узел-кандидат под имя из диаграммы. Имена узлов НЕ уникальны, поэтому
@@ -30,6 +32,28 @@ class ProcessImportIn(BaseModel):
     name: str | None = None
 
 
+class ProcessImportPreviewIn(ProcessImportIn):
+    """Превью. overrides: уточнения поверх автосопоставления (алиас → узел, null —
+    оставить без объекта); по ним считается, какие шаги встанут на связь. Без них —
+    только однозначные совпадения, как в окне ввоза до выбора."""
+
+    # None, а не {}: поле с умолчанием-словарём генератор типов делает обязательным,
+    # и окну ввоза пришлось бы слать пустые уточнения.
+    overrides: dict[str, uuid.UUID | None] | None = None
+
+
+class ImportStepPreview(BaseModel):
+    """Шаг диаграммы, каким он станет: на какой связи встанет и к какой схеме привяжется."""
+
+    order: int
+    from_name: str
+    to_name: str
+    caption: str | None
+    status: ImportStepStatus
+    doc_address: str | None
+    doc_status: ImportDocStatus | None
+
+
 class ProcessImportPreview(BaseModel):
     name: str
     participants: list[ImportParticipantPreview]
@@ -41,6 +65,13 @@ class ProcessImportPreview(BaseModel):
     # Шагов с заявленной привязкой «%% archmap-doc: …» (Ф7). Резолв — на применении;
     # дефолт 0 бережёт старых клиентов.
     doc_refs: int = 0
+    # Прогноз по шагам при сопоставлении превью (автосопоставление плюс overrides):
+    # тот же расчёт, что у применения (plan_import), поэтому агент видит, какие шаги
+    # останутся без связи, ещё до записи. Дефолты берегут старых клиентов.
+    steps: list[ImportStepPreview] = []
+    attached: int = 0
+    dangling: int = 0
+    self_messages: int = 0
 
 
 class ProcessImportApply(ProcessImportIn):
@@ -67,3 +98,13 @@ class ProcessImportResult(BaseModel):
     # в алерт полноты AL34. Дефолты 0 берегут старых клиентов.
     doc_linked: int = 0
     doc_unresolved: int = 0
+
+
+class ProcessReplaceResult(ProcessImportResult):
+    """Замена содержимого существующего процесса диаграммой (POST /processes/{id}/import).
+    Перед заменой ArchMap сохраняет версию всего проекта, в ней остаётся прежний текст
+    процесса. version_created — версию сохранили сейчас; False — с последней версии
+    изменений не было, прежний текст лежит в ней."""
+
+    version_number: int | None
+    version_created: bool

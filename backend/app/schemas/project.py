@@ -67,9 +67,6 @@ class FileRemarksOut(BaseModel):
     file: int  # номер файла с 1 — та же нумерация, что в текстах «(файл 2)» и в чипах UI
     errors: list[str] = []
     warnings: list[str] = []
-    # Файл собран сборщиком фактов ArchMap (шапка «# archmap-scan …», app/scan_origin):
-    # строка для человека и агента с версией, коммитом и репозиторием; иначе null.
-    scanner: str | None = None
 
 
 class MergedNodeOut(BaseModel):
@@ -197,9 +194,6 @@ class SyncPreviewOut(BaseModel):
     graph_rev: int = 0  # курсор схемы на момент расчёта — вернуть в apply
     # Демо-стенд: после синка проект выйдет за предел (docs/tasks/demo-mode.md).
     demo_excess: DemoExcess | None = None
-    # Входы, собранные сборщиком фактов (app/scan_origin): по строке на каждый вход в
-    # порядке contents, у входа не от сборщика null. Пусто, если входов не разбирали.
-    scanner: list[str | None] = []
 
 
 class SyncApplyOut(BaseModel):
@@ -213,6 +207,9 @@ class SyncApplyOut(BaseModel):
     updated_edges: list[str] = []  # связи, у которых заполнен канал или тип канала
     skipped: list[str] = []  # действия, не применённые при записи; причина — в самой строке
     graph_rev: int = 0  # новый курсор схемы
+    # Репозитории, чьи напоминания о слиянии сняты этим обновлением (app/code_changes.py):
+    # в прогоне есть объекты из них.
+    code_changes_cleared: list[str] = []
 
 
 class ImportPromptOut(BaseModel):

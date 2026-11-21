@@ -35,8 +35,16 @@ def u(n: int) -> str:
 
 
 def full_payload() -> dict[str, Any]:
-    """По одной записи каждого из 16 классов."""
+    """По одной записи каждого из 17 классов."""
     return {
+        "code_changes": [
+            {
+                "id": u(30), "repo": "gitlab.example.org/market/shop", "merges": 3,
+                "first_at": "2026-11-18T09:00:00Z", "last_at": "2026-11-21T09:00:00Z",
+                "first_commit": "abcdef1234", "last_commit": "1234567890", "branch": "main",
+                "nodes": [{"node_id": u(6), "node_name": "Сервис заказов"}],
+            }
+        ],
         "disconnected_nodes": [{"node_id": u(1), "node_name": "Сирота"}],
         "intermediate_edges": [
             {
@@ -142,12 +150,12 @@ def validated_payload() -> dict[str, Any]:
 def test_фикстура_покрывает_все_классы_контракта() -> None:
     fields = set(backend("schemas.alerts").AlertsResponse.model_fields)
     assert set(full_payload()) == fields
-    assert len(fields) == 16
+    assert len(fields) == 17
 
 
 def test_порядок_и_заголовки_повторяют_панель() -> None:
     titles = panel_titles()
-    assert len(titles) == 16, titles
+    assert len(titles) == 17, titles
 
     out = render.alerts(validated_payload())
     positions = []
@@ -298,11 +306,15 @@ def test_строки_называют_имена_и_детали() -> None:
     assert "Оформление заказа: Склад" in out
     assert "Сервис заказов: 3 схемы" in out
     assert "Покупатель внутри Маркетплейс" in out
+    assert (
+        "gitlab.example.org/market/shop: 3 слияния с 2026-11-18, коммиты abcdef12…12345678 в main. "
+        "Объекты: Сервис заказов. Напоминание снимет обновление из кода" in out
+    )
 
 
 def test_счётчик_считает_группы_как_недостающие_связи() -> None:
-    # 15 классов по записи + 2 изолированные группы, дающие 1 недостающую связь.
-    assert render.alerts(validated_payload()).startswith("Рекомендаций: 16\n")
+    # 16 классов по записи + 2 изолированные группы, дающие 1 недостающую связь.
+    assert render.alerts(validated_payload()).startswith("Рекомендаций: 17\n")
 
 
 def test_пустой_ответ_говорит_что_схема_завершена() -> None:
@@ -328,7 +340,7 @@ def test_незнакомый_класс_нового_сервера_печат�
     assert "Объект 5" not in out and "и ещё 2" in out
     # рядом с известными классами — свой блок после них, счётчик общий
     out = render.alerts({**validated_payload(), "future_class": records[:1]})
-    assert out.startswith("Рекомендаций: 17\n")
+    assert out.startswith("Рекомендаций: 18\n")
     assert out.index("«future_class» (1)") > out.index("Пользователи внутри системы (")
     # пустой незнакомый список и не-список — не замечания
     assert render.alerts({"future_class": [], "total": 3}) == "Рекомендаций нет. Схема описана полностью."
@@ -348,7 +360,7 @@ async def test_инструмент_алертов_отдаёт_полную_с�
 
 def test_описание_инструмента_обещает_все_классы() -> None:
     tool = next(t for t in tools.TOOLS if t["name"] == "archmap_alerts")
-    assert "16" in tool["description"]
+    assert "17" in tool["description"]
     # Каждый заголовок панели назван в описании (строчными, как в перечне).
     desc = tool["description"].lower()
     for title in panel_titles():

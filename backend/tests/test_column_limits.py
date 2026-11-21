@@ -51,6 +51,8 @@ SERVICE_COLUMNS = {
     ("User", "hashed_password"), ("PersonalToken", "prefix"), ("PersonalToken", "token_hash"),
     ("Upload", "key_hash"), ("Upload", "sha256"), ("NodeVersion", "content_hash"),
     ("ViewLayoutItem", "item_id"), ("ProcessMessage", "leg"),
+    # хэши коммитов сигнала CI: вход проверен шаблоном hex до 64 знаков
+    ("CodeChange", "first_commit"), ("CodeChange", "last_commit"),
 }
 
 

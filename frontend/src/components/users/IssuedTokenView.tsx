@@ -5,6 +5,7 @@ import type { PersonalTokenCreated } from "../../types";
 import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
 import { primaryBtn } from "../../ui/styles";
+import { CI_TABS, ciSnippet } from "./ciSignal";
 
 /**
  * Вид «токен выпущен» окна «Токены для MCP»: секрет показывается ОДИН раз — здесь, с
@@ -13,6 +14,7 @@ import { primaryBtn } from "../../ui/styles";
  * <cli>); Desktop — блок mcpServers с url и headers, де-факто общий формат mcp.json.
  * Особые форматы (VS Code, httpUrl у Qwen Code) — в mcp/README.md. Адрес — origin
  * страницы + /mcp: тот же ArchMap, что открыт в браузере (в dev /mcp проксирует Vite).
+ * У токена «только сигнал CI» вместо подключения агента — готовые строки CI (ciSignal.ts).
  */
 
 interface Props {
@@ -30,12 +32,20 @@ const CLIENTS: { id: Client; label: string; hint: string }[] = [
   { id: "desktop", label: "Desktop", hint: "В файл настроек MCP приложения" },
 ];
 
+// Вкладка окна: подключение агента (CLI, Desktop) или строки CI (GitLab, GitHub, curl).
+interface View {
+  id: string;
+  label: string;
+  hint: string;
+  text: string;
+}
+
 export default function IssuedTokenView({ issued, onDone }: Props) {
-  const [client, setClient] = useState<Client>("cli");
   const [copied, setCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState(false);
   const url = `${window.location.origin}/mcp`;
   const { secret } = issued;
+  const ci = issued.token.ci_only;
   const cliArgs = `mcp add --transport http archmap ${url} --header "Authorization: Bearer ${secret}"`;
   const connect: Record<Client, string> = {
     cli: `${CLI_STUB} ${cliArgs}`,
@@ -45,6 +55,11 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
       2,
     ),
   };
+  const views: View[] = ci
+    ? CI_TABS.map((t) => ({ ...t, text: ciSnippet(t.id, window.location.origin) }))
+    : CLIENTS.map((c) => ({ ...c, text: connect[c.id] }));
+  const [tab, setTab] = useState(views[0].id);
+  const view = views.find((v) => v.id === tab) ?? views[0];
 
   async function copy(key: string, text: string) {
     setCopyError(false);
@@ -74,28 +89,28 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
       </div>
 
       <div style={connectHead}>
-        <span style={sectionLabel}>Подключение</span>
-        <div role="tablist" aria-label="Клиент" style={seg}>
-          {CLIENTS.map((c) => (
+        <span style={sectionLabel}>{ci ? "Сигнал из CI после слияния в main" : "Подключение"}</span>
+        <div role="tablist" aria-label={ci ? "CI" : "Клиент"} style={seg}>
+          {views.map((v) => (
             <button
-              key={c.id}
+              key={v.id}
               role="tab"
-              aria-selected={client === c.id}
-              style={segBtn(client === c.id)}
-              onClick={() => setClient(c.id)}
+              aria-selected={view.id === v.id}
+              style={segBtn(view.id === v.id)}
+              onClick={() => setTab(v.id)}
             >
-              {c.label}
+              {v.label}
             </button>
           ))}
         </div>
       </div>
       <div style={codeBox}>
         <div style={codeHead}>
-          <span style={hint}>{CLIENTS.find((c) => c.id === client)?.hint}</span>
-          {copyButton(client, connect[client])}
+          <span style={hint}>{view.hint}</span>
+          {copyButton(view.id, view.text)}
         </div>
-        <pre style={code} data-testid={`issued-${client}`}>
-          {client === "cli" ? <><span style={stub}>{CLI_STUB}</span> {cliWords(cliArgs)}</> : connect[client]}
+        <pre style={code} data-testid={`issued-${view.id}`}>
+          {view.id === "cli" ? <><span style={stub}>{CLI_STUB}</span> {cliWords(cliArgs)}</> : view.text}
         </pre>
       </div>
       {copyError && <p style={note}>Браузер не дал скопировать. Выделите текст и скопируйте вручную.</p>}

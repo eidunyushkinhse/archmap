@@ -109,6 +109,17 @@ def last_version(db: Session, project: Project, node: Node | None) -> NodeVersio
     return db.scalars(stmt).first()
 
 
+def has_pending(
+    db: Session, project: Project, node: Node | None, live: VersionSnapshot
+) -> bool:
+    """Есть ли незафиксированное с последней версии объекта: так решают, нужна ли
+    автоматическая версия перед откатом и перед удалением пачкой. Хэш последней
+    пересчитан по её снимку, а не взят из колонки: проекция могла уточниться с её
+    фиксации."""
+    last = last_version(db, project, node)
+    return last is None or content_hash(live) != content_hash(snapshot_of(last))
+
+
 def _stats(snapshot: VersionSnapshot, base: VersionSnapshot) -> dict[str, Any]:
     """stats строки версии: счётчики снимка и перечень изменённого относительно base
     (форма — schemas.versions.VersionStats)."""
@@ -166,6 +177,24 @@ def create_version(
     db.add(row)
     db.flush()
     return row
+
+
+def ensure_version(
+    db: Session,
+    project: Project,
+    user: User,
+    node: Node | None,
+    comment: str,
+    *,
+    kind: VersionKind,
+) -> tuple[NodeVersion | None, bool]:
+    """Версия перед действием, которое стирает знание (удаление пачкой, замена процесса):
+    есть незафиксированное — сохранить новую и вернуть (row, True); нет — нынешнее
+    состояние уже лежит в последней версии, вернуть её (row, False). Без коммита."""
+    if has_pending(db, project, node, live_snapshot(db, project, node)):
+        return create_version(db, project, user, node, comment, kind=kind), True
+    # has_pending без версий отвечает True, поэтому последняя здесь есть всегда.
+    return last_version(db, project, node), False
 
 
 def delete_version(db: Session, version: NodeVersion) -> None:

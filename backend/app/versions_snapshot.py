@@ -30,6 +30,7 @@ from app.database import Base
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
+from app.models.code_change import CodeChange
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
@@ -108,6 +109,8 @@ NOT_IN_VERSION: dict[type[Base], str] = {
     Project: "строка проекта — контейнер истории, а не документация объекта",
     User: "пользователи глобальны; автор версии — created_by_id строки версии",
     ProjectMember: "участники проекта — доступ, а не документация объекта",
+    CodeChange: "напоминание о слиянии в репозитории — сигнал CI проекту, а не "
+    "документация объекта: откат версии его не возвращает и не снимает",
     PersonalToken: "личные токены принадлежат пользователю, а не документации",
     Upload: "загрузки файлов с машины агента — временный буфер пользователя, не документация",
     NodeVersion: "сама история версий: снимок версий внутри версии был бы рекурсией",

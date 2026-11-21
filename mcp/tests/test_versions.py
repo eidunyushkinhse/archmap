@@ -463,8 +463,10 @@ def test_версии_в_удалённом_наборе_фиксация_не_�
     full = {t["name"] for t in tools.remote_catalog(read_only=False)}
     reads = {"archmap_versions", "archmap_version_diff", "archmap_version_doc"}
     assert reads <= reader and "archmap_version_create" in full - reader
-    # Ни отката, ни удаления версий в каталоге нет.
-    assert not [n for n in full if "restore" in n or "delete" in n]
+    # Ни отката, ни удаления версий в каталоге нет. archmap_delete удаляет объекты, связи и
+    # схемы, а не версии: перед удалением он версию как раз сохраняет.
+    assert not [n for n in full if "restore" in n or ("delete" in n and n != "archmap_delete")]
+    assert "version" not in str(tools.BY_NAME["archmap_delete"]["schema"]["properties"]["items"])
 
 
 async def test_фиксация_удалённо_токеном_только_чтение_отказ(api: FakeApi) -> None:

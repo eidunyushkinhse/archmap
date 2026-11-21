@@ -7,7 +7,8 @@
 - БД: PostgreSQL 15+ (localhost:5432, БД `archmap`; второй экземпляр в демо-режиме — `archmap_demo`)
 - ORM: SQLAlchemy 2.0 + Alembic (миграции)
 - Аутентификация: JWT (PyJWT + pwdlib[bcrypt]); личные токены доступа `archmap_…` для ИИ-агентов и скриптов
-  (в БД — sha256; без удалений и администрирования, «только чтение» — по методу)
+  (в БД — sha256; метод DELETE закрыт, удаление пачкой с версией перед ним; без администрирования,
+  «только чтение» — по методу, «только сигнал из CI» — только POST /code-changes)
 - Тесты: vitest (фронт), pytest (бэк — на in-memory SQLite; MCP — поверх подменённого httpx)
 - Линтеры: tsc + eslint + knip (фронт), ruff + mypy (бэк и MCP)
 - Зависимости поставки: backend/requirements-prod.lock с хэшами (pip --require-hashes);
@@ -28,7 +29,7 @@ archmap/
 │   ├── src/
 │   │   ├── api/           # клиент бэкенда: client (общий запрос, 401, X-Project-Id), auth, admin, nodes,
 │   │   │                  # processes, projects, docsImport, dataRefs, projectScope, tokens, versions, deployment (площадки и размещение),
-│   │   │                  # scan (файл сборщика фактов: версия и ссылка)
+│   │   │                  # codeChanges («Документация актуальна»: снять напоминание о слиянии из CI)
 │   │   ├── lib/           # общие механизмы без разметки: lazyOnce, useAsyncLoad, safeStorage, copyText,
 │   │   │                  # connection (признак «нет связи»), motion (prefers-reduced-motion)
 │   │   ├── ui/            # общие UI-примитивы: Modal, ConfirmDialog, ErrorBoundary, LoadError, UpdateNotice,
@@ -39,7 +40,7 @@ archmap/
 │   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, ObjectInspector, DocOverlay
 │   │   │   ├── processes/ # бизнес-процессы: sequence-диаграммы, рейл, композитор, импорт из mermaid
 │   │   │   ├── project/   # создание и правка проектов, ввоз (ImportPane), догрузка, доступ, превью схемы,
-│   │   │   │              # ссылка на файл сборщика фактов (ScanFileLink)
+│   │   │   │              # плашка «Документацию пора обновить» по сигналу CI (CodeChangeNotice)
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
 │   │   │   ├── anchor/    # поле и тексты источника объекта (source_ref; в коде понятие зовётся anchor)
@@ -53,7 +54,7 @@ archmap/
 │   │   │   ├── nodePage/  # части страницы объекта: свойства (в т.ч. строка «Размещение»), секции «Логика»/«OpenAPI»/«Схема» по элементу, группы потомков
 │   │   │   ├── deployment/# режим «Развёртывание»: проекция графа площадок на холст, окна «Размещение» и «Площадки»,
 │   │   │   │              # конфликты размещения контейнера целиком (placementConflicts, PlacementConflictList)
-│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 266 тестовых файлов)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 265 тестовых файлов)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
 │   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel; режимы
@@ -73,13 +74,16 @@ archmap/
 │   ├── app/
 │   │   ├── models/        # SQLAlchemy: project, project_member, user, node, edge, node_doc, view_layout, view_state,
 │   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*,
-│   │   │                  # personal_token, node_version, deployment_site/deployment_instance (площадки и экземпляры)
-│   │   ├── routers/       # 27 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
+│   │   │                  # personal_token, node_version, deployment_site/deployment_instance (площадки и экземпляры),
+│   │   │                  # code_change (напоминание о слиянии в репозитории по сигналу CI)
+│   │   ├── routers/       # 29 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
 │   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
 │   │   │                  # broker_channels, channels_import, config_params, config_import, versions, deployment,
 │   │   │                  # facts (перенос и сбор фактов), uploads (одноразовая ссылка загрузки),
-│   │   │                  # scan (раздача сборщика фактов archmap-scan.pyz без входа)
-│   │   ├── schemas/       # Pydantic-контракт API (31 модуль; из него генерируется api.gen.ts)
+│   │   │                  # scan (раздача сборщика фактов archmap-scan.pyz без входа),
+│   │   │                  # deletions (удаление пачкой с версией перед ним — путь агента и скриптов),
+│   │   │                  # code_changes (сигнал CI о слиянии в репозиторий и его снятие)
+│   │   ├── schemas/       # Pydantic-контракт API (33 модуля; из него генерируется api.gen.ts)
 │   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health, /ready и /mcp
 │   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
 │   │   ├── domain_types.py  # словари предметной области (Literal формы, статусы, роли…) и pick
@@ -87,8 +91,9 @@ archmap/
 │   │   ├── personal_tokens.py / mcp_http.py  # личные токены (выпуск, поиск по хэшу, тексты запретов);
 │   │   │                  # /mcp — клей удалённого MCP (демо, метод, Origin, лимиты, проверка токена, lifespan)
 │   │   ├── database.py / column_limits.py / view_state.py  # сессия и пул; длины строк до flush (422, а не 500); CAS-версии
-│   │   ├── tree.py / reparent.py / restore.py / projects.py / copy_plan.py / transition.py
-│   │   │                  # дерево узлов, перенос, Undo удаления, копия проекта, «Принять переход»
+│   │   ├── tree.py / reparent.py / restore.py / projects.py / copy_plan.py / transition.py / deletions.py
+│   │   │                  # дерево узлов, перенос, Undo удаления, копия проекта, «Принять переход»,
+│   │   │                  # удаление пачкой с версией перед ним (агент и скрипты)
 │   │   ├── element.py / element_rules.py / element_marks.py / element_change.py / facts_transfer.py /
 │   │   │   import_element.py  # элемент архитектуры: действующий элемент и функция записи
 │   │   │                  # stored_elements (тип выбран всегда), правила записи, адаптер к БД,
@@ -105,26 +110,29 @@ archmap/
 │   │   ├── facts_import.py / data_import.py / channels_import.py / config_import.py  # табличные факты: общее и три семьи
 │   │   ├── *_prompt.py    # промпты агенту (import, docs, recon, data, channels, config, skeptic) — под снапшотами
 │   │   ├── processes.py / process_import.py / process_export.py / process_copy.py  # бизнес-процессы
+│   │   │                  # (ввоз mermaid: plan_import общий у превью и записи, замена содержимого)
 │   │   ├── search.py / text.py / mmd_header.py  # поиск по знанию проекта; нормализация текстов; шапка .mmd
 │   │   ├── project_cards.py  # карточки списка «Проекты» (счётчики, мини-граф, роль)
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
 │   │   ├── scan_file.py   # файл сборщика фактов для раздачи (/api/v1/scan): версия, sha256, кэш по mtime
-│   │   ├── scan_origin.py # пометка «собрано сборщиком фактов» по шапке входа (превью, план обновления, факты)
+│   │   ├── scan_origin.py # шапка сборщика фактов: отказ черновику схемы, пометка файлов фактов
+│   │   ├── code_changes.py # сигнал CI о слиянии: проекты по источникам объектов, напоминание (AL37) и снятие
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (93 тестовых файла, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (96 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings
 │   └── pyproject.toml     # ruff, mypy, порог покрытия
 ├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки): локально по stdio
 │   │                      # и удалённо — /mcp в процессе бэкенда (пакет едет в поставки рядом с app/)
-│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (42 инструмента:
+│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (45 инструментов:
 │   │                      # чтение, поиск, промпты, превью → применение, точечные правки, версии документации, размещение,
-│   │                      # перенос документации и сбор с компонентов, запуск сборщика фактов archmap_scan; удалений нет;
-│   │                      # удалённый набор — 38, без диска агента),
+│   │                      # бизнес-процессы из mermaid (новый или замена с версией перед ней),
+│   │                      # перенос документации и сбор с компонентов, запуск сборщика фактов archmap_scan; удаление только
+│   │                      # пачкой archmap_delete с версией перед ним; удалённый набор — 41, без диска агента),
 │   │                      # remote.py (Streamable HTTP без состояния, журнал вызовов), render.py, server.py (stdio; отказы — isError)
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI

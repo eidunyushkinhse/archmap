@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
+from pathlib import Path
 from typing import Any, get_args
 
 import httpx
@@ -541,6 +543,7 @@ async def test_применение_синка_шлёт_contents_текстам�
         updated_edges=["Маркетплейс / Заказы → Маркетплейс / Kafka"],
         skipped=["Маркетплейс / Склад: тип не изменён. У объекта есть вложенные объекты — базой данных, брокером или «Пользователем» ему не стать"],
         graph_rev=12,
+        code_changes_cleared=["gitlab.example.org/market/shop"],
     ).model_dump(mode="json"))
 
     out = await tools.call(
@@ -559,6 +562,11 @@ async def test_применение_синка_шлёт_contents_текстам�
     assert "Пропущено (причина в строке): 1" in out
     assert "• Маркетплейс / Склад: тип не изменён." in out
     assert "graph_rev=12" in out
+    # обновление из кода с объектами репозитория снимает напоминание о слиянии из CI
+    assert (
+        "Напоминание «Документацию пора обновить» снято для репозитория "
+        "gitlab.example.org/market/shop." in out
+    )
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == ["прогон"]
     assert body["base_graph_rev"] == 7  # курсор схемы не потерялся вместе с формой
@@ -606,10 +614,76 @@ async def test_создание_связи_шлёт_тип_канала(client: 
     assert body["label"] == "событие оплаты"
 
 
-async def test_удалений_в_каталоге_нет() -> None:
-    # Решение пользователя 2026-08-10: снос узла уводит поддерево, связи, доки и
-    # спеки — такое делают глазами. Тест держит границу каталога.
-    assert not [t for t in tools.TOOLS if "delete" in t["name"] or "remove" in t["name"]]
+async def test_удаление_только_пачкой_с_версией() -> None:
+    # Решение владельца 2026-11-21 (вместо прежнего «удалений нет» от 2026-08-10):
+    # агент удаляет лишнее сам, но ТОЛЬКО через archmap_delete, то есть POST /deletions,
+    # где сервер сперва сохраняет версию. Метод DELETE не шлёт ни один инструмент:
+    # личным токеном он закрыт, а без версии удалённое не вернуть.
+    assert [t["name"] for t in tools.TOOLS if "delete" in t["name"] or "remove" in t["name"]] == [
+        "archmap_delete"
+    ]
+    source = Path(tools.__file__).read_text(encoding="utf-8")
+    assert '"DELETE"' not in source
+
+
+async def test_удаление_пачкой_тело_по_схеме_бэкенда_и_отчёт(api: FakeApi, client) -> None:
+    schemas = backend("schemas.deletions")
+    cache, edge, doc, shop = (str(uuid.uuid4()) for _ in range(4))
+    api.post("/deletions", schemas.DeletionOut(
+        dry_run=False,
+        items=[
+            schemas.DeletionTarget(kind="node", id=cache, label="Ярмарка / Заказы / Кэш", covered_by=None),
+            schemas.DeletionTarget(kind="doc", id=doc, label="«Прогрев» у Ярмарка / Заказы / Кэш", covered_by=cache),
+            schemas.DeletionTarget(kind="edge", id=edge, label="Ярмарка / Заказы → Ярмарка / Оплаты", covered_by=None),
+        ],
+        totals=schemas.DeletionTotals(processes=0, nodes=1, edges=3, docs=1, facts=0, instances=0, process_links=2),
+        version=schemas.DeletionVersion(node_id=shop, label="Ярмарка", number=4, created=True),
+    ).model_dump(mode="json"))
+
+    text = await tools.call(
+        "archmap_delete",
+        {"project": "Ярмарка", "items": [{"kind": "node", "id": cache}, {"kind": "doc", "id": doc},
+                                         {"kind": "edge", "id": edge}], "reason": "дубль прогона"},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    schemas.DeletionRequest.model_validate(body)
+    assert body["reason"] == "дубль прогона" and body["dry_run"] is False
+    assert api.calls[-1].method == "POST"
+    assert "В проекте «Ярмарка» удалено:" in text
+    assert f"схема логики «Прогрев» у Ярмарка / Заказы / Кэш  id={doc} (вместе с «Ярмарка / Заказы / Кэш»)" in text
+    assert "Всего ушло: 1 объект, 3 связи, 1 схема логики." in text
+    assert "В процессах опустеют привязки к удалённому: 2" in text
+    assert "Перед удалением сохранена версия v4 объекта «Ярмарка»." in text
+    assert "откат к v4 в истории версий объекта «Ярмарка»" in text
+
+
+async def test_удаление_пачкой_dry_run_и_версия_проекта(api: FakeApi, client) -> None:
+    schemas = backend("schemas.deletions")
+    bank = str(uuid.uuid4())
+    api.post("/deletions", schemas.DeletionOut(
+        dry_run=True,
+        items=[schemas.DeletionTarget(kind="node", id=bank, label="Банк", covered_by=None)],
+        totals=schemas.DeletionTotals(processes=0, nodes=1, edges=0, docs=0, facts=0, instances=0, process_links=0),
+        version=schemas.DeletionVersion(node_id=None, label=None, number=None, created=False),
+    ).model_dump(mode="json"))
+
+    text = await tools.call(
+        "archmap_delete", {"project": "Ярмарка", "items": [{"kind": "node", "id": bank}], "dry_run": True},
+        client,
+    )
+
+    assert json.loads(api.calls[-1].content)["dry_run"] is True
+    assert "будет удалено:" in text and "Всего уйдёт: 1 объект." in text
+    assert "сохранит версию всего проекта" in text and "опустеют" not in text
+    assert "Вернуть" not in text
+
+
+async def test_удаление_пачкой_кривой_пункт_до_запроса(api: FakeApi, client) -> None:
+    with pytest.raises(ArchMapError, match="Каждый пункт items"):
+        await tools.call("archmap_delete", {"project": "Ярмарка", "items": [{"id": "x"}]}, client)
+    assert not [c for c in api.calls if c.url.path.endswith("/deletions")]
 
 
 async def test_каждый_инструмент_описан_и_вызываем() -> None:
@@ -1085,20 +1159,36 @@ async def test_дерево_не_помечает_внешнюю_систему(
     assert "• Банк [система, внешний]  id=n1" in out.splitlines()
 
 
-async def test_план_синка_помечает_вход_сборщика(client: ArchMapClient, api: FakeApi) -> None:
-    """scanner выровнен по входам: у входа не от сборщика null, и номер «Вход N»
-    совпадает с порядком файлов, как в окне «Обновить из кода»."""
-    note = "Собрано сборщиком фактов ArchMap 0.1.0: у объектов и связей есть основание"
-    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(files=2, scanner=[None, note]))
+async def test_план_синка_отказ_схеме_сборщика(client: ArchMapClient, api: FakeApi) -> None:
+    """Схему сборщика обновление из кода не принимает: отказ печатается строкой ошибки."""
+    rejected = backend("scan_origin").SCHEMA_REJECTED
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(ok=False, errors=[f"файл 2: {rejected}"]))
 
-    out = await tools.call(
-        "archmap_sync_preview",
-        {"project": "Ярмарка", "files": [{"name": "a.yaml", "content": "x"},
-                                         {"name": "schema.yaml", "content": "y"}]},
-        client,
+    with pytest.raises(ArchMapError) as e:
+        await tools.call(
+            "archmap_sync_preview",
+            {"project": "Ярмарка", "files": [{"name": "a.yaml", "content": "x"},
+                                             {"name": "schema.yaml", "content": "y"}]},
+            client,
+        )
+
+    assert str(e.value).splitlines()[-1] == f"  • файл 2: {rejected}"
+
+
+async def test_удаление_процесса_говорит_как_вернуть(api: FakeApi, client) -> None:
+    schemas = backend("schemas.deletions")
+    proc = str(uuid.uuid4())
+    api.post("/deletions", schemas.DeletionOut(
+        dry_run=False,
+        items=[schemas.DeletionTarget(kind="process", id=proc, label="«Оформление»", covered_by=None)],
+        totals=schemas.DeletionTotals(processes=1, nodes=0, edges=0, docs=0, facts=0, instances=0, process_links=0),
+        version=schemas.DeletionVersion(node_id=None, label=None, number=3, created=True),
+    ).model_dump(mode="json"))
+
+    text = await tools.call(
+        "archmap_delete", {"project": "Ярмарка", "items": [{"kind": "process", "id": proc}]}, client
     )
 
-    lines = out.splitlines()
-    assert "Вход 1:" not in lines
-    i = lines.index("Вход 2:")
-    assert lines[i + 1] == "  • собрано сборщиком фактов ArchMap 0.1.0: у объектов и связей есть основание"
+    assert f"  • процесс «Оформление»  id={proc}" in text
+    assert "Всего ушло: 1 процесс." in text
+    assert "Процесс откат не вернёт" in text and "archmap_process_apply" in text
