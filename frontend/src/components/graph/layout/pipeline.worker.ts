@@ -13,9 +13,18 @@
 // — синхронная эмуляция в нашем воркере, ровно как на главном треде; сам код elk
 // document не трогает (его штатная среда — воркер без DOM). Импорт конвейера —
 // ДИНАМИЧЕСКИЙ: статические импорты хойстятся и исполнили бы elk до хака.
+//
+// ПАМЯТЬ СЦЕН (эпик render-scale, P11): воркер держит последние авторитетные результаты
+// стадий стрелок по routeSig и отдаёт их конвейеру окружением прогона — повторное
+// раскрытие и возврат на виденное состояние не считают стрелки заново. Память живёт, пока
+// жив воркер (страница или его пересоздание сторожем). Модуль памяти ELK не тянет —
+// статический импорт хаку не мешает.
+import { createRouteMemory } from "./routeMemory";
+
 (self as unknown as { document?: object }).document ??= {};
 
 const pipelinePromise = import("./pipeline");
+const routeMemory = createRouteMemory();
 
 interface WorkerRequest {
   runId: number;
@@ -25,7 +34,7 @@ interface WorkerRequest {
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const { runId, input } = ev.data;
   void pipelinePromise
-    .then(({ computeViewLayout }) => computeViewLayout(input))
+    .then(({ computeViewLayout }) => computeViewLayout(input, { routeMemory }))
     .then((out) => {
       self.postMessage({ runId, ok: true as const, out });
     })

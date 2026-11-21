@@ -30,7 +30,7 @@
 // одинаковые рамки на свежих и владеемых сценах.
 import { NODE_W, NODE_H } from "../constants";
 import { edgeText, wrapLabel } from "../text";
-import { getElk, LEVEL_DIRECTION, NODE_PLACEMENT } from "./engine";
+import { layoutGraphCached, LEVEL_DIRECTION, NODE_PLACEMENT } from "./engine";
 import { flowSpacing } from "./flowGaps";
 import { wrappedLabelBoxSize } from "./labelBox";
 import type { AncestorRef, LayoutEdge, LevelPos, Node as AppNode } from "../../../types";
@@ -114,8 +114,9 @@ export async function layoutChildrenBlock(params: {
   const layerGap = Math.min(SPAWN_LAYER_GAP_MAX,
     Math.max(SPAWN_LAYER_GAP_MIN, Math.ceil(p75) + 2 * SPAWN_LABEL_CLEAR));
   const sp = flowSpacing(innerEdges, LEVEL_DIRECTION);
-  const elk = await getElk();
-  const res = await elk.layout({
+  // кэш по самому графу (engine.layoutGraphCached): повторный прогон той же сцены — тот же
+  // подграф, мини-ELK не пересчитывается
+  const placed = await layoutGraphCached({
     id: `spawn-${cid}`,
     layoutOptions: {
       "elk.algorithm": "layered",
@@ -139,16 +140,15 @@ export async function layoutChildrenBlock(params: {
     edges: inner,
   });
   // нормализация к левому-верху bbox (C6: якорь раскрытия — его левый-верхний угол)
-  const kids = res.children ?? [];
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const n of kids) {
-    const z = sizeOf(n.id);
-    minX = Math.min(minX, n.x ?? 0); minY = Math.min(minY, n.y ?? 0);
-    maxX = Math.max(maxX, (n.x ?? 0) + z.w); maxY = Math.max(maxY, (n.y ?? 0) + z.h);
+  for (const [id, p] of placed) {
+    const z = sizeOf(id);
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + z.w); maxY = Math.max(maxY, p.y + z.h);
   }
   if (!Number.isFinite(minX)) return null;
   const rel = new Map<string, XY>();
-  for (const n of kids) rel.set(n.id, { x: (n.x ?? 0) - minX, y: (n.y ?? 0) - minY });
+  for (const [id, p] of placed) rel.set(id, { x: p.x - minX, y: p.y - minY });
   return { rel, w: maxX - minX, h: maxY - minY };
 }
 

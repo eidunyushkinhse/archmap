@@ -77,10 +77,42 @@ function elkSignature(
   return `nodes:${nodeIds.join(",")}|edges:${edgePairs.join(",")}`;
 }
 
-// Сброс кэша ELK — ТОЛЬКО для тестов (замок детерминизма гоняет два живых
-// прогона на одном входе; без сброса второй тривиально совпал бы из кэша).
+// Кэш МИНИ-РАСКЛАДОК (эпик render-scale, шаг «быстрый ELK и один прогон»): подграф детей
+// раскрытого контейнера (spawnChildren.layoutChildrenBlock — блок свежей сцены и спавн
+// детей) раскладывался заново на каждом прогоне. У читателя засев владения не пишется, сцена
+// остаётся свежей, и даже прогон, взявший стрелки из кэша по routeSig, платил мини-ELK
+// (живой стенд: 30–100 мс на 25 детях). Ключ — весь граф ELK целиком (узлы с габаритами,
+// рёбра, опции): тот же граф → та же раскладка (ELK детерминирован, замок в engine.test.ts).
+const graphCache = new Map<string, Map<string, { x: number; y: number }>>();
+
+/**
+ * Раскладка графа ELK с кэшем по самому графу: позиции детей верхнего уровня (id → x, y).
+ * Возвращённую карту не мутировать — она живёт в кэше.
+ */
+export async function layoutGraphCached(
+  graph: Parameters<ElkInstance["layout"]>[0],
+): Promise<ReadonlyMap<string, { x: number; y: number }>> {
+  const key = JSON.stringify(graph);
+  const hit = graphCache.get(key);
+  if (hit) return hit;
+  const elk = await getElk();
+  const res = await elk.layout(graph);
+  const pos = new Map<string, { x: number; y: number }>();
+  for (const n of res.children ?? []) pos.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+  if (graphCache.size >= ELK_CACHE_MAX) {
+    const firstKey = graphCache.keys().next().value;
+    if (firstKey !== undefined) graphCache.delete(firstKey);
+  }
+  graphCache.set(key, pos);
+  return pos;
+}
+
+// Сброс кэшей ELK — ТОЛЬКО для тестов и замеров (замок детерминизма гоняет два живых
+// прогона на одном входе; без сброса второй тривиально совпал бы из кэша; корпус и
+// таблица стадий считают каждую сцену, как свежий воркер).
 export function __clearElkCacheForTests(): void {
   elkCache.clear();
+  graphCache.clear();
 }
 
 export type LevelLayout = {
