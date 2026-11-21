@@ -85,6 +85,13 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.error("PAGE ERROR:", e.message));
+// ошибки консоли страницы — тоже отказ сценария (их видит пользователь в инструментах)
+const consoleErrors = [];
+page.on("console", (m) => {
+  if (m.type() !== "error") return;
+  consoleErrors.push(m.text());
+  console.error("CONSOLE ERROR:", m.text());
+});
 
 // Рекордер шага: rAF-петля пишет полёты конвейера и фризы главного потока. Заодно ловит
 // входы конвейера: хук захвата пишет «последний вход» в глобал, сеттер складывает все.
@@ -155,6 +162,7 @@ async function waitQuiet() {
       runs: window.__archmapLayoutRuns ?? 0,
       n: document.querySelectorAll(".react-flow__node").length,
       e: document.querySelectorAll(".react-flow__edge").length,
+      l: document.querySelectorAll(".lg-label-in").length,
     }));
     const key = JSON.stringify(st);
     if (st.inflight === 0 && key === lastKey) {
@@ -175,12 +183,12 @@ async function step(tag, name, action) {
     mkdirSync(captureDir, { recursive: true });
     inputs.forEach((json, i) => writeFileSync(join(captureDir, `${tag}-run${i + 1}.json`), json));
   }
-  const s = { tag, name, wallMs: rec.lastEventEndMs, ...rec, scene: { nodes: quiet.n, edges: quiet.e } };
+  const s = { tag, name, wallMs: rec.lastEventEndMs, ...rec, scene: { nodes: quiet.n, edges: quiet.e, labels: quiet.l } };
   results.steps.push(s);
   console.log(
     `[${name}] до тишины ${sec(s.wallMs)} | конвейер ${sec(rec.pipelineMs)}` +
     ` (${rec.pipelineEach.join("+") || "0"} мс, входов ${rec.pipelineInputs})` +
-    ` | макс. фриз ${rec.maxStallMs} мс | сцена ${quiet.n}/${quiet.e}`,
+    ` | макс. фриз ${rec.maxStallMs} мс | сцена ${quiet.n}/${quiet.e}, плашек ${quiet.l}`,
   );
   return s;
 }
@@ -281,5 +289,7 @@ if (!short && !quick) {
   await step("reopen", "повторное открытие корня после выхода в список проектов", () => setHash(`#/p/${project.id}/map`));
 }
 
+results.consoleErrors = consoleErrors;
+if (consoleErrors.length > 0) console.log(`ошибок консоли: ${consoleErrors.length}`);
 if (outFile) writeFileSync(outFile, JSON.stringify(results, null, 2));
 await browser.close();
