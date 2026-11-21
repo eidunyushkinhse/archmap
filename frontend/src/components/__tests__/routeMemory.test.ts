@@ -70,6 +70,7 @@ function spyMemory(limit?: number): RouteMemory & { puts: string[] } {
     puts,
     get: (sig) => inner.get(sig),
     put: (sig, e) => { puts.push(sig); inner.put(sig, e); },
+    entries: () => inner.entries(),
   };
 }
 
@@ -87,6 +88,20 @@ describe("память сцен: очередь вытеснения", () => {
     expect(m.get("b")).toBeUndefined();
     expect(m.get("a")).toBeDefined();
     expect(m.get("c")).toBeDefined();
+  });
+
+  it("записи отдаются от давней к свежей — засев свежего воркера сохраняет порядок вытеснения", () => {
+    const m = createRouteMemory(3);
+    m.put("a", entry("a"));
+    m.put("b", entry("b"));
+    m.put("c", entry("c"));
+    m.get("a");
+    expect(m.entries().map(([sig]) => sig)).toEqual(["b", "c", "a"]);
+    const seeded = createRouteMemory(3);
+    for (const [sig, e] of m.entries()) seeded.put(sig, e);
+    seeded.put("d", entry("d"));
+    expect(seeded.get("b")).toBeUndefined(); // вытеснена та же, что вытеснилась бы в исходной
+    expect(seeded.get("a")).toBeDefined();
   });
 
   it("повторная запись той же сигнатуры заменяет её, а не копит", () => {

@@ -17,22 +17,36 @@
 // ПАМЯТЬ СЦЕН (эпик render-scale, P11): воркер держит последние авторитетные результаты
 // стадий стрелок по routeSig и отдаёт их конвейеру окружением прогона — повторное
 // раскрытие и возврат на виденное состояние не считают стрелки заново. Память живёт, пока
-// жив воркер (страница или его пересоздание сторожем). Модуль памяти ELK не тянет —
-// статический импорт хаку не мешает.
+// жив воркер; свежий воркер после обрыва клиент засевает своим зеркалом памяти
+// ({ kind: "seed" }). Модуль памяти ELK не тянет — статический импорт хаку не мешает.
+//
+// ПРОГРЕВ (эпик render-scale): сообщение { kind: "warm" } грузит конвейер и ELK заранее —
+// клиент шлёт его, когда оболочка проекта открылась, ещё до данных холста. Прогреву
+// ничего не надо возвращать; настоящий прогон, пришедший раньше, чем ELK загрузился, ждёт
+// тот же промис загрузки, а не второй.
 import { createRouteMemory } from "./routeMemory";
+import type { WorkerRequest } from "./pipelineClient";
 
 (self as unknown as { document?: object }).document ??= {};
 
 const pipelinePromise = import("./pipeline");
 const routeMemory = createRouteMemory();
 
-interface WorkerRequest {
-  runId: number;
-  input: import("./pipeline").PipelineInput;
-}
-
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
-  const { runId, input } = ev.data;
+  const msg = ev.data;
+  if (msg.kind === "seed") {
+    // засев памяти сцен после обрыва прежнего воркера (зеркало клиента, от давней к свежей)
+    for (const [sig, entry] of msg.entries) routeMemory.put(sig, entry);
+    return;
+  }
+  if (msg.kind === "warm") {
+    void pipelinePromise
+      .then(() => import("./engine"))
+      .then(({ getElk }) => getElk())
+      .catch(() => { /* прогрев — оптимизация: сбой проявится в первом прогоне */ });
+    return;
+  }
+  const { runId, input } = msg;
   void pipelinePromise
     .then(({ computeViewLayout }) => computeViewLayout(input, { routeMemory }))
     .then((out) => {

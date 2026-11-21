@@ -19,6 +19,11 @@
 //   --drag <имя узла>         шаг перетаскивания (только архитектор)
 //   --short                   только открытие корня, раскрытие и вход на уровень
 //   --deploy                  шаг режима «Развёртывание»
+//   --quick                   вместо пути пользователя — быстрые действия (хвост ненужного
+//                             расчёта): вход на уровень и возврат через 150 мс; раскрытие и
+//                             через 150 мс вход на уровень контейнера. Каждое — на свежей
+//                             странице (перезагрузка: новый воркер без памяти сцен прошлого
+//                             шага; кэш маршрутов вида в localStorage остаётся, как у человека)
 //   --capture-dir <каталог>   входы конвейера шагов: <шаг>-run<N>.json
 //   --out <файл.json>         результаты машинно
 //   --timeout <мс на шаг>     по умолчанию 180000
@@ -45,6 +50,9 @@ const captureDir = argOf("--capture-dir");
 const stepTimeout = Number(argOf("--timeout") ?? 180000);
 const short = args.includes("--short");
 const withDeploy = args.includes("--deploy");
+const quick = args.includes("--quick");
+// пауза между действиями быстрого сценария: меньше любого счёта, больше одного кадра
+const QUICK_MS = 150;
 if (!projectName) { console.error("Нужен --project <имя>"); process.exit(2); }
 
 const token = makeToken(role);
@@ -205,14 +213,36 @@ if (hub) {
     }
     console.log("   (сохранённые раскрытия свёрнуты перед сценарием)");
   }
-  await step("expand", `раскрытие «${hubName}», первое`, expand);
-  if (!short) {
+  if (quick) {
+    // Быстрые действия: время до тишины — это законный расчёт последнего действия плюс
+    // хвост расчёта, ставшего ненужным (очередь воркера, docs/specs/perf.md).
+    const freshRoot = async () => {
+      await setHash("#/projects");
+      await page.reload();
+      await page.waitForTimeout(1000);
+      await setHash(`#/p/${project.id}/map`);
+      await waitQuiet();
+    };
+    await step("quick-level", `вход на уровень и возврат через ${QUICK_MS} мс`, async () => {
+      await setHash(`#/p/${project.id}/map/${hub.id}`);
+      await page.waitForTimeout(QUICK_MS);
+      await setHash(`#/p/${project.id}/map`);
+    });
+    await freshRoot();
+    await step("quick-expand", `раскрытие «${hubName}» и через ${QUICK_MS} мс вход на уровень`, async () => {
+      await expand();
+      await page.waitForTimeout(QUICK_MS);
+      await setHash(`#/p/${project.id}/map/${hub.id}`);
+    });
+  }
+  if (!quick) await step("expand", `раскрытие «${hubName}», первое`, expand);
+  if (!short && !quick) {
     await step("collapse", "сворачивание", async () => {
       await page.locator('button[title="Свернуть"]').last().evaluate((el) => el.click());
     });
     await step("expand2", "раскрытие повторное", expand);
   }
-  if (dragName && role !== "viewer" && !short) {
+  if (dragName && role !== "viewer" && !short && !quick) {
     // Узел брать ближе к центру холста: у края включается автопрокрутка, и узел уезжает
     // на тысячи пикселей (память ui-verification-headless).
     const dn = byName(dragName);
@@ -234,13 +264,13 @@ if (hub) {
       console.log(`   кадров при перетаскивании: ${s.dragFps} к/с`);
     }
   }
-  await step("level", "вход на уровень контейнера", () => setHash(`#/p/${project.id}/map/${hub.id}`));
-  if (!short) {
+  if (!quick) await step("level", "вход на уровень контейнера", () => setHash(`#/p/${project.id}/map/${hub.id}`));
+  if (!short && !quick) {
     await step("back", "возврат на корень", () => setHash(`#/p/${project.id}/map`));
     await step("node-page", "страница объекта", () => setHash(`#/p/${project.id}/nodes/${hub.id}`));
   }
 }
-if (!short) {
+if (!short && !quick) {
   if (withDeploy) await step("deploy", "режим «Развёртывание», весь проект", () => setHash(`#/p/${project.id}/deploy`));
   await setHash("#/projects");
   await page.waitForTimeout(1500);

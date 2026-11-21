@@ -16,6 +16,10 @@
 // ЧТО ПОПАДАЕТ. Только авторитетный результат (PipelineOutput.authoritative — не скоуплен, не
 // деградировал по бюджету, полный состав). ROUTER_VERSION в ключе не нужен: память живёт не
 // дольше страницы. Размер ограничен числом записей, вытеснение — давнее обращение первым.
+//
+// ЗЕРКАЛО В КЛИЕНТЕ. Клиент воркера (pipelineClient) ведёт копию по ответам воркера (те же
+// авторитетные результаты в том же порядке) и засевает ею свежий воркер, когда старый
+// оборван: обрыв устаревшего расчёта не стирает уже посчитанные сцены.
 import type { EdgePoint } from "../../../types";
 import type { LabelPlacement } from "./labelLayout";
 
@@ -31,6 +35,8 @@ export interface RouteMemory {
   get(sig: string): RouteMemoryEntry | undefined;
   /** положить авторитетный результат сцены; сверх предела вытесняется давняя запись */
   put(sig: string, entry: RouteMemoryEntry): void;
+  /** все записи от давней к свежей (засев свежего воркера) */
+  entries(): [string, RouteMemoryEntry][];
 }
 
 /** Сколько сцен помнит воркер: раскрытие и сворачивание нескольких контейнеров, уровни туда и обратно. */
@@ -57,5 +63,6 @@ export function createRouteMemory(limit: number = ROUTE_MEMORY_SIZE): RouteMemor
         store.delete(oldest);
       }
     },
+    entries: () => [...store.entries()],
   };
 }
