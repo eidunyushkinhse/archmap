@@ -107,6 +107,11 @@ interface Props {
   // Ширина холста после раскладки: сейчас и при обычном пределе подписи. По ней холст
   // процесса считает масштаб и решает, показывать ли переключатель «Вписать / 100%».
   onLayout?: (w: { width: number; fullWidth: number }) => void;
+  // Выбранный шаг (его панель открыта справа) — подпись подсвечена.
+  selectedId?: string | null;
+  // Клик по пустому месту диаграммы (не по шагу, шапке или ручке) — холст закрывает
+  // панель шага.
+  onBackgroundClick?: () => void;
 }
 
 export default function SequenceDiagram({
@@ -134,6 +139,8 @@ export default function SequenceDiagram({
   onFragmentClick,
   fitWidth,
   onLayout,
+  selectedId = null,
+  onBackgroundClick,
 }: Props) {
   // Состояние drag-to-connect: откуда тянем и текущая точка курсора (в координатах
   // контейнера); hover — ближайший участник-цель под курсором.
@@ -502,8 +509,14 @@ export default function SequenceDiagram({
   return (
     <div
       ref={rootRef}
+      data-seq-bg=""
       onPointerMove={ghost ? onRootMove : undefined}
       onPointerUp={ghost ? onRootUp : undefined}
+      // Пустое место — сам корень или фон полосы шапок (data-seq-bg): шаги, шапки и
+      // ручки лежат поверх и ловят клик сами.
+      onClick={onBackgroundClick
+        ? (e) => { if ((e.target as Element).hasAttribute("data-seq-bg")) onBackgroundClick(); }
+        : undefined}
       style={{ position: "relative", width: W, height: H, fontFamily: "var(--font-ui)" }}
     >
       {/* Фрагменты (под сообщениями): рамка + кликабельная шапка (kind+условие) + ветка else */}
@@ -806,7 +819,7 @@ export default function SequenceDiagram({
             key={"l" + m.id}
             data-mid={m.id}
             ref={bindLabel}
-            className="seq-label"
+            className={"seq-label" + (click ? " is-click" : "") + (m.id === selectedId ? " is-selected" : "")}
             onPointerDown={onReorderMessages ? (e) => onLabelDown(e, m.r) : undefined}
             onClick={click ? clickGuarded(click) : undefined}
             style={{
@@ -864,6 +877,7 @@ export default function SequenceDiagram({
           (IntersectionObserver в stuck). Вне потока, на раскладку не влияет. */}
       <div ref={sentinelRef} style={{ position: "absolute", top: 0, left: 0, width: 1, height: 1, pointerEvents: "none" }} />
       <div
+        data-seq-bg=""
         style={{
           position: "sticky",
           top: 0,

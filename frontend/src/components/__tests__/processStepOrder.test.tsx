@@ -133,7 +133,7 @@ describe("перестановки и добавления на холсте п�
     await open();
     await userEvent.click(screen.getByText("connect-pa-pb"));
     await userEvent.click(await screen.findByText("composer-added"));
-    expect(lastCmd()?.label).toBe("Добавление сообщения");
+    expect(lastCmd()?.label).toBe("Добавление шага");
     await lastCmd()?.undo();
     expect(processesApi.removeMessage).toHaveBeenCalledWith("p1", "m9");
     await lastCmd()?.redo();

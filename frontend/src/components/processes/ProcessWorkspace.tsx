@@ -244,6 +244,8 @@ export default function ProcessWorkspace({
           isArchitect={isArchitect}
           editing={editing}
           syncRev={syncRev}
+          // Чинить пришли именно этот процесс: холст сразу открывает его сломанный шаг.
+          fixOnOpen={!!openForFix && selectedId === initialProcessId}
           onToggleEditing={(v) => setEditingPref(v)}
           onChanged={() => { void reload(); onChanged?.(); }}
           onOpenNode={onOpenNode}

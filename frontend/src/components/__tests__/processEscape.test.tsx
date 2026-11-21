@@ -1,4 +1,5 @@
-// Escape закрывает оверлеи процесса — как все окна проекта.
+// Escape закрывает оверлеи процесса — как все окна проекта. Панель шага (не окно, часть
+// раскладки) Escape тоже закрывает, но только когда сверху нет окна.
 //
 // П5 челленджа дизайна (2026-08-16): единственный клавиатурный обработчик канваса
 // ловил только Ctrl+Z/Ctrl+Y (первая строка отсекала всё без Ctrl), и карточка шага,
@@ -83,18 +84,22 @@ beforeEach(() => {
   vi.mocked(processesApi.directions).mockResolvedValue([] as never);
 });
 
+const panel = () => screen.queryByRole("complementary", { name: "Шаг" });
+async function openStep() {
+  await userEvent.click(screen.getByText("click-m1"));
+  await waitFor(() => expect(panel()).not.toBeNull());
+}
+
 describe("Escape закрывает оверлеи процесса", () => {
-  it("карточку шага — при этом фокус стоит в поле подписи (autoFocus)", async () => {
+  it("панель шага — и когда фокус стоит в поле подписи", async () => {
     await renderCanvas();
-    await userEvent.click(screen.getByText("click-m1"));
-    await screen.findByText("Шаг сценария");
-    // Именно этот случай и был бы потерян, отсекай мы события из полей ввода:
-    // поле карточки забирает фокус само.
-    expect(document.activeElement).toBe(screen.getByPlaceholderText("что происходит на этом шаге"));
+    await openStep();
+    // Именно этот случай и был бы потерян, отсекай мы события из полей ввода.
+    screen.getByPlaceholderText("что происходит на этом шаге").focus();
 
     await userEvent.keyboard("{Escape}");
 
-    await waitFor(() => expect(screen.queryByText("Шаг сценария")).toBeNull());
+    await waitFor(() => expect(panel()).toBeNull());
   });
 
   it("подтверждение удаления фрагмента", async () => {
@@ -138,13 +143,18 @@ describe("Escape закрывает оверлеи процесса", () => {
     await waitFor(() => expect(screen.queryByText("Добавить из дерева схемы")).toBeNull());
   });
 
-  it("закрывает по одному оверлею за нажатие и ничего не пишет", async () => {
+  it("закрывает по одному за нажатие: сперва окно, потом панель шага; ничего не пишет", async () => {
     await renderCanvas();
-    await userEvent.click(screen.getByText("click-m1"));
-    await screen.findByText("Шаг сценария");
+    await openStep();
+    await userEvent.click(screen.getByText("click-f1"));
+    await screen.findByText("Удалить фрагмент?");
 
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByText("Шаг сценария")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Удалить фрагмент?")).toBeNull());
+    expect(panel()).not.toBeNull();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(panel()).toBeNull());
     // Escape по пустому холсту ничего не ломает и ничего не отменяет.
     await userEvent.keyboard("{Escape}");
 
@@ -155,12 +165,11 @@ describe("Escape закрывает оверлеи процесса", () => {
   it("Escape не задевает Undo — история остаётся на месте", async () => {
     // Обработчик отмены требует Ctrl/Cmd, наш — их отсутствия: пути не пересекаются.
     await renderCanvas();
-    await userEvent.click(screen.getByText("click-m1"));
-    await screen.findByText("Шаг сценария");
+    await openStep();
 
     await userEvent.keyboard("{Escape}");
 
-    await waitFor(() => expect(screen.queryByText("Шаг сценария")).toBeNull());
+    await waitFor(() => expect(panel()).toBeNull());
     expect(histUndo).not.toHaveBeenCalled();
   });
 });

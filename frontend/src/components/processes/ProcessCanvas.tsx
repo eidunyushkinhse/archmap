@@ -10,7 +10,7 @@ import type { FragmentKind, NodeStatus } from "../../types";
 import MessageComposer from "../MessageComposer";
 import DocOverlay from "../inspector/DocOverlay";
 import { stepDoc } from "./stepDoc";
-import MessageCard from "./MessageCard";
+import StepPanel from "./StepPanel";
 import ConfirmDialog from "../../ui/ConfirmDialog";
 import ParticipantDeleteConfirm, { type DelLink } from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
@@ -47,13 +47,18 @@ interface Props {
   // Счётчик чужих правок (Д9): поллинг воркспейса заметил рост process_rev —
   // канвас перечитывает процесс. Растёт только на ЧУЖИЕ изменения.
   syncRev?: number;
+  // Пришли чинить (строка алерта в редакторе-карте): сразу выбран первый сломанный шаг —
+  // его панель открыта, а сам он прокручен в поле зрения.
+  fixOnOpen?: boolean;
 }
 
-export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev }: Props) {
+export default function ProcessCanvas({
+  id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev, fixOnOpen,
+}: Props) {
   const proc = useProcessDetail(id, onChanged, syncRev);
   const {
     detail, error, reload,
-    msgById, fragById, partById, nodeOfPart, nextOrder,
+    msgById, fragById, partById, nodeOfPart, nextOrder, sortedMessages,
   } = proc;
   // Куда можно завести сообщение — ключи «откуда>куда». Ответ БЭКА: проекция
   // концов связи через предков живёт там, и вторая реализация на клиенте
@@ -66,12 +71,20 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Итог подхвата каналов — показываем строкой: молча подхватить и промолчать значит
   // скрыть, что часть шагов осталась сломанной.
   const [bindNote, setBindNote] = useState<string | null>(null);
-  // Ревизия каталога схем карточки: правка в оверлее меняет имена/состав схем.
+  // Ревизия каталога схем панели шага: правка в окне схемы меняет имена/состав схем.
   const [docCatalogRev, setDocCatalogRev] = useState(0);
-  // Окна поверх холста — одним стеком в порядке открытия (композитор, карточки шага,
-  // ветки, фрагмента, подтверждения, привязка, панель участников, схема логики).
-  // Провал из карточки шага в схему логики (У7) ложится выше карточки: закрывается
-  // схема, карточка остаётся.
+  // Выбранный шаг — его панель справа (StepPanel), в обоих режимах. Панель — часть
+  // раскладки, а не окно: в стек оверлеев не входит. undefined — выбора ещё не было:
+  // при входе «чинить» выбран первый сломанный шаг (производно, без эффекта); null —
+  // панель закрыта. Шаг пропал (удалили, чужая правка) — панель закрывается сама.
+  const [pickedStep, setPickedStep] = useState<string | null | undefined>(undefined);
+  const firstBroken = fixOnOpen ? (sortedMessages.find((m) => !m.valid)?.id ?? null) : null;
+  const selectedStep = pickedStep === undefined ? firstBroken : pickedStep;
+  const selectedMsg = selectedStep ? (msgById.get(selectedStep) ?? null) : null;
+  // Окна поверх холста — одним стеком в порядке открытия (композитор, карточки ветки,
+  // фрагмента, шага внутри участника, подтверждения, привязка, панель участников, схема
+  // логики). Провал из панели шага в схему логики (У7) — окно поверх: закрывается
+  // схема, панель остаётся.
   const { stack: overlayStack, get: overlay, open: openOverlay, close: closeOverlay, update: updateOverlay } =
     useOverlayStack();
   // Вид схемы — общий с C4-схемой ключ ЭТОГО проекта (в другом проекте свой).
@@ -189,6 +202,33 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     return () => document.removeEventListener("keydown", onEsc);
   }, [topOverlay, dismiss]);
 
+  // Escape закрывает панель шага — только когда сверху нет окна: верхнее окно закрывает
+  // свой обработчик выше, а схема логики и прочие ui/Modal — нативный <dialog> со своим
+  // Escape (его не гасим: preventDefault здесь не зовём). Свёрнутое внутри панели (меню,
+  // выбор схемы) клавишу до сюда не пускает.
+  const panelOpen = !!selectedMsg;
+  const overlayOpen = overlayStack.length > 0;
+  useEffect(() => {
+    if (!panelOpen || overlayOpen) return;
+    function onEsc(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.isComposing || e.defaultPrevented) return;
+      if (document.querySelector("dialog[open]")) return;
+      setPickedStep(null);
+    }
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [panelOpen, overlayOpen]);
+
+  // Вход «чинить»: сломанный шаг — в поле зрения (один раз, когда он нарисован).
+  const fixScrolled = useRef(false);
+  useEffect(() => {
+    if (!firstBroken || pickedStep !== undefined || fixScrolled.current) return;
+    const el = document.querySelector(`[data-mid="${firstBroken}"]`);
+    if (!el) return;
+    fixScrolled.current = true;
+    el.scrollIntoView?.({ block: "center", inline: "center" });
+  });
+
   const { handleMessageAdded, createSelfMessage, saveCaption, linkDoc, setChannelSync, removeMessage, reorderMessages } =
     messageEdits(editCtx);
   const { createFragment, resizeFragment, patchBranches, moveBranch, saveBranch, removeFragment } =
@@ -234,36 +274,6 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             onCancel={() => closeOverlay("self")}
           />
         );
-      // Карточка шага — свой модуль: у неё есть состояние (каталог схем, поиск), а холст
-      // и без того велик.
-      case "msg": {
-        const m = msgById.get(o.mid);
-        if (!detail || !m) return null;
-        return (
-          <>
-            <div style={overlayDim} onClick={() => closeOverlay("msg")} />
-            <div style={overlayCenter}>
-              <MessageCard
-                processId={id}
-                msg={m}
-                participants={detail.participants}
-                returnLegs={detail.messages.filter(
-                  (x) => x.edge_id === m.edge_id && x.leg === "return",
-                ).length}
-                caption={o.caption}
-                onCaptionChange={(caption) => updateOverlay("msg", (x) => ({ ...x, caption }))}
-                onSaveCaption={() => void saveCaption(o.mid, o.caption)}
-                onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
-                onLinkDoc={(docId) => void linkDoc(o.mid, docId)}
-                onOpenDoc={(doc) => openOverlay({ kind: "doc", ...doc })}
-                catalogRev={docCatalogRev}
-                onRemove={() => void removeMessage(o.mid)}
-                onClose={() => closeOverlay("msg")}
-              />
-            </div>
-          </>
-        );
-      }
       // Провал в схему логики (У7/У8): окно открывается просмотром, правка — его же
       // «Изменить» (Вручную | Через ИИ-агента). Колбэки настоящие, не заглушки (ловушка
       // У8): onDocEvent и onApplied перечитывают процесс (имя схемы в шаге, SET NULL при
@@ -465,9 +475,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   }
 
   // Колбэки диаграммы по режиму (аудит F-39): в правке — правки, в просмотре их нет вовсе
-  // (по их отсутствию диаграмма прячет ручки, «призраков» и перетаскивания), зато шаг со
-  // схемой логики открывает её — тем же оверлеем, что провал из карточки шага в правке.
-  // Раньше — четырнадцать тернарников `editing ? cb : undefined`, по одному на проп.
+  // (по их отсутствию диаграмма прячет ручки, «призраков» и перетаскивания). Общее обоим
+  // режимам — выбор шага (панель справа) и значок схемы логики у шага (то же окно, что
+  // провал из панели). Раньше — четырнадцать тернарников `editing ? cb : undefined`.
   const diagramModeProps: Partial<ComponentProps<typeof SequenceDiagram>> = editing ? {
     selectMode: fragSelect,
     onSelectRange: (from, to) => {
@@ -498,8 +508,6 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       return !!from && !!to && directions.has(`${from}>${to}`);
     },
     onSelfConnect: (pid) => openOverlay({ kind: "self", pid, caption: "" }),
-    // Карточка шага: правка подписи и удаление.
-    onMessageClick: (mid) => openOverlay({ kind: "msg", mid, caption: msgById.get(mid)?.caption ?? "" }),
     onBindParticipant: (pid) => openOverlay({ kind: "bindPart", pid }),
     onDeleteParticipant: (pid) => {
       const p = partById[pid];
@@ -507,12 +515,11 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     },
     onReorderParticipants: (ids) => void reorderParticipants(ids),
     onReorderMessages: (ids) => void reorderMessages(ids),
-  } : {
-    onOpenDoc: (mid) => {
-      const m = msgById.get(mid);
-      const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
-      if (doc) openOverlay({ kind: "doc", ...doc });
-    },
+  } : {};
+  const openStepDoc = (mid: string) => {
+    const m = msgById.get(mid);
+    const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
+    if (doc) openOverlay({ kind: "doc", ...doc });
   };
 
   // ── Тулбар над диаграммой ─────────────────────────────────────────
@@ -541,7 +548,16 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     <div style={canvasShell} className="bp ds">
       {toolbar}
       {hasStatus && <ViewHint view={view} />}
-      <div className="proc-scroll" ref={scrollRef}>
+      <div className="proc-body">
+      <div
+        className="proc-scroll"
+        ref={scrollRef}
+        // Пустое поле вокруг диаграммы — тоже «пустое место»: панель шага закрывается.
+        onClick={(e) => {
+          const t = e.target as Element;
+          if (t === e.currentTarget || t.classList.contains("proc-diagram")) setPickedStep(null);
+        }}
+      >
         {error && <div style={{ padding: "8px 14px 0", color: "#dc2626", fontSize: 12 }}>{error}</div>}
         {/* Итог подхвата каналов: гасится кликом — это не ошибка, а сводка. */}
         {bindNote && (
@@ -576,6 +592,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               onOpenNode={onOpenNode}
               fitWidth={fitWidth}
               onLayout={setLayout}
+              selectedId={selectedMsg?.id ?? null}
+              onMessageClick={(mid) => setPickedStep(mid)}
+              onOpenDoc={openStepDoc}
+              onBackgroundClick={() => setPickedStep(null)}
               {...diagramModeProps}
             />
           </div>
@@ -596,6 +616,27 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
         {/* Окна поверх холста — в порядке открытия: открытое позже ложится сверху. */}
         {overlayStack.map((o) => <Fragment key={o.kind}>{renderOverlay(o)}</Fragment>)}
+      </div>
+      {detail && selectedMsg && (
+        <StepPanel
+          processId={id}
+          msg={selectedMsg}
+          n={sortedMessages.findIndex((m) => m.id === selectedMsg.id) + 1}
+          participants={detail.participants}
+          editing={editing}
+          returnLegs={detail.messages.filter(
+            (x) => x.edge_id === selectedMsg.edge_id && x.leg === "return",
+          ).length}
+          onSaveCaption={(caption) => void saveCaption(selectedMsg.id, caption)}
+          onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
+          onLinkDoc={(docId) => void linkDoc(selectedMsg.id, docId)}
+          onOpenDoc={(doc) => openOverlay({ kind: "doc", ...doc })}
+          onOpenNode={onOpenNode}
+          catalogRev={docCatalogRev}
+          onRemove={() => void removeMessage(selectedMsg.id)}
+          onClose={() => setPickedStep(null)}
+        />
+      )}
       </div>
     </div>
   );

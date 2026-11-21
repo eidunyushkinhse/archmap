@@ -82,8 +82,8 @@ async function правитьПодпись(текст: string) {
   await userEvent.click(screen.getByText("click-m1"));
   const поле = await screen.findByPlaceholderText("что происходит на этом шаге");
   await userEvent.clear(поле);
-  await userEvent.type(поле, текст);
-  await userEvent.click(screen.getByText("Сохранить"));
+  // Запись — по Enter, как на странице объекта: своих «Сохранить» у панели шага нет.
+  await userEvent.type(поле, текст + "{Enter}");
 }
 
 describe("мутации процесса: отказ и следующий успех", () => {

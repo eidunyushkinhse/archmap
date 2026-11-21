@@ -538,6 +538,15 @@
   text-align: left;
   overflow-wrap: break-word;
 }
+/* Подпись-цель клика (шаг открывает панель): отклик наведением; выбранный шаг — тоном
+   акцента, пока его панель открыта. */
+.seq-label.is-click:hover {
+  background: var(--c-hover);
+}
+.seq-label.is-selected,
+.seq-label.is-selected:hover {
+  background: var(--c-accent-soft);
+}
 .seq-num {
   flex: none;
   color: var(--c-fg-faint);
@@ -656,3 +665,278 @@ button.seq-doc:focus-visible {
   color: #64748b;
 }
 
+
+/* ── Тело холста процесса: диаграмма и панель шага справа (ProcessCanvas) ──
+   Панель — часть раскладки: открылась — область диаграммы сузилась и вписалась заново. */
+.proc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* ── Панель шага (StepPanel) ── */
+.sp-panel {
+  flex: none;
+  width: 320px;
+  box-sizing: border-box;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-left: 1px solid var(--c-line);
+  background: var(--c-bg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+.sp-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.sp-num {
+  flex: none;
+  padding-top: 3px;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+  color: var(--c-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sp-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 0;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+/* Поле подписи в правке (ui/GrowField): тот же кегль, что у подписи в чтении. */
+.sp-title-field {
+  flex: 1;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+}
+.sp-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: -2px -6px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.sp-close:hover,
+.sp-close:focus-visible {
+  background: var(--c-hover);
+  color: var(--c-fg);
+  outline: none;
+}
+
+/* Свойства — языком страницы объекта: подпись слева тихим цветом, значение справа. */
+.sp-props {
+  margin: 0;
+}
+.sp-prop {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: baseline;
+  min-height: 30px;
+  padding: 2px 0;
+  box-sizing: border-box;
+}
+.sp-term,
+.sp-value {
+  margin: 0;
+  padding: 3px 0;
+}
+.sp-term {
+  color: var(--c-fg-muted);
+}
+.sp-value {
+  position: relative;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sp-value:has(> .sp-selwrap) {
+  padding-block: 0;
+}
+.sp-prop:hover .ds-value-chev {
+  opacity: 1;
+}
+/* Ссылка на объект или схему: текстом, синим при наведении. */
+.sp-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-accent);
+  text-align: left;
+  cursor: pointer;
+}
+.sp-link:hover,
+.sp-link:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+/* Расхождение со схемой — янтарь, как на диаграмме (BROKEN.ink). */
+.sp-broken {
+  color: #b45309;
+}
+.sp-path {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-doc-acts {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+.sp-quiet {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.sp-quiet:hover,
+.sp-quiet:focus-visible {
+  color: var(--c-fg);
+  outline: none;
+}
+/* Выбор типа связи: значение-кнопка и меню под ним. */
+.sp-selwrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.sp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+.sp-menu {
+  top: calc(100% + 4px);
+  left: -6px;
+  min-width: 180px;
+}
+.sp-confirm {
+  margin-top: 6px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-confirm p {
+  margin: 0 0 8px;
+}
+.sp-confirm-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Выбор схемы логики: поиск и прокручиваемый список (каталог монолита — до двухсот
+   строк, У5). */
+.sp-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sp-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sp-picker-head .ds-input {
+  flex: 1;
+  min-width: 0;
+}
+.sp-list {
+  max-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sp-list-empty {
+  padding: 6px 0;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.sp-row:hover,
+.sp-row:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+.sp-row.is-current {
+  background: var(--c-accent-soft);
+}
+.sp-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.sp-row-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sp-row-note {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-row-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+/* «Удалить шаг» — тихая красная кнопка внизу панели. */
+.sp-delete {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-danger);
+  cursor: pointer;
+}
+.sp-delete:hover,
+.sp-delete:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}

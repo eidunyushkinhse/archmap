@@ -1,16 +1,17 @@
-// Карточка шага: привязка к схеме логики (эпик «процессы → доки шага», Ф3).
+// Панель шага: привязка к схеме логики (эпик «процессы → доки шага», Ф3; панель вместо
+// карточки — редизайн, фаза 3а).
 //
 // Что закрепляют тесты, кроме самой привязки:
 //   • каталог берётся С БЭКА целиком — правило владельца и скоуп поддеревьев живут
 //     там, и вторая их реализация здесь неизбежно разошлась бы с первой;
 //   • поиск обязателен: у монолита в каталоге до двухсот схем (барьер У5), и список
 //     без фильтра — стена, а не витрина;
-//   • шапка называет участников (барьер У6): без них автоподстановку исполнителя
-//     нечем проверить глазами;
+//   • панель называет участников («Откуда», «Куда»; барьер У6): без них
+//     автоподстановку исполнителя нечем проверить глазами;
 //   • провал в схему открывает окно схемы, которое само стартует ПРОСМОТРОМ, правка —
 //     его «Изменить» (барьер У7, вьюер v2); колбэки настоящие: правка и пакет агента в
-//     окне перечитывают процесс и каталог (барьер У8), а Escape закрывает оверлей,
-//     не роняя карточку (оверлей выше в стеке).
+//     окне перечитывают процесс и каталог (барьер У8), а Escape закрывает окно схемы,
+//     не роняя панель шага.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -107,11 +108,13 @@ const КАТАЛОГ = {
   ],
 };
 
+const панель = () => screen.queryByRole("complementary", { name: "Шаг" });
+
 async function открыть(detail: ProcessDetail = DETAIL) {
   vi.mocked(processesApi.get).mockResolvedValue(detail);
   render(<ProcessCanvas id="p1" isArchitect editing onToggleEditing={vi.fn()} onChanged={vi.fn()} />);
   await userEvent.click(await screen.findByText("click-m1"));
-  await screen.findByText("Шаг сценария");
+  await waitFor(() => expect(панель()).not.toBeNull());
 }
 
 beforeEach(() => {
@@ -121,13 +124,14 @@ beforeEach(() => {
   vi.mocked(processesApi.messageDocs).mockResolvedValue(КАТАЛОГ as never);
 });
 
-describe("карточка шага: привязка к схеме логики", () => {
-  it("шапка называет участников шага", async () => {
-    // Барьер У6: «Шаг сценария» не отличает один шаг от другого, и подставленного
+describe("панель шага: привязка к схеме логики", () => {
+  it("панель называет участников шага", async () => {
+    // Барьер У6: без участников один шаг не отличить от другого, и подставленного
     // исполнителя нечем проверить глазами.
     await открыть();
 
-    expect(screen.getByText(/Веб-витрина → Заказы/)).toBeTruthy();
+    expect(screen.getByText("Откуда").nextElementSibling?.textContent).toBe("Веб-витрина");
+    expect(screen.getByText("Куда").nextElementSibling?.textContent).toBe("Заказы");
   });
 
   it("непривязанный шаг говорит об этом прямо", async () => {
@@ -235,21 +239,21 @@ describe("карточка шага: привязка к схеме логики
     await waitFor(() => expect(processesApi.messageDocs).toHaveBeenCalledTimes(2));
   });
 
-  it("Escape над схемой — её, а не холста: закрывается схема, карточка шага остаётся", async () => {
+  it("Escape над схемой — её, а не холста: закрывается схема, панель шага остаётся", async () => {
     // Схема логики — модалка ui/Modal: Escape закрывает её сама, через свой вопрос о
     // несохранённой правке (аудит F-3). Холст клавишу не перехватывает — иначе гасил бы
-    // её cancel и закрывал схему молча — и карточку под ней не роняет.
+    // её cancel и закрывал схему молча — и панель шага под ней не роняет.
     await открыть(ПРИВЯЗАН);
     await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
 
     await userEvent.keyboard("{Escape}");
     expect(screen.getByTestId("doc-overlay")).toBeTruthy();
-    expect(screen.getByText("Шаг сценария")).toBeTruthy();
+    expect(панель()).not.toBeNull();
 
     // Собственное закрытие модалки (её Escape или крестик) снимает только её.
     await userEvent.click(screen.getByRole("button", { name: "ov-закрыть" }));
     expect(screen.queryByTestId("doc-overlay")).toBeNull();
-    expect(screen.getByText("Шаг сценария")).toBeTruthy();
+    expect(панель()).not.toBeNull();
   });
 
   it("undo удаления шага возвращает и привязку", async () => {
@@ -257,9 +261,9 @@ describe("карточка шага: привязка к схеме логики
     // привязка терялась бы молча — при живой-то схеме.
     vi.mocked(processesApi.addMessage).mockResolvedValue({ id: "m1b" } as never);
     await открыть(ПРИВЯЗАН);
-    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Удалить шаг" }));
     await waitFor(() =>
-      expect(histPush).toHaveBeenCalledWith(expect.objectContaining({ label: "Удаление сообщения" })));
+      expect(histPush).toHaveBeenCalledWith(expect.objectContaining({ label: "Удаление шага" })));
 
     await histPush.mock.lastCall?.[0].undo();
 
@@ -275,9 +279,9 @@ describe("карточка шага: привязка к схеме логики
       .mockRejectedValueOnce(new Error("Схема не найдена"))
       .mockResolvedValue({ id: "m1b" } as never);
     await открыть(ПРИВЯЗАН);
-    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Удалить шаг" }));
     await waitFor(() =>
-      expect(histPush).toHaveBeenCalledWith(expect.objectContaining({ label: "Удаление сообщения" })));
+      expect(histPush).toHaveBeenCalledWith(expect.objectContaining({ label: "Удаление шага" })));
 
     await histPush.mock.lastCall?.[0].undo();
 
@@ -299,7 +303,8 @@ describe("карточка шага: привязка к схеме логики
   });
 });
 
-// Просмотр: шаг со схемой открывает её сразу, без карточки шага и без «Редактировать».
+// Просмотр: значок схемы у шага (view-m1) открывает её сразу, без «Редактировать»; клик
+// по самому шагу открывает панель шага, как и в правке.
 describe("шаг в просмотре: схема логики", () => {
   const смотреть = async (detail: ProcessDetail) => {
     vi.mocked(processesApi.get).mockResolvedValue(detail);
@@ -307,23 +312,29 @@ describe("шаг в просмотре: схема логики", () => {
     return screen.findByText("view-m1");
   };
 
-  it("шаг со схемой открывает окно этой схемы, карточки шага нет", async () => {
+  it("значок схемы открывает окно этой схемы на чтение, панель не нужна", async () => {
     await userEvent.click(await смотреть(ПРИВЯЗАН));
     expect(screen.getByTestId("ov-doc").textContent).toBe("d1");
     expect(screen.getByTestId("ov-node").textContent).toBe("Заказы");
     expect(screen.getByTestId("ov-edit").textContent).toBe("false");
-    expect(screen.queryByText("Шаг сценария")).toBeNull();
+    expect(панель()).toBeNull();
   });
 
-  it("шаг без схемы окна не открывает", async () => {
+  it("у шага без схемы окна нет", async () => {
     await userEvent.click(await смотреть(DETAIL));
     expect(screen.queryByTestId("doc-overlay")).toBeNull();
   });
 
-  it("в правке колбэка просмотра нет: шаг открывает карточку", async () => {
-    vi.mocked(processesApi.get).mockResolvedValue(ПРИВЯЗАН);
-    render(<ProcessCanvas id="p1" isArchitect editing onToggleEditing={vi.fn()} onChanged={vi.fn()} />);
-    await screen.findByText("click-m1");
-    expect(screen.queryByText("view-m1")).toBeNull();
+  it("клик по шагу открывает панель; схема из неё открывается тем же окном", async () => {
+    await смотреть(ПРИВЯЗАН);
+    await userEvent.click(screen.getByText("click-m1"));
+    await waitFor(() => expect(панель()).not.toBeNull());
+    expect(screen.queryByTestId("doc-overlay")).toBeNull();
+    // Каталог схем читателю не нужен: выбирать и отвязывать он не может.
+    expect(processesApi.messageDocs).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "POST /orders" }));
+    expect(screen.getByTestId("ov-doc").textContent).toBe("d1");
+    expect(screen.getByTestId("ov-edit").textContent).toBe("false");
   });
 });
