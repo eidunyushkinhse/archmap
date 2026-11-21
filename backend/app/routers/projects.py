@@ -52,7 +52,7 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.project_cards import project_card, project_cards
 from app.projects import copy_project_schema
-from app.scan_origin import schema_note
+from app.scan_origin import SCHEMA_REJECTED, is_scanner_schema
 from app.schemas.archive import ArchiveImportResult
 from app.schemas.node import NodeSource
 from app.schemas.project import (
@@ -373,6 +373,17 @@ def _sync_policies(payload: SyncPreviewIn) -> SyncPolicies:
     )
 
 
+def _scanner_inputs(payload: SyncPreviewIn) -> list[str]:
+    """Отказ входам, собранным сборщиком фактов: по строке на вход, нумерация с 1, как в
+    окне. Номер нужен и при одном входе: пакет собирают несколько агентов."""
+    many = len(payload.contents) > 1
+    return [
+        f"файл {i + 1}: {SCHEMA_REJECTED}" if many else SCHEMA_REJECTED
+        for i, text in enumerate(payload.contents)
+        if is_scanner_schema(text)
+    ]
+
+
 def _sync_files(payload: SyncPreviewIn) -> list[tuple[str, str]]:
     """Файлы синка для проверки размера: имён у них в запросе нет, только номер."""
     return [(f"Файл {i + 1}", text) for i, text in enumerate(payload.contents)]
@@ -395,14 +406,13 @@ def sync_preview(
     project, _ = project_for(db, user, project_id, need="editor")
     demo_limits.check_texts(_sync_files(payload))
 
-    # Входы, собранные сборщиком фактов (шапка «# archmap-scan …»): план говорит, что у
-    # них нет описаний и связей по смыслу. Пометка идёт и при ошибке разбора.
-    scanner = [schema_note(text) for text in payload.contents]
+    # Черновик сборщика фактов документацией не становится (app/scan_origin).
+    rejected = _scanner_inputs(payload)
+    if rejected:
+        return SyncPreviewOut(ok=False, errors=rejected, files=len(payload.contents))
     merged, report, errors = parse_and_merge(list(payload.contents))
     if merged is None:
-        return SyncPreviewOut(
-            ok=False, errors=errors, files=len(payload.contents), scanner=scanner
-        )
+        return SyncPreviewOut(ok=False, errors=errors, files=len(payload.contents))
 
     plan = plan_for(db, project_id, merged, _sync_policies(payload))
     out = SyncPreviewOut(
@@ -441,7 +451,6 @@ def sync_preview(
         summary=plan.summary,
         is_noop=plan.is_noop,
         graph_rev=project.graph_rev,
-        scanner=scanner,
     )
     if not plan.is_noop:
         # Демо-стенд: пробное применение и откат — выйдет ли проект за предел.
@@ -480,6 +489,9 @@ def sync_apply(
         )
 
     demo_limits.check_texts(_sync_files(payload))
+    rejected = _scanner_inputs(payload)
+    if rejected:
+        raise HTTPException(status_code=400, detail="; ".join(rejected))
     merged, _report, errors = parse_and_merge(list(payload.contents))
     if merged is None:
         raise HTTPException(status_code=400, detail="; ".join(errors[:5]))

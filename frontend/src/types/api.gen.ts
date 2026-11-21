@@ -5631,8 +5631,6 @@ export interface components {
              * @default []
              */
             warnings: string[];
-            /** Scanner */
-            scanner?: string | null;
         };
         /** FragmentCreate */
         FragmentCreate: {
@@ -8055,11 +8053,6 @@ export interface components {
              */
             graph_rev: number;
             demo_excess?: components["schemas"]["DemoExcess"] | null;
-            /**
-             * Scanner
-             * @default []
-             */
-            scanner: (string | null)[];
         };
         /**
          * TableUsage
