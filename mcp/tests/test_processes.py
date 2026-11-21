@@ -373,3 +373,153 @@ async def test_устаревшая_версия_шага_даёт_конфли�
         )
 
     assert "Конфликт версий" in str(exc.value) and "Перечитайте" in str(exc.value)
+
+
+# ── Процессы руками агента (0.16.0): проверка, запись, замена, текст ────────
+
+TEXT = """sequenceDiagram
+    participant Покупатель
+    participant Заказы
+    participant Касса
+    Покупатель->>Заказы: создать заказ
+    Заказы->>Касса: чек
+    note over Заказы: лишнее
+"""
+KASSA = "33333333-3333-3333-3333-333333333339"
+
+
+def imp(model: str, **fields: Any) -> dict[str, Any]:
+    return getattr(backend("schemas.process_import"), model)(**fields).model_dump(mode="json")
+
+
+def preview_reply(**over: Any) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "name": "Оформление заказа",
+        "participants": [
+            {"alias": "Покупатель", "name": "Покупатель", "node_id": NODE,
+             "candidates": [{"id": NODE, "name": "Покупатель", "parent_name": None}]},
+            {"alias": "Заказы", "name": "Заказы", "node_id": None, "candidates": [
+                {"id": ORDERS, "name": "Заказы", "parent_name": "Ярмарка"},
+                {"id": M2, "name": "Заказы", "parent_name": "Плёнка"}]},
+            {"alias": "Касса", "name": "Касса", "node_id": None, "candidates": []},
+        ],
+        "message_count": 2, "fragment_count": 0, "unsupported": ["note over Заказы: лишнее"],
+        "doc_refs": 0,
+        "steps": [
+            {"order": 0, "from_name": "Покупатель", "to_name": "Заказы", "caption": "создать заказ",
+             "status": "unbound", "doc_address": None, "doc_status": None},
+            {"order": 1, "from_name": "Заказы", "to_name": "Касса", "caption": "чек",
+             "status": "no_channel", "doc_address": "Ярмарка / Заказы / Нет", "doc_status": "unresolved"},
+        ],
+        "attached": 0, "dangling": 2, "self_messages": 0,
+    }
+    fields.update(over)
+    return imp("ProcessImportPreview", **fields)
+
+
+def result_reply(model: str = "ProcessImportResult", **over: Any) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "process_id": PROC, "participants": 3, "unbound": 1, "messages": 2, "attached": 1,
+        "dangling": 1, "self_messages": 0, "fragments": 0, "unsupported": [],
+        "doc_linked": 0, "doc_unresolved": 1,
+    }
+    fields.update(over)
+    return imp(model, **fields)
+
+
+async def test_проверка_процесса_называет_выбор_и_шаги_без_связи(
+    api: FakeApi, client: ArchMapClient
+) -> None:
+    api.post("/processes/import/preview", preview_reply())
+
+    text = await tools.call(
+        "archmap_process_preview", {"project": "Ярмарка", "text": TEXT, "name": "Оформление заказа"},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    backend("schemas.process_import").ProcessImportPreviewIn.model_validate(body)
+    assert "overrides" not in body
+    assert f"• Покупатель: объект «Покупатель»  id={NODE}" in text
+    assert "объектов с таким именем несколько, выберите в mapping" in text
+    assert f"«Заказы» в «Ярмарка» id={ORDERS}" in text
+    assert "• Касса: объекта с таким именем нет, участник будет без объекта" in text
+    assert "Шагов 2: на связях 0, внутренних 0, без связи 2." in text
+    assert "  1. Покупатель → Заказы «создать заказ»: участник без объекта" in text
+    assert "  2. Заказы → Касса «чек»: связи между объектами в эту сторону нет" in text
+    assert "схема логики «Ярмарка / Заказы / Нет» не найдена" in text
+    assert "НЕ РАЗОБРАНО" in text and "note over Заказы" in text
+
+
+async def test_запись_процесса_собирает_сопоставление_целиком(
+    api: FakeApi, client: ArchMapClient
+) -> None:
+    api.post("/processes/import/preview", preview_reply())
+    api.post("/processes/import", result_reply())
+
+    text = await tools.call(
+        "archmap_process_apply",
+        {"project": "Ярмарка", "text": TEXT, "mapping": {"Заказы": ORDERS, "Касса": ""}},
+        client,
+    )
+
+    preview_body = json.loads(api.calls[-2].content)
+    assert preview_body["overrides"] == {"Заказы": ORDERS, "Касса": None}
+    body = json.loads(api.calls[-1].content)
+    backend("schemas.process_import").ProcessImportApply.model_validate(body)
+    # однозначное совпадение имени — от сервера, уточнения — от агента
+    assert body["mapping"] == {"Покупатель": NODE, "Заказы": ORDERS, "Касса": None}
+    assert f"создан процесс «Оформление заказа»  id={PROC}" in text
+    assert "Участников 3, из них без объекта 1; фрагментов 0." in text
+    assert "ШАГИ БЕЗ СВЯЗИ ИЛИ СХЕМЫ" in text
+    assert "версия" not in text
+
+
+async def test_замена_процесса_идёт_по_id_и_называет_версию(
+    api: FakeApi, client: ArchMapClient
+) -> None:
+    # Без name превью называет процесс именем по умолчанию, а имя на деле остаётся прежним.
+    api.post("/processes/import/preview", preview_reply(steps=[], dangling=0,
+                                                         name="Импортированный процесс"))
+    api.get(f"/processes/{PROC}", detail())
+    api.post(f"/processes/{PROC}/import", result_reply(
+        "ProcessReplaceResult", version_number=7, version_created=True))
+
+    text = await tools.call(
+        "archmap_process_apply", {"project": "Ярмарка", "text": TEXT, "process_id": PROC}, client
+    )
+
+    assert api.calls[-1].url.path.endswith(f"/processes/{PROC}/import")
+    assert f"заменено содержимое процесса «Оформление заказа»  id={PROC}" in text
+    assert "Перед заменой сохранена версия v7 всего проекта" in text
+
+
+async def test_проверка_замены_называет_прежний_процесс(
+    api: FakeApi, client: ArchMapClient
+) -> None:
+    api.post("/processes/import/preview", preview_reply())
+    api.get(f"/processes/{PROC}", detail(name="Старый заказ"))
+
+    text = await tools.call(
+        "archmap_process_preview", {"project": "Ярмарка", "text": TEXT, "process_id": PROC}, client
+    )
+
+    assert "вместо содержимого процесса «Старый заказ»" in text
+
+
+async def test_текст_процесса_в_mermaid_для_правки(api: FakeApi, client: ArchMapClient) -> None:
+    api.get(f"/processes/{PROC}", detail())
+    api.get(f"/processes/{PROC}/export", {"format": "mermaid", "content": "sequenceDiagram\n  A->>B: x\n"})
+
+    text = await tools.call(
+        "archmap_processes", {"project": "Ярмарка", "process_id": PROC, "mermaid": True}, client
+    )
+
+    assert text.startswith("Процесс «Оформление заказа» (проект «Ярмарка») в mermaid:")
+    assert "```mermaid\nsequenceDiagram\n  A->>B: x\n```" in text
+
+
+async def test_пустой_текст_процесса_отказ_до_запроса(api: FakeApi, client: ArchMapClient) -> None:
+    with pytest.raises(ArchMapError, match="text пуст"):
+        await tools.call("archmap_process_apply", {"project": "Ярмарка", "text": "  "}, client)
+    assert not [c for c in api.calls if "/processes" in c.url.path]

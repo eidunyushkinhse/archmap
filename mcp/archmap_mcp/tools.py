@@ -311,6 +311,13 @@ async def t_processes(client: ArchMapClient, args: dict[str, Any]) -> str:
 
     detail = await client.request("GET", f"/processes/{args['process_id']}", project_id=pid)
     head = f"Процесс «{detail['name']}» (проект «{pname}»)"
+    if args.get("mermaid"):
+        # Текст для правки и обратного ввоза: тот же конвертер, что у кнопки экспорта;
+        # строки «%% archmap-doc» в нём несут привязки шагов к схемам логики.
+        export = await client.request(
+            "GET", f"/processes/{args['process_id']}/export", project_id=pid
+        )
+        return f"{head} в mermaid:\n```mermaid\n{str(export['content']).rstrip()}\n```"
     return f"{head}\n\n{render.process_detail(detail)}"
 
 
@@ -1399,6 +1406,74 @@ async def t_update_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
 
 
 
+
+def _process_overrides(args: dict[str, Any]) -> dict[str, str | None]:
+    """mapping агента: алиас участника → id объекта; пустая строка или null — участник
+    без объекта."""
+    raw = args.get("mapping") or {}
+    if not isinstance(raw, dict):
+        raise ArchMapError("mapping — объект: алиас участника → id объекта или пустая строка.")
+    return {str(k): (str(v) if v else None) for k, v in raw.items()}
+
+
+async def _process_preview(
+    client: ArchMapClient, pid: str, args: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, str | None]]:
+    """Превью ввоза и полное сопоставление для применения: однозначные совпадения
+    имён (их считает сервер) плюс уточнения агента. Применение сервера ждёт
+    сопоставление целиком, поэтому собирается оно здесь, из ответа превью."""
+    text = str(args.get("text") or "")
+    if not text.strip():
+        raise ArchMapError("Нечего проверять: text пуст. Нужен текст mermaid sequenceDiagram.")
+    overrides = _process_overrides(args)
+    body: dict[str, Any] = {"text": text, "name": args.get("name") or None}
+    if overrides:
+        body["overrides"] = overrides
+    data = await client.request("POST", "/processes/import/preview", project_id=pid, json=body)
+    mapping: dict[str, str | None] = {
+        str(part["alias"]): (str(part["node_id"]) if part.get("node_id") else None)
+        for part in data.get("participants") or []
+    }
+    mapping.update(overrides)
+    return data, mapping
+
+
+async def _replaced_name(client: ArchMapClient, pid: str, args: dict[str, Any]) -> str | None:
+    if not args.get("process_id"):
+        return None
+    detail = await client.request("GET", f"/processes/{args['process_id']}", project_id=pid)
+    return str(detail.get("name", ""))
+
+
+async def t_process_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    data, _ = await _process_preview(client, pid, args)
+    replacing = await _replaced_name(client, pid, args)
+    return render.process_import_preview(
+        pname, data, name=args.get("name") or replacing or str(data.get("name", "")),
+        replacing=replacing, overrides=_process_overrides(args),
+    )
+
+
+async def t_process_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Запись процесса: превью (сопоставление и прогноз шагов), затем создание нового
+    или замена содержимого существующего с версией перед заменой."""
+    pid, pname = await resolve_project(client, args["project"])
+    preview, mapping = await _process_preview(client, pid, args)
+    # При замене без имени имя процесса остаётся прежним: сервер его не трогает, а превью
+    # назвало бы процесс именем по умолчанию.
+    replacing = await _replaced_name(client, pid, args)
+    name = args.get("name") or replacing or str(preview.get("name", ""))
+    body = {"text": str(args["text"]), "name": args.get("name") or None, "mapping": mapping}
+    if args.get("process_id"):
+        path = f"/processes/{args['process_id']}/import"
+    else:
+        path = "/processes/import"
+    result = await client.request("POST", path, project_id=pid, json=body)
+    return render.process_import_result(
+        pname, result, preview, name=name, replaced=bool(args.get("process_id"))
+    )
+
 async def t_delete(client: ArchMapClient, args: dict[str, Any]) -> str:
     """Удаление пачкой (POST /deletions): перед ним сервер сохраняет версию, и человек
     возвращает удалённое откатом. Методом DELETE инструменты не ходят никогда: личным
@@ -1407,7 +1482,9 @@ async def t_delete(client: ArchMapClient, args: dict[str, Any]) -> str:
     items: list[dict[str, str]] = []
     for raw in args.get("items") or []:
         if not isinstance(raw, dict) or not raw.get("kind") or not raw.get("id"):
-            raise ArchMapError("Каждый пункт items — объект {kind, id}: kind node, edge или doc.")
+            raise ArchMapError(
+                "Каждый пункт items — объект {kind, id}: kind node, edge, doc или process."
+            )
         items.append({"kind": str(raw["kind"]), "id": str(raw["id"])})
     if not items:
         raise ArchMapError("Нечего удалять: items пуст.")
@@ -1521,6 +1598,28 @@ async def t_version_create(client: ArchMapClient, args: dict[str, Any]) -> str:
 
 
 # ── Реестр ───────────────────────────────────────────────────────────────────
+
+PROCESS_TEXT_ARG = {
+    "type": "string",
+    "description": "Процесс в mermaid sequenceDiagram.",
+}
+PROCESS_MAPPING_ARG = {
+    "type": "object",
+    "additionalProperties": {"type": "string"},
+    "description": "Уточнить сопоставление: алиас участника → id объекта, пустая строка — "
+    "оставить участника без объекта. Однозначные совпадения имён сопоставляются сами.",
+}
+PROCESS_FORMAT = (
+    "Процесс пишут по уже описанной архитектуре (archmap_schema, archmap_node): участники — "
+    "объекты проекта их точными именами (у тёзок перед participant строка «%% archmap-node: "
+    "путь объекта»); ->> — вызов по связи от инициатора, -->> — ответ на синхронный вызов, "
+    "-) — событие, шаг участника к самому себе — внутренняя операция. Шаг встаёт на связь "
+    "схемы, только если связь между объектами в эту сторону есть и она одна. Строка «%% "
+    "archmap-doc: путь объекта / имя схемы» перед шагом привязывает его к схеме логики. "
+    "Поддерживаются participant и actor с алиасом, alt, opt, loop, par, else, end; note, "
+    "activate, box и autonumber не поддерживаются и попадают в «не разобрано»."
+)
+
 
 VARIANT_ARG = {
     "type": "string",
@@ -1948,12 +2047,17 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_processes",
         "writes": False,
-        "description": "Бизнес-процессы проекта: без process_id — список (область и число шагов), с ним — участники, шаги сценария и фрагменты. У каждого шага видно, чем он задокументирован (схема логики с путём объекта) либо что привязки нет, а также его id и version — вход archmap_step_docs и archmap_bind_step.",
+        "description": "Бизнес-процессы проекта: без process_id — список (область и число шагов), с ним — участники, шаги сценария и фрагменты. У каждого шага видно, чем он задокументирован (схема логики с путём объекта) либо что привязки нет, а также его id и version — вход archmap_step_docs и archmap_bind_step. С mermaid=true — текст процесса в mermaid: его правят и записывают обратно archmap_process_apply.",
         "schema": {
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
                 "process_id": {"type": "string", "description": "id процесса: без него — список процессов."},
+                "mermaid": {
+                    "type": "boolean",
+                    "description": "true с process_id — текст процесса в mermaid для правки и "
+                    "обратной записи archmap_process_apply.",
+                },
             },
             "required": ["project"],
         },
@@ -1973,6 +2077,61 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "process_id", "message_id"],
         },
         "handler": t_step_docs,
+    },
+    {
+        "name": "archmap_process_preview",
+        "writes": True,
+        "description": (
+            "Проверка бизнес-процесса из mermaid sequenceDiagram без записи: с какими объектами "
+            "сопоставились участники, какие шаги встанут на связи схемы, какие останутся без "
+            "связи и почему, какие строки не разобраны. " + PROCESS_FORMAT + " process_id — "
+            "проверить замену существующего процесса. Записывает archmap_process_apply."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "text": PROCESS_TEXT_ARG,
+                "name": {"type": "string", "description": "Имя процесса: «Оформление заказа»."},
+                "mapping": PROCESS_MAPPING_ARG,
+                "process_id": {
+                    "type": "string",
+                    "description": "id процесса, содержимое которого заменит этот текст.",
+                },
+            },
+            "required": ["project", "text"],
+        },
+        "handler": t_process_preview,
+    },
+    {
+        "name": "archmap_process_apply",
+        "writes": True,
+        "description": (
+            "Записывает бизнес-процесс из mermaid sequenceDiagram: без process_id создаёт новый, "
+            "с process_id заменяет содержимое существующего (id и область процесса остаются; "
+            "перед заменой ArchMap сохраняет версию проекта, в ней прежний текст процесса). "
+            "Вызывать после archmap_process_preview с тем же text и mapping. Текст процесса для "
+            "правки — archmap_processes с process_id и mermaid=true: строки «%% archmap-doc» в "
+            "нём сохраняют привязки шагов к схемам логики. Удаляет процесс archmap_delete."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "text": PROCESS_TEXT_ARG,
+                "name": {
+                    "type": "string",
+                    "description": "Имя процесса; при замене без имени остаётся прежнее.",
+                },
+                "mapping": PROCESS_MAPPING_ARG,
+                "process_id": {
+                    "type": "string",
+                    "description": "id процесса, чьё содержимое заменить; без него — новый процесс.",
+                },
+            },
+            "required": ["project", "text"],
+        },
+        "handler": t_process_apply,
     },
     {
         "name": "archmap_bind_step",
@@ -2582,13 +2741,14 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Удаляет пачкой то, что оказалось лишним: дубли, ошибки прогона, созданное не там. "
             "Виды: node — объект вместе с вложенными, их связями и документацией; edge — связь; "
-            "doc — схема логики. Перед удалением ArchMap сам сохраняет версию ближайшего общего "
-            "родителя пачки (или всего проекта), и человек вернёт удалённое откатом к ней в "
-            "интерфейсе. Привязки процессов к удалённому откат не возвращает, ответ называет их "
-            "число. Объект, который в реальности выводят из эксплуатации, не удаляют: ему ставят "
+            "doc — схема логики; process — бизнес-процесс. Перед удалением ArchMap сам сохраняет "
+            "версию ближайшего общего родителя пачки (или всего проекта), и человек вернёт "
+            "удалённое откатом к ней в интерфейсе. Процесс и привязки процессов к удалённому "
+            "откат не возвращает: текст процесса остаётся в версии проекта, его ввозят заново "
+            "archmap_process_apply. Объект, который в реальности выводят из эксплуатации, не удаляют: ему ставят "
             "status=deprecated (archmap_update_node). Если в пачке есть объект с вложенными, "
             "сначала вызовите с dry_run=true: ответ покажет, что уйдёт, и ничего не изменит. "
-            "id берут из archmap_schema, archmap_node или archmap_search."
+            "id берут из archmap_schema, archmap_node, archmap_processes или archmap_search."
         ),
         "schema": {
             "type": "object",
@@ -2604,10 +2764,11 @@ TOOLS: list[dict[str, Any]] = [
                         "properties": {
                             "kind": {
                                 "type": "string",
-                                "enum": ["node", "edge", "doc"],
-                                "description": "node — объект, edge — связь, doc — схема логики.",
+                                "enum": ["node", "edge", "doc", "process"],
+                                "description": "node — объект, edge — связь, doc — схема логики, "
+                                "process — процесс.",
                             },
-                            "id": {"type": "string", "description": "id объекта, связи или схемы логики."},
+                            "id": {"type": "string", "description": "id объекта, связи, схемы логики или процесса."},
                         },
                         "required": ["kind", "id"],
                     },

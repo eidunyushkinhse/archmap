@@ -630,7 +630,7 @@ async def test_удаление_пачкой_тело_по_схеме_бэкен
             schemas.DeletionTarget(kind="doc", id=doc, label="«Прогрев» у Ярмарка / Заказы / Кэш", covered_by=cache),
             schemas.DeletionTarget(kind="edge", id=edge, label="Ярмарка / Заказы → Ярмарка / Оплаты", covered_by=None),
         ],
-        totals=schemas.DeletionTotals(nodes=1, edges=3, docs=1, facts=0, instances=0, process_links=2),
+        totals=schemas.DeletionTotals(processes=0, nodes=1, edges=3, docs=1, facts=0, instances=0, process_links=2),
         version=schemas.DeletionVersion(node_id=shop, label="Ярмарка", number=4, created=True),
     ).model_dump(mode="json"))
 
@@ -659,7 +659,7 @@ async def test_удаление_пачкой_dry_run_и_версия_проек�
     api.post("/deletions", schemas.DeletionOut(
         dry_run=True,
         items=[schemas.DeletionTarget(kind="node", id=bank, label="Банк", covered_by=None)],
-        totals=schemas.DeletionTotals(nodes=1, edges=0, docs=0, facts=0, instances=0, process_links=0),
+        totals=schemas.DeletionTotals(processes=0, nodes=1, edges=0, docs=0, facts=0, instances=0, process_links=0),
         version=schemas.DeletionVersion(node_id=None, label=None, number=None, created=False),
     ).model_dump(mode="json"))
 
@@ -1170,3 +1170,22 @@ async def test_план_синка_помечает_вход_сборщика(cl
     assert "Вход 1:" not in lines
     i = lines.index("Вход 2:")
     assert lines[i + 1] == "  • собрано сборщиком фактов ArchMap 0.1.0: у объектов и связей есть основание"
+
+
+async def test_удаление_процесса_говорит_как_вернуть(api: FakeApi, client) -> None:
+    schemas = backend("schemas.deletions")
+    proc = str(uuid.uuid4())
+    api.post("/deletions", schemas.DeletionOut(
+        dry_run=False,
+        items=[schemas.DeletionTarget(kind="process", id=proc, label="«Оформление»", covered_by=None)],
+        totals=schemas.DeletionTotals(processes=1, nodes=0, edges=0, docs=0, facts=0, instances=0, process_links=0),
+        version=schemas.DeletionVersion(node_id=None, label=None, number=3, created=True),
+    ).model_dump(mode="json"))
+
+    text = await tools.call(
+        "archmap_delete", {"project": "Ярмарка", "items": [{"kind": "process", "id": proc}]}, client
+    )
+
+    assert f"  • процесс «Оформление»  id={proc}" in text
+    assert "Всего ушло: 1 процесс." in text
+    assert "Процесс откат не вернёт" in text and "archmap_process_apply" in text
