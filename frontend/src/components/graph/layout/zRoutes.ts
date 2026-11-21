@@ -2444,8 +2444,14 @@ export function zRoutes(params: {
       const boxes: number[] = [];
       for (const e of edges) {
         if (!e.label || e.host === "none" || !e.cand) continue;
-        if (hint && touched[e.ix] === 0) continue;
-        if (again && again[e.ix] === 0) continue;
+        // правила приближённые (связь вне очереди тёплого вызова; второй проход — вне
+        // очереди носителей): честная проба отсеянного меряет, сколько было бы принято
+        const why = hint && touched[e.ix] === 0 ? "hostWarm" : again && again[e.ix] === 0 ? "hostQueue" : null;
+        if (why) {
+          if (stats) count(`skip.${why}`);
+          if (skipCheck && honestAccepts(() => { e.hostOff = true; e.host = "none"; })) count(`skipWould.${why}`);
+          continue;
+        }
         if (hostIdle(e)) {
           if (__zDebug.on) zlog(e.id.slice(0, 8), "skip", "host-idle", e.host);
           if (stats) count("skip.hostIdle");
@@ -2500,6 +2506,16 @@ export function zRoutes(params: {
     }
     for (const f of edges) if (mark[f.ix] !== 0) { const t = twinOf.get(f); if (t && mark[t.ix] === 0) mark[t.ix] = 3; }
     start = movable.filter((f) => mark[f.ix] !== 0);
+    // связи вне стартового списка первый круг не пробует (правило приближённое): честная
+    // проба отсеянного меряет, сколько их одиночных ходов было бы принято со старта
+    for (const f of movable) {
+      if (mark[f.ix] !== 0) continue;
+      for (const c of f.cands) {
+        if (c === f.cand) continue;
+        if (stats) count("skip.warmStart");
+        if (skipCheck && honestAccepts(() => apply(f, c))) count("skipWould.warmStart");
+      }
+    }
   }
   descend(start);
   cap = totalBudget;
