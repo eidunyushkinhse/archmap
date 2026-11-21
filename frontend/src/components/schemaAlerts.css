@@ -3,23 +3,7 @@
    состояние «открыто». Все рекомендации равнозначны — ни янтаря, ни цветовых
    акцентов, ни пульса: подача спокойная, смотрят по желанию. */
 
-/* ---- кнопка-иконка того же вида, что «три точки» (SchemaActions) ---- */
-.sa-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  padding: 0;
-  background: #fff;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.sa-btn:hover { background: #f8fafc; }
-.sa-btn[aria-expanded="true"] { background: #f1f5f9; }
-.sa-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+/* ---- кнопка — общая кнопка-значок ds-icon-btn (ui/ds.css) ---- */
 
 /* Точка «рекомендации есть»: серая, без числа. Белое кольцо отделяет её от иконки. */
 .sa-dot {

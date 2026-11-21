@@ -1,9 +1,73 @@
-/* Общие примитивы нового языка (редизайн, направление А «Документ»): раздел, подгруппа,
+/* Общие примитивы нового языка (редизайн, направление А «Документ»): шапка экрана,
+   раздел, подгруппа,
    строка списка, тихая кнопка «Добавить», вторичная кнопка, вкладки-текст, меню,
    предупреждение, тихая таблица, поле в виде текста. Значения — только токены
    ui/tokens.css. Класс ставит переведённый экран (корень с .ds); стили импортирует
    каждый модуль, который ставит класс (как ui/smallButton.css): стили чужого ленивого
    чанка на странице могут быть не загружены. */
+
+/* ── Шапка экрана: оболочка проекта и редактор-карта ──────────────────────
+   Один каркас на обе шапки (редизайн, фаза 5): высота, поля и линия одинаковые, поэтому
+   вход в редактор и выход из него не двигают логотип. Своя плоскость наложения выше тела
+   страницы: меню и панель «Рекомендации» раскрываются из шапки поверх тела.
+   Всегда одна строка: когда места мало, сжимается только то, что место вызова пометило
+   сжимаемым внутри левой части (название проекта, имена крошек); логотип, вкладки и
+   правая группа не сжимаются. */
+.ds-head {
+  position: relative;
+  z-index: 50;
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  height: 59px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-bg);
+}
+.ds-head-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ds-head-left > * {
+  flex: none;
+}
+.ds-head-sep {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  margin: 0 var(--space-1);
+  background: var(--c-line);
+}
+/* Справа: группа значков, дальше остальное через 16px. */
+.ds-head-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.ds-head-icons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ds-head-btns {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* Обёртка частей прежнего вида (панель «Рекомендации» в классе legacy-root): своей
+   коробки у неё нет, метрики текста наследуются через неё. */
+.ds-head-legacy {
+  display: contents;
+}
 
 /* ── Раздел: заголовок 16px/600, справа действия раздела ─────────────── */
 .ds-sec {
@@ -315,6 +379,15 @@ button.ds-sub:hover {
   border-radius: var(--radius-lg);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
     0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+/* Меню под кнопкой у её правого края (шапка: «Действия со схемой», профиль). Ширина по
+   самому длинному пункту: у меню без левого края доступная ширина — ширина кнопки, и
+   пункты переносились бы. */
+.ds-menu--end {
+  top: calc(100% + 4px);
+  right: 0;
+  width: max-content;
+  max-width: 360px;
 }
 .ds-menu-item {
   display: flex;

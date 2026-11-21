@@ -46,7 +46,7 @@ async function openPanel() {
 // Точка на кнопке — единственный след общего числа: класс, попавший в сумму,
 // её зажигает. Числа на кнопке нет.
 function dot(): Element | null {
-  return document.querySelector(".sa-btn .sa-dot");
+  return document.querySelector(".ds-icon-btn .sa-dot");
 }
 
 // ── Кнопка и панель (подача «А1. Чистый список», 2026-09-29) ─────────────────
@@ -89,22 +89,15 @@ describe("SchemaAlerts: кнопка «Рекомендации»", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  // С холста редактора кнопка ушла в его шапку (редизайн, фаза 4б): там она — тихая
-  // кнопка-значок нового языка, как её сосед «Действия со схемой»; в шапке оболочки —
-  // прежняя кнопка в рамке, размер задаёт место.
-  it("в шапке редактора — тихая кнопка-значок, в шапке оболочки — в рамке своего размера", () => {
-    const { unmount } = render(<SchemaAlerts alerts={EMPTY} placement="editor" />);
-    const inEditor = screen.getByRole("button", { name: "Рекомендации" });
-    expect(inEditor).toHaveClass("ds-icon-btn");
-    expect(inEditor).not.toHaveClass("sa-btn");
-    expect(inEditor.style.width).toBe("");
-    unmount();
-
-    render(<SchemaAlerts alerts={EMPTY} size={34} />);
-    const inHeader = screen.getByRole("button", { name: "Рекомендации" });
-    expect(inHeader).toHaveClass("sa-btn");
-    expect(inHeader).not.toHaveClass("ds-icon-btn");
-    expect(inHeader.style.width).toBe("34px");
+  // Вид один в обеих шапках (редизайн, фазы 4б и 5): тихая кнопка-значок нового языка,
+  // как её сосед «Действия со схемой»; ни рамки, ни размера от места.
+  it("кнопка — тихая кнопка-значок без своего размера", () => {
+    render(<SchemaAlerts alerts={EMPTY} />);
+    const btn = screen.getByRole("button", { name: "Рекомендации" });
+    expect(btn).toHaveClass("ds-icon-btn");
+    expect(btn).not.toHaveClass("sa-btn");
+    expect(btn.style.width).toBe("");
+    expect(btn.style.height).toBe("");
   });
 });
 

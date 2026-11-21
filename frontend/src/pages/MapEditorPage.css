@@ -9,48 +9,10 @@
   border-radius: 0 !important;
 }
 
-/* ── Шапка (pages/MapEditorHeader) ────────────────────────────────────────
-   Высота 59px и поля 20px — как у шапки оболочки проекта (ui/pageChrome.workTopBar:
-   поля 11px вокруг переключателя режима 36px и черта 1px): при входе в редактор логотип
-   и первая строка не прыгают. Своя плоскость наложения выше тела страницы: меню и панель
-   «Рекомендации» раскрываются из шапки поверх холста.
-   Шапка всегда в одну строку: когда места мало, сжимаются только имена крошек (ниже),
-   правая группа и логотип не сжимаются. */
-.me-head {
-  position: relative;
-  z-index: 50;
-  flex: none;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  box-sizing: border-box;
-  height: 59px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--c-line);
-  background: var(--c-bg);
-}
-.me-head-left {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: var(--space-1);
-}
-/* Логотип, разделитель и корневая крошка («Контекст» / «Проект») не сжимаются. */
-.me-head-left > * {
-  flex: none;
-}
-.me-head-sep {
-  flex: none;
-  width: 1px;
-  height: 22px;
-  margin: 0 var(--space-1);
-  background: var(--c-line);
-}
-/* Крошки уровней: 13px, звенья тихие, текущий уровень — 600 и не нажимается.
+/* ── Крошки шапки (pages/MapEditorHeader) ─────────────────────────────────
+   Каркас шапки — общий с оболочкой проекта (ui/ds.css, ds-head*). Логотип, разделитель
+   и корневая крошка («Контекст» / «Проект») не сжимаются; сжимаются только звенья пути.
+   Крошки уровней: 13px, звенья тихие, текущий уровень — 600 и не нажимается.
    Нехватка места сжимает имена многоточием, сначала у звеньев-предков. Сжатие во флексе
    делится пропорционально коэффициентам, приоритета у него нет: при отношении 1000 к 1
    текущему уровню доставались сотые доли пикселя, и этого хватало на многоточие
@@ -62,10 +24,10 @@
   align-items: center;
   min-width: 40px;
 }
-.me-head-left > .me-crumb-step {
+.ds-head-left > .me-crumb-step {
   flex: 0 1000000 auto;
 }
-.me-head-left > .me-crumb-step--current {
+.ds-head-left > .me-crumb-step--current {
   flex: 0 1 auto;
 }
 .me-crumb {
@@ -103,24 +65,4 @@
   display: inline-flex;
   margin: 0 1px;
   color: var(--c-fg-faint);
-}
-/* Справа: значки вплотную друг к другу, дальше вид схемы и кнопки. */
-.me-head-acts {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-.me-head-icons {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.me-head-legacy {
-  display: contents;
-}
-.me-head-btns {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
 }

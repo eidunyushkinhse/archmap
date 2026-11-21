@@ -16,10 +16,9 @@
 // страницам остаётся сказать, что экспортировать, и перечитать данные после того,
 // как схему изменил синк или догрузка архива.
 //
-// В шапке редактора-карты (placement "editor", редизайн, фаза 4б) кнопка — тихая
-// кнопка-значок, меню — нового языка (ui/ds.css), а сверху стоят пункты самой страницы
-// (подписи связей, «Переразложить уровень»): отдельные кнопки им в шапке не нужны. В
-// оболочке проекта меню прежнее.
+// Вид один в обеих шапках (редизайн, фазы 4б и 5): тихая кнопка-значок и меню нового
+// языка (ui/ds.css). Редактор-карта ставит сверху пункты самой страницы (подписи связей,
+// «Переразложить уровень»): отдельные кнопки им в шапке не нужны.
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import ExportModal from "./ExportModal";
@@ -55,10 +54,7 @@ interface Props {
   syncHidden?: boolean;
   /** Синк записал схему — страница перечитывает данные. */
   onSynced: () => void;
-  /** Где стоит меню: шапка оболочки (кнопка в рамке 34px, меню прежнего вида) или шапка
-   *  редактора-карты (тихая кнопка-значок и меню нового языка). */
-  placement?: "header" | "editor";
-  /** Пункты страницы над общими, отделены чертой (только в шапке редактора). */
+  /** Пункты страницы над общими, отделены чертой (шапка редактора-карты). */
   items?: readonly SchemaMenuItem[];
 }
 
@@ -70,7 +66,6 @@ export default function SchemaActions({
   exportScope,
   syncHidden = false,
   onSynced,
-  placement = "header",
   items = NO_ITEMS,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -116,18 +111,11 @@ export default function SchemaActions({
     }
   };
 
-  // Вид кнопки и пунктов по месту: в редакторе — классы нового языка без инлайна.
-  const editor = placement === "editor";
-  const item = editor
-    ? { className: "ds-menu-item" }
-    : { className: "sam-item", style: menuItem };
-
   return (
     <div ref={wrapRef} style={{ position: "relative" }}>
       <button
         type="button"
-        className={editor ? "ds-icon-btn" : "icon-btn"}
-        style={editor ? undefined : iconBtn}
+        className="ds-icon-btn"
         onClick={() => setMenuOpen((o) => !o)}
         title="Действия со схемой"
         aria-label="Действия со схемой"
@@ -138,19 +126,14 @@ export default function SchemaActions({
       </button>
 
       {menuOpen && (
-        <div
-          className={editor ? "ds-menu" : undefined}
-          style={editor ? editorMenu : menu}
-          role="menu"
-          aria-label="Действия со схемой"
-        >
-          {editor && items.length > 0 && (
+        <div className="ds-menu ds-menu--end" style={menuWidth} role="menu" aria-label="Действия со схемой">
+          {items.length > 0 && (
             <>
               {items.map((it) => (
                 <button
                   key={it.label}
                   type="button"
-                  {...item}
+                  className="ds-menu-item"
                   role="menuitem"
                   disabled={it.disabled}
                   onClick={() => { setMenuOpen(false); it.onSelect(); }}
@@ -163,7 +146,7 @@ export default function SchemaActions({
           )}
           <button
             type="button"
-            {...item}
+            className="ds-menu-item"
             role="menuitem"
             disabled={!exportScope}
             onClick={() => { setMenuOpen(false); setExportOpen(true); }}
@@ -173,7 +156,7 @@ export default function SchemaActions({
           {isArchitect && !syncHidden && (
             <button
               type="button"
-              {...item}
+              className="ds-menu-item"
               role="menuitem"
               title="Изменения из файлов сольются с текущей схемой"
               onClick={() => { setMenuOpen(false); setSyncOpen(true); }}
@@ -184,7 +167,7 @@ export default function SchemaActions({
           {exportScope?.archive && (
             <button
               type="button"
-              {...item}
+              className="ds-menu-item"
               role="menuitem"
               disabled={archiveBusy}
               title="Архив всего, что есть в проекте: схема, схемы логики, спецификации, структуры баз, каналы брокеров, конфигурация и процессы"
@@ -199,7 +182,7 @@ export default function SchemaActions({
             // явным выбором в превью (Ф4 эпика «единый импорт»).
             <button
               type="button"
-              {...item}
+              className="ds-menu-item"
               role="menuitem"
               title="Добавить к проекту всё, что есть в архивах других проектов"
               onClick={() => { setMenuOpen(false); setImportIntoOpen(true); }}
@@ -247,51 +230,8 @@ export default function SchemaActions({
 
 const NO_ITEMS: readonly SchemaMenuItem[] = [];
 
-// cursor ЗДЕСЬ НЕ ЗАДАЁМ: инлайн-стиль перебил бы not-allowed у неактивной кнопки
-// (курсор и :disabled — глобальным CSS, index.css). Ховеры пунктов — chrome.css (.sam-item).
-const iconBtn: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flex: "none",
-  width: 34,
-  height: 34,
-  background: "#fff",
-  color: "#475569",
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-};
-// Меню нового языка (ds-menu) — под кнопкой у правого края; остальное задаёт класс.
-// Ширина по самому длинному пункту: у меню без левого края доступная ширина — ширина
-// кнопки, и пункты переносились бы.
-const editorMenu: CSSProperties = { top: "calc(100% + 4px)", right: 0, width: "max-content", minWidth: 240 };
-const menu: CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 8px)",
-  right: 0,
-  width: 260,
-  background: "#fff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 12,
-  boxShadow: "0 16px 40px rgba(15,23,42,.16)",
-  padding: 6,
-  zIndex: 20,
-  display: "flex",
-  flexDirection: "column",
-  gap: 2,
-};
-const menuItem: CSSProperties = {
-  display: "block",
-  width: "100%",
-  textAlign: "left",
-  padding: "8px 10px",
-  border: "none",
-  // Фон — в .sam-item (chrome.css): инлайновый background перебивал бы :hover.
-  borderRadius: 8,
-  fontSize: 13.5,
-  color: "#1e293b",
-  lineHeight: 1.35,
-};
+// Меню не уже 240px: короткие пункты оболочки («Экспорт схемы») не сужают его.
+const menuWidth: CSSProperties = { minWidth: 240 };
 // Тост-итог применения синка / ошибки архива: тот же язык, что у тостов конкурентности.
 const toastStyle: CSSProperties = {
   position: "fixed",

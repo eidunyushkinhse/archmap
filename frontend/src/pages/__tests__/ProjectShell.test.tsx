@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProjectShell from "../ProjectShell";
 import { ProjectRoleContext } from "../projectRole";
 import type { ProjectRole } from "../../types";
-import { getUserRole } from "../../api/auth";
+import { getIsGuest, getUserRole } from "../../api/auth";
 import { exportApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 
@@ -221,6 +221,70 @@ describe("ProjectShell", () => {
     expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
   });
 
+  // Шапка на новом языке (редизайн, фаза 5): режимы — текстовые вкладки без значков и
+  // подсказок, выбранная помечена; якоря тура — на самих вкладках.
+  it("режимы — текстовые вкладки: выбранная помечена, data-tour на месте, значков и подсказок нет", async () => {
+    setup(null);
+    const tabs = ["Объекты", "Процессы", "Развёртывание"].map((name) => screen.getByRole("button", { name }));
+    expect(tabs.map((t) => t.getAttribute("data-tour"))).toEqual(["mode-schema", "mode-proc", "mode-deploy"]);
+    for (const t of tabs) {
+      expect(t).toHaveClass("ds-tab");
+      expect(t).not.toHaveAttribute("title");
+      expect(t.querySelector("svg")).toBeNull();
+    }
+    expect(tabs[0].parentElement).toHaveClass("ds-tabs");
+    expect(tabs.map((t) => t.getAttribute("aria-current"))).toEqual(["page", null, null]);
+    expect(tabs[0]).toHaveClass("is-active");
+
+    await userEvent.click(tabs[1]);
+    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
+    expect(tabs.map((t) => t.getAttribute("aria-current"))).toEqual([null, "page", null]);
+    expect(tabs[1]).toHaveClass("is-active");
+    expect(tabs[0]).not.toHaveClass("is-active");
+  });
+
+  it("в «Развёртывании» выбрана третья вкладка", () => {
+    setup(null, "owner", { level: null });
+    const deployTab = screen.getByRole("button", { name: "Развёртывание" });
+    expect(deployTab).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Объекты" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("шапка — каркас нового языка: логотип, название проекта, вкладки слева; значки справа", () => {
+    setup(null);
+    const head = document.querySelector("header");
+    expect(head).toHaveClass("ds-head", "ds");
+    // Корень оболочки областью .ds не помечен: тело страниц размечено по частям.
+    expect(head?.parentElement).not.toHaveClass("ds");
+    const left = head?.querySelector(".ds-head-left");
+    expect(left?.querySelector('[data-tour="logo"]')).not.toBeNull();
+    expect(left?.querySelector('[data-testid="project-switcher"]')).not.toBeNull();
+    expect(left?.querySelector('[data-tour="mode-schema"]')).not.toBeNull();
+    const acts = head?.querySelector(".ds-head-acts");
+    expect(acts?.querySelector(".ds-head-icons [data-testid='alert-node']")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Действия со схемой" })).toHaveClass("ds-icon-btn");
+  });
+
+  // Демо-стенд: гостю вместо профиля — пилюля «Обучение» в правой группе шапки.
+  it("гость демо-стенда: пилюля «Обучение» справа на месте профиля", () => {
+    vi.mocked(getIsGuest).mockReturnValue(true);
+    try {
+      setup(null);
+      const pill = screen.getByRole("button", { name: "Обучение" });
+      expect(pill.closest(".ds-head-acts")).not.toBeNull();
+      expect(screen.queryByTestId("profile-menu")).toBeNull();
+    } finally {
+      vi.mocked(getIsGuest).mockReturnValue(false);
+    }
+  });
+
+  it("меню действий в шапке оболочки — нового языка, как в редакторе", async () => {
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    expect(screen.getByRole("menu", { name: "Действия со схемой" })).toHaveClass("ds-menu");
+    for (const it of screen.getAllByRole("menuitem")) expect(it).toHaveClass("ds-menu-item");
+  });
+
   it("экспорт из корня: заголовок «Экспорт схемы», load зовёт exportApi.all", async () => {
     vi.mocked(exportApi.all).mockResolvedValue({ format: "yaml", content: "yaml" });
     setup(null);
@@ -316,6 +380,8 @@ describe("ProjectShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
     await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
     expect(screen.getByRole("menuitem", { name: "Экспорт" })).toBeDisabled();
+    // Обновлять из кода в «Процессах» нечего — пункта нет.
+    expect(screen.queryByRole("menuitem", { name: "Обновить из кода" })).toBeNull();
   });
 
   it("в «Процессы» с выбранным процессом экспорт грузит Mermaid процесса", async () => {

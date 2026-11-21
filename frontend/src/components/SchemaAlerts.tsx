@@ -79,12 +79,6 @@ interface Props {
   // Переход к проблемному объекту/связи на схеме (pan + подсветка) — реализуется
   // вызывающей стороной (MapEditorPage). Если не передан — пункты не кликабельны.
   onLocate?: (target: LocateTarget) => void;
-  // Размер кнопки в шапке оболочки — как у соседних «трёх точек» (SchemaActions), 34.
-  size?: number;
-  // Где стоит кнопка: в шапке оболочки — в рамке, размер задаёт size; в шапке
-  // редактора-карты — тихая кнопка-значок нового языка (ui/ds.css, ds-icon-btn), как её
-  // сосед «Действия со схемой» (редизайн, фаза 4б: с холста кнопка ушла в шапку).
-  placement?: "header" | "editor";
 }
 
 // Почему пометка не срослась. Текст обязан подсказывать действие: неоднозначность
@@ -468,7 +462,7 @@ const ALERT_SECTIONS: AlertSection[] = [
   }),
 ];
 
-export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 32, placement = "header" }: Props) {
+export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const total = ALERT_SECTIONS.reduce((n, s) => n + s.problems(alerts), 0);
@@ -484,10 +478,11 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
 
   return (
     <div ref={ref} style={wrap}>
+      {/* Тихая кнопка-значок нового языка (ui/ds.css) в обеих шапках, как её сосед
+          «Действия со схемой» (редизайн, фазы 4б и 5). */}
       <button
         type="button"
-        className={placement === "editor" ? "ds-icon-btn" : "sa-btn"}
-        style={placement === "editor" ? undefined : { width: size, height: size }}
+        className="ds-icon-btn"
         onClick={() => setOpen((o) => !o)}
         title="Рекомендации"
         aria-label="Рекомендации"
@@ -549,7 +544,6 @@ function Item({ children, onClick, hint = "Показать на схеме" }: 
   );
 }
 
-// Якорь выпадающей панели (relative). pointerEvents возвращаем: рейл холста
-// (MapEditorPage.toastRail) прозрачен для мыши, а кнопка и панель — интерактивные.
-// flex, а не блок: иначе строчный бокс кнопки добавил бы снизу зазор под строку.
-const wrap: CSSProperties = { position: "relative", display: "flex", pointerEvents: "auto" };
+// Якорь выпадающей панели (relative). flex, а не блок: иначе строчный бокс кнопки добавил
+// бы снизу зазор под строку.
+const wrap: CSSProperties = { position: "relative", display: "flex" };

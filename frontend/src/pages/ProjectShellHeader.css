@@ -1,0 +1,6 @@
+/* Шапка оболочки проекта (pages/ProjectShellHeader). Каркас — ui/ds.css (ds-head*). */
+
+/* Режимы — сразу после названия проекта, отступ 16px от него. */
+.psh-modes {
+  margin-left: var(--space-3);
+}

@@ -1,17 +1,10 @@
-/* Стили «хрома» приложения, которым нужны псевдоклассы (:hover) — задать инлайном
-   нельзя. Статика контролов остаётся style-константами в TreePage/ProfileMenu. */
+/* Стили «хрома» приложения прежнего вида, которым нужны псевдоклассы (:hover) — задать
+   инлайном нельзя. Шапки нового языка — ui/ds.css (ds-head*, ds-icon-btn). */
 
 /* Хлебная крошка-ссылка: подсветка фона и синева на hover (без подчёркиваний). */
 .crumb:hover {
   background: #eff6ff;
   color: #1d4ed8;
-}
-
-/* Иконочная кнопка шапки (экспорт, «наверх»). */
-.icon-btn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
 }
 
 /* Аватар профиля. */
@@ -20,8 +13,8 @@
   background: #dbeafe;
 }
 
-/* Пункты меню профиля — как .sam-item. Фон задаётся здесь, а не инлайном: инлайновый
-   background перебивал бы :hover. */
+/* Пункты меню профиля. Фон задаётся здесь, а не инлайном: инлайновый background
+   перебивал бы :hover. */
 .pf-item {
   background: none;
   transition: background 0.12s ease;
@@ -30,10 +23,6 @@
   background: #f1f5f9;
 }
 
-/* Меню «Действия со схемой» (SchemaActions): пункты-кнопки словами */
-.sam-item { background: none; cursor: pointer; transition: background 0.12s ease; }
-.sam-item:hover:not(:disabled) { background: #f1f5f9; }
-.sam-item:disabled { color: #94a3b8; cursor: not-allowed; }
 /* Логотип-ссылка на «Все проекты» (ui/BrandLink) */
 .brand-link { background: none; transition: background 0.12s ease; }
 .brand-link:hover { background: #f1f5f9; }

@@ -1,7 +1,7 @@
 // Шапка редактора-карты (редизайн, фаза 4б): слева логотип и крошки уровней, справа
 // «Рекомендации», меню «Действия со схемой», вид схемы, «Принять переход» и «Готово».
-// Высота и отступы — как у шапки оболочки проекта: при входе в редактор логотип и первая
-// строка не прыгают. Стили — pages/MapEditorPage.css (me-head*).
+// Каркас — общий с шапкой оболочки проекта (ui/ds.css, ds-head*, фаза 5): при входе в
+// редактор логотип и первая строка не прыгают. Крошки — pages/MapEditorPage.css (me-crumb*).
 //
 // Редкие действия над холстом — пунктами меню, а не кнопками: «Скрыть подписи связей»
 // (все роли; состояние видно по самому холсту) и «Переразложить уровень» (только
@@ -14,7 +14,6 @@ import type { SchemaView } from "../components/schemaView";
 import TourHelpButton from "../components/tour/TourHelpButton";
 import BrandLink from "../ui/BrandLink";
 import { ChevronIcon } from "../ui/icons";
-import "../ui/chrome.css";
 import "../ui/ds.css";
 import "./MapEditorPage.css";
 
@@ -57,10 +56,10 @@ export default function MapEditorHeader({
     ...(isArchitect ? [{ label: "Переразложить уровень", onSelect: onRelayout, disabled: !canRelayout }] : []),
   ];
   return (
-    <header className="me-head">
-      <div className="me-head-left">
+    <header className="ds-head">
+      <div className="ds-head-left">
         <BrandLink onClick={onAllProjects} />
-        <span className="me-head-sep" aria-hidden="true" />
+        <span className="ds-head-sep" aria-hidden="true" />
         {/* Корневую крошку называют тексты обучающего тура: «Контекст» и «Проект». */}
         <button type="button" className="me-crumb me-crumb--root" data-tour="crumb-root" onClick={onRoot}>
           {crumbs.length === 0 ? "Контекст" : "Проект"}
@@ -81,13 +80,13 @@ export default function MapEditorHeader({
           );
         })}
       </div>
-      <div className="me-head-acts">
-        <div className="me-head-icons">
+      <div className="ds-head-acts">
+        <div className="ds-head-icons">
           {isArchitect && (
             // Панель «Рекомендации» — прежнего вида, как в шапке оболочки: обёртка без своей
             // коробки держит прежние метрики текста (legacy-root, ui/tokens.css).
-            <span className="me-head-legacy legacy-root">
-              <SchemaAlerts alerts={alerts} placement="editor" onLocate={onLocate}
+            <span className="ds-head-legacy legacy-root">
+              <SchemaAlerts alerts={alerts} onLocate={onLocate}
                 // Процессные классы (AL26/AL27) на холсте чинить нечем: у повисшего шага
                 // связь удалена, у непривязанного участника объекта нет. Уводим в процесс,
                 // редактор при этом закрывается (решение пользователя: без вопроса и без
@@ -99,13 +98,12 @@ export default function MapEditorHeader({
             projectId={projectId}
             isArchitect={isArchitect}
             exportScope={exportScope}
-            placement="editor"
             items={items}
             onSynced={onSynced}
           />
         </div>
         {schemaView !== null && <SchemaViewFilter view={schemaView} onChange={onSchemaView} variant="tabs" />}
-        <div className="me-head-btns">
+        <div className="ds-head-btns">
           {/* «Принять переход» — рядом с видом схемы: обе вещи про статусы и есть,
               только когда принимать есть что. */}
           {isArchitect && schemaView !== null && (

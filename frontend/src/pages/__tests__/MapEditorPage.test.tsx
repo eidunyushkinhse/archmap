@@ -502,7 +502,7 @@ describe("MapEditorPage", () => {
     await screen.findByTestId("level-graph");
     const root = container.querySelector(".map-editor");
     expect(root).toHaveClass("ds");
-    const head = container.querySelector(".me-head");
+    const head = container.querySelector(".ds-head");
     expect(head?.parentElement).toBe(root);
     expect(head?.closest(".legacy-root")).toBeNull();
     const pinned = [...(root?.children ?? [])].filter((el) => el.classList.contains("legacy-root"));
@@ -559,7 +559,7 @@ describe("MapEditorPage", () => {
     const { unmount } = render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     const recs = screen.getByTestId("recs-button");
-    expect(recs.closest(".me-head")).not.toBeNull();
+    expect(recs.closest(".ds-head")).not.toBeNull();
     const menuBtn = screen.getByRole("button", { name: "Действия со схемой" });
     expect(recs.compareDocumentPosition(menuBtn) & document.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     unmount();

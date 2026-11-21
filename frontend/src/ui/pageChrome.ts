@@ -4,12 +4,9 @@ import type { CSSProperties } from "react";
 // F-28); здесь одна версия на вид экрана, своё страница добавляет спредом.
 
 // ── Рабочие экраны проекта (оболочка ProjectShell, редактор-карта): колонка во
-// всю высоту окна, шапка с крошками слева и действиями справа, тело — строка панелей.
+// всю высоту окна, шапка сверху (каркас ds-head в ui/ds.css), тело — строка панелей.
 // Гарнитура — шрифт интерфейса (ui/tokens.css); холст внутри закреплён на прежней.
 export const workPage: CSSProperties = { display: "flex", flexDirection: "column", height: "100vh", fontFamily: "var(--font-ui)", overflow: "hidden" };
-export const workTopBar: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 20px", borderBottom: "1px solid #e2e8f0", background: "#fff", flexShrink: 0, gap: 12, flexWrap: "wrap" };
-export const workTopLeft: CSSProperties = { display: "flex", alignItems: "center", gap: 4, fontSize: 14, flexWrap: "wrap", flex: 1, minWidth: 0 };
-export const workDivider: CSSProperties = { width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" };
 export const workBodyRow: CSSProperties = { flex: 1, display: "flex", minHeight: 0, overflow: "hidden" };
 
 // ── Списочные экраны («Проекты», «Пользователи»): прокручивается вся страница.

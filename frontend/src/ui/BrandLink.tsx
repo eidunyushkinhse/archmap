@@ -3,6 +3,9 @@
 // экран «Все проекты»: вести некуда).
 import type { CSSProperties } from "react";
 import { LogoMark } from "./icons";
+// Подложка при наведении и кольцо фокуса — .brand-link: стили импортирует модуль, который
+// ставит класс (шапки, где стоит логотип, chrome.css могут и не грузить).
+import "./chrome.css";
 
 export default function BrandLink({ onClick }: { onClick?: () => void }) {
   const inner = (
