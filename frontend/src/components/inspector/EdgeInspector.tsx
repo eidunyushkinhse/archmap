@@ -1,29 +1,36 @@
-// Мета связи в правой панели: просмотр (наблюдатель) и inline-правка (архитектор).
-// Inline-правка коммитится по blur/смене конца и ложится в Undo/Redo через
-// onEdgeSaved. Вся механика правки (черновики, CAS-коммит, 409, инверсия) —
-// в общем хуке useEdgeEdit: его же переиспользует модалка связи на странице
-// объекта (EdgeEditModal).
+// Панель связи в редакторе-карте (редизайн, направление А «Документ»): заголовок «Связь» с
+// крестиком, строки «Откуда», «Куда», «Описание», «Канал» (только если один из концов —
+// брокер), «Технология» тем же видом, что строки свойств объекта (nodePage/PropRows),
+// внизу у редактора — «Удалить связь». Читатель видит только строки со значением.
+//
+// Правка коммитится по уходу с поля и по выбору конца и ложится в Undo/Redo через
+// onEdgeSaved. Вся механика правки (черновики, CAS-коммит, 409, проверки концов) — в
+// общем хуке useEdgeEdit: его же переиспользует окно связи на странице объекта
+// (EdgeEditModal, прежний язык).
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { BrokerChannel, DeletionSnapshot, Edge, EdgeUpdate, LevelEdge, Node } from "../../types";
 import { treeNesting } from "../../types";
 import { brokerChannelsApi, edgesApi, nodesApi } from "../../api/nodes";
 import { ShapeGlyph } from "../nodeTree.shared";
-import { useEdgeEdit } from "./useEdgeEdit";
-import EdgeEndRow from "./EdgeEndRow";
-import MetaRow from "./MetaRow";
-import { META_ICON } from "./metaIcons";
-import "./inspector.css";
+import NodeSearchPicker from "../NodeSearchPicker";
+import { Prop } from "../nodePage/PropRows";
+import { revertOnEscape } from "../nodePage/revertOnEscape";
 import { noAutofill } from "../../ui/noAutofill";
+import PanelHead from "./PanelHead";
+import { useEdgeEdit } from "./useEdgeEdit";
+import "../../ui/ds.css";
+import "./panel.css";
 
 interface Props {
   edge: LevelEdge;
   isArchitect: boolean;
   onEdgeSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
   onEdgeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
+  onClose: () => void;
 }
 
-export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDeleted }: Props) {
+export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDeleted, onClose }: Props) {
   // Концы: РЕАЛЬНЫЕ (original_*), а не их проекция на уровень — иначе правка
   // затёрла бы концы спроецированными значениями.
   const {
@@ -31,7 +38,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
     technology, setTechnology,
     channel, setChannel,
     sourceId, targetId, srcLabel, tgtLabel,
-    error, setError, commit, pickEnd,
+    saved, error, setError, commit, pickEnd,
   } = useEdgeEdit({
     id: edge.id,
     label: edge.label ?? null,
@@ -45,8 +52,8 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
   }, onEdgeSaved);
   const [deleting, setDeleting] = useState(false);
 
-  // Узлы-концы (read-only) для глифа формы рядом с «Откуда/Куда». Концы off-level,
-  // поэтому фетч по id (контракт связи формы концов не несёт).
+  // Узлы-концы (только чтение) для значка формы у «Откуда» и «Куда» и для поля «Канал».
+  // Концы бывают вне уровня, поэтому запрос по id (контракт связи формы концов не несёт).
   const [ends, setEnds] = useState<Record<string, Node>>({});
   useEffect(() => {
     let alive = true;
@@ -64,14 +71,14 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
 
   // Концы-БРОКЕРЫ. Стрелка, у которой хотя бы один конец — брокер, обязана назвать
   // канал (решение пользователя №4, docs/plan-broker-docs.md §4): без этого схема не
-  // отвечает на «откуда взялось событие». У остальных связей поля просто нет.
+  // отвечает на «откуда взялось событие». У остальных связей строки нет.
   const brokerEnds = useMemo(
     () => [sourceId, targetId].filter((id) => ends[id]?.shape === "broker"),
     [ends, sourceId, targetId],
   );
-  // Структура концов-брокеров — только для ПОДСКАЗКИ резолва (сохранение она не
-  // гейтит: канал может появиться в структуре позже, и запрет писать его сейчас
-  // заставил бы описывать брокер раньше схемы). Истина шва — алерт AL31.
+  // Структура концов-брокеров — только для ПРЕДУПРЕЖДЕНИЯ (сохранение она не гейтит:
+  // канал может появиться в структуре позже, и запрет писать его сейчас заставил бы
+  // описывать брокер раньше схемы). Истина шва — алерт AL31.
   const [brokerChannels, setBrokerChannels] = useState<BrokerChannel[]>([]);
   useEffect(() => {
     let alive = true;
@@ -83,16 +90,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
   }, [brokerEnds]);
 
   const typedChannel = channel.trim();
-  const channelHint: ReactNode = typedChannel === "" ? null
-    : channelKnown(typedChannel, brokerChannels)
-      ? <span className="insp-hint insp-hint--ok">✓ {typedChannel}</span>
-      : <span className="insp-hint insp-hint--warn">⚠ канала нет в структуре брокера</span>;
-
-  const endGlyph = (id: string): ReactNode => {
-    const n = ends[id];
-    if (!n) return null;
-    return <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />;
-  };
+  const unknownChannel = typedChannel !== "" && !channelKnown(typedChannel, brokerChannels);
 
   async function handleDelete() {
     setDeleting(true);
@@ -107,67 +105,145 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
     }
   }
 
+  const endValue = (end: "source" | "target") => {
+    const id = end === "source" ? sourceId : targetId;
+    const label = end === "source" ? srcLabel : tgtLabel;
+    const n = ends[id];
+    return (
+      <EndValue
+        label={label}
+        glyph={n ? <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} /> : null}
+        onPick={isArchitect ? (pid, lbl) => pickEnd(end, pid, lbl) : undefined}
+        term={end === "source" ? "Откуда" : "Куда"}
+      />
+    );
+  };
+
   return (
-    <div>
-      <div className="insp-block-label">Связь</div>
-      <dl className="insp-meta insp-meta--stacked">
-        <EdgeEndRow end="source" value={sourceId} label={srcLabel} glyph={endGlyph(sourceId)}
-          onPick={isArchitect ? (id, lbl) => pickEnd("source", id, lbl) : undefined} />
-        <EdgeEndRow end="target" value={targetId} label={tgtLabel} glyph={endGlyph(targetId)}
-          onPick={isArchitect ? (id, lbl) => pickEnd("target", id, lbl) : undefined} />
+    <>
+      <PanelHead title={<h2 className="ip-title">Связь</h2>} onClose={onClose} />
+
+      <dl className="ip-props">
+        <Prop term="Откуда">{endValue("source")}</Prop>
+        <Prop term="Куда">{endValue("target")}</Prop>
         {(isArchitect || labelText) && (
-          <MetaRow icon={META_ICON.desc} label="Описание">
+          <Prop term="Описание">
             {isArchitect ? (
-              <span className="insp-value">
-                {/* многострочное описание: textarea (лимит — модель, String(256));
-                    переносы автора уважает и плашка на схеме (wrapLabel по \n) */}
-                <textarea {...noAutofill("edge-inspector-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
+              // Многострочное описание (лимит модели — 256): переносы автора уважает и
+              // плашка на схеме (wrapLabel по \n). Поле растёт по тексту.
+              <span className="ds-grow" data-value={labelText}>
+                <textarea
+                  {...noAutofill("edge-label")}
+                  className="ds-grow-input"
+                  rows={1}
+                  aria-label="Описание"
+                  maxLength={256}
+                  value={labelText}
                   onChange={(e) => setLabelText(e.target.value)}
-                  onBlur={() => void commit({ label: labelText })} placeholder="например, запрос или событие" />
+                  onBlur={() => void commit({ label: labelText })}
+                  onKeyDown={revertOnEscape(labelText !== saved.label, () => setLabelText(saved.label))}
+                  placeholder="не указано"
+                />
               </span>
             ) : (
-              <span className="insp-value insp-value--pre">{labelText}</span>
+              <span className="ip-pre">{labelText}</span>
             )}
-          </MetaRow>
+          </Prop>
         )}
-        {/* Канал брокера: показываем, только если хотя бы один конец — брокер.
-            Наблюдателю — как остальные поля: строкой и только когда заполнено. */}
+        {/* Канал брокера: только если хотя бы один конец — брокер. Под ним — только
+            предупреждение, когда канала нет в структуре брокера. */}
         {brokerEnds.length > 0 && (isArchitect || channel) && (
-          <MetaRow icon={META_ICON.channel} label="Канал" layout="column">
+          <Prop term="Канал">
             {isArchitect ? (
-              <span className="insp-value">
-                <input {...noAutofill("edge-inspector-2")} className="insp-field" value={channel} maxLength={256}
-                  onChange={(e) => setChannel(e.target.value)}
-                  onBlur={() => void commit({ channel })} placeholder="топик / очередь" />
-              </span>
+              <input
+                {...noAutofill("edge-channel")}
+                className="ds-field"
+                aria-label="Канал"
+                maxLength={256}
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                onBlur={() => void commit({ channel })}
+                onKeyDown={revertOnEscape(channel !== saved.channel, () => setChannel(saved.channel))}
+                placeholder="не указан"
+              />
             ) : (
-              <span className="insp-value">{channel}</span>
+              channel
             )}
-            {channelHint}
-          </MetaRow>
+            {unknownChannel && <span className="ip-warn">Канала нет в структуре брокера</span>}
+          </Prop>
         )}
         {(isArchitect || technology) && (
-          <MetaRow icon={META_ICON.tech} label="Технология">
+          <Prop term="Технология">
             {isArchitect ? (
-              <span className="insp-value">
-                <input {...noAutofill("edge-inspector-3")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
-                  onBlur={() => void commit({ technology })} placeholder="например, REST или Kafka" />
-              </span>
+              <input
+                {...noAutofill("edge-tech")}
+                className="ds-field"
+                aria-label="Технология"
+                value={technology}
+                onChange={(e) => setTechnology(e.target.value)}
+                onBlur={() => void commit({ technology })}
+                onKeyDown={revertOnEscape(technology !== saved.technology, () => setTechnology(saved.technology))}
+                placeholder="не указана"
+              />
             ) : (
-              <span className="insp-value">{technology}</span>
+              technology
             )}
-          </MetaRow>
+          </Prop>
         )}
       </dl>
 
-      {error && <p style={{ color: "#dc2626", fontSize: 13, margin: "10px 0 0" }}>{error}</p>}
+      {error && <p className="ds-warn">{error}</p>}
 
       {isArchitect && (
-        <button type="button" className="insp-del" onClick={handleDelete} disabled={deleting}>
-          {META_ICON.trash} {deleting ? "Удаляем" : "Удалить связь"}
+        <button type="button" className="ip-delete" onClick={() => { void handleDelete(); }} disabled={deleting}>
+          {deleting ? "Удаляем" : "Удалить связь"}
         </button>
       )}
-    </div>
+    </>
+  );
+}
+
+// Значение «Откуда» / «Куда»: значок формы конца висит слева от имени (имя начинается с
+// того же x, что и остальные значения). У редактора значение — кнопка: по клику под
+// строкой открывается прежний поиск объекта по всему проекту (NodeSearchPicker), выбор
+// записывает конец и закрывает поиск; Escape и клик мимо закрывают без записи.
+function EndValue({ label, glyph, onPick, term }: {
+  label: string;
+  glyph: ReactNode;
+  onPick?: (id: string, label?: string) => void;
+  term: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const name = <span className="ip-end">{glyph && <span className="ip-end-glyph">{glyph}</span>}<span>{label}</span></span>;
+  if (!onPick) return name;
+  return (
+    <>
+      <button
+        type="button"
+        className="ds-value-btn"
+        aria-label={`${term}: ${label}`}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {name}
+      </button>
+      {open && (
+        <>
+          <div className="ds-backdrop" onClick={() => setOpen(false)} />
+          <div
+            className="ip-pop"
+            role="group"
+            aria-label={term}
+            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } }}
+          >
+            <NodeSearchPicker
+              value=""
+              onChange={(id, lbl) => { if (!id) return; setOpen(false); onPick(id, lbl); }}
+            />
+          </div>
+        </>
+      )}
+    </>
   );
 }
 

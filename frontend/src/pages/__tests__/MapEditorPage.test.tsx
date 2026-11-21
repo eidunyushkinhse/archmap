@@ -112,6 +112,13 @@ vi.mock("../../components/inspector/ObjectInspector", () => ({
     return <div data-testid="object-inspector" />;
   },
 }));
+// Панель есть, только пока что-то выбрано (редизайн, фаза 4а): её открывает двойной клик
+// по объекту на холсте (onEditNode). Без выбора заглушки панели нет, а с ней и колбэков.
+async function выбрать(n: Node) {
+  const drill = levelGraphProps.current?.drill as { onEditNode: (n: Node) => void };
+  act(() => { drill.onEditNode(n); });
+  await screen.findByTestId("object-inspector");
+}
 // Окна создания связи: заглушки показывают, с какими концами их открыли.
 vi.mock("../../components/CrossLevelEdgePicker", () => ({
   default: (p: { title: string; sourceId: string; sourceLabel: string; rootParentId: string | null }) => (
@@ -519,6 +526,7 @@ describe("MapEditorPage: своя мутация без оптимистично
 
   it("удаление объекта", async () => {
     await открыть();
+    await выбрать(node("b"));
     const onNodeDeleted = inspectorProps.current.onNodeDeleted as (id: string, s: unknown) => void;
     await проверить(() => onNodeDeleted("b", снимок), { version: 4, nodes: [node("a")] });
   });
@@ -540,6 +548,7 @@ describe("MapEditorPage: своя мутация без оптимистично
 
   it("восстановление после удаления (Undo)", async () => {
     await открыть();
+    await выбрать(node("b"));
     vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ version: 4, nodes: [node("a")] }) as never);
     const onNodeDeleted = inspectorProps.current.onNodeDeleted as (id: string, s: unknown) => void;
     act(() => { onNodeDeleted("b", снимок); });
@@ -641,6 +650,7 @@ describe("MapEditorPage: палитра и бросок по месту назн
 
   it("смена типа в свойствах перечитывает дерево и родителя уровня", async () => {
     await openSystemLevel();
+    await выбрать(node("a"));
     const reloadBefore = treeProps.current.reloadToken;
     const onNodeSaved = inspectorProps.current.onNodeSaved as (saved: Node, isCreate: boolean, before?: Node) => void;
     act(() => { onNodeSaved(node("a", { element: "system" }), false, node("a", { element: null })); });
@@ -833,7 +843,8 @@ describe("MapEditorPage: правка объекта в истории", () => {
   // Правка через панель: NodeInspector зовёт onNodeSaved(saved, false, before).
   async function поправить(before: Node, saved: Node) {
     render(<MapEditorPage {...props} nodeId={null} />);
-    await screen.findByTestId("object-inspector");
+    await screen.findByTestId("level-graph");
+    await выбрать(before);
     const onNodeSaved = inspectorProps.current.onNodeSaved as (s: Node, c: boolean, b?: Node) => void;
     await act(async () => { onNodeSaved(saved, false, before); });
     return historyMock.push.mock.calls[0][0] as { label: string; undo: () => void; redo: () => void };
@@ -915,7 +926,7 @@ describe("MapEditorPage: правка объекта в истории", () => {
 
   // Двойной клик по ЛЮБОМУ узлу — сплошной фигуре — его панель свойств (решение
   // пользователя 2026-10-05): гость — проекция только для просмотра, свёрнутый контейнер
-  // гостя — по id. На страницу узла ведёт лишь «Документация → Открыть» в самой панели.
+  // гостя — по id. На страницу узла ведёт лишь кнопка заголовка самой панели.
   describe("двойной клик по узлу — панель свойств", () => {
     type Drill = {
       onInspectGhost: (g: unknown) => void;
@@ -924,6 +935,54 @@ describe("MapEditorPage: правка объекта в истории", () => {
     type Sel = { kind: string; node?: { name: string }; ghost?: { name: string; ancestors: { name: string }[] } } | null;
     const drill = () => levelGraphProps.current?.drill as unknown as Drill;
     const selected = () => inspectorProps.current.selected as Sel;
+
+    it("без выбора панели нет; выбор её открывает, крестик и двойной клик по пустому холсту закрывают", async () => {
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+      expect(screen.queryByText(/Объект не выбран/)).toBeNull();
+      // Сворачивать панель больше незачем: её нет, пока ничего не выбрано.
+      expect(screen.queryByTitle("Свойства объекта")).toBeNull();
+
+      await выбрать(node("n1"));
+      act(() => { (inspectorProps.current.onClose as () => void)(); });
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+
+      await выбрать(node("n1"));
+      act(() => { (levelGraphProps.current?.drill as { onClearSelection: () => void }).onClearSelection(); });
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+    });
+
+    it("крестик гасит ещё не доехавшую догрузку объекта по id: панель сама не открывается", async () => {
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      await выбрать(node("n1"));
+      let answer: (all: Node[]) => void = () => {};
+      vi.mocked(nodesApi.getAll).mockReturnValueOnce(new Promise((r) => { answer = r; }) as never);
+      act(() => drill().onInspectNodeId("far"));
+      act(() => { (inspectorProps.current.onClose as () => void)(); });
+      await act(async () => { answer([node("far", { name: "Далёкий" })]); });
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+    });
+
+    it("«Показать на схеме» у гостя — уровень, где объект живёт, его панель и подсветка", async () => {
+      vi.mocked(nodesApi.getAll).mockResolvedValue([
+        node("sys", { name: "Система" }),
+        node("ext", { name: "Партнёр", is_external: true }),
+        node("ext-api", { name: "API партнёра", parent_id: "ext", is_external: true }),
+      ]);
+      render(<MapEditorPage {...props} nodeId="sys" />);
+      await screen.findByTestId("level-graph");
+      act(() => drill().onInspectGhost({ id: "ext-api", name: "API партнёра", ancestors: [{ id: "ext", name: "Партнёр" }] }));
+      const api = node("ext-api", { name: "API партнёра", parent_id: "ext", is_external: true });
+      vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ nodes: [api] }) as never);
+      await act(async () => { (inspectorProps.current.onShowGhost as (g: unknown) => void)(selected()!.ghost); });
+      await waitFor(() => expect(nodesApi.getGraph).toHaveBeenLastCalledWith("ext"));
+      await waitFor(() => expect(selected()).toMatchObject({ kind: "node", node: { name: "API партнёра" } }));
+      expect(levelGraphProps.current?.locate).toMatchObject({ kind: "node", ids: ["ext-api"] });
+      // На страницу объекта действие не уводит: страница — кнопка заголовка панели.
+      expect(props.onNavigateNode).not.toHaveBeenCalled();
+    });
 
     it("гость — панель проекции, на страницу не уводит", async () => {
       render(<MapEditorPage {...props} nodeId={null} />);
@@ -987,6 +1046,7 @@ describe("MapEditorPage: крошки перечитываются после п
     // «orders» сделали пустой системой в свойствах.
     const bSystem = node("b", { name: "orders", parent_id: "a", element: "system", element_effective: "system" });
     vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b: bSystem }));
+    await выбрать(b);
     act(() => { onNodeSaved()(bSystem, false, b); });
 
     await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "system"]));
@@ -1002,6 +1062,7 @@ describe("MapEditorPage: крошки перечитываются после п
 
     const aExternal = node("a", { name: "Торговля", is_external: true, has_children: true, element_effective: "system" });
     vi.mocked(nodesApi.get).mockImplementation(getBy({ a: aExternal, b }));
+    await выбрать(node("x"));
     act(() => { onNodeSaved()(node("x", { shape: "database" }), false, node("x")); });
 
     await waitFor(() => expect(levelGraphProps.current?.ancestorExternals).toEqual([true, false]));

@@ -177,7 +177,7 @@ describe("пикер конца связи (NodeSearchPicker)", () => {
   });
 });
 
-describe("инспектор гостя (GhostInspector)", () => {
+describe("панель гостя (GhostInspector)", () => {
   const ghost = (over: Partial<GhostNode>): GhostNode => ({
     id: "g1", name: "Гость", role: null, technology: null, is_external: false,
     shape: "service", status: "existing", node_depth: 1, has_children: false,
@@ -192,17 +192,17 @@ describe("инспектор гостя (GhostInspector)", () => {
     ] as const;
     for (const [g, kind] of cases) {
       const { container, unmount } = render(
-        <GhostInspector ghost={g} onGoToSource={vi.fn()} onNavigateNode={vi.fn()} />,
+        <GhostInspector ghost={g} onShowOnMap={vi.fn()} onNavigateNode={vi.fn()} onClose={vi.fn()} />,
       );
-      expect(glyphKind(container.querySelector(".insp-ghost-head"))).toBe(kind);
+      expect(glyphKind(container.querySelector(".ip-glyph"))).toBe(kind);
       unmount();
     }
   });
 });
 
-describe("инспектор узла (NodeInspector): технология", () => {
+describe("панель объекта (NodeInspector): технология", () => {
   beforeEach(() => vi.clearAllMocks());
-  const cb = { ancestors: [], onNodeSaved: vi.fn(), onNodeDeleted: vi.fn(), onNavigateNode: vi.fn() };
+  const cb = { ancestors: [], onNodeSaved: vi.fn(), onNodeDeleted: vi.fn(), onNavigateNode: vi.fn(), onClose: vi.fn() };
 
   it("сервис с детьми — сводная технология потомков без поля ввода", async () => {
     vi.mocked(nodesApi.getDescendants).mockResolvedValue([
@@ -211,17 +211,17 @@ describe("инспектор узла (NodeInspector): технология", ()
     render(<NodeInspector node={group()} isArchitect {...cb} />);
     expect(await screen.findByText("Go")).toBeInTheDocument();
     expect(nodesApi.getDescendants).toHaveBeenCalledWith("Ядро");
-    expect(screen.queryByPlaceholderText("например, Python")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Технология" })).toBeNull();
   });
 
   it("база с детьми — своя технология полем, потомков не запрашивает", () => {
     render(<NodeInspector node={dbWithKids()} isArchitect {...cb} />);
-    expect(screen.getByPlaceholderText("например, Python")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Технология" })).toBeInTheDocument();
     expect(nodesApi.getDescendants).not.toHaveBeenCalled();
   });
 });
 
-describe("инспектор связи (EdgeInspector): глифы концов", () => {
+describe("панель связи (EdgeInspector): глифы концов", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("глиф группы — только у сервиса с детьми", async () => {
@@ -236,7 +236,8 @@ describe("инспектор связи (EdgeInspector): глифы концов
       original_source_id: "s", original_target_id: "t",
       original_source_name: "Ядро", original_target_name: "Склад",
     } as LevelEdge;
-    render(<EdgeInspector edge={edge} isArchitect={false} onEdgeSaved={vi.fn()} onEdgeDeleted={vi.fn()} />);
+    render(<EdgeInspector edge={edge} isArchitect={false} onEdgeSaved={vi.fn()} onEdgeDeleted={vi.fn()} onClose={vi.fn()} />);
+    // Значок формы висит слева от имени конца: оба — в одной обёртке.
     const end = (name: string) => screen.getByText(name).parentElement;
     await waitFor(() => expect(glyphKind(end("Ядро"))).toBe("group"));
     await waitFor(() => expect(glyphKind(end("Склад"))).toBe("database"));

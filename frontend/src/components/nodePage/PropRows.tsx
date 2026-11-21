@@ -50,8 +50,9 @@ function statusDotColor(status: NodeStatus, isExternal: boolean): string {
 }
 
 // Статус словом с точкой. В строке свойств точка висит слева от текста (np-status),
-// чтобы текст статуса начинался с того же x, что и остальные значения.
-function StatusLabel({ status, isExternal }: { status: NodeStatus; isExternal: boolean }) {
+// чтобы текст статуса начинался с того же x, что и остальные значения. Тем же видом
+// статус показан в панели объекта с другого уровня (inspector/GhostInspector).
+export function StatusLabel({ status, isExternal }: { status: NodeStatus; isExternal: boolean }) {
   return (
     <span className="np-status">
       <span className="np-dot" style={{ background: statusDotColor(status, isExternal) }} aria-hidden="true" />
@@ -267,7 +268,7 @@ export function SourceProp({ patch, isArchitect }: { patch: NodePatch; isArchite
   if (!isArchitect && anchorKind(node.source) === null) return null;
   return (
     <Prop term="Источник">
-      <AnchorField source={node.source} isArchitect={isArchitect} onSave={patch.commitSource} variant="page" />
+      <AnchorField source={node.source} isArchitect={isArchitect} onSave={patch.commitSource} />
     </Prop>
   );
 }

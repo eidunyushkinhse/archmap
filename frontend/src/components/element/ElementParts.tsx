@@ -1,26 +1,13 @@
-// Общие части строки «Тип» (Р40 раздела 13 docs/plan-c4-elements.md) для инспектора
-// редактора, «Свойств» страницы объекта и инспектора гостя: справка «?» у термина и
-// значение — выпадашка из шести типов (TypeSelect) у редактора или текст, у компонента со
-// ссылкой на его контейнер. Один рендер на три места — без копий.
+// Значение строки «Тип» (Р40 раздела 13 docs/plan-c4-elements.md) — выпадашка из шести
+// типов (TypeSelect) у редактора или текст, у компонента со ссылкой на его контейнер.
+// Стоит в общей строке «Тип» (nodePage/PropRows): «Свойства» страницы объекта и панель
+// объекта редактора-карты. Справка «?» у термина убрана в редизайне (фаза 4а).
 import type { ReactNode } from "react";
-import InfoPopover from "../../ui/InfoPopover";
 import type { NodeType } from "../nodeTerms";
-import { ELEMENT_HELP, ELEMENT_HELP_LABEL } from "./elementText";
 import type { ContainerLink, TypeView } from "./elementView";
 import type { TypeOption } from "./typeOptions";
 import TypeSelect from "./TypeSelect";
 import "./element.css";
-
-// Справка «?»: что такое система, контейнер и компонент.
-export function ElementHelp() {
-  return (
-    <InfoPopover label={ELEMENT_HELP_LABEL}>
-      {ELEMENT_HELP.map((p) => (
-        <p key={p.head}><b>{p.head}</b> {p.body}</p>
-      ))}
-    </InfoPopover>
-  );
-}
 
 // Контейнер компонента: имя ссылкой на его страницу или текстом, если цепочка предков
 // разошлась с сервером. Одним span — чтобы во flex-ячейке инспектора пробел между текстом

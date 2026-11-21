@@ -1,20 +1,23 @@
-// Правая панель редактора: строка «Тип» (Р40 раздела 13 docs/plan-c4-elements.md) —
-// смена формы и элемента архитектором, серые пункты, отказ сервера плашкой и полное
-// отсутствие выпадашки у наблюдателя. Смена коммитится сразу (как статус) и уходит в Undo
-// редактора тем же onNodeSaved, что и остальная мета — своей истории у панели нет.
-import { render, screen, waitFor, within } from "@testing-library/react";
+// Панель объекта редактора-карты (редизайн, фаза 4а): те же строки, что «Свойства»
+// страницы объекта (nodePage/PropRows), в один столбец. Строка «Тип» (Р40 раздела 13
+// docs/plan-c4-elements.md) — смена формы и элемента архитектором, серые пункты, отказ
+// сервера плашкой и отсутствие выпадашки у наблюдателя. Любая правка коммитится сразу
+// (выбор) или по уходу с поля (тексты) и уходит в Undo редактора тем же onNodeSaved —
+// своей истории у панели нет.
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeInspector from "../inspector/NodeInspector";
 import { nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
-import type { AncestorRef, Node } from "../../types";
+import type { AncestorRef, DeletionSnapshot, Node } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
     update: vi.fn(),
     get: vi.fn(),
     getDescendants: vi.fn(() => Promise.resolve([])),
+    getEdges: vi.fn(),
     deletionSnapshot: vi.fn(),
     delete: vi.fn(),
     // Живая нормализация источника: форма поля «Источник» зовёт её при вводе.
@@ -47,27 +50,26 @@ function makeNode(over: Partial<Node> = {}): Node {
 }
 
 const cb = {
-  // Предки узла (крошки уровня): по ним строка «Тип» ищет контейнер.
+  // Предки узла (крошки уровня): по ним строка «Тип» решает, какие типы возможны.
   ancestors: [],
   onNodeSaved: vi.fn(),
   onNodeDeleted: vi.fn(),
   onNavigateNode: vi.fn(),
+  onClose: vi.fn(),
 };
 
 function setup(node: Node, isArchitect = true) {
   return render(<NodeInspector node={node} isArchitect={isArchitect} {...cb} />);
 }
 
-// Значение строки «Тип» (dd её ряда): шапка панели показывает ту же подпись, поэтому
-// текст типа ищется внутри строки, а не по всей панели.
-function typeRow(): HTMLElement {
-  const row = [...document.querySelectorAll(".insp-row")]
-    .find((r) => r.querySelector(".insp-term")?.textContent?.startsWith("Тип"));
-  const dd = row?.querySelector("dd");
-  if (!(dd instanceof HTMLElement)) throw new Error("нет строки «Тип»");
+// Строка свойств по подписи: значение (dd) её ряда.
+function row(term: string): HTMLElement {
+  const r = [...document.querySelectorAll(".np-prop")].find((p) => p.querySelector(".np-term")?.textContent === term);
+  const dd = r?.querySelector("dd");
+  if (!(dd instanceof HTMLElement)) throw new Error(`нет строки «${term}»`);
   return dd;
 }
-const headType = () => document.querySelector(".insp-typeline")?.textContent;
+const terms = () => [...document.querySelectorAll(".np-term")].map((t) => t.textContent);
 
 describe("NodeInspector: смена типа формой", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -121,7 +123,7 @@ describe("NodeInspector: смена типа формой", () => {
     await userEvent.click(typeButton());
     await userEvent.click(option("Брокер"));
 
-    expect(await screen.findByText(причина)).toBeInTheDocument();
+    expect(await screen.findByText(причина)).toHaveClass("ds-warn");
     // Правка не применилась — в историю ничего не легло
     expect(cb.onNodeSaved).not.toHaveBeenCalled();
   });
@@ -139,17 +141,16 @@ describe("NodeInspector: смена типа формой", () => {
     expect(nodesApi.update).not.toHaveBeenCalled();
   });
 
-  it("наблюдателю тип показан текстом, выпадашки нет", async () => {
+  it("наблюдателю тип показан текстом, выпадашки нет", () => {
     setup(makeNode({ shape: "person", element_effective: null }), false);
-    await waitFor(() => expect(screen.getAllByText("Пользователь").length).toBeGreaterThan(0));
+    expect(row("Тип")).toHaveTextContent("Пользователь");
     expect(screen.queryByRole("button", { name: "Тип" })).toBeNull();
   });
 });
 
-
 // ── Источник ───────────────────────────────────────────────────────────────────
-// Та же строка «Источник», что и в карточке объекта (один компонент на оба места):
-// в редакторе она правится не выходя с карты и уходит тем же save с CAS.
+// Та же строка «Источник», что в «Свойствах» страницы объекта (один компонент на оба
+// места): в редакторе она правится не выходя с карты и уходит тем же save с CAS.
 describe("NodeInspector: источник", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -161,10 +162,9 @@ describe("NodeInspector: источник", () => {
     vi.mocked(nodesApi.update).mockResolvedValue(
       makeNode({ source: { repo: "github.com/org/repo", path: null, host: null }, version: 4 }),
     );
-    render(<NodeInspector node={n} isArchitect {...cb} />);
+    setup(n);
 
-    expect(screen.getByText("имя зависимости:")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    await userEvent.click(within(row("Источник")).getByRole("button", { name: "Источник: kafka" }));
     await userEvent.click(screen.getByRole("radio", { name: "Код" }));
     await userEvent.type(screen.getByLabelText("Репозиторий"), "github.com/org/repo");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
@@ -177,77 +177,164 @@ describe("NodeInspector: источник", () => {
     expect(cb.onNodeSaved).toHaveBeenCalled();
   });
 
-  it("наблюдателю источник только читается", () => {
-    const n = makeNode({ shape: "service", source: { repo: "github.com/org/repo", path: null, host: null } });
-    render(<NodeInspector node={n} isArchitect={false} {...cb} />);
-    expect(screen.getByText("код:")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
-  });
-});
-
-// Шапка панели называет тип той же подписью, что строка «Тип» (typeView): слова «Сервис» в
-// интерфейсе нет, внешность звучит только у системы и контейнера («Внешняя система»,
-// «Внешний контейнер»), у компонента — «Компонент» без имени контейнера.
-describe("NodeInspector: шапка называет тип", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const cases: [string, Partial<Node>, string][] = [
-    ["контейнер", { shape: "service", element_effective: "container" }, "Контейнер"],
-    ["система с вложенными", { shape: "service", has_children: true, child_count: 2, element_effective: "system" }, "Система"],
-    ["внешняя система", { shape: "service", is_external: true, element_effective: "system" }, "Внешняя система"],
-    ["внешний контейнер", { shape: "service", is_external: true, element: "container", element_effective: "container" }, "Внешний контейнер"],
-    ["компонент", { shape: "service", element_effective: "component", container_name: "orders" }, "Компонент"],
-    ["внешняя база данных", { shape: "database", is_external: true, element_effective: "container" }, "База данных"],
-    ["пользователь", { shape: "person", element_effective: null }, "Пользователь"],
-  ];
-
-  it.each(cases)("%s — та же подпись, что у строки «Тип»", (_name, over, label) => {
-    setup(makeNode(over), false);
-    expect(headType()).toBe(label);
-    expect(typeRow().textContent).toContain(label);
-    expect(headType()).not.toMatch(/[Сс]ервис|внутренн/);
+  it("Escape в панели источника закрывает только её, не панель объекта", async () => {
+    const onWindowKey = vi.fn();
+    const listener = (e: KeyboardEvent) => { if (e.key === "Escape") onWindowKey(); };
+    window.addEventListener("keydown", listener);
+    setup(makeNode({ shape: "service", source: { repo: null, path: null, host: "kafka" } }));
+    await userEvent.click(screen.getByRole("button", { name: "Источник: kafka" }));
+    await userEvent.keyboard("{Escape}");
+    window.removeEventListener("keydown", listener);
+    expect(screen.queryByRole("group", { name: "Источник" })).toBeNull();
+    expect(onWindowKey).not.toHaveBeenCalled();
+    expect(cb.onClose).not.toHaveBeenCalled();
   });
 
-  it("у архитектора шапка совпадает с кнопкой «Тип»", () => {
-    setup(makeNode({ shape: "service", is_external: true, element_effective: "system" }));
-    expect(headType()).toBe("Внешняя система");
-    expect(screen.getByRole("button", { name: "Тип" })).toHaveTextContent("Внешняя система");
-  });
-});
-
-// Тогл «Принадлежность» инвертирован по решению пользователя 2026-09-04: «включён»
-// (синий) — ВНУТРЕННИЙ сервис, «выключен» (серый) — внешний. Данные при этом
-// прежние: клик по-прежнему переключает is_external.
-describe("NodeInspector: тогл принадлежности", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("внутренний — тогл включён и подписан «Внутренний», внешний — выключен", () => {
-    const { unmount } = setup(makeNode({ is_external: false }));
-    const inner = screen.getByRole("button", { name: "Внутренний" });
-    expect(inner.getAttribute("aria-pressed")).toBe("true");
-    expect(inner.querySelector(".insp-switch")?.classList.contains("is-on")).toBe(true);
+  it("наблюдателю источник только читается, без источника строки нет", () => {
+    const { unmount } = setup(makeNode({ shape: "service", source: { repo: "github.com/org/repo", path: null, host: null } }), false);
+    expect(row("Источник")).toHaveTextContent("github.com/org/repo");
+    expect(within(row("Источник")).queryByRole("button")).toBeNull();
     unmount();
+    setup(makeNode({ shape: "service" }), false);
+    expect(terms()).not.toContain("Источник");
+  });
+});
 
-    setup(makeNode({ is_external: true }));
-    const outer = screen.getByRole("button", { name: "Внешний" });
-    expect(outer.getAttribute("aria-pressed")).toBe("false");
-    expect(outer.querySelector(".insp-switch")?.classList.contains("is-on")).toBe(false);
+// ── Заголовок: значок формы, название, «Открыть страницу объекта», «Закрыть» ────
+// Серой строки типа под названием больше нет: тип называет строка «Тип». Название у
+// редактора правится на месте (поле в виде текста): Enter и уход с поля сохраняют, Escape
+// возвращает прежнее.
+describe("NodeInspector: заголовок", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("кнопки заголовка: страница объекта и закрытие; у «Пользователя» страницы нет", async () => {
+    const { unmount } = setup(makeNode({ shape: "service", element_effective: "container" }));
+    await userEvent.click(screen.getByRole("button", { name: "Открыть страницу объекта" }));
+    expect(cb.onNavigateNode).toHaveBeenCalledWith("n1");
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(cb.onClose).toHaveBeenCalledOnce();
+    unmount();
+    setup(makeNode({ shape: "person", element_effective: null }));
+    expect(screen.queryByRole("button", { name: "Открыть страницу объекта" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Закрыть" })).toBeInTheDocument();
   });
 
-  it("отказ записи тогла — тогл возвращается, причина плашкой (аудит R-13)", async () => {
+  it("серой строки типа под названием нет; блока «Документация» нет", () => {
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    expect(document.querySelector(".insp-typeline")).toBeNull();
+    expect(screen.queryByText("Документация")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Открыть" })).toBeNull();
+  });
+
+  it("Enter в названии сохраняет его", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ name: "Hosts", version: 4 }));
+    setup(makeNode());
+    const имя = screen.getByRole("textbox", { name: "Название" });
+    await userEvent.clear(имя);
+    await userEvent.type(имя, "Hosts{Enter}");
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ name: "Hosts", base_version: 3 });
+  });
+
+  it("Escape в названии с правкой возвращает прежнее и дальше не уходит; без правки — уходит", async () => {
+    const onWindowKey = vi.fn();
+    const listener = (e: KeyboardEvent) => { if (e.key === "Escape") onWindowKey(); };
+    window.addEventListener("keydown", listener);
+    setup(makeNode());
+    const имя = screen.getByRole("textbox", { name: "Название" });
+    await userEvent.type(имя, " 2");
+    await userEvent.keyboard("{Escape}");
+    expect(имя).toHaveValue("Monitored Hosts");
+    expect(onWindowKey).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(onWindowKey).toHaveBeenCalledOnce();
+    window.removeEventListener("keydown", listener);
+    fireEvent.blur(имя);
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("читателю название — заголовком, полей нет вовсе", () => {
+    setup(makeNode({ shape: "service", element_effective: "container", description: "Шлюз", role: "шлюз" }), false);
+    expect(screen.getByRole("heading", { name: "Monitored Hosts" })).toBeInTheDocument();
+    expect(document.querySelectorAll("input, textarea")).toHaveLength(0);
+    expect(screen.getByText("Шлюз")).toBeInTheDocument();
+  });
+});
+
+// ── Строки: порядок, читатель ────────────────────────────────────────────────
+describe("NodeInspector: строки свойств", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("один столбец в порядке «Тип», «Принадлежность», «Статус», «Роль», «Технология», «Источник»", () => {
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    expect(terms()).toEqual(["Тип", "Принадлежность", "Статус", "Роль", "Технология", "Источник"]);
+    // Размещение ведётся в режиме «Развёртывание» и на странице объекта.
+    expect(terms()).not.toContain("Размещение");
+  });
+
+  it("у «Пользователя» технологии нет", () => {
+    setup(makeNode({ shape: "person", element_effective: null }));
+    expect(terms()).toEqual(["Тип", "Принадлежность", "Статус", "Роль", "Источник"]);
+  });
+
+  it("читатель видит только строки со значением, пустое описание не показано", () => {
+    setup(makeNode({ shape: "service", element_effective: "container" }), false);
+    expect(terms()).toEqual(["Тип", "Принадлежность", "Статус"]);
+    expect(screen.queryByText("Добавьте описание")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Удалить объект" })).toBeNull();
+  });
+
+  it("статус — выпадашкой; Escape закрывает только меню", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ status: "planned", version: 4 }));
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    const value = within(row("Статус")).getByRole("button");
+    await userEvent.click(value);
+    await userEvent.keyboard("{Escape}");
+    expect(value).toHaveAttribute("aria-expanded", "false");
+    expect(cb.onClose).not.toHaveBeenCalled();
+    await userEvent.click(value);
+    await userEvent.click(screen.getByRole("button", { name: "Проектируется" }));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ status: "planned" });
+  });
+});
+
+// Принадлежность — выпадашкой из двух пунктов, как на странице объекта (прежний тогл
+// панели ушёл вместе с ней). Данные прежние: выбор переключает is_external.
+describe("NodeInspector: принадлежность", () => {
+  beforeEach(() => vi.clearAllMocks());
+  // Открытое меню выпадашки: пункт с тем же словом, что значение, есть и в нём.
+  const menu = () => {
+    const m = document.querySelector(".np-menu");
+    if (!(m instanceof HTMLElement)) throw new Error("меню не открыто");
+    return m;
+  };
+
+  it("значение называет принадлежность словом", () => {
+    const { unmount } = setup(makeNode({ is_external: false }));
+    expect(within(row("Принадлежность")).getByRole("button")).toHaveTextContent("Внутренний");
+    unmount();
+    setup(makeNode({ is_external: true }));
+    expect(within(row("Принадлежность")).getByRole("button")).toHaveTextContent("Внешний");
+  });
+
+  it("отказ записи — значение возвращается, причина плашкой (аудит R-13)", async () => {
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, "Сервер отказал"));
     setup(makeNode({ is_external: false }));
-    const toggle = screen.getByRole("button", { name: "Внутренний" });
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    await userEvent.click(toggle);
+    await userEvent.click(within(row("Принадлежность")).getByRole("button"));
+    await userEvent.click(screen.getByRole("button", { name: "Внешний" }));
     expect(await screen.findByText("Сервер отказал")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Внутренний" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(row("Принадлежность")).getByRole("button")).toHaveTextContent("Внутренний");
   });
 
-  it("клик по тоглу переключает is_external, а не вид", async () => {
+  it("выбор «Внешний» переключает is_external; тот же пункт — без запроса", async () => {
     vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ is_external: true, version: 4 }));
     setup(makeNode({ is_external: false }));
-    await userEvent.click(screen.getByRole("button", { name: "Внутренний" }));
+    await userEvent.click(within(row("Принадлежность")).getByRole("button"));
+    await userEvent.click(within(menu()).getByRole("button", { name: "Внутренний" }));
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    await userEvent.click(within(row("Принадлежность")).getByRole("button"));
+    await userEvent.click(screen.getByRole("button", { name: "Внешний" }));
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
     expect(vi.mocked(nodesApi.update).mock.calls[0][1].is_external).toBe(true);
   });
@@ -271,7 +358,7 @@ describe("NodeInspector: правка текстовых полей", () => {
     const [, payload] = vi.mocked(nodesApi.update).mock.calls[0];
     expect(payload).toMatchObject({ name: "Hosts", base_version: 3, shape: "person", status: "existing" });
 
-    await userEvent.type(screen.getByPlaceholderText("например, API или шлюз"), "агент");
+    await userEvent.type(screen.getByRole("textbox", { name: "Роль" }), "агент");
     await userEvent.tab();
     await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(second, false, first));
     expect(vi.mocked(nodesApi.update).mock.calls[1][1]).toMatchObject({ role: "агент", base_version: 4 });
@@ -286,15 +373,30 @@ describe("NodeInspector: правка текстовых полей", () => {
     expect(nodesApi.update).not.toHaveBeenCalled();
   });
 
+  it("описание — тем же полем, что на странице объекта; Escape с правкой возвращает прежнее", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ description: "Новое", version: 4 }));
+    setup(makeNode({ description: "Старое" }));
+    const описание = screen.getByRole("textbox", { name: "Описание" });
+    expect(описание).toHaveClass("np-desc-input");
+    await userEvent.type(описание, " и ещё");
+    await userEvent.keyboard("{Escape}");
+    expect(описание).toHaveValue("Старое");
+    await userEvent.clear(описание);
+    await userEvent.type(описание, "Новое");
+    await userEvent.tab();
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ description: "Новое" });
+  });
+
   it("409 — поля подтянуты с сервера, плашка, в историю ничего", async () => {
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(409, "conflict"));
     vi.mocked(nodesApi.get).mockResolvedValue(makeNode({ role: "чужая роль", version: 7 }));
     setup(makeNode());
 
-    await userEvent.type(screen.getByPlaceholderText("например, API или шлюз"), "моя роль");
+    await userEvent.type(screen.getByRole("textbox", { name: "Роль" }), "моя роль");
     await userEvent.tab();
 
-    expect(await screen.findByText(/только что изменили в другом окне/)).toBeInTheDocument();
+    expect(await screen.findByText(/только что изменили в другом окне/)).toHaveClass("ds-warn");
     expect(screen.getByDisplayValue("чужая роль")).toBeInTheDocument();
     expect(cb.onNodeSaved).not.toHaveBeenCalled();
   });
@@ -303,7 +405,7 @@ describe("NodeInspector: правка текстовых полей", () => {
 // ── Строка «Тип»: система и контейнер (Р40) ──────────────────────────────────
 // Строки «Тип» и «Элемент архитектуры» слиты: система ↔ контейнер у сервиса — смена
 // элемента с превью последствий (без них PATCH сразу и в историю, с ними — окно, PATCH
-// после подтверждения и без истории). Невозможные пункты — серые с объяснением.
+// после подтверждения и без истории). Невозможные пункты — серые.
 describe("NodeInspector: тип система и контейнер", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -422,7 +524,7 @@ describe("NodeInspector: тип система и контейнер", () => {
 
   it("читателю — текстом; у «Пользователя» тип тоже есть", () => {
     const { unmount } = setup(system({ element: "container", element_effective: "container" }), false);
-    expect(within(typeRow()).getByText("Контейнер")).toBeInTheDocument();
+    expect(within(row("Тип")).getByText("Контейнер")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Тип" })).not.toBeInTheDocument();
     unmount();
     setup(makeNode({ shape: "person", element_effective: null }));
@@ -430,41 +532,47 @@ describe("NodeInspector: тип система и контейнер", () => {
   });
 });
 
-// ── Ф8 и Р40: одна строка «Тип», справка «?», ссылка компонента, технология ─────
-// Р40: строка «Тип» одна у любого объекта (у узла с детьми тоже) и стоит первой; у
-// компонента имя контейнера — ссылка на его страницу (контейнер берётся из цепочки
-// предков). Р15: сводная технология только у системы.
-describe("NodeInspector: строка «Тип» по Ф8 и Р40", () => {
+// ── Р40: одна строка «Тип» подписью typeView, технология системы ───────────────
+// Р40: строка «Тип» одна у любого объекта (у узла с детьми тоже) и стоит первой. Слова
+// «Сервис» в интерфейсе нет, внешность звучит только у системы и контейнера. Справки «?»
+// у подписи и строки «Входит в контейнер» нет: контейнер компонента виден по уровню
+// схемы. Р15: сводная технология только у системы.
+describe("NodeInspector: строка «Тип» по Р40", () => {
   beforeEach(() => vi.clearAllMocks());
 
   const ancestor = (id: string, name: string, element_effective: AncestorRef["element_effective"]): AncestorRef =>
     ({ id, name, is_external: false, element_effective });
-  const terms = () => [...document.querySelectorAll(".insp-term")].map((t) => t.textContent);
 
-  it("одна строка «Тип» первой — у листа и у узла с детьми; «Элемент архитектуры» нет", () => {
+  const cases: [string, Partial<Node>, string][] = [
+    ["контейнер", { shape: "service", element_effective: "container" }, "Контейнер"],
+    ["система с вложенными", { shape: "service", has_children: true, child_count: 2, element_effective: "system" }, "Система"],
+    ["внешняя система", { shape: "service", is_external: true, element_effective: "system" }, "Внешняя система"],
+    ["внешний контейнер", { shape: "service", is_external: true, element: "container", element_effective: "container" }, "Внешний контейнер"],
+    ["компонент", { shape: "service", element_effective: "component", container_name: "orders" }, "Компонент"],
+    ["внешняя база данных", { shape: "database", is_external: true, element_effective: "container" }, "База данных"],
+    ["пользователь", { shape: "person", element_effective: null }, "Пользователь"],
+    ["пустая система (Р39)", { shape: "service", element: "system", element_effective: "system" }, "Система"],
+  ];
+
+  it.each(cases)("%s — подпись строки «Тип»", (_name, over, label) => {
+    setup(makeNode(over), false);
+    expect(row("Тип").textContent).toBe(label);
+    expect(row("Тип").textContent).not.toMatch(/[Сс]ервис|внутренн/);
+  });
+
+  it("одна строка «Тип» первой — у листа и у узла с детьми; «Элемент архитектуры» и «?» нет", () => {
     const { unmount } = setup(makeNode({
       shape: "service", has_children: true, child_count: 2, element: "container", element_effective: "container",
     }));
     expect(terms()[0]).toBe("Тип");
     expect(terms()).not.toContain("Элемент архитектуры");
+    expect(screen.queryByRole("button", { name: "Что такое система, контейнер и компонент" })).toBeNull();
     unmount();
     setup(makeNode({ shape: "service", element_effective: "container" }));
-    expect(terms()[0]).toBe("Тип");
     expect(terms().filter((t) => t === "Тип")).toHaveLength(1);
   });
 
-  it("«?» у термина открывает справку о системе, контейнере и компоненте", async () => {
-    setup(makeNode({ shape: "service", element_effective: "container" }));
-    await userEvent.click(screen.getByRole("button", { name: "Что такое система, контейнер и компонент" }));
-    const help = screen.getByRole("dialog", { name: "Что такое система, контейнер и компонент" });
-    for (const head of ["Контейнер.", "Компонент.", "Система.", "Как выбрать."]) {
-      expect(help).toHaveTextContent(head);
-    }
-    expect(help).toHaveTextContent("Тип выбирается при создании и меняется в свойствах.");
-    expect(help.textContent).not.toMatch(/[Сс]пек/);
-  });
-
-  it("компонент: выпадашка «Компонент» и ссылка на контейнер из предков", async () => {
+  it("компонент: выпадашка «Компонент» без строки «Входит в контейнер»", () => {
     render(<NodeInspector
       {...cb}
       ancestors={[ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")]}
@@ -472,21 +580,8 @@ describe("NodeInspector: строка «Тип» по Ф8 и Р40", () => {
       isArchitect
     />);
     expect(screen.getByRole("button", { name: "Тип" })).toHaveTextContent("Компонент");
-    const link = screen.getByRole("button", { name: "«orders»" });
-    expect(link.parentElement).toHaveTextContent("Входит в контейнер «orders»");
-    await userEvent.click(link);
-    expect(cb.onNavigateNode).toHaveBeenCalledWith("c");
-  });
-
-  it("компонент у читателя: «Компонент контейнера «orders»»; без контейнера в цепочке — без ссылки", () => {
-    setup(makeNode({ shape: "service", element_effective: "component", container_name: "orders" }), false);
-    expect(screen.getByText("Компонент контейнера «orders»")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "«orders»" })).not.toBeInTheDocument();
-  });
-
-  it("пустая система (Р39) — «Система»", () => {
-    setup(makeNode({ shape: "service", element: "system", element_effective: "system" }), false);
-    expect(within(typeRow()).getByText("Система")).toBeInTheDocument();
+    expect(screen.queryByText(/Входит в контейнер/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "«orders»" })).toBeNull();
   });
 
   it("технология системы: потомки не загрузились — «не загрузилась» и «Повторить», а не «не указана»", async () => {
@@ -514,5 +609,29 @@ describe("NodeInspector: строка «Тип» по Ф8 и Р40", () => {
     setup(makeNode({ ...group, element_effective: "system" }));
     expect(await screen.findByText("Go, Python")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("Java")).not.toBeInTheDocument();
+  });
+
+  it("пустая система — сводная технология без запроса потомков: «не указана»", () => {
+    setup(makeNode({ shape: "service", element: "system", element_effective: "system", technology: "Java" }));
+    expect(row("Технология")).toHaveTextContent("не указана");
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
+  });
+});
+
+// ── Удаление ─────────────────────────────────────────────────────────────────
+describe("NodeInspector: удаление", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("«Удалить объект» внизу — тем же подтверждением; терять нечего — удаление сразу, в историю снимок", async () => {
+    const snapshot = { nodes: [], edges: [], layout_items: [], node_docs: [], db_tables: [], db_columns: [], broker_channels: [], channel_fields: [] } as unknown as DeletionSnapshot;
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.deletionSnapshot).mockResolvedValue(snapshot);
+    vi.mocked(nodesApi.delete).mockResolvedValue(undefined as never);
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    const del = screen.getByRole("button", { name: "Удалить объект" });
+    expect(del).toHaveClass("ip-delete");
+    await userEvent.click(del);
+    await waitFor(() => expect(nodesApi.delete).toHaveBeenCalledWith("n1"));
+    await waitFor(() => expect(cb.onNodeDeleted).toHaveBeenCalledWith("n1", snapshot));
   });
 });

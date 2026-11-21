@@ -108,13 +108,13 @@ describe("автозаполнение браузера в формах прод
     expectNoAutofill(container);
   });
 
-  it("инспекторы объекта и связи", async () => {
+  it("панели объекта и связи редактора-карты", async () => {
     const node = render(
-      <NodeInspector node={NODE} ancestors={[]} isArchitect onNodeSaved={vi.fn()} onNodeDeleted={vi.fn()} onNavigateNode={vi.fn()} />,
+      <NodeInspector node={NODE} ancestors={[]} isArchitect onNodeSaved={vi.fn()} onNodeDeleted={vi.fn()} onNavigateNode={vi.fn()} onClose={vi.fn()} />,
     );
     expectNoAutofill(node.container);
     node.unmount();
-    const edge = render(<EdgeInspector edge={EDGE} isArchitect onEdgeSaved={vi.fn()} onEdgeDeleted={vi.fn()} />);
+    const edge = render(<EdgeInspector edge={EDGE} isArchitect onEdgeSaved={vi.fn()} onEdgeDeleted={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(edge.container.querySelector("textarea, input")).not.toBeNull());
     expectNoAutofill(edge.container);
   });

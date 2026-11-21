@@ -31,7 +31,7 @@
   overflow-wrap: anywhere;
 }
 /* Элемент управления внутри значения сам несёт поля 3px: у ячейки их нет. */
-.np-value:has(> .ds-field, > .np-selwrap, > .ds-value-btn, > .ts-cell, > .anchor-field--page > .ds-value-btn, > .ds-grow) {
+.np-value:has(> .ds-field, > .np-selwrap, > .ds-value-btn, > .ts-cell, > .anchor-field > .ds-value-btn, > .ds-grow) {
   padding-block: 0;
 }
 /* Шеврон выпадающего значения виден и при наведении на всю строку. */

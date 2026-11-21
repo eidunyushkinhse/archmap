@@ -1,7 +1,8 @@
 // Редактор-карта (MapEditorPage) — полноэкранный редактор схем (pages_pivot, Фаза 4).
 // Роут: #/p/<pid>/map/<nodeId?>. Топбар: breadcrumb + undo/redo + «Готово».
 // Слева: дерево объектов (дизайн страниц + секция «Добавить объект» внизу).
-// Центр: LevelGraph со всеми жестами. Справа: ObjectInspector (272px).
+// Центр: LevelGraph со всеми жестами. Справа: панель объекта или связи (ObjectInspector,
+// 320px) — только пока что-то выбрано.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { workBodyRow as bodyRow, workDivider as divider, workPage, workTopBar as topBar, workTopLeft as topLeft } from "../ui/pageChrome";
@@ -40,7 +41,7 @@ import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "../components/graph/labelsPref";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
-import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon, CollapseIcon, PropsIcon } from "../ui/icons";
+import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import BrandLink from "../ui/BrandLink";
 import TourHelpButton from "../components/tour/TourHelpButton";
@@ -95,8 +96,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     error: unknown;
     retry: { kind: "initial" } | { kind: "level"; level: string | null } | { kind: "navigate"; level: string };
   } | null>(null);
+  // Что открыто в правой панели; null — панели нет, холст до правого края окна.
   const [selectedObject, setSelectedObject] = useState<Selected>(null);
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(false); // свёрнута ли правая панель
   const [nodeModal, setNodeModal] = useState<{
     open: boolean; node: Node | null; type?: NodeType;
     pos?: { x: number; y: number } | null;
@@ -478,15 +479,36 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     drillToPath(path.map(ancestorRef));
   }
 
-  // Клик по листу → прыжок на его слой (слой родителя), выделение и пульс.
-  async function pickFromTree(node: Node) {
+  // Прыжок к объекту на его слой (слой родителя): выбор объекта (его панель) и пульс.
+  // fallback — объект, если на загруженном слое его не нашлось (клик по листу дерева).
+  async function jumpTo(id: string, parentId: string | null, fallback?: Node) {
     let pool = nodes;
-    if (node.parent_id !== currentParentId) {
-      pool = (await navigateToLevel(node.parent_id)) ?? pool;
+    if (parentId !== currentParentId) {
+      pool = (await navigateToLevel(parentId)) ?? pool;
     }
-    const fresh = pool.find((n) => n.id === node.id) ?? node;
-    setSelectedObject({ kind: "node", node: fresh });
-    setLocate({ kind: "node", ids: [node.id], token: ++locateSeq.current });
+    const fresh = pool.find((n) => n.id === id) ?? fallback;
+    setSelectedObject(fresh ? { kind: "node", node: fresh } : null);
+    setLocate({ kind: "node", ids: [id], token: ++locateSeq.current });
+  }
+
+  // Клик по листу → прыжок на его слой (слой родителя), выделение и пульс.
+  function pickFromTree(node: Node) {
+    return jumpTo(node.id, node.parent_id, node);
+  }
+
+  // «Показать на схеме» в панели объекта с другого уровня: слой, где объект живёт (его
+  // родитель — последнее звено пути гостя; у объекта верхнего уровня — корень), выбор и
+  // пульс — как клик по листу в дереве.
+  function showGhost(ghost: GhostNode) {
+    const parent = ghost.ancestors.length > 0 ? ghost.ancestors[ghost.ancestors.length - 1].id : null;
+    return jumpTo(ghost.id, parent);
+  }
+
+  // Крестик панели: панель закрывается, ответ ещё не доехавшей догрузки узла по id
+  // (inspectNodeById) её больше не откроет.
+  function closePanel() {
+    inspectSeq.current++;
+    setSelectedObject(null);
   }
 
   // ── Undo/Redo ────────────────────────────────────────────────────
@@ -832,8 +854,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // стабильные setState-сеттеры и ref'ы в deps не нужны (exhaustive-deps их не требует).
   // Двойной клик по ЛЮБОМУ узлу — сплошной фигуре на схеме — его панель свойств (решение
   // пользователя 2026-10-05; рамки раскрытий не в счёт): свой узел — правка, гость и его
-  // свёрнутый контейнер — проекция только для просмотра. На страницу узла ведёт одна
-  // кнопка — «Документация → Открыть» в панели. Новый выбор гасит ответ ещё не
+  // свёрнутый контейнер — проекция только для просмотра. На страницу узла ведёт кнопка
+  // «Открыть страницу объекта» в заголовке панели. Новый выбор гасит ответ ещё не
   // доехавшей догрузки узла по id (inspectNodeById).
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: drillDown,
@@ -1033,35 +1055,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           )}
         </div>
 
-        {/* Инспектор. Сворачивается зеркально дереву слева (NodeTreePanel): узкий
-            рейл с кнопкой панели и футер «Свернуть панель» внизу. */}
-        <aside style={{ ...rightPanel, width: inspectorCollapsed ? RIGHT_PANEL_COLLAPSED_W : RIGHT_PANEL_W }}>
-          {inspectorCollapsed ? (
-            <div style={rightRail}>
-              <button className="nt-railbtn" title="Свойства объекта" onClick={() => setInspectorCollapsed(false)}>
-                <PropsIcon />
-              </button>
-            </div>
-          ) : (
-            <div style={rightContent}>
-              <ObjectInspector
-                selected={selectedObject} nodeAncestors={selectedAncestors} isArchitect={isArchitect}
-                onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
-                onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
-                onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}
-                onNavigateNode={onNavigateNode}
-              />
-            </div>
-          )}
-          <button
-            className="nt-collapse"
-            onClick={() => setInspectorCollapsed((c) => !c)}
-            title={inspectorCollapsed ? "Развернуть панель" : "Свернуть панель"}
-          >
-            {!inspectorCollapsed && <span>Свернуть панель</span>}
-            <CollapseIcon dir={inspectorCollapsed ? "left" : "right"} />
-          </button>
-        </aside>
+        {/* Панель объекта или связи — только пока что-то выбрано (ObjectInspector). */}
+        {selectedObject && (
+          <ObjectInspector
+            selected={selectedObject} nodeAncestors={selectedAncestors} isArchitect={isArchitect}
+            onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
+            onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
+            onShowGhost={(ghost) => { void showGhost(ghost); }}
+            onNavigateNode={onNavigateNode}
+            onClose={closePanel}
+          />
+        )}
       </div>
 
       {/* Модалки */}
@@ -1137,12 +1141,6 @@ const NO_DROP_FRAMES: DropFrameTarget[] = [];
 
 const page: CSSProperties = { ...workPage, background: "#f8fafc" };
 const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", padding: 12, display: "flex", flexDirection: "column", position: "relative" };
-const RIGHT_PANEL_W = 272;
-const RIGHT_PANEL_COLLAPSED_W = 48; // как у свёрнутого дерева слева
-const rightPanel: CSSProperties = { flexShrink: 0, borderLeft: "1px solid #e2e8f0", background: "#fbfcfd", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.22s ease" };
-// Фиксированная ширина содержимого — без переноса текста при анимации ширины.
-const rightContent: CSSProperties = { width: RIGHT_PANEL_W, boxSizing: "border-box", flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 14px", scrollbarGutter: "stable" };
-const rightRail: CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", gap: 6, paddingTop: 12, flex: 1 };
 const doneBtn: CSSProperties = { padding: "7px 20px", fontSize: 13.5, fontWeight: 600, color: "#fff", background: "#2563eb", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" };
 const crumbLink: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", borderRadius: 7, fontSize: 13.5, color: "#64748b", cursor: "pointer", background: "none", border: "none" };
 const crumbCurrent: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", fontSize: 13.5, color: "#1e293b", fontWeight: 600, background: "none", border: "none", cursor: "default" };
