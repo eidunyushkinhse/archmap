@@ -1414,6 +1414,27 @@ export function zRoutes(params: {
     }
     return out;
   };
+  // ПРОХОД ПО ПОЛОСАМ: взаимодействие требует перекрытия полос (min(bandHi) − max(bandLo) ≥
+  // −EPS). У сегмента b после a в порядке bandLo это перекрытие не больше a.bandHi − b.bandLo,
+  // а дальше по bandLo оно только убывает — проход по парам (a, b) обрывается, как только
+  // a.bandHi − b.bandLo < −EPS. Полосы уже пробегов, и пар-кандидатов вдвое-вчетверо меньше,
+  // чем при проходе по lo (замер hub50-expand: 2,7 млн против 5,8 млн у дорожек «v»). NaN в
+  // полосе ломает порядок сортировки — тогда false, и вызывающий идёт прежним путём.
+  const bandOrder = (S: ReadonlyArray<Seg>): number[] | null => {
+    for (const sg of S) if (Number.isNaN(sg.bandLo) || Number.isNaN(sg.bandHi)) return null;
+    return S.map((_, k) => k).sort((a, b) => S[a].bandLo - S[b].bandLo || a - b);
+  };
+  const eachBandPair = (S: ReadonlyArray<Seg>, order: ReadonlyArray<number>, fn: (i: number, j: number) => void): void => {
+    const n = order.length;
+    for (let p = 0; p < n; p++) {
+      const ia = order[p], a = S[ia];
+      for (let q = p + 1; q < n; q++) {
+        const ib = order[q], b = S[ib];
+        if (!(a.bandHi - b.bandLo >= -EPS)) break;
+        if (interacts(a, b)) fn(ia, ib);
+      }
+    }
+  };
   // Общий член (одна связь в обоих сегментах) — не взаимодействие. У несклеенных сегментов
   // по одному члену, и проверка сводится к сравнению двух связей (быстрый путь).
   const interacts = (a: Seg, b: Seg): boolean => {
@@ -1448,21 +1469,12 @@ export function zRoutes(params: {
   // сортируются в порядок (i, j).
   const interactingPairs = (M: Seg[]): number[] => {
     const m = M.length, out: number[] = [];
-    let finite = m > 8;
-    if (finite) for (const sg of M) if (!Number.isFinite(sg.lo) || !Number.isFinite(sg.hi)) { finite = false; break; }
-    if (!finite) {
+    const order = m > 8 ? bandOrder(M) : null;
+    if (!order) {
       for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) if (interacts(M[i], M[j])) out.push(i * m + j);
       return out;
     }
-    const byLo = M.map((_, k) => k).sort((a, b) => M[a].lo - M[b].lo || a - b);
-    for (let p = 0; p < m; p++) {
-      const ia = byLo[p], a = M[ia];
-      for (let q = p + 1; q < m; q++) {
-        const ib = byLo[q], b = M[ib];
-        if (!(a.hi - b.lo > -NUDGE_GAP)) break;
-        if (interacts(a, b)) out.push(ia < ib ? ia * m + ib : ib * m + ia);
-      }
-    }
+    eachBandPair(M, order, (ia, ib) => { out.push(ia < ib ? ia * m + ib : ib * m + ia); });
     return out.sort((x, y) => x - y);
   };
   // ПАМЯТЬ РАЗДАЧИ КОМПОНЕНТЫ. Результат компоненты зависит только от её сегментов (в их
@@ -1580,23 +1592,12 @@ export function zRoutes(params: {
     appTable.build(S, F);
     const parent = S.map((_, k) => k);
     const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
-    // Компоненты: пары взаимодействующих сегментов. Перекрытие пробега ищется проходом по
-    // сегментам в порядке lo: у сегмента b правее a (b.lo ≥ a.lo) перекрытие с зазором —
-    // ровно a.hi − b.lo > −NUDGE_GAP (b.hi ≥ b.lo), и дальше по lo оно только убывает. Разбиение
-    // на компоненты и их порядок (по меньшему номеру сегмента) от порядка слияний не зависят.
-    // Нечисловой пробег — прежний полный перебор пар.
-    let finite = true;
-    for (const sg of S) if (!Number.isFinite(sg.lo) || !Number.isFinite(sg.hi)) { finite = false; break; }
-    if (finite) {
-      const byLo = S.map((_, k) => k).sort((a, b) => S[a].lo - S[b].lo || a - b);
-      for (let p = 0; p < n; p++) {
-        const a = S[byLo[p]];
-        for (let q = p + 1; q < n; q++) {
-          const b = S[byLo[q]];
-          if (!(a.hi - b.lo > -NUDGE_GAP)) break;
-          if (interacts(a, b)) parent[find(byLo[p])] = find(byLo[q]);
-        }
-      }
+    // Компоненты: пары взаимодействующих сегментов проходом по полосам (eachBandPair).
+    // Разбиение на компоненты и их порядок (по меньшему номеру сегмента) от порядка слияний не
+    // зависят. NaN в полосе — прежний полный перебор пар.
+    const order = bandOrder(S);
+    if (order) {
+      eachBandPair(S, order, (ia, ib) => { parent[find(ia)] = find(ib); });
     } else {
       for (let i = 0; i < n; i++) {
         for (let j = i + 1; j < n; j++) if (interacts(S[i], S[j])) parent[find(i)] = find(j);
