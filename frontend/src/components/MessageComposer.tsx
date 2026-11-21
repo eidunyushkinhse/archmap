@@ -169,7 +169,7 @@ export default function MessageComposer({
       onAdded(created, payload);
       onClose();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось добавить сообщение");
+      setError(e instanceof Error ? e.message : "Не удалось добавить шаг");
       setBusy(false);
     }
   }
@@ -177,7 +177,7 @@ export default function MessageComposer({
   return (
     <div className="bp bp-composer">
       <div className="bp-comphead">
-        <span style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Добавить сообщение</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Добавить шаг</span>
         <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={onClose}>
           <IcoClose s={14} />
         </button>
@@ -214,7 +214,7 @@ export default function MessageComposer({
                 Между ними нет задокументированной связи
               </div>
               <div style={{ fontSize: 12, color: "#92591a", lineHeight: 1.5 }}>
-                Сообщение в процессе идёт только по связи из схемы. Опишите связь
+                Шаг процесса идёт только по связи из схемы. Опишите связь
                 «{nameOf(fromNode)} → {nameOf(toNode)}», и она появится на схеме и в этом списке.
               </div>
             </div>
@@ -269,7 +269,7 @@ export default function MessageComposer({
       ) : (
         <>
           <div style={{ fontSize: 11.5, color: BPT.micro, padding: "4px 14px 6px" }}>
-            Сообщение можно взять из задокументированных связей между ними:
+            Шаг можно взять из связей между ними:
           </div>
           <div style={{ padding: "0 14px", display: "grid", gap: 9, maxHeight: 200, overflow: "auto" }}>
             {channels.map((ch) => (
@@ -338,7 +338,7 @@ export default function MessageComposer({
           </div>
           <div style={{ display: "flex", gap: 8, padding: "12px 14px 14px", justifyContent: "flex-end", borderTop: "1px solid " + BPT.line2, marginTop: 10 }}>
             <button className="bp-btn-primary" onClick={() => void add()} disabled={!sel || busy}>
-              Добавить сообщение
+              Добавить шаг
             </button>
             <button className="bp-btn-ghost" onClick={onClose}>
               Отмена
