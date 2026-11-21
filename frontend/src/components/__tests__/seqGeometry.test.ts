@@ -5,7 +5,7 @@
 // содержимому (редизайн, фаза 3а): ширины подписей и шапок тесты подают руками, в jsdom
 // замеров нет.
 import { describe, expect, it } from "vitest";
-import { computeColumns, computeSeqGeometry, fitLabelCap, type SeqGeometryInput } from "../processes/sequence/geometry";
+import { computeColumns, computeSeqGeometry, fitLabelCap, LABEL_GAP, type SeqGeometryInput } from "../processes/sequence/geometry";
 import type { SeqFragment, SeqMessage, SeqParticipant } from "../processes/sequence/layout";
 import { SQ } from "../processes/tokens";
 
@@ -120,6 +120,63 @@ describe("колонки по содержимому", () => {
   });
 });
 
+// Шапка фрагмента (плашка вида с условием) и плашка условия ветви — над подписью первого
+// шага своего участка (правки приёмки фазы 3а, П4): высота подписи входит в отступ.
+describe("шапка фрагмента и условие ветки не наезжают на подпись шага", () => {
+  // Плашка вида с условием — около 22 px от верха рамки; плашка условия ветви — около
+  // 10 px выше и ниже линии разделителя.
+  const TAG = 22;
+  const HALF = 10;
+  const lineH = (n: number) => Math.round(17.4 * n + 2);
+  const labelTop = (g: ReturnType<typeof geo>, r: number, lh: number) => g.rowY(r) - lh - LABEL_GAP;
+
+  for (const lines of [1, 2, 3]) {
+    it(`подпись в ${lines} строк${lines === 1 ? "у" : "и"}: шапка и условие ветви выше неё и ниже стрелки строкой выше`, () => {
+      const lh = lineH(lines);
+      const labelH = { m0: lh, m1: lh, m2: lh };
+      const g = geo({ fragments: [F("f1", 1, 2, [2])], labelH });
+      const [box] = g.fragBoxes;
+      expect(box.top + TAG).toBeLessThanOrEqual(labelTop(g, 1, lh));
+      expect(box.top).toBeGreaterThan(g.rowY(0) + 18);
+      const [b] = box.branches;
+      expect(b.y + HALF).toBeLessThanOrEqual(labelTop(g, 2, lh));
+      expect(b.y - HALF).toBeGreaterThan(g.rowY(1) + 8);
+    });
+  }
+
+  it("с первого шага процесса: шапка под полосой шапок участников", () => {
+    const g = geo({ fragments: [F("f1", 0, 1)], labelH: { m0: lineH(3) } });
+    const [box] = g.fragBoxes;
+    expect(box.top).toBeGreaterThan(g.lifeTop);
+    expect(box.top + TAG).toBeLessThanOrEqual(labelTop(g, 0, lineH(3)));
+  });
+
+  it("вложенный фрагмент с того же шага: внешняя шапка над внутренней, обе над подписью", () => {
+    const lh = lineH(2);
+    const g = geo({ fragments: [F("f1", 0, 2), F("f2", 0, 1)], labelH: { m0: lh } });
+    const [o, i] = g.fragBoxes;
+    expect(i.top + TAG).toBeLessThanOrEqual(labelTop(g, 0, lh));
+    expect(o.top + TAG).toBeLessThanOrEqual(i.top);
+  });
+
+  it("фрагмент внутри ветви с её первого шага: условие ветви над шапкой вложенного", () => {
+    const lh = lineH(2);
+    const g = geo({ fragments: [F("f1", 0, 2, [1]), F("f2", 1, 2)], labelH: { m1: lh } });
+    const [o, i] = g.fragBoxes;
+    expect(o.branches[0].y + HALF).toBeLessThanOrEqual(i.top);
+    expect(i.top + TAG).toBeLessThanOrEqual(labelTop(g, 1, lh));
+    expect(o.branches[0].y - HALF).toBeGreaterThan(g.rowY(0) + 8);
+  });
+
+  it("строка с полосами добавляет их высоту один раз со своим воздухом", () => {
+    const base = geo();
+    const g = geo({ fragments: [F("f1", 0, 2, [1, 2])] });
+    expect(g.rowY(0) - base.rowY(0)).toBe(SQ.FRAG_HEAD + SQ.FRAG_PRE);
+    expect(g.rowY(1) - base.rowY(1)).toBe(SQ.FRAG_HEAD + SQ.ELSE_GAP + 2 * SQ.FRAG_PRE);
+    expect(g.rowY(2) - base.rowY(2)).toBe(SQ.FRAG_HEAD + 2 * SQ.ELSE_GAP + 3 * SQ.FRAG_PRE);
+  });
+});
+
 describe("вписывание: предел ширины подписи", () => {
   const input = { participants: parts, messages: msgs, labelW: { m0: 400, m1: 400, m2: 400 } };
 
@@ -186,8 +243,8 @@ describe("геометрия sequence-диаграммы", () => {
     const outer = F("f1", 0, 2);
     const inner = F("f2", 1, 1);
     const g = geo({ fragments: [outer, inner] });
-    expect(g.rowY(0) - base.rowY(0)).toBe(SQ.FRAG_HEAD);
-    expect(g.rowY(1) - base.rowY(1)).toBe(2 * SQ.FRAG_HEAD);
+    expect(g.rowY(0) - base.rowY(0)).toBe(SQ.FRAG_HEAD + SQ.FRAG_PRE);
+    expect(g.rowY(1) - base.rowY(1)).toBe(2 * (SQ.FRAG_HEAD + SQ.FRAG_PRE));
     const [o, i] = g.fragBoxes;
     expect(o.f.id).toBe("f1");
     expect(i.f.id).toBe("f2");

@@ -22,6 +22,11 @@ const NEST_INSET = 10;
 const EDGE_PAD = 16;
 // Шаг, которым вписывание опускает предел ширины подписи.
 const CAP_STEP = 10;
+// Полосы над подписью строки (шапки фрагментов и разделители ветвей): от верха рамки
+// до верха подписи под ней — плашка вида с условием (около 22 px) и воздух; от линии
+// разделителя до верха подписи — нижняя половина плашки условия ветви и воздух.
+const FRAG_TAG_BAND = 28;
+const DIV_BELOW = 15;
 
 // Живые жесты диаграммы (их состояние ведёт SequenceDiagram).
 // Перестановка участников: fromK — исходная колонка тянущейся шапки, px — x курсора.
@@ -262,18 +267,51 @@ export function computeSeqGeometry({
     const row = Math.min(Math.max(fragDrag.row, lo), hi);
     return f.branches.map((b, k) => (k === i ? { ...b, row } : b));
   };
-  // Каждый фрагмент, начавшийся на/до строки r, добавляет высоту своей шапки, а КАЖДАЯ
-  // его ветвь — свой зазор. Так несколько/вложенные фрагменты и цепочка ветвей
-  // раздвигают строки корректно (иначе разделители наезжали бы на стрелки).
-  const fragHeadOff = (r: number) => {
-    let off = 0;
-    for (const f of fragments) {
-      if (r >= fragRows(f).from) off += SQ.FRAG_HEAD;
-      for (const b of fragBranches(f)) if (r >= b.row) off += SQ.ELSE_GAP;
+  // Полосы над подписью строки r (правки приёмки фазы 3а, П4: раньше шапка стояла на
+  // постоянном отступе от стрелки, и подпись в две-три строки ложилась поверх условия).
+  // Шапка фрагмента — над подписью первого шага его участка, разделитель с условием
+  // ветви — над подписью первого шага ветви. Каждая полоса добавляет строке свою высоту
+  // (FRAG_HEAD, ELSE_GAP), строка с полосами — ещё FRAG_PRE воздуха над ними: так
+  // несколько и вложенные фрагменты и цепочка ветвей раздвигают строки корректно.
+  const fr = fragments.map(fragRows);
+  const fb = fragments.map(fragBranches);
+  const startsAt: number[][] = Array.from({ length: R + 1 }, () => []);
+  const divsAt: { i: number; bi: number }[][] = Array.from({ length: R + 1 }, () => []);
+  fragments.forEach((_, i) => {
+    if (fr[i].from >= 0 && fr[i].from <= R) startsAt[fr[i].from].push(i);
+    fb[i].forEach((b, bi) => { if (b.row >= 0 && b.row <= R) divsAt[b.row].push({ i, bi }); });
+  });
+  const bandOff: number[] = new Array(R + 1).fill(0);
+  let bands = 0;
+  for (let r = 0; r <= R; r++) {
+    const k = startsAt[r].length;
+    const d = divsAt[r].length;
+    if (k + d) bands += k * SQ.FRAG_HEAD + d * SQ.ELSE_GAP + SQ.FRAG_PRE;
+    bandOff[r] = bands;
+  }
+  const rowY = (r: number) => lifeTop + rowOff[r] + bandOff[r];
+
+  // Стопка полос над подписью строки, снизу вверх: шапка самого вложенного фрагмента,
+  // начавшегося на r, над ней — шапки объемлющих, выше всех — разделители ветвей (их
+  // фрагменты начались раньше, то есть объемлют начавшиеся на r). Уже охват — ближе к
+  // подписи; при равном — позже заведённый.
+  const innerFirst = (a: number, b: number) => (fr[a].to - fr[a].from) - (fr[b].to - fr[b].from) || b - a;
+  const headTop = new Map<number, number>();
+  const divY = new Map<string, number>();
+  for (let r = 0; r <= R; r++) {
+    if (!startsAt[r].length && !divsAt[r].length) continue;
+    let cursor = rowY(r) - (r < R ? rowLabelH[r] : DEFAULT_LH) - LABEL_GAP;
+    for (const i of [...startsAt[r]].sort(innerFirst)) {
+      const top = cursor - FRAG_TAG_BAND;
+      headTop.set(i, top);
+      cursor = top - (SQ.FRAG_HEAD - FRAG_TAG_BAND);
     }
-    return off;
-  };
-  const rowY = (r: number) => lifeTop + rowOff[r] + fragHeadOff(r);
+    for (const { i, bi } of [...divsAt[r]].sort((a, b) => innerFirst(a.i, b.i))) {
+      const y = cursor - DIV_BELOW;
+      divY.set(`${i}:${bi}`, y);
+      cursor = y - (SQ.ELSE_GAP - DIV_BELOW);
+    }
+  }
   // Ближайшая строка к вертикальной координате y (для выбора диапазона протягиванием).
   const rowFromY = (y: number) => {
     let best = 0;
@@ -308,8 +346,8 @@ export function computeSeqGeometry({
 
   // Прямоугольники фрагментов (с горизонтальным вложением по depth).
   const fragBoxes = fragments
-    .map((f) => {
-      const rows = fragRows(f);
+    .map((f, i) => {
+      const rows = fr[i];
       // Ширина рамки выводится из охвата: берём крайние колонки шагов внутри.
       // Поэтому при протягивании грани она подстраивается под самую широкую стрелку
       // нового охвата сама — отдельного пересчёта не нужно.
@@ -329,9 +367,11 @@ export function computeSeqGeometry({
         rows,
         left: Math.min(...xs2) - 38 + inset,
         right: Math.max(...xs2) + 38 - inset,
-        top: rowY(rows.from) - 26,
+        // Верх — по стопке над подписью первого шага (строка за пределом шагов —
+        // прежний отступ от стрелки).
+        top: headTop.get(i) ?? rowY(rows.from) - 26,
         bottom: rowY(rows.to) + 18,
-        branches: fragBranches(f).map((b) => ({ ...b, y: rowY(b.row) - 16 })),
+        branches: fb[i].map((b, bi) => ({ ...b, y: divY.get(`${i}:${bi}`) ?? rowY(b.row) - 16 })),
       };
     })
     .filter((b): b is NonNullable<typeof b> => b !== null);
