@@ -18,6 +18,7 @@
     "replay-prof": "tsx scripts/replay-prof.ts",
     "route-quality": "tsx scripts/route-quality.ts",
     "stage-table": "tsx scripts/stage-table.ts",
+    "corpus-check": "tsx scripts/corpus-check.ts",
     "knip": "knip"
   },
   "dependencies": {

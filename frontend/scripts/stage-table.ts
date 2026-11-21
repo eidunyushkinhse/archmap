@@ -22,6 +22,7 @@ import { __zDebug } from "../src/components/graph/layout/zRoutes";
 import { __routeCounters as rc } from "../src/components/graph/layout/orthoRoute";
 import { __clearElkCacheForTests } from "../src/components/graph/layout/engine";
 import { diag } from "../src/components/graph/layout/diag";
+import { reviveInput } from "./lib/routeDump";
 
 const files = process.argv.slice(2);
 if (files.length === 0) {
@@ -29,17 +30,8 @@ if (files.length === 0) {
   process.exit(2);
 }
 
-// Оживление снимка: Set/Map в JSON не выживают — захват кладёт их метками.
-function revive(_k: string, v: unknown): unknown {
-  if (v && typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    if (Array.isArray(o.__set)) return new Set(o.__set);
-    if (Array.isArray(o.__map)) return new Map(o.__map as [unknown, unknown][]);
-  }
-  return v;
-}
 const load = (file: string): PipelineInput =>
-  JSON.parse(readFileSync(file, "utf8"), revive) as PipelineInput;
+  JSON.parse(readFileSync(file, "utf8"), reviveInput) as PipelineInput;
 
 // Прогрев: загрузка ELK и первая компиляция конвейера не должны лечь на первую сцену.
 {

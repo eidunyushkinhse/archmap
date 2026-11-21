@@ -15,11 +15,10 @@
 // --dump кладёт СТРУКТУРНЫЙ снимок результата (маршруты + тела узлов + плашки) —
 // им сверяется байт-в-байт равенство маршрутов до и после оптимизаций.
 import { readFileSync, writeFileSync } from "node:fs";
-import { computeViewLayout, edgeLabelMeta, type PipelineInput, type T4Diag } from "../src/components/graph/layout/pipeline";
+import { computeViewLayout, type PipelineInput, type T4Diag } from "../src/components/graph/layout/pipeline";
 import { __routeCounters as rc } from "../src/components/graph/layout/orthoRoute";
-import { metaLabelBox } from "../src/components/graph/layout/labelBox";
 import { diag } from "../src/components/graph/layout/diag";
-import { NODE_W, NODE_H } from "../src/components/graph/constants";
+import { buildRouteDump, reviveInput } from "./lib/routeDump";
 
 // ── аргументы ───────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -31,16 +30,7 @@ if (!inputFile || (dumpAt >= 0 && !dumpFile)) {
   process.exit(2);
 }
 
-// Оживление снимка: Set/Map в JSON не выживают — захват кладёт их метками.
-function revive(_k: string, v: unknown): unknown {
-  if (v && typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    if (Array.isArray(o.__set)) return new Set(o.__set);
-    if (Array.isArray(o.__map)) return new Map(o.__map as [unknown, unknown][]);
-  }
-  return v;
-}
-const input = JSON.parse(readFileSync(inputFile, "utf8"), revive) as PipelineInput;
+const input = JSON.parse(readFileSync(inputFile, "utf8"), reviveInput) as PipelineInput;
 
 // ── снимок счётчиков (для дельт по стадиям) ─────────────────────────────────────
 interface Snap {
@@ -168,35 +158,7 @@ if (totalCalls > 0) {
 
 // ── структурный дамп результата (сверка байт-в-байт) ────────────────────────────
 if (dumpFile) {
-  const byId = (a: string, b: string): number => a.localeCompare(b);
-  const routesOut = [...routes].sort(([a], [b]) => byId(a, b));
-
-  // Тела ОТОБРАЖАЕМЫХ узлов (рамки — не тела и сюда не идут).
-  const displayIds = [
-    ...out.layout.nodes.map((n) => n.id),
-    ...out.layout.entities.map((e) => e.id),
-  ];
-  const rects: { id: string; x: number; y: number; w: number; h: number }[] = [];
-  for (const id of displayIds) {
-    const p = out.layout.positions.get(id);
-    if (!p) continue;
-    const s = input.sizes?.[id];
-    rects.push({ id, x: p.x, y: p.y, w: s?.w ?? NODE_W, h: s?.h ?? NODE_H });
-  }
-  rects.sort((a, b) => byId(a.id, b.id));
-
-  // Плашки подписей: центр из размещения, габарит — единой оценкой metaLabelBox.
-  const groupById = new Map(out.layout.groupArr.map((g) => [g.id, g]));
-  const labels: [string, { x: number; y: number; w: number; h: number }][] = [];
-  for (const [id, lp] of out.layout.labelPlacements ?? []) {
-    const g = groupById.get(id);
-    const meta = g ? edgeLabelMeta(g) : null;
-    if (!meta) continue;
-    const box = metaLabelBox(meta);
-    labels.push([id, { x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h }]);
-  }
-  labels.sort(([a], [b]) => byId(a, b));
-
-  writeFileSync(dumpFile, JSON.stringify({ routes: routesOut, rects, labels }));
-  console.error(`дамп → ${dumpFile} (маршрутов ${routesOut.length}, тел ${rects.length}, плашек ${labels.length})`);
+  const dump = buildRouteDump(input, out);
+  writeFileSync(dumpFile, JSON.stringify(dump));
+  console.error(`дамп → ${dumpFile} (маршрутов ${dump.routes.length}, тел ${dump.rects.length}, плашек ${dump.labels.length})`);
 }
