@@ -33,6 +33,7 @@ function renderRail(isArchitect = true) {
       onToggle={() => {}}
       isArchitect={isArchitect}
       onDuplicate={() => {}}
+      onReplace={() => {}}
       onDelete={() => {}}
       onRename={onRename}
     />,

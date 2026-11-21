@@ -1,8 +1,8 @@
 // Воркспейс режима «Процессы» — композиция рейла (список процессов) и холста
 // (диаграмма выбранного). Владеет списком processesApi.list(), выбором, флагами
 // railOpen/editing (персист в localStorage) и операциями новый/дублировать/удалить/
-// переименовать/импортировать из Mermaid. Новый процесс создаётся только после ввода
-// имени (строка в рейле).
+// переименовать/импортировать/заменить из Mermaid. Новый процесс создаётся только после
+// ввода имени (строка в рейле).
 // Вынесен из TreePage, чтобы не раздувать и без того большой компонент страницы.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -10,7 +10,8 @@ import { viewsApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 import { startPollLoop, type RemoteSyncTick } from "../../pages/useRemoteSync";
 import { isConnectionError } from "../../lib/connection";
-import type { ProcessListItem } from "../../types";
+import { useMessageToast } from "../../pages/useToast";
+import type { ProcessListItem, ProcessReplaceResult } from "../../types";
 import ProcessCanvas from "./ProcessCanvas";
 import ProcessImportModal from "./ProcessImportModal";
 import ProcessRail from "./ProcessRail";
@@ -68,6 +69,13 @@ export default function ProcessWorkspace({
   const [picked, setPicked] = useState<string | null>(initialProcessId ?? null);
   // Импорт из Mermaid: заводит новые процессы (пачкой из файлов или вставленным текстом).
   const [importing, setImporting] = useState(false);
+  // Замена процесса из Mermaid: какой процесс заменяют (окно импорта в режиме замены).
+  const [replacing, setReplacing] = useState<{ id: string; name: string } | null>(null);
+  // Поколение холста открытого процесса. Замена пишет шаги и участников заново (новые
+  // id): холст перемонтируется, его история отмены и панель шага со старым id уходят.
+  const [canvasGen, setCanvasGen] = useState(0);
+  // Итог замены — тем же тостом внизу холста, что и отказ по пределу демо-стенда.
+  const [replacedNote, showReplaced] = useMessageToast(6000);
   // Ввод имени нового процесса в рейле: до Enter в базе ничего нет.
   const [creating, setCreating] = useState(false);
   const [railOpen, setRailOpen] = useState<boolean>(() => readPrefs().railOpen ?? true);
@@ -196,6 +204,16 @@ export default function ProcessWorkspace({
     await reload();
   }
 
+  // Процесс заменён текстом Mermaid: имя в рейле сразу, холст открытого перечитан с нуля.
+  function onReplaced(id: string, res: ProcessReplaceResult, name: string) {
+    setReplacing(null);
+    setItems((cur) => cur && cur.map((p) => (p.id === id ? { ...p, name } : p)));
+    if (id === selectedId) setCanvasGen((g) => g + 1);
+    showReplaced(res.version_number != null ? `Прежний вариант сохранён в версии ${res.version_number}` : "");
+    void reload();
+    onChanged?.(); // участники и шаги новые — знак алертов протух
+  }
+
   async function onDelete(id: string) {
     try {
       await processesApi.remove(id);
@@ -224,6 +242,13 @@ export default function ProcessWorkspace({
           }}
         />
       )}
+      {replacing && (
+        <ProcessImportModal
+          replace={replacing}
+          onClose={() => setReplacing(null)}
+          onReplaced={(res, name) => onReplaced(replacing.id, res, name)}
+        />
+      )}
       <ProcessRail
         processes={items}
         selectedId={selectedId}
@@ -237,6 +262,10 @@ export default function ProcessWorkspace({
         onToggle={() => setRailOpen((o) => !o)}
         isArchitect={isArchitect}
         onDuplicate={(id) => void onDuplicate(id)}
+        onReplace={(id) => {
+          const p = items?.find((x) => x.id === id);
+          if (p) setReplacing({ id, name: p.name });
+        }}
         onDelete={(id) => void onDelete(id)}
         onRename={(id, name) => void onRename(id, name)}
       />
@@ -259,7 +288,7 @@ export default function ProcessWorkspace({
         </div>
       ) : selectedId ? (
         <ProcessCanvas
-          key={selectedId}
+          key={`${selectedId}:${canvasGen}`}
           id={selectedId}
           // Имя — из списка: переименование в рейле или в шапке видно сразу в обоих местах.
           name={selName ?? ""}
@@ -278,7 +307,9 @@ export default function ProcessWorkspace({
           <span>Загрузка</span>
         </div>
       )}
-      <DemoLimitToast message={limitToast} />
+      <DemoLimitToast
+        message={limitToast ?? (replacedNote !== null ? { head: "Процесс заменён.", text: replacedNote } : null)}
+      />
     </div>
   );
 }

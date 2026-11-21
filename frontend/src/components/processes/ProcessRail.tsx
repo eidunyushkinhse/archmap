@@ -3,7 +3,7 @@
 // подложкой. Сверху одна тихая «Добавить» (только редактору) с меню «Импорт из Mermaid»
 // и «Новый процесс». Новый процесс не создаётся сразу: в списке появляется строка с полем
 // имени, Enter создаёт, Escape или уход с пустым полем отменяет. Меню строки —
-// «Дублировать» и «Удалить». Список сворачивается в узкую полосу.
+// «Дублировать», «Заменить из Mermaid» и «Удалить». Список сворачивается в узкую полосу.
 import { useEffect, useRef, useState } from "react";
 import type { ProcessListItem } from "../../types";
 import { CollapseIcon } from "../../ui/icons";
@@ -28,6 +28,8 @@ interface Props {
   onToggle: () => void;
   isArchitect: boolean;
   onDuplicate: (id: string) => void;
+  // Замена содержимого процесса текстом Mermaid (окно импорта в режиме замены).
+  onReplace: (id: string) => void;
   onDelete: (id: string) => void;
   // Переименование: двойной клик по имени открывает поле, Enter или уход из поля
   // сохраняют, Escape отменяет. Зовётся только с непустым и изменившимся именем.
@@ -47,6 +49,7 @@ export default function ProcessRail({
   onToggle,
   isArchitect,
   onDuplicate,
+  onReplace,
   onDelete,
   onRename,
 }: Props) {
@@ -185,6 +188,16 @@ export default function ProcessRail({
                         onClick={() => { setMenuId(null); onDuplicate(p.id); }}
                       >
                         Дублировать
+                      </button>
+                    </li>
+                    <li>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ds-menu-item"
+                        onClick={() => { setMenuId(null); onReplace(p.id); }}
+                      >
+                        Заменить из Mermaid
                       </button>
                     </li>
                     <li>
