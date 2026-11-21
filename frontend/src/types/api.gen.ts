@@ -1967,6 +1967,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/deletions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete Batch
+         * @description Удалить объекты (с поддеревом), связи и схемы логики одной пачкой. dry_run —
+         *     только посчитать, что уйдёт, и назвать срез версии.
+         */
+        post: operations["delete_batch_api_v1_deletions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/views/{view_id}/state": {
         parameters: {
             query?: never;
@@ -4684,6 +4705,40 @@ export interface components {
             /** Base Version */
             base_version?: number | null;
         };
+        /** DeletionItem */
+        DeletionItem: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "node" | "edge" | "doc";
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
+        /** DeletionOut */
+        DeletionOut: {
+            /** Dry Run */
+            dry_run: boolean;
+            /** Items */
+            items: components["schemas"]["DeletionTarget"][];
+            totals: components["schemas"]["DeletionTotals"];
+            version: components["schemas"]["DeletionVersion"];
+        };
+        /** DeletionRequest */
+        DeletionRequest: {
+            /** Items */
+            items: components["schemas"]["DeletionItem"][];
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+        };
         /**
          * DeletionSnapshot
          * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов, ВСЯ их
@@ -4736,6 +4791,58 @@ export interface components {
              * @default []
              */
             instances: components["schemas"]["DeploymentInstanceSnapshot"][];
+        };
+        /**
+         * DeletionTarget
+         * @description Пункт пачки, как его поймёт человек: путь объекта, концы связи, схема у объекта.
+         */
+        DeletionTarget: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "node" | "edge" | "doc";
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Covered By */
+            covered_by: string | null;
+        };
+        /**
+         * DeletionTotals
+         * @description Всё, что исчезнет, вместе с поддеревьями объектов пачки.
+         */
+        DeletionTotals: {
+            /** Nodes */
+            nodes: number;
+            /** Edges */
+            edges: number;
+            /** Docs */
+            docs: number;
+            /** Facts */
+            facts: number;
+            /** Instances */
+            instances: number;
+            /** Process Links */
+            process_links: number;
+        };
+        /**
+         * DeletionVersion
+         * @description Версия, к которой откатывают удалённое: ближайший общий родитель пачки.
+         */
+        DeletionVersion: {
+            /** Node Id */
+            node_id: string | null;
+            /** Label */
+            label: string | null;
+            /** Number */
+            number: number | null;
+            /** Created */
+            created: boolean;
         };
         /**
          * DemoExcess
@@ -8541,7 +8648,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "manual" | "pre_restore" | "restore";
+            kind: "manual" | "pre_restore" | "restore" | "pre_delete";
             /** Restored From */
             restored_from: number | null;
             /**
@@ -12396,6 +12503,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeletionSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_batch_api_v1_deletions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeletionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionOut"];
                 };
             };
             /** @description Validation Error */

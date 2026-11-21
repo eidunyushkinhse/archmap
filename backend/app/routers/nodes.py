@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import element_change, identity, reparent, restore, tree
+from app import deletions, element_change, identity, reparent, restore, tree
 from app.alerts import compute_alerts
 from app.approval import manual_approval_refusal, mark_approval
 from app.auth import get_current_user, require_session_user
@@ -63,7 +63,7 @@ from app.schemas.transition import (
     TransitionNodeOut,
     TransitionPreviewOut,
 )
-from app.transition import apply_transition, build_transition, cleanup_layout
+from app.transition import apply_transition, build_transition
 from app.view_state import (
     bump_graph_rev,
     bump_meta_rev,
@@ -759,11 +759,11 @@ def delete_node(
     # делает БД-каскад (ondelete="CASCADE" на parent_id, source_id/target_id), а
     # passive_deletes на связях Node не даёт ORM лезть в эти строки в Python.
     # Строки раскладки чужих видов каскадом не накрыты — их чистит cleanup_layout
-    # (тот же помощник использует «принять переход», чтобы логика не разошлась).
-    cleanup_layout(db, project, node)
+    # внутри remove_node (общей с удалением пачкой; тот же помощник использует
+    # «принять переход», чтобы логика не разошлась).
+    deletions.remove_node(db, project, node)
     bump_graph_rev(db, project)
     touch_project(db, project, user.id)
-    db.delete(node)
     db.commit()
 
 

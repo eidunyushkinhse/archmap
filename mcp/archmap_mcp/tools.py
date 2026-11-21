@@ -1398,11 +1398,31 @@ async def t_update_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
     return f"В проекте «{pname}» связь обновлена: {', '.join(body)}."
 
 
+
+async def t_delete(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Удаление пачкой (POST /deletions): перед ним сервер сохраняет версию, и человек
+    возвращает удалённое откатом. Методом DELETE инструменты не ходят никогда: личным
+    токеном он закрыт, а без версии удалённое не вернуть."""
+    pid, pname = await resolve_project(client, args["project"])
+    items: list[dict[str, str]] = []
+    for raw in args.get("items") or []:
+        if not isinstance(raw, dict) or not raw.get("kind") or not raw.get("id"):
+            raise ArchMapError("Каждый пункт items — объект {kind, id}: kind node, edge или doc.")
+        items.append({"kind": str(raw["kind"]), "id": str(raw["id"])})
+    if not items:
+        raise ArchMapError("Нечего удалять: items пуст.")
+    body: dict[str, Any] = {"items": items, "dry_run": bool(args.get("dry_run"))}
+    if args.get("reason"):
+        body["reason"] = str(args["reason"])
+    data = await client.request("POST", "/deletions", project_id=pid, json=body)
+    return render.deletion_report(pname, data)
+
 # ── Версии документации (docs/tasks/doc-versions.md §8) ──────────────────────
 #
 # Чтение версий, дельта, текст на версии и фиксация. Отката и удаления версий здесь
-# нет и не будет: откат удаляет объекты, появившиеся после версии, а удаления через
-# агента исключены принципиально (как «Принять переход» — человек глазами).
+# нет и не будет: откат удаляет объекты, появившиеся после версии, и решает его человек
+# глазами в интерфейсе (как «Принять переход»). Удаление агентом идёт только пачкой с
+# версией перед ним (archmap_delete), и вернуть удалённое можно как раз откатом.
 
 # Какой текст на версии отдаёт archmap_version_doc: аргумент → сегмент пути ручки,
 # слово заголовка и ограда тела.
@@ -2555,6 +2575,55 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "edge_id"],
         },
         "handler": t_update_edge,
+    },
+    {
+        "name": "archmap_delete",
+        "writes": True,
+        "description": (
+            "Удаляет пачкой то, что оказалось лишним: дубли, ошибки прогона, созданное не там. "
+            "Виды: node — объект вместе с вложенными, их связями и документацией; edge — связь; "
+            "doc — схема логики. Перед удалением ArchMap сам сохраняет версию ближайшего общего "
+            "родителя пачки (или всего проекта), и человек вернёт удалённое откатом к ней в "
+            "интерфейсе. Привязки процессов к удалённому откат не возвращает, ответ называет их "
+            "число. Объект, который в реальности выводят из эксплуатации, не удаляют: ему ставят "
+            "status=deprecated (archmap_update_node). Если в пачке есть объект с вложенными, "
+            "сначала вызовите с dry_run=true: ответ покажет, что уйдёт, и ничего не изменит. "
+            "id берут из archmap_schema, archmap_node или archmap_search."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "description": "Что удалить: до 200 пунктов за вызов.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["node", "edge", "doc"],
+                                "description": "node — объект, edge — связь, doc — схема логики.",
+                            },
+                            "id": {"type": "string", "description": "id объекта, связи или схемы логики."},
+                        },
+                        "required": ["kind", "id"],
+                    },
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Зачем удаляете, коротко: попадёт в комментарий версии («дубль второго прогона»).",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "true — только показать, что уйдёт, ничего не удаляя.",
+                },
+            },
+            "required": ["project", "items"],
+        },
+        "handler": t_delete,
     },
     {
         "name": "archmap_version_create",

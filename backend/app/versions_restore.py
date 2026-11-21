@@ -76,7 +76,6 @@ from app.schemas.restore import (
 from app.schemas.versions import RestoreOut, RestorePreview, VersionSnapshot
 from app.transition import cleanup_layout
 from app.versions_diff import object_path, restorable
-from app.versions_snapshot import content_hash
 from app.view_state import bump_view_version
 
 NOTHING_TO_RESTORE = "Нечего восстанавливать: документация совпадает с v{number}"
@@ -531,13 +530,6 @@ class _Apply:
 # ── Вход ───────────────────────────────────────────────────────────────────────
 
 
-def _has_pending(db: Session, project: Project, node: Node | None, live: VersionSnapshot) -> bool:
-    """Есть ли незафиксированное с последней версии объекта. Хэш последней пересчитан
-    по её снимку, а не взят из колонки: проекция могла уточниться с её фиксации."""
-    last = versions.last_version(db, project, node)
-    return last is None or content_hash(live) != content_hash(versions.snapshot_of(last))
-
-
 def restore_preview(
     db: Session, project: Project, node: Node | None, version: NodeVersion
 ) -> RestorePreview:
@@ -545,7 +537,7 @@ def restore_preview(
     snap = versions.snapshot_of(version)
     live = versions.live_snapshot(db, project, node)
     return RestorePreview(
-        pending=_has_pending(db, project, node, live),
+        pending=versions.has_pending(db, project, node, live),
         deleted_nodes=len(_node_plan(db, project, snap).delete),
         has_processes=bool(snap.processes or live.processes),
     )
@@ -568,7 +560,7 @@ def restore_version(
         raise versions.VersionError(NOTHING_TO_RESTORE.format(number=version.number))
     number = version.number
     created: list[int] = []
-    if _has_pending(db, project, node, live):
+    if versions.has_pending(db, project, node, live):
         pre = versions.create_version(
             db, project, user, node, f"Перед откатом к v{number}", kind="pre_restore"
         )

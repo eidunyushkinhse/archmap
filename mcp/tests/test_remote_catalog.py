@@ -29,13 +29,14 @@ def test_флаг_writes_у_каждого_и_локальные_имена_бе
 def test_удалённый_набор_без_локальных_и_только_чтение_без_пишущих() -> None:
     full = [t["name"] for t in tools.remote_catalog(read_only=False)]
     reader = [t["name"] for t in tools.remote_catalog(read_only=True)]
-    # Числа — от флагов, а не руками: 42 − 4 локальных = 38, читающих среди них — 17
+    # Числа — от флагов, а не руками: 43 − 4 локальных = 39, читающих среди них — 17
     # (0.12.0: четыре пишущих инструмента переноса и сбора доступны и удалённо; 0.14.0:
-    # archmap_scan читающий, но только локальный, — локально читающих 19).
+    # archmap_scan читающий, но только локальный, — локально читающих 19; 0.15.0:
+    # пишущий archmap_delete доступен и удалённо).
     assert full == [t["name"] for t in tools.TOOLS if t["name"] not in tools.LOCAL_ONLY]
     assert reader == [n for n in full if not tools.BY_NAME[n]["writes"]]
-    assert (len(full), len(reader)) == (38, 17)
-    assert (len(tools.TOOLS), sum(not t["writes"] for t in tools.TOOLS)) == (42, 19)
+    assert (len(full), len(reader)) == (39, 17)
+    assert (len(tools.TOOLS), sum(not t["writes"] for t in tools.TOOLS)) == (43, 19)
     assert "archmap_scan" in tools.LOCAL_ONLY and not tools.BY_NAME["archmap_scan"]["writes"]
     assert set(reader) <= set(full) and not set(full) & tools.LOCAL_ONLY
 
