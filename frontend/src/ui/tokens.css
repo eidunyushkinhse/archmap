@@ -1,0 +1,80 @@
+/* Токены дизайн-системы редизайна (docs/plan-redesign.md, этап 2, направление А).
+   Полный набор: в новом коде других размеров шрифта, радиусов и цветов не заводим
+   (исключение — цвета статусов объекта из graph/colors, они общие с холстом). Веса
+   шрифта только 400, 500 и 600. Подключается первым в точке входа (main.tsx), до
+   index.css. Старые экраны живут по-старому, переведённые получают класс .ds. */
+
+:root {
+  --font-ui: "Inter Variable", "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-caption: 12px;
+  --fs-ui: 13px;
+  --fs-body: 14px;
+  --fs-section: 16px;
+  --fs-title: 26px;
+
+  --lh-tight: 1.25;
+  --lh-ui: 1.45;
+  --lh-body: 1.6;
+
+  --c-bg: #ffffff;
+  --c-bg-subtle: #f6f7f9;
+  --c-hover: #f1f3f6;
+  --c-fg: #14171f;
+  --c-fg-muted: #5b6472;
+  --c-fg-faint: #8b93a1;
+  --c-line: #e3e6ec;
+  --c-line-strong: #cdd3dc;
+  --c-accent: #2563eb;
+  --c-accent-soft: #eaf0fe;
+  --c-danger: #c62828;
+  --c-warn: #92400e;
+  --c-ok: #15803d;
+
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+}
+
+/* Холст закреплён на прежних метриках текста. Узлы не задают гарнитуру сами и
+   наследуют её сверху, а от ширины текста зависят размеры узлов, раскладка и
+   маршруты стрелок; холст принадлежит движку, сдвигать его метрики нельзя. Значения
+   сняты вычисленными стилями .react-flow до редизайна во всех местах, где есть холст
+   (редактор, страница объекта, главная проекта): гарнитура рабочих экранов
+   (pageChrome.workPage), кегль, интерлиньяж и трекинг корня (index.css: 18px/145%,
+   0.18px; при окне не шире 1024px — 16px). Интерлиньяж корня в процентах наследуется
+   готовым числом, поэтому здесь он в пикселях. Цвет и начертание — тоже прежние:
+   область .ds переопределила бы их всему поддереву. Перевод холста на новый шрифт —
+   заданием движку (docs/plan-redesign.md, «Задание для холста»). */
+.lg-canvas,
+.react-flow {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 18px;
+  line-height: 26.1px;
+  letter-spacing: 0.18px;
+  font-weight: 400;
+  font-feature-settings: normal;
+  color: var(--text);
+}
+@media (max-width: 1024px) {
+  .lg-canvas,
+  .react-flow {
+    font-size: 16px;
+    line-height: 23.2px;
+  }
+}
+
+/* Область нового языка: переведённый экран получает класс ds на своём корне. */
+.ds {
+  font: 400 var(--fs-ui) / var(--lh-ui) var(--font-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
