@@ -108,6 +108,7 @@ archmap/
 │   │   ├── facts_import.py / data_import.py / channels_import.py / config_import.py  # табличные факты: общее и три семьи
 │   │   ├── *_prompt.py    # промпты агенту (import, docs, recon, data, channels, config, skeptic) — под снапшотами
 │   │   ├── processes.py / process_import.py / process_export.py / process_copy.py  # бизнес-процессы
+│   │   │                  # (ввоз mermaid: plan_import общий у превью и записи, замена содержимого)
 │   │   ├── search.py / text.py / mmd_header.py  # поиск по знанию проекта; нормализация текстов; шапка .mmd
 │   │   ├── project_cards.py  # карточки списка «Проекты» (счётчики, мини-граф, роль)
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
@@ -117,17 +118,18 @@ archmap/
 │   │   ├── scan_origin.py # пометка «собрано сборщиком фактов» по шапке входа (превью, план обновления, факты)
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (94 тестовых файла, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (95 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings
 │   └── pyproject.toml     # ruff, mypy, порог покрытия
 ├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки): локально по stdio
 │   │                      # и удалённо — /mcp в процессе бэкенда (пакет едет в поставки рядом с app/)
-│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (43 инструмента:
+│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (45 инструментов:
 │   │                      # чтение, поиск, промпты, превью → применение, точечные правки, версии документации, размещение,
+│   │                      # бизнес-процессы из mermaid (новый или замена с версией перед ней),
 │   │                      # перенос документации и сбор с компонентов, запуск сборщика фактов archmap_scan; удаление только
-│   │                      # пачкой archmap_delete с версией перед ним; удалённый набор — 39, без диска агента),
+│   │                      # пачкой archmap_delete с версией перед ним; удалённый набор — 41, без диска агента),
 │   │                      # remote.py (Streamable HTTP без состояния, журнал вызовов), render.py, server.py (stdio; отказы — isError)
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI
