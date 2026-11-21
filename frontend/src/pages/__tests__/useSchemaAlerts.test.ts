@@ -16,7 +16,7 @@ function node(id: string, parent_id: string | null): Node {
 }
 const ALL: Node[] = [node("A", null), node("A1", "A"), node("B", null)];
 
-const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [], broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [], component_facts: [] };
+const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [], broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [], component_facts: [], code_changes: [] };
 
 describe("resolveAlertLocate", () => {
   it("узел: уровень = родитель, запрос node", () => {
@@ -94,6 +94,7 @@ describe("useSchemaAlerts", () => {
 
   it("архитектор: загружает алерты", async () => {
     const alerts: Alerts = {
+      code_changes: [],
       disconnected_nodes: [{ node_id: "x", node_name: "X" }],
       intermediate_edges: [],
       isolated_groups: [],

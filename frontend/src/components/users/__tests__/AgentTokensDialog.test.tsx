@@ -20,6 +20,7 @@ function token(over: Partial<PersonalToken> = {}): PersonalToken {
     name: "Агент",
     prefix: "archmap_Zx9se",
     read_only: false,
+    ci_only: false,
     created_at: "2026-10-17T10:00:00+00:00",
     last_used_at: null,
     expires_at: null,
@@ -61,11 +62,13 @@ describe("AgentTokensDialog", () => {
     const name = screen.getByLabelText("Название");
     await userEvent.clear(name);
     await userEvent.type(name, "  Ноутбук ");
-    await userEvent.click(screen.getByLabelText("Только чтение"));
+    await userEvent.selectOptions(screen.getByLabelText("Доступ"), "read");
     await userEvent.selectOptions(screen.getByLabelText("Срок действия"), "30");
     await userEvent.click(screen.getByRole("button", { name: "Выпустить токен" }));
 
-    expect(tokensApi.create).toHaveBeenCalledWith({ name: "Ноутбук", read_only: true, lifetime_days: 30 });
+    expect(tokensApi.create).toHaveBeenCalledWith({
+      name: "Ноутбук", read_only: true, ci_only: false, lifetime_days: 30,
+    });
     expect(await screen.findByText("Токен выпущен")).toBeInTheDocument();
     const url = `${window.location.origin}/mcp`;
     expect(screen.getByTestId("issued-secret")).toHaveTextContent(SECRET);
@@ -93,15 +96,43 @@ describe("AgentTokensDialog", () => {
     expect(screen.queryByText(new RegExp(SECRET))).not.toBeInTheDocument();
   });
 
-  it("«Пользователю» — только чтение: галочка включена и закрыта, уходит read_only", async () => {
+  it("«Пользователю» — только чтение: выбор доступа закрыт, уходит read_only", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     vi.mocked(tokensApi.create).mockResolvedValue({ token: token({ read_only: true }), secret: SECRET });
     render(<AgentTokensDialog readOnlyOnly onClose={vi.fn()} />);
-    const ro = await screen.findByLabelText("Только чтение");
-    expect(ro).toBeChecked();
-    expect(ro).toBeDisabled();
+    const access = await screen.findByLabelText("Доступ");
+    expect(access).toHaveValue("read");
+    expect(access).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Выпустить токен" }));
-    expect(tokensApi.create).toHaveBeenCalledWith({ name: "Агент", read_only: true, lifetime_days: 90 });
+    expect(tokensApi.create).toHaveBeenCalledWith({
+      name: "Агент", read_only: true, ci_only: false, lifetime_days: 90,
+    });
+  });
+
+  it("токен для CI: имя «CI», после выпуска строки CI вместо подключения агента", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([token({ name: "CI" })]);
+    vi.mocked(tokensApi.create).mockResolvedValue({
+      token: token({ id: "t-3", name: "CI 2", ci_only: true }), secret: SECRET,
+    });
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    await userEvent.selectOptions(await screen.findByLabelText("Доступ"), "ci");
+    // имя «CI» занято: подставляется следующее свободное
+    expect(screen.getByLabelText("Название")).toHaveValue("CI 2");
+    await userEvent.click(screen.getByRole("button", { name: "Выпустить токен" }));
+    expect(tokensApi.create).toHaveBeenCalledWith({
+      name: "CI 2", read_only: false, ci_only: true, lifetime_days: 90,
+    });
+
+    expect(await screen.findByText("Сигнал из CI после слияния в main")).toBeInTheDocument();
+    const gitlab = screen.getByTestId("issued-gitlab").textContent ?? "";
+    expect(gitlab).toContain(`curl -fsS -X POST "${window.location.origin}/api/v1/code-changes"`);
+    expect(gitlab).toContain("$CI_PROJECT_URL");
+    // секрет в строки CI не вписан: он лежит в переменной CI
+    expect(gitlab).not.toContain(SECRET);
+    expect(gitlab).toContain("$ARCHMAP_TOKEN");
+    await userEvent.click(screen.getByRole("tab", { name: "GitHub" }));
+    expect(screen.getByTestId("issued-github")).toHaveTextContent("secrets.ARCHMAP_TOKEN");
+    expect(screen.queryByRole("tab", { name: "Desktop" })).not.toBeInTheDocument();
   });
 
   it("отказ бэка при выпуске виден под формой, окно остаётся", async () => {

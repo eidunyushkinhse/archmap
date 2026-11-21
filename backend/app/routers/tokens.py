@@ -69,7 +69,9 @@ def create_token(
     «Пользователь» просит токен не только для чтения."""
     _deny_demo(user)
     try:
-        issued = personal_tokens.issue(db, user, payload.name, payload.read_only, payload.lifetime_days)
+        issued = personal_tokens.issue(
+            db, user, payload.name, payload.read_only, payload.lifetime_days, payload.ci_only
+        )
     except personal_tokens.TokenForbidden as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail) from None
     except personal_tokens.TokenError as exc:

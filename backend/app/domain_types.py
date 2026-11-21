@@ -49,9 +49,27 @@ ElementChangeKind = Literal[
 # Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная
 # фиксация редактором с его комментарием; pre_restore — автоматическая «Перед откатом
 # к vN», чтобы откат не терял незафиксированное; restore — автоматическая «Откат к vN»,
-# запись истории вперёд (номер источника — в restored_from).
-VersionKind = Literal["manual", "pre_restore", "restore"]
+# запись истории вперёд (номер источника — в restored_from); pre_delete — автоматическая
+# «Перед удалением агентом: …» перед удалением пачкой (app/deletions.py), чтобы удалённое
+# возвращалось откатом; pre_replace — автоматическая «Перед заменой процесса «X» из
+# диаграммы» (app/process_import.replace_import): прежний текст процесса остаётся в версии.
+VersionKind = Literal["manual", "pre_restore", "restore", "pre_delete", "pre_replace"]
 VERSION_KINDS: tuple[VersionKind, ...] = get_args(VersionKind)
+
+# Что удаляется пачкой (app/deletions.py, путь агента и скриптов): объект с поддеревом,
+# связь, схема логики, процесс. Факты сюда не входят: их id агент не видит, а дозаливки
+# фактов ничего не удаляют по построению.
+DeletionKind = Literal["node", "edge", "doc", "process"]
+
+# Что выйдет из шага диаграммы при ввозе процесса (app/process_import.plan_import):
+# attached — встал на единственный канал схемы; self — внутренняя операция участника
+# (канала у неё нет по природе); no_channel — между объектами нет связи в эту сторону;
+# ambiguous — подходящих связей несколько, выбирать за человека нельзя; unbound — один
+# из участников не привязан к объекту. Последние три — шаг «без связи».
+ImportStepStatus = Literal["attached", "self", "no_channel", "ambiguous", "unbound"]
+# Привязка шага к схеме логики по «%% archmap-doc: …»: linked — адрес разрешился в одну
+# схему; unresolved — схемы нет или адрес неоднозначен.
+ImportDocStatus = Literal["linked", "unresolved"]
 
 # Категория элемента дельты версий (app/versions_diff.py), в порядке показа: свойства
 # объекта, связи, схема логики, спека OpenAPI, структура БД, каналы брокера,

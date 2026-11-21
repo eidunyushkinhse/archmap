@@ -26,6 +26,10 @@ const PREVIEW: ProcessImportPreview = {
   fragment_count: 1,
   unsupported: ["autonumber"],
   doc_refs: 0,
+  steps: [],
+  attached: 1,
+  dangling: 1,
+  self_messages: 0,
 };
 
 const RESULT: ProcessImportResult = {

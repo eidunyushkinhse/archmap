@@ -13,7 +13,7 @@ Uuid остаются там, где агент обязан ими оперир
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -724,8 +724,35 @@ def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[s
     return out
 
 
+CODE_CHANGE_NODES_SHOWN = 5  # объектов репозитория в строке напоминания, дальше числом
+
+
+def code_change_line(c: dict[str, Any]) -> str:
+    """Напоминание о слиянии (AL37): репозиторий, сколько слияний и с какого дня, коммиты
+    (между ними агент смотрит, что поменялось) и затронутые объекты."""
+    merges = int(c.get("merges") or 0)
+    since = str(c.get("first_at") or "")[:10]
+    line = f"{c.get('repo')}: {merges} {_plural(merges, ('слияние', 'слияния', 'слияний'))}"
+    line += f" с {since}" if since else ""
+    first, last = c.get("first_commit"), c.get("last_commit")
+    if first and last and first != last:
+        line += f", коммиты {str(first)[:8]}…{str(last)[:8]}"
+    elif last or first:
+        line += f", коммит {str(last or first)[:8]}"
+    if c.get("branch"):
+        line += f" в {c['branch']}"
+    nodes: list[dict[str, Any]] = c.get("nodes") or []
+    names = ", ".join(str(n.get("node_name")) for n in nodes[:CODE_CHANGE_NODES_SHOWN])
+    rest = len(nodes) - CODE_CHANGE_NODES_SHOWN
+    line += f". Объекты: {names}" + (f" и ещё {rest}" if rest > 0 else "")
+    return (
+        line + ". Напоминание снимет обновление из кода с объектами этого репозитория "
+        "(archmap_sync_preview, затем archmap_sync_apply)"
+    )
+
+
 def alerts(data: dict[str, Any]) -> str:
-    """Рекомендации проекта — 16 классов в порядке, заголовках и словах панели
+    """Рекомендации проекта — 17 классов в порядке, заголовках и словах панели
     SchemaAlerts.tsx (решение 7 плана эпика «Доработка MCP-сервера»).
 
     Читается это агентом, а показывается человеку панелью — значит и называться
@@ -745,6 +772,7 @@ def alerts(data: dict[str, Any]) -> str:
         value = data.get(key) or []
         return list(value) if isinstance(value, list) else []
 
+    code_changes = lst("code_changes")
     disconnected = lst("disconnected_nodes")
     intermediate = lst("intermediate_edges")
     descendant = lst("descendant_edges")
@@ -772,6 +800,7 @@ def alerts(data: dict[str, Any]) -> str:
         """Конец связи: проблемный выделяется кавычками — в панели он подсвечен."""
         return f"«{name}»" if marked else name
 
+    add("Документацию пора обновить", [code_change_line(c) for c in code_changes])
     add("Объекты без связей", [str(d["node_name"]) for d in disconnected])
     add(
         "Связи в систему или контейнер",
@@ -879,7 +908,8 @@ def alerts(data: dict[str, Any]) -> str:
     # Общий счётчик — как бабл панели: изолированные группы дают не число групп, а
     # число НЕДОСТАЮЩИХ связей (групп − 1), остальные классы — по записи.
     total = (
-        len(disconnected) + len(intermediate) + len(descendant) + max(0, len(isolated) - 1)
+        len(code_changes) + len(disconnected) + len(intermediate) + len(descendant)
+        + max(0, len(isolated) - 1)
         + len(container_own) + len(component_facts) + len(data_refs) + len(channel_refs) + len(config_refs)
         + len(broker_edges) + len(dangling) + len(orphan_legs) + len(unbound)
         + len(unlinked) + len(undescribed) + len(persons_inside)
@@ -1896,32 +1926,12 @@ def c4_preview(c4: dict[str, Any], folded: bool = False) -> list[str]:
     # Пофайловые замечания адресованы ВХОДУ по номеру: пакет собирают несколько
     # агентов, и «чините вход 2» — единственная работающая адресация.
     for remark in c4.get("file_remarks") or []:
-        # Вход собран сборщиком фактов (шапка «# archmap-scan …»): у объектов и связей нет
-        # описаний и смысла, их дописывает агент. Строка от сервера, печатается всегда.
-        rows = [scanner_row(remark["scanner"])] if remark.get("scanner") else []
-        rows += [f"ошибка: {e}" for e in remark.get("errors") or []]
+        rows = [f"ошибка: {e}" for e in remark.get("errors") or []]
         if not folded:
             rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
         if rows:
             out.append(f"Вход {remark.get('file', '?')}:")
             out.extend("  • " + r for r in rows)
-    return out
-
-
-def scanner_row(text: object) -> str:
-    """Строка сервера «Собрано сборщиком фактов …» пунктом под «Вход N:»."""
-    line = str(text)
-    return line[:1].lower() + line[1:]
-
-
-def scanner_inputs(scanner: object) -> list[str]:
-    """План обновления из кода: по записи на вход, у входа не от сборщика null."""
-    if not isinstance(scanner, list):
-        return []
-    out: list[str] = []
-    for i, s in enumerate(scanner, 1):
-        if s:
-            out += [f"Вход {i}:", "  • " + scanner_row(s)]
     return out
 
 
@@ -2536,6 +2546,10 @@ def _version_kind(version: dict[str, Any]) -> str | None:
     kind = version.get("kind")
     if kind == "pre_restore":
         return "перед откатом"
+    if kind == "pre_delete":
+        return "перед удалением"
+    if kind == "pre_replace":
+        return "перед заменой процесса"
     if kind == "restore":
         source = version.get("restored_from")
         return f"откат к v{source}" if source is not None else "откат"
@@ -2700,3 +2714,201 @@ def version_created(data: dict[str, Any]) -> str:
         else "; относительно предыдущей версии ничего не изменилось"
     )
     return f"v{data.get('number', '?')} зафиксирована: {data.get('comment', '')}{tail}"
+
+
+# ── Удаление пачкой (POST /deletions) ────────────────────────────────────────
+
+DELETION_KIND_WORD = {
+    "node": "объект", "edge": "связь", "doc": "схема логики", "process": "процесс",
+}
+# Итог «сколько уйдёт»: поле DeletionTotals → формы числительного. Порядок — порядок фразы.
+DELETION_TOTALS = (
+    ("processes", ("процесс", "процесса", "процессов")),
+    ("nodes", ("объект", "объекта", "объектов")),
+    ("edges", ("связь", "связи", "связей")),
+    ("docs", ("схема логики", "схемы логики", "схем логики")),
+    ("facts", ("запись фактов", "записи фактов", "записей фактов")),
+    ("instances", ("размещение", "размещения", "размещений")),
+)
+
+
+def _deletion_totals(totals: dict[str, Any]) -> str:
+    parts = [
+        f"{n} {_plural(n, forms)}"
+        for key, forms in DELETION_TOTALS
+        if (n := int(totals.get(key) or 0))
+    ]
+    return ", ".join(parts) if parts else "ничего"
+
+
+def deletion_report(pname: str, data: dict[str, Any]) -> str:
+    """Итог удаления пачкой (DeletionOut): пункты, сколько уйдёт всего, к какой версии
+    откатывать. dry_run — то же в будущем времени, без номера версии."""
+    dry = bool(data.get("dry_run"))
+    items: list[dict[str, Any]] = data.get("items") or []
+    label_of = {str(i.get("id")): str(i.get("label", "")) for i in items}
+    out = [f"В проекте «{pname}» " + ("будет удалено:" if dry else "удалено:")]
+    for item in items:
+        word = DELETION_KIND_WORD.get(str(item.get("kind")), str(item.get("kind")))
+        line = f"  • {word} {item.get('label', '')}  id={item.get('id')}"
+        covered = item.get("covered_by")
+        if covered:
+            line += f" (вместе с «{label_of.get(str(covered), covered)}»)"
+        out.append(line)
+    totals: dict[str, Any] = data.get("totals") or {}
+    out.append(("Всего уйдёт: " if dry else "Всего ушло: ") + _deletion_totals(totals) + ".")
+    links = int(totals.get("process_links") or 0)
+    if links:
+        out.append(
+            f"В процессах опустеют привязки к удалённому: {links} (участник без объекта, "
+            "процесс без области, шаг без связи или схемы логики). Откат версии их не вернёт."
+        )
+    version: dict[str, Any] = data.get("version") or {}
+    where = (
+        f"объекта «{version['label']}»" if version.get("label") else "всего проекта"
+    )
+    number = version.get("number")
+    if dry:
+        out.append(
+            f"Перед удалением ArchMap сохранит версию {where}, если с последней были изменения. "
+            "Удалить: тот же вызов без dry_run."
+        )
+    elif version.get("created"):
+        out.append(f"Перед удалением сохранена версия v{number} {where}.")
+    else:
+        out.append(f"С последней версии v{number} {where} изменений не было, удалённое лежит в ней.")
+    if not dry:
+        out.append(
+            f"Вернуть удалённое может человек: откат к v{number} в истории версий {where} "
+            "в интерфейсе ArchMap."
+        )
+    if int(totals.get("processes") or 0):
+        out.append(
+            "Процесс откат не вернёт: его текст остаётся в версии всего проекта "
+            "(archmap_version_doc с process_id), ввезти заново можно archmap_process_apply."
+        )
+    return "\n".join(out)
+
+
+# ── Ввоз процесса из mermaid (POST /processes/import…) ───────────────────────
+
+# Почему шаг не встал на связь — словами для агента (ImportStepStatus бэкенда).
+STEP_PROBLEM = {
+    "no_channel": "связи между объектами в эту сторону нет",
+    "ambiguous": "подходящих связей несколько, выбрать может только человек",
+    "unbound": "участник без объекта",
+}
+
+
+def _participant_line(part: dict[str, Any], overrides: set[str]) -> str:
+    name = f"{part.get('name')}"
+    alias = str(part.get("alias"))
+    head = f"  • {name}" + (f" (алиас {alias})" if alias != name else "")
+    cands: list[dict[str, Any]] = part.get("candidates") or []
+    if alias in overrides:
+        return head + ": сопоставление из mapping"
+    if part.get("node_id"):
+        chosen = next((c for c in cands if str(c.get("id")) == str(part["node_id"])), {})
+        where = f" в «{chosen['parent_name']}»" if chosen.get("parent_name") else ""
+        return head + f": объект «{chosen.get('name', name)}»{where}  id={part['node_id']}"
+    if not cands:
+        return head + ": объекта с таким именем нет, участник будет без объекта"
+    options = "; ".join(
+        f"«{c.get('name')}»" + (f" в «{c['parent_name']}»" if c.get("parent_name") else "")
+        + f" id={c.get('id')}"
+        for c in cands
+    )
+    return head + f": объектов с таким именем несколько, выберите в mapping: {options}"
+
+
+def _step_problems(data: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for st in data.get("steps") or []:
+        number = int(st.get("order", 0)) + 1
+        caption = f" «{st['caption']}»" if st.get("caption") else ""
+        what = f"  {number}. {st.get('from_name')} → {st.get('to_name')}{caption}"
+        problem = STEP_PROBLEM.get(str(st.get("status")))
+        if problem:
+            lines.append(f"{what}: {problem}")
+        if st.get("doc_status") == "unresolved":
+            lines.append(f"{what}: схема логики «{st.get('doc_address')}» не найдена или неоднозначна")
+    return lines
+
+
+def _steps_summary(data: dict[str, Any], total: int) -> str:
+    return (
+        f"Шагов {total}: на связях {int(data.get('attached') or 0)}, внутренних "
+        f"{int(data.get('self_messages') or 0)}, без связи {int(data.get('dangling') or 0)}."
+    )
+
+
+def process_import_preview(
+    pname: str,
+    data: dict[str, Any],
+    *,
+    name: str,
+    replacing: str | None,
+    overrides: Iterable[str] = (),
+) -> str:
+    """Превью ввоза процесса (ProcessImportPreview): сопоставление участников, прогноз
+    по шагам (только проблемные), не разобранные строки и что делать дальше. name —
+    каким процесс будет называться (при замене без имени — прежнее)."""
+    head = f"Проект «{pname}» · проверка процесса «{name}»"
+    if replacing is not None:
+        head += (
+            f" вместо содержимого процесса «{replacing}» (перед заменой ArchMap сохранит "
+            "версию проекта)"
+        )
+    keys = set(overrides)
+    out = [head, "УЧАСТНИКИ:", *(_participant_line(p, keys) for p in data.get("participants") or [])]
+    out.append(_steps_summary(data, int(data.get("message_count") or 0)))
+    problems = _step_problems(data)
+    if problems:
+        out += ["ШАГИ, КОТОРЫЕ НЕ ВСТАНУТ НА СВЯЗЬ ИЛИ СХЕМУ:", *problems]
+    unsupported: list[str] = data.get("unsupported") or []
+    if unsupported:
+        out += ["НЕ РАЗОБРАНО (в процесс не попадёт):", *(f"  {line}" for line in unsupported)]
+    out.append("Записать: archmap_process_apply с тем же text и mapping.")
+    return "\n".join(out)
+
+
+def process_import_result(
+    pname: str, result: dict[str, Any], preview: dict[str, Any], *, name: str, replaced: bool
+) -> str:
+    """Итог записи процесса (ProcessImportResult / ProcessReplaceResult)."""
+    pid = result.get("process_id")
+    head = (
+        f"В проекте «{pname}» заменено содержимое процесса «{name}»  id={pid}"
+        if replaced
+        else f"В проекте «{pname}» создан процесс «{name}»  id={pid}"
+    )
+    parts = int(result.get("participants") or 0)
+    unbound = int(result.get("unbound") or 0)
+    out = [
+        head,
+        f"Участников {parts}" + (f", из них без объекта {unbound}" if unbound else "")
+        + f"; фрагментов {int(result.get('fragments') or 0)}.",
+        _steps_summary(result, int(result.get("messages") or 0)),
+    ]
+    linked, unresolved = int(result.get("doc_linked") or 0), int(result.get("doc_unresolved") or 0)
+    if linked or unresolved:
+        out.append(f"Привязок к схемам логики: {linked}, не найдено {unresolved}.")
+    problems = _step_problems(preview)
+    if problems:
+        out += ["ШАГИ БЕЗ СВЯЗИ ИЛИ СХЕМЫ (видны в рекомендациях проекта):", *problems]
+    unsupported: list[str] = result.get("unsupported") or []
+    if unsupported:
+        out += ["НЕ РАЗОБРАНО (в процесс не попало):", *(f"  {line}" for line in unsupported)]
+    if replaced:
+        number = result.get("version_number")
+        if result.get("version_created"):
+            out.append(
+                f"Перед заменой сохранена версия v{number} всего проекта: прежний текст процесса "
+                "в ней (archmap_version_doc с process_id)."
+            )
+        else:
+            out.append(
+                f"С последней версии v{number} всего проекта изменений не было: прежний текст "
+                "процесса лежит в ней."
+            )
+    return "\n".join(out)

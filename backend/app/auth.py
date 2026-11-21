@@ -161,11 +161,14 @@ def _require_active(user: User) -> None:
         )
 
 
-def _personal_token_user(request: Request, secret: str, db: Session) -> User:
+def _personal_token_user(
+    request: Request, secret: str, db: Session, *, allow_ci: bool = False
+) -> User:
     """Вход по личному токену (docs/plan-remote-mcp.md, Р4). Права — владельца, как у
     его сессии; токен их только сужает: DELETE закрыт целиком, «только чтение» (и любой
-    токен «Пользователя») пускает лишь безопасные методы, остальное —
-    require_session_user на ручках.
+    токен «Пользователя») пускает лишь безопасные методы, токен «только сигнал CI» —
+    только приём сигнала (allow_ci, get_ci_user), остальное — require_session_user на
+    ручках.
 
     Признак «запрос по токену» кладётся в request.state, а НЕ в ContextVar: эта
     зависимость синхронная, FastAPI исполняет её в пуле потоков, и значение ContextVar
@@ -187,6 +190,8 @@ def _personal_token_user(request: Request, secret: str, db: Session) -> User:
         raise invalid
     _require_active(user)
     request.state.personal_token = row
+    if row.ci_only and not allow_ci:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=personal_tokens.CI_ONLY_DETAIL)
     if request.method == "DELETE":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=personal_tokens.NO_DELETE_DETAIL)
     if personal_tokens.read_only_for(row, user) and request.method not in personal_tokens.SAFE_METHODS:
@@ -215,6 +220,16 @@ def get_current_user(
     # невнятный 401.
     if personal_tokens.is_personal_token(token):
         return _personal_token_user(request, token, db)
+    return _get_current_user(token, db)
+
+
+def get_ci_user(
+    request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+) -> User:
+    """Пользователь сигнала CI о слиянии (app/code_changes.py): как get_current_user, но
+    пускает и токен «только сигнал CI». Ставится только на приём сигнала."""
+    if personal_tokens.is_personal_token(token):
+        return _personal_token_user(request, token, db, allow_ci=True)
     return _get_current_user(token, db)
 
 

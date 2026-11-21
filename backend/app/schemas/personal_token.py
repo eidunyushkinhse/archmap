@@ -17,6 +17,9 @@ class PersonalTokenCreate(BaseModel):
     # Имя видит только владелец: «Claude Code на ноутбуке», «CI синка схемы».
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
     read_only: bool = False
+    # Только сигнал CI о слиянии в репозитории (POST /api/v1/code-changes): токен для
+    # переменных CI, больше он ничего не умеет. read_only при нём не действует.
+    ci_only: bool = False
     # Срок в днях; null — бессрочно.
     lifetime_days: TokenLifetimeDays | None = 90
 
@@ -30,6 +33,7 @@ class PersonalTokenOut(BaseModel):
     name: str
     prefix: str
     read_only: bool
+    ci_only: bool
     created_at: datetime
     last_used_at: datetime | None
     expires_at: datetime | None

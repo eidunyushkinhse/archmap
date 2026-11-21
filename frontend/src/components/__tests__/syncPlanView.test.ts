@@ -4,7 +4,7 @@
 // а итог применения не умалчивает о пропущенных действиях.
 import { describe, it, expect } from "vitest";
 import type { SyncApplyOut, SyncPreviewOut } from "../../types";
-import { applySummary, planSections, planSummary, scannerLines } from "../docsImport/syncPlanView";
+import { applySummary, planSections, planSummary } from "../docsImport/syncPlanView";
 
 function preview(over: Partial<SyncPreviewOut> = {}): SyncPreviewOut {
   return {
@@ -122,7 +122,7 @@ describe("связи", () => {
     );
     const r: SyncApplyOut = {
       created_nodes: [], updated_nodes: [], deprecated_nodes: [], created_edges: [],
-      updated_edges: ["С / producer → С / bus"], skipped: [], graph_rev: 3,
+      updated_edges: ["С / producer → С / bus"], skipped: [], graph_rev: 3, code_changes_cleared: [],
     };
     expect(applySummary(r)).toBe("Схема обновлена: 1 связей дополнено");
   });
@@ -212,15 +212,5 @@ describe("вернувшиеся объекты", () => {
 
     const update = planSections(p).find((s) => s.key === "nodes_update");
     expect(update?.rows.map((r) => r.path)).toEqual(["С / other"]);
-  });
-});
-
-describe("scannerLines", () => {
-  it("строка на вход сборщика; при нескольких входах впереди имя файла", () => {
-    expect(scannerLines(preview({ scanner: [] }), [])).toEqual([]);
-    expect(scannerLines(preview({ scanner: ["Собрано сборщиком"] }), ["schema.yaml"]))
-      .toEqual(["Собрано сборщиком"]);
-    expect(scannerLines(preview({ scanner: [null, "Собрано сборщиком"] }), ["a.yaml", "schema.yaml"]))
-      .toEqual(["schema.yaml · Собрано сборщиком"]);
   });
 });
