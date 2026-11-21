@@ -540,6 +540,12 @@ class FixedCols {
  * resolvePieces) — полоса разрешения лежит внутри внешней полосы.
  */
 class AppTable {
+  /**
+   * Связи, чьи ПРЕПЯТСТВИЯ НОСИТЕЛЯ (слот подписи и стаб с толщиной плашки) применимы хоть к
+   * одному сегменту раздачи (номера связей, с повторами) — для прохода по носителям: носитель,
+   * чьи препятствия не применимы ни к чему, раздачу не меняет (шаг «меньше проб», механизм Г).
+   */
+  hits: number[] = [];
   start = new Int32Array(65);
   flags = new Uint8Array(64);
   fi = new Int32Array(256);
@@ -550,6 +556,7 @@ class AppTable {
     const n = S.length;
     if (this.flags.length < n) { this.flags = new Uint8Array(2 * n); this.start = new Int32Array(2 * n + 1); this.nStart = new Int32Array(2 * n + 1); }
     let m = 0, nn = 0;
+    this.hits.length = 0;
     const fEdge = F.edge, fLoA = F.lo, fHiA = F.hi, fSlot = F.slot, fThick = F.thick, fPos = F.pos, nF = F.n;
     for (let k = 0; k < n; k++) {
       const s = S[k], own = s.edge.ix, sLo = s.lo, sHi = s.hi;
@@ -587,6 +594,7 @@ class AppTable {
           far = fPos[f] - G >= bHi || fPos[f] + G <= bLo;
         }
         if (!far) this.nq[nn++] = m;
+        if (fEdge[f] >= 0 && (fSlot[f] === 1 || fThick[f] > 0)) this.hits.push(fEdge[f]);
         this.fi[m] = f; this.code[m] = code; m++;
       }
       this.flags[k] = flags;
@@ -951,6 +959,31 @@ export interface ZRoutesResult {
    * позицией; связи без носителя якоря не имеют.
    */
   labelAnchors: Map<string, EdgePoint>;
+  /**
+   * ИТОГ ВЫБОРА (шаг «меньше проб», E92 v20): выбор каждой Z-связи геометрией — подсказка
+   * тёплого старта следующему вызову (круг портов buildAutoRoutes).
+   */
+  choice: Map<string, ZHint>;
+}
+
+/**
+ * ПОДСКАЗКА ТЁПЛОГО СТАРТА (шаг «меньше проб» эпика render-scale, E92 v20): выбор связи в
+ * прошлом расчёте. Ключ карты — id группы; значение — ГЕОМЕТРИЯ выбора, а не номер варианта
+ * (при других портах список вариантов другой, и номер ничего не значит): вид маршрута,
+ * интервалы across дорожек выбранного варианта, кусок просвета колонны у ZZ, итоговые
+ * дорожки и колонна (с них стартует раздача: тот же вход повторяет прежний итог, а не другую
+ * неподвижную точку раздачи), выключен ли носитель подписи, порты (s.x, s.y, t.x, t.y), при
+ * которых выбор сделан. Формат не привязан к внутренним номерам вызова: подсказку можно
+ * собрать и из готовых маршрутов (дорожка — вырожденный интервал [y, y], колонна — [x, x]).
+ */
+export interface ZHint {
+  kind: "z" | "zz";
+  bands: ReadonlyArray<readonly [number, number]>;
+  col: readonly [number, number] | null;
+  lanes: ReadonlyArray<number>;
+  x: number;
+  hostOff: boolean;
+  ends: readonly [number, number, number, number];
 }
 
 /**
@@ -972,8 +1005,10 @@ export function zRoutes(params: {
   softOf?: (groupId: string) => ReadonlyArray<NodeRect>;
   /** габарит плашки подписи связи (Ф3): дорожка-носитель получает толщину под неё */
   labelBoxOf?: (groupId: string) => Size | undefined;
+  /** подсказка тёплого старта (E92 v20): выбор прошлого расчёта по id группы */
+  hint?: ReadonlyMap<string, ZHint>;
 }): ZRoutesResult {
-  const { groups, ports, shares, obstacles, rectOf, hardOf, softOf, labelBoxOf } = params;
+  const { groups, ports, shares, obstacles, rectOf, hardOf, softOf, labelBoxOf, hint } = params;
   // память проб спуска (см. «ПАМЯТЬ ПРОБ СПУСКА»): под отладочным следом выключена
   const cacheOn = !__zDebug.on && !__zDebug.trace;
   const selfCheck = cacheOn && diag.__ARCHMAP_Z_SELFCHECK === true;
@@ -1598,12 +1633,15 @@ export function zRoutes(params: {
   // Раздача ориентации o целиком. rec — запись того, что она пишет в связи (для памяти
   // раздачи ориентации): четвёрки «номер связи, вид отрезка (0/1 — дорожка, 2 — колонна),
   // позиция, номер дорожки».
-  const assignFull = (o: Orient, hints: boolean, rec: number[] | null): void => {
+  // hitsOut — куда дописать связи с применимыми препятствиями носителя (AppTable.hits).
+  const assignFull = (o: Orient, hints: boolean, rec: number[] | null, hitsOut: number[] | null = null): void => {
     const S = segsOf(o);
     const n = S.length;
     if (n === 0) return;
     const F = fixedOf(o);
     appTable.build(S, F);
+    markHits(appTable.hits);
+    if (hitsOut) for (const k of appTable.hits) hitsOut.push(k);
     const parent = S.map((_, k) => k);
     const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
     // Компоненты: пары взаимодействующих сегментов проходом по полосам (eachBandPair).
@@ -1663,7 +1701,10 @@ export function zRoutes(params: {
   // вызов) раздача считается всегда.
   const HOST_CODE: Record<Host, number> = { none: 0, dstub: 1, ustub: 2, column: 3, lane0: 4, lane1: 5 };
   const assignKey = new ExactKey();
-  const assignMemo = new ExactMemo<number[]>(COMP_MEMO_LIMIT);
+  const assignMemo = new ExactMemo<{ rec: number[]; hits: number[] }>(COMP_MEMO_LIMIT);
+  // связи, чьи препятствия носителя применялись в раздачах последней оценки цены сцены
+  const hostHit = new Uint8Array(edges.length);
+  const markHits = (h: ReadonlyArray<number>): void => { for (const k of h) hostHit[k] = 1; };
   // варианты с нечисловой полосой дорожки (на деле их не бывает): при таком варианте у любой
   // связи ориентации полоса ствола может стать нечисловой, и тогда дорожки всех её связей
   // читаются (natural, tieBreak, средняя дорожка ствола) — они идут в ключ
@@ -1705,17 +1746,18 @@ export function zRoutes(params: {
     const hit = assignMemo.get(h, assignKey);
     if (hit) {
       if (selfCheck) {
-        const honest: number[] = [];
-        assignFull(o, false, honest);
-        selfCheckAssert(sameNums(hit, honest), "раздача ориентации");
+        const honest: number[] = [], honestHits: number[] = [];
+        assignFull(o, false, honest, honestHits);
+        selfCheckAssert(sameNums(hit.rec, honest) && sameNums(hit.hits, honestHits), "раздача ориентации");
       }
-      replay(hit);
+      replay(hit.rec);
+      markHits(hit.hits);
       return;
     }
-    const rec: number[] = [];
+    const rec: number[] = [], hits: number[] = [];
     // assignFull не трогает ключ (у памяти компонент свой), запись идёт по нему же
-    assignFull(o, false, rec);
-    assignMemo.put(h, assignKey, rec);
+    assignFull(o, false, rec, hits);
+    assignMemo.put(h, assignKey, { rec, hits });
   };
   // Обе ориентации кругами до сходимости (дорожки и колонны зависят друг от друга:
   // первый круг может упорядочить колонны по дорожкам-серединам, и только следующий
@@ -1974,6 +2016,7 @@ export function zRoutes(params: {
   const changed: number[] = [];
   const sceneCost = (): number => {
     if (stats && !honest) { count("evals"); count(callKey); }
+    hostHit.fill(0);
     assignLanes(false);
     let cost = 0;
     costParts.cr = 0; costParts.ov = 0; costParts.inv = 0; costParts.det = 0; costParts.lost = 0; costParts.ovPairs = []; costParts.crPairs = [];
@@ -2099,12 +2142,50 @@ export function zRoutes(params: {
     return { cost, lost };
   };
 
-  // ── выбор варианта: старт без соседей, затем покоординатный спуск по цене сцены ──
+  // ── выбор варианта: старт (тёплый по подсказке либо без соседей), затем покоординатный
+  // спуск по цене сцены ──
+  const overlap1 = (a: readonly [number, number], b: readonly [number, number]): number => Math.min(a[1], b[1]) - Math.max(a[0], b[0]);
+  // ТЁПЛЫЙ СТАРТ (механизм А). Прежде каждый круг портов начинал спуск заново от вариантов с
+  // минимальным крюком и повторял весь перебор, хотя порты между кругами меняются у немногих
+  // связей. С подсказкой связь стартует с варианта, сопоставленного прежнему выбору по
+  // геометрии (образец — matchCand): тот же вид; у Z — интервал дорожки с наибольшим
+  // перекрытием, у ZZ — кусок просвета колонны с наибольшим перекрытием, при равенстве —
+  // интервалы дорожек; носитель выключен, если был выключен. Связь без подсказки или без
+  // пары к ней стартует как раньше. Спуск затем пробует не всех, а СВЕЖИХ (без пары к
+  // подсказке либо с другими портами) и их окружение (см. «ОЧЕРЕДЬ ПРОБ»).
+  const matchHint = (e: ZEdge, h: ZHint): Cand | undefined => {
+    let found: Cand | undefined, bestOv = -Infinity, bestOv2 = -Infinity;
+    for (const c of e.cands) {
+      if (c.kind !== h.kind || c.bands.length !== h.bands.length) continue;
+      let ov: number, ov2 = 0;
+      if (c.kind === "z") ov = overlap1(c.bands[0], h.bands[0]);
+      else {
+        ov = h.col ? overlap1([c.colLo, c.colHi], h.col) : -Infinity;
+        ov2 = overlap1(c.bands[0], h.bands[0]) + overlap1(c.bands[1], h.bands[1]);
+      }
+      if (ov > bestOv || (ov === bestOv && ov2 > bestOv2)) { bestOv = ov; bestOv2 = ov2; found = c; }
+    }
+    return bestOv > -EPS ? found : undefined;
+  };
+  const endsOf = (e: ZEdge): [number, number, number, number] => {
+    const pp = ports.get(e.id);
+    return pp ? [pp.s.point.x, pp.s.point.y, pp.t.point.x, pp.t.point.y] : [NaN, NaN, NaN, NaN];
+  };
+  const fresh: ZEdge[] = [];
   for (const e of edges) {
-    const start = [...e.cands].sort((a, b) => a.detour - b.detour || a.order - b.order)[0];
-    apply(e, start);
+    const h = hint?.get(e.id);
+    const c = h ? matchHint(e, h) : undefined;
+    if (h && c) {
+      e.hostOff = h.hostOff;
+      apply(e, c);
+      if (h.lanes.length === e.lanes.length) e.lanes = h.lanes.slice();
+      if (c.kind === "zz" && Number.isFinite(h.x)) e.x = h.x;
+      if (endsOf(e).some((v, k) => !sameNum(v, h.ends[k]))) fresh.push(e);
+    } else {
+      apply(e, [...e.cands].sort((a, b) => a.detour - b.detour || a.order - b.order)[0]);
+      if (hint) fresh.push(e);
+    }
   }
-  const overlap1 = (a: [number, number], b: [number, number]): number => Math.min(a[1], b[1]) - Math.max(a[0], b[0]);
   const matchCand = (t: ZEdge, c: Cand): Cand | undefined => {
     let best: Cand | undefined, bestOv = -Infinity;
     for (const tc of t.cands) {
@@ -2135,7 +2216,17 @@ export function zRoutes(params: {
     if (e.orient === "v") { envelope[E] = a0; envelope[E + 1] = a1; envelope[E + 2] = e.uAcross; envelope[E + 3] = e.dAcross; }
     else { envelope[E] = e.uAcross; envelope[E + 1] = e.dAcross; envelope[E + 2] = a0; envelope[E + 3] = a1; }
   }
+  // область связи f задевает один из габаритов boxes (x0, x1, y0, y1 подряд; NaN — мимо)
+  const envelopeHits = (f: ZEdge, boxes: ReadonlyArray<number>): boolean => {
+    const F = 4 * f.ix;
+    for (let q = 0; q < boxes.length; q += 4) {
+      if (envelope[F] - NEAR_PAD <= boxes[q + 1] && boxes[q] - NEAR_PAD <= envelope[F + 1] && envelope[F + 2] - NEAR_PAD <= boxes[q + 3] && boxes[q + 2] - NEAR_PAD <= envelope[F + 3]) return true;
+    }
+    return false;
+  };
+  const hostHitBest = new Uint8Array(edges.length);
   const scanBest = (): void => {
+    hostHitBest.set(hostHit);
     for (let p = 0; p < nP; p++) for (let k = 0; k < 4; k++) boxBest[4 * p + k] = newId[p] === 0 ? NaN : placeBox[4 * p + k];
     contrib.fill(0);
     sig.fill(0x811c9dc5 | 0);
@@ -2230,12 +2321,20 @@ export function zRoutes(params: {
   // стартовому списку, следующие — только по очереди, не больше трёх (потолок повторных
   // проб одной связи).
   const sigPrev = new Int32Array(edges.length);
+  // связи, побывавшие в очереди этого вызова: при тёплом старте проход по носителям — только
+  // по ним (носители остальных уже проверены прошлым расчётом в той же обстановке)
+  const touched = new Uint8Array(edges.length);
   const inRound = new Uint8Array(edges.length), inNext = new Uint8Array(edges.length);
+  // ПОРЯДОК ПРОБ (механизм Д): в каждом круге сначала связи с наибольшим вкладом в цену
+  // (кресты, наложения, недопустимость, крюк, потерянный носитель), при равенстве — прежний
+  // порядок по id. Обрыв по потолку проб срезает тогда наименее полезные пробы, а не хвост
+  // списка; вклад — лучшего состояния на момент составления круга.
+  const byContrib = (a: ZEdge, b: ZEdge): number => contrib[b.ix] - contrib[a.ix] || a.ix - b.ix;
   const descend = (start: ReadonlyArray<ZEdge>): void => {
-    let round = start.filter((e) => e.cands.length > 1);
+    let round = start.filter((e) => e.cands.length > 1).sort(byContrib);
     for (let pass = 0; pass < 3 && round.length > 0 && evals < MAX_EVALS; pass++) {
       const next: ZEdge[] = [];
-      for (const e of round) inRound[e.ix] = 1;
+      for (const e of round) { inRound[e.ix] = 1; touched[e.ix] = 1; }
       const enqueue = (f: ZEdge): void => {
         if (f.cands.length <= 1 || inRound[f.ix] === 1 || inNext[f.ix] === 1) return;
         inNext[f.ix] = 1;
@@ -2282,13 +2381,7 @@ export function zRoutes(params: {
               }
               scanBest();
               for (const f of edges) if (sig[f.ix] !== sigPrev[f.ix]) enqueue(f);
-              for (const f of edges) {
-                if (contrib[f.ix] <= EPS) continue;
-                const F = 4 * f.ix;
-                for (let q = 0; q < moves.length; q += 4) {
-                  if (envelope[F] - NEAR_PAD <= moves[q + 1] && moves[q] - NEAR_PAD <= envelope[F + 1] && envelope[F + 2] - NEAR_PAD <= moves[q + 3] && moves[q + 2] - NEAR_PAD <= envelope[F + 3]) { enqueue(f); break; }
-                }
-              }
+              for (const f of edges) if (contrib[f.ix] > EPS && envelopeHits(f, moves)) enqueue(f);
               enqueue(e);
               if (twin) enqueue(twin);
               break;
@@ -2300,7 +2393,7 @@ export function zRoutes(params: {
         }
       }
       for (const f of next) inNext[f.ix] = 0;
-      next.sort((a, b) => a.ix - b.ix);
+      next.sort(byContrib);
       round = next;
     }
     for (const f of round) inRound[f.ix] = 0;
@@ -2310,25 +2403,90 @@ export function zRoutes(params: {
   // слот всё равно режут), носитель выключается, и связь прокладывается как без подписи.
   // После снятия носителей спуск по вариантам повторяется: без их ограничений прежний
   // оптимум (например, вложенная встречная пара) снова достижим.
+  // НОСИТЕЛЬ БЕЗ ДЕЛА (механизм Г, правило точное): выключение носителя окупается только
+  // тем, что его слот и толщина перестают стеснять чужие дорожки, а само добавляет потерю
+  // носителя (если он не был потерян). Носитель на стабе, чьи препятствия (слот поперёк
+  // дорожек своей ориентации и стаб с толщиной плашки в поперечной) не применялись ни к
+  // одному сегменту в раздачах лучшего состояния и чей слот не укоротил полосу своей
+  // дорожки, раздачу не меняет: выключение даёт ту же геометрию и цену не ниже прежней —
+  // такую пробу не делаем. Носитель на дорожке или колонне несёт толщину своего сегмента
+  // (она сужает полосу и зазоры пар) — его пробуем всегда. Точность сторожит самопроверка:
+  // отсеянная проба, посчитанная честно, принята быть не может, иначе исключение.
+  const hostIdle = (e: ZEdge): boolean => {
+    const c = e.cand;
+    if (!c || hostHitBest[e.ix] === 1) return false;
+    const need = e.lenFlow + 2 * LABEL_PAD;
+    if (e.host === "dstub") return c.bands[c.bands.length - 1][1] <= e.dAcross - need;
+    if (e.host === "ustub") return c.bands[0][0] >= e.uAcross + need;
+    return false;
+  };
+  // Второй проход по носителям — тоже очередью: только носители, чей состав конфликтов
+  // сменился за первый проход или чья область задевает маршрут связи со снятым носителем.
   const hostPass = (): Set<ZEdge> => {
     const offs = new Set<ZEdge>();
+    let again: Uint8Array | null = null;
     for (let pass = 0; pass < 2; pass++) {
       let improved = false;
+      const sig0 = sig.slice();
+      const boxes: number[] = [];
       for (const e of edges) {
         if (!e.label || e.host === "none" || !e.cand) continue;
+        if (hint && touched[e.ix] === 0) continue;
+        if (again && again[e.ix] === 0) continue;
+        if (hostIdle(e)) {
+          if (__zDebug.on) zlog(e.id.slice(0, 8), "skip", "host-idle", e.host);
+          if (stats) count("skip.hostIdle");
+          if (skipCheck) {
+            const prev = e.host;
+            if (honestAccepts(() => { e.hostOff = true; e.host = "none"; })) {
+              if (selfCheck) throw new Error(`самопроверка отсева Z-роутера «носитель без дела»: выключение носителя ${e.id.slice(0, 8)} (${prev}) было бы принято`);
+              count("skipWould.hostIdle");
+            }
+          }
+          continue;
+        }
         const prevHost = e.host;
         e.hostOff = true; e.host = "none";
         if (stats) count("hostTries");
         const cost = sceneCost();
         if (__zDebug.on) zlog(e.id.slice(0, 8), "host-off", prevHost, e.hostLost ? "(lost)" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} lost=${costParts.lost} det=${costParts.det.toFixed(0)}`);
-        if (cost < best - EPS) { best = cost; improved = true; offs.add(e); if (stats) count("hostAccepted"); scanBest(); continue; }
+        if (cost < best - EPS) {
+          best = cost; improved = true; offs.add(e);
+          if (stats) count("hostAccepted");
+          const P = 4 * (nS + e.ix);
+          boxes.push(boxBest[P], boxBest[P + 1], boxBest[P + 2], boxBest[P + 3]);
+          scanBest();
+          boxes.push(boxBest[P], boxBest[P + 1], boxBest[P + 2], boxBest[P + 3]);
+          continue;
+        }
         e.hostOff = false; e.host = prevHost;
       }
       if (!improved) break;
+      again = new Uint8Array(edges.length);
+      for (const f of edges) if (sig[f.ix] !== sig0[f.ix] || envelopeHits(f, boxes)) again[f.ix] = 1;
     }
     return offs;
   };
-  descend(movable);
+  // Стартовый список: без подсказки — все подвижные; с подсказкой — свежие связи, их
+  // партнёры по конфликтам (кресты, наложения, разрезанные слоты в лучшем состоянии) и
+  // близнецы. Соседство областей, как у очереди, в стартовый список не идёт: замер дал
+  // больше проб при тех же крестах.
+  let start: ZEdge[] = movable;
+  if (hint) {
+    const mark = new Uint8Array(edges.length);
+    for (const e of fresh) mark[e.ix] = 1;
+    for (let a = 0; a < nP; a++) {
+      const ea = placeEdge[a];
+      for (const b of nzRow[a]) {
+        const eb = placeEdge[b];
+        if (ea && eb && mark[ea.ix] === 1 && mark[eb.ix] !== 1) mark[eb.ix] = 2;
+        else if (ea && eb && mark[eb.ix] === 1 && mark[ea.ix] !== 1) mark[ea.ix] = 2;
+      }
+    }
+    for (const f of edges) if (mark[f.ix] !== 0) { const t = twinOf.get(f); if (t && mark[t.ix] === 0) mark[t.ix] = 3; }
+    start = movable.filter((f) => mark[f.ix] !== 0);
+  }
+  descend(start);
   if (LABEL_HOSTS.on) {
     for (let round = 0; round < 2; round++) {
       // после снятых носителей — спуск по тем, чьё окружение они изменили (очередь)
@@ -2438,8 +2596,18 @@ export function zRoutes(params: {
       portKeys.set(g.id, k);
     }
   }
+  // итог выбора — подсказка тёплого старта следующему вызову (геометрией, по id группы)
+  const choice = new Map<string, ZHint>();
+  for (const e of edges) {
+    const c = e.cand;
+    if (!c) continue;
+    choice.set(e.id, {
+      kind: c.kind, bands: c.bands.map(([a, b]) => [a, b] as const), col: c.kind === "zz" ? [c.colLo, c.colHi] : null,
+      lanes: e.lanes.slice(), x: c.kind === "zz" ? e.x : NaN, hostOff: e.hostOff, ends: endsOf(e),
+    });
+  }
   const asc = (p: number, q: number): number => p - q;
-  return { routes, portKeys, gridHints: { xs: [...hintXs].sort(asc), ys: [...hintYs].sort(asc) }, labelAnchors };
+  return { routes, portKeys, gridHints: { xs: [...hintXs].sort(asc), ys: [...hintYs].sort(asc) }, labelAnchors, choice };
 }
 
 /** Габариты ломаной: x0, x1, y0, y1. */

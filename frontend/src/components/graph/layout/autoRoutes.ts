@@ -40,7 +40,7 @@ import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 import { assignPorts, type PortPair } from "./ports";
-import { zRoutes, __zDebug, type ZRoutesResult } from "./zRoutes";
+import { zRoutes, __zDebug, type ZHint, type ZRoutesResult } from "./zRoutes";
 import type { RouteBudget } from "./routeBudget";
 import { diag } from "./diag";
 
@@ -211,6 +211,21 @@ function sameShareMaps(
   }
   return true;
 }
+// Подсказки тёплого старта (E92 v20) — тоже вход zRoutes: сверка побитово, как у портов.
+function sameHintMaps(a: ReadonlyMap<string, ZHint> | undefined, b: ReadonlyMap<string, ZHint> | undefined): boolean {
+  if (!a || !b) return a === b;
+  if (a.size !== b.size) return false;
+  const sameRange = (p: readonly [number, number] | null, q: readonly [number, number] | null): boolean =>
+    p === null || q === null ? p === q : sameNum(p[0], q[0]) && sameNum(p[1], q[1]);
+  for (const [id, h] of a) {
+    const o = b.get(id);
+    if (!o || o.kind !== h.kind || o.hostOff !== h.hostOff || !sameNum(o.x, h.x) || !sameRange(o.col, h.col)) return false;
+    if (o.bands.length !== h.bands.length || o.bands.some((r, k) => !sameRange(r, h.bands[k]))) return false;
+    if (o.lanes.length !== h.lanes.length || o.lanes.some((v, k) => !sameNum(v, h.lanes[k]))) return false;
+    if (o.ends.some((v, k) => !sameNum(v, h.ends[k]))) return false;
+  }
+  return true;
+}
 // Полный текст результата zRoutes для самопроверки: карты — в порядке вставки, -0 и NaN
 // различимы.
 function zResultText(z: ZRoutesResult): string {
@@ -359,11 +374,14 @@ export function buildAutoRoutes(params: {
   // buildAutoRoutes (качели ключей, разные ключи с одними портами), берёт готовый
   // результат. Под отладочным следом повтор считается честно: след читают полигон и
   // stage-table (число вызовов). Самопроверка (diag) пересчитывает и сверяет.
-  const zCalls: Array<{ ports: ReadonlyMap<string, PortPair>; shares: ReadonlyMap<string, { s?: string; t?: string }>; z: ZRoutesResult }> = [];
-  const zFor = (p: ReadonlyMap<string, PortPair>, sh: ReadonlyMap<string, { s?: string; t?: string }>): ZRoutesResult => {
-    const run = (): ZRoutesResult => zRoutes({ groups, ports: p, shares: sh, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
+  // С тёплым стартом (E92 v20) zRoutes — функция портов, плеч И подсказки: подсказка входит в
+  // сверку повторного круга.
+  type Shares = ReadonlyMap<string, { s?: string; t?: string }>;
+  const zCalls: Array<{ ports: ReadonlyMap<string, PortPair>; shares: Shares; hint: ReadonlyMap<string, ZHint> | undefined; z: ZRoutesResult }> = [];
+  const zFor = (p: ReadonlyMap<string, PortPair>, sh: Shares, hint?: ReadonlyMap<string, ZHint>): ZRoutesResult => {
+    const run = (): ZRoutesResult => zRoutes({ groups, ports: p, shares: sh, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf, hint });
     if (!__zDebug.on && !__zDebug.trace) {
-      const hit = zCalls.find((c) => samePortMaps(c.ports, p) && sameShareMaps(c.shares, sh));
+      const hit = zCalls.find((c) => samePortMaps(c.ports, p) && sameShareMaps(c.shares, sh) && sameHintMaps(c.hint, hint));
       if (hit) {
         if (diag.__ARCHMAP_Z_SELFCHECK) {
           if (zResultText(run()) !== zResultText(hit.z)) {
@@ -376,7 +394,7 @@ export function buildAutoRoutes(params: {
       }
     }
     const z = run();
-    zCalls.push({ ports: p, shares: sh, z });
+    zCalls.push({ ports: p, shares: sh, hint, z });
     return z;
   };
   let z = zFor(ports, pr.shares);
@@ -394,7 +412,8 @@ export function buildAutoRoutes(params: {
     keys = next;
     pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys, labelBoxOf });
     ports = pr.ports;
-    z = zFor(ports, pr.shares);
+    // тёплый старт (E92 v20): выбор прошлого круга — подсказка следующему
+    z = zFor(ports, pr.shares, z.choice);
   }
   const routes = new Map<string, EdgePoint[]>();
   const fixedIds = new Set<string>();
