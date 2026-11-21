@@ -26,6 +26,10 @@ export interface ArchmapDiag {
   // слот подписи) дополнительно считается честно и сверяется; расхождение — исключение с
   // названием кэша. Ставят corpus-check --selfcheck и тест zRoutesCache.
   __ARCHMAP_Z_SELFCHECK?: boolean;
+  // Счёт сверок самопроверки по названию кэша: заводит тот, кто включил самопроверку (тест
+  // zRoutesCache проверяет, что каждый кэш на фазз-сценах действительно сверялся;
+  // corpus-check --selfcheck печатает итог).
+  __ARCHMAP_Z_SELFCHECK_COUNT?: Record<string, number>;
 }
 
 export const diag = globalThis as typeof globalThis & ArchmapDiag;

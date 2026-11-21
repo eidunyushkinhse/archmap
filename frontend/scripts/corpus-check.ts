@@ -44,8 +44,10 @@ const skip = list(flag("--skip"));
 const writeDir = flag("--write");
 const saveTimes = flag("--save-times");
 const refTimesFile = flag("--ref-times");
+const selfCount: Record<string, number> = {};
 if (argv.includes("--selfcheck")) {
   diag.__ARCHMAP_Z_SELFCHECK = true;
+  diag.__ARCHMAP_Z_SELFCHECK_COUNT = selfCount;
   console.log("самопроверка кэшей Z-роутера включена: времена не сравнимы с опорными");
 }
 const refTimes: Record<string, number> = refTimesFile
@@ -109,6 +111,9 @@ for (const name of names) {
 if (saveTimes) writeFileSync(saveTimes, JSON.stringify(times, null, 2));
 const total = `сцен ${names.length}: совпало ${same}, отличается ${differ}, без базы ${unchecked}; всего ${Math.round(sum)} мс`;
 console.log(refSum > 0 ? `${total} (было ${Math.round(refSum)} мс, ×${(refSum / sum).toFixed(1)})` : total);
+if (diag.__ARCHMAP_Z_SELFCHECK) {
+  console.log(`сверок самопроверки: ${Object.entries(selfCount).map(([k, v]) => `${k} ${v}`).join(", ") || "ни одной"}`);
+}
 if (differ > 0) {
   console.log(`отличаются: ${differing.join(", ")}`);
   process.exit(1);

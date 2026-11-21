@@ -921,6 +921,13 @@ interface CompResult { slots: number[]; lanes: number[]; gap: number }
 const selfCheckFail = (name: string): never => {
   throw new Error(`самопроверка кэша Z-роутера «${name}»: готовый результат разошёлся с честным расчётом`);
 };
+// Сверка готового результата с честным расчётом: расхождение — исключение, совпадение —
+// в счёт сверок по названию кэша, если включивший самопроверку завёл счётчик (diag).
+const selfCheckAssert = (ok: boolean, name: string): void => {
+  if (!ok) selfCheckFail(name);
+  const c = diag.__ARCHMAP_Z_SELFCHECK_COUNT;
+  if (c) c[name] = (c[name] ?? 0) + 1;
+};
 const sameNums = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): boolean =>
   a.length === b.length && a.every((v, i) => sameNum(v, b[i]));
 const samePts = (a: EdgePoint[] | null, b: EdgePoint[] | null): boolean =>
@@ -1550,7 +1557,7 @@ export function zRoutes(params: {
   const COMP_MEMO_MAX = 20;
   const checkComp = (hit: CompResult, M: Seg[], ks: ReadonlyArray<number>, F: FixedCols, name: string): void => {
     const honest = solveComp(M, ks, F);
-    if (!sameNums(hit.slots, honest.slots) || !sameNums(hit.lanes, honest.lanes) || !sameNum(hit.gap, honest.gap)) selfCheckFail(name);
+    selfCheckAssert(sameNums(hit.slots, honest.slots) && sameNums(hit.lanes, honest.lanes) && sameNum(hit.gap, honest.gap), name);
   };
   const solveFull = (M: Seg[], ks: ReadonlyArray<number>, F: FixedCols, known: CompResult | null): CompResult => {
     keyOfComp(M, ks, F);
@@ -1693,7 +1700,7 @@ export function zRoutes(params: {
       if (selfCheck) {
         const honest: number[] = [];
         assignFull(o, false, honest);
-        if (!sameNums(hit, honest)) selfCheckFail("раздача ориентации");
+        selfCheckAssert(sameNums(hit, honest), "раздача ориентации");
       }
       replay(hit);
       return;
@@ -1814,7 +1821,7 @@ export function zRoutes(params: {
       for (let k = 0; k < recent.length; k++) {
         const m = recent[k];
         if (m.kind !== e.kind || !sameNum(m.l0, l0) || !sameNum(m.l1, l1) || !sameNum(m.x, x)) continue;
-        if (selfCheck && !samePts(m.pts, buildRoute(e))) selfCheckFail("маршрут связи");
+        if (selfCheck) selfCheckAssert(samePts(m.pts, buildRoute(e)), "маршрут связи");
         if (k > 0) { recent.splice(k, 1); recent.unshift(m); }
         return m;
       }
@@ -1864,7 +1871,7 @@ export function zRoutes(params: {
   // кресты и наложение пары мест a < b с маршрутами по номерам newId; ложь — пара нулевая
   const pairAt = (a: number, b: number): boolean => {
     if (!near(a, b)) {
-      if (selfCheck && (crossingKeys(placePts[a], placePts[b]).length > 0 || overlapping(placePts[a], placePts[b]))) selfCheckFail("отсев далёких пар");
+      if (selfCheck) selfCheckAssert(crossingKeys(placePts[a], placePts[b]).length === 0 && !overlapping(placePts[a], placePts[b]), "отсев далёких пар");
       return false;
     }
     const cell = a * nP + b, idA = newId[a], idB = newId[b];
@@ -1878,7 +1885,7 @@ export function zRoutes(params: {
       if (selfCheck) {
         const k2 = crossingKeys(placePts[a], placePts[b]);
         const ov2 = !(ea !== null && eb !== null && sharesEnd(ea, eb)) && overlapping(placePts[a], placePts[b]);
-        if ((ov2 ? 1 : 0) !== ov || k2.length !== keys.length || k2.some((k, n) => k !== keys[n])) selfCheckFail("пара маршрутов");
+        selfCheckAssert((ov2 ? 1 : 0) === ov && k2.length === keys.length && k2.every((k, n) => k === keys[n]), "пара маршрутов");
       }
       curKeys[cell] = keys; curOv[cell] = ov;
       return keys.length > 0 || ov === 1;
@@ -1933,7 +1940,7 @@ export function zRoutes(params: {
   const cutAt = (e: ZEdge, gen: number, r: NodeRect, p: number): boolean => {
     const P = 4 * p, bx = placeBox;
     if (bx[P + 1] < r.x || bx[P] > r.x + r.w || bx[P + 3] < r.y || bx[P + 2] > r.y + r.h) {
-      if (selfCheck && slotCut(placePts[p], r)) selfCheckFail("отсев далёких слотов");
+      if (selfCheck) selfCheckAssert(!slotCut(placePts[p], r), "отсев далёких слотов");
       return false;
     }
     const cell = e.ix * nP + p, id = newId[p];
@@ -1941,7 +1948,7 @@ export function zRoutes(params: {
       for (let w = cell * PAIR_WAYS, w1 = w + PAIR_WAYS; w < w1; w++) {
         if (lostAtGen[w] !== gen || lostAtId[w] !== id) continue;
         const cut = lostAtHit[w] === 1;
-        if (selfCheck && slotCut(placePts[p], r) !== cut) selfCheckFail("слот подписи");
+        if (selfCheck) selfCheckAssert(slotCut(placePts[p], r) === cut, "слот подписи");
         return cut;
       }
     }
@@ -2043,7 +2050,7 @@ export function zRoutes(params: {
     }
     if (selfCheck) {
       const ref = sceneCostRef();
-      if (!sameNum(ref.cost, cost) || ref.lost.some((v, i) => v !== edges[i].hostLost)) selfCheckFail("цена сцены (разреженная сумма)");
+      selfCheckAssert(sameNum(ref.cost, cost) && ref.lost.every((v, i) => v === edges[i].hostLost), "цена сцены (разреженная сумма)");
     }
     return cost;
   };

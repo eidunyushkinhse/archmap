@@ -365,8 +365,12 @@ export function buildAutoRoutes(params: {
     if (!__zDebug.on && !__zDebug.trace) {
       const hit = zCalls.find((c) => samePortMaps(c.ports, p) && sameShareMaps(c.shares, sh));
       if (hit) {
-        if (diag.__ARCHMAP_Z_SELFCHECK && zResultText(run()) !== zResultText(hit.z)) {
-          throw new Error("самопроверка кэша Z-роутера «повторный круг портов»: готовый результат разошёлся с честным расчётом");
+        if (diag.__ARCHMAP_Z_SELFCHECK) {
+          if (zResultText(run()) !== zResultText(hit.z)) {
+            throw new Error("самопроверка кэша Z-роутера «повторный круг портов»: готовый результат разошёлся с честным расчётом");
+          }
+          const c = diag.__ARCHMAP_Z_SELFCHECK_COUNT;
+          if (c) c["повторный круг портов"] = (c["повторный круг портов"] ?? 0) + 1;
         }
         return hit.z;
       }
