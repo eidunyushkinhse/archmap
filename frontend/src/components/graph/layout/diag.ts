@@ -32,7 +32,8 @@ export interface ArchmapDiag {
   __ARCHMAP_Z_SELFCHECK_COUNT?: Record<string, number>;
   // СЧЁТЧИКИ ПЕРЕБОРА Z-РОУТЕРА (эпик render-scale, шаг «меньше проб»): заводит тот, кто
   // меряет (corpus-check), zRoutes прибавляет по названию: calls — вызовы, evals — полные
-  // оценки цены сцены, tries / hostTries — пробы вариантов и носителей, accepted /
+  // оценки цены сцены (evals.c1, evals.c2, evals.c3 — они же в первом, втором, третьем и
+  // дальнейших вызовах), tries / hostTries — пробы вариантов и носителей, accepted /
   // hostAccepted — принятые из них, skip.<правило> — пробы, отсеянные до полной оценки,
   // skipWould.<правило> — из них было бы принято (только с __ARCHMAP_Z_SKIPCHECK).
   // Дешёвый счёт без отладочного следа: под следом память выключена и прогон в разы дольше.

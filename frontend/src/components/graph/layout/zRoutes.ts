@@ -981,6 +981,8 @@ export function zRoutes(params: {
   const stats = diag.__ARCHMAP_Z_STATS;
   const count = (name: string): void => { if (stats) stats[name] = (stats[name] ?? 0) + 1; };
   count("calls");
+  // счёт оценок по вызовам: первый, второй, третий и дальше (круги портов buildAutoRoutes)
+  const callKey = `evals.c${Math.min(stats?.calls ?? 0, 3)}`;
   let honest = false;   // идёт честная проба отсеянного (см. «ОТСЕВ ПРОБ»): в счёт оценок не входит
   const routes = new Map<string, EdgePoint[]>();
   const portKeys = new Map<string, { s?: number; t?: number }>();
@@ -1971,7 +1973,7 @@ export function zRoutes(params: {
   const crossAt = new Map<CrossKey, number>();
   const changed: number[] = [];
   const sceneCost = (): number => {
-    if (stats && !honest) count("evals");
+    if (stats && !honest) { count("evals"); count(callKey); }
     assignLanes(false);
     let cost = 0;
     costParts.cr = 0; costParts.ov = 0; costParts.inv = 0; costParts.det = 0; costParts.lost = 0; costParts.ovPairs = []; costParts.crPairs = [];
@@ -2122,7 +2124,19 @@ export function zRoutes(params: {
   const contrib = new Float64Array(edges.length);
   const sig = new Int32Array(edges.length);
   const detourOf = (e: ZEdge): number => Math.abs(e.x - e.uAlong) + Math.abs(e.x - e.dAlong) - Math.abs(e.uAlong - e.dAlong);
+  // габариты маршрутов лучшего состояния (NaN — маршрута нет) и ОБЛАСТЬ связи — габарит
+  // её портов и колонн всех её вариантов: где бы ни прошёл её вариант, он внутри области
+  const boxBest = new Float64Array(nP * 4);
+  const envelope = new Float64Array(edges.length * 4);
+  for (const e of edges) {
+    let a0 = Math.min(e.uAlong, e.dAlong), a1 = Math.max(e.uAlong, e.dAlong);
+    for (const c of e.cands) if (c.kind === "zz") { a0 = Math.min(a0, c.x); a1 = Math.max(a1, c.x); }
+    const E = 4 * e.ix;
+    if (e.orient === "v") { envelope[E] = a0; envelope[E + 1] = a1; envelope[E + 2] = e.uAcross; envelope[E + 3] = e.dAcross; }
+    else { envelope[E] = e.uAcross; envelope[E + 1] = e.dAcross; envelope[E + 2] = a0; envelope[E + 3] = a1; }
+  }
   const scanBest = (): void => {
+    for (let p = 0; p < nP; p++) for (let k = 0; k < 4; k++) boxBest[4 * p + k] = newId[p] === 0 ? NaN : placeBox[4 * p + k];
     contrib.fill(0);
     sig.fill(0x811c9dc5 | 0);
     const mix = (k: number, v: number): void => { sig[k] = Math.imul(sig[k] ^ v, 0x01000193); };
@@ -2201,11 +2215,34 @@ export function zRoutes(params: {
   scanBest();
   let evals = 0;
   const MAX_EVALS = 400;
-  const descend = (): void => {
-    if (movable.length === 0) return;
-    for (let pass = 0; pass < 3 && evals < MAX_EVALS; pass++) {
-      let improved = false;
-      for (const e of movable) {
+  // ── ОЧЕРЕДЬ ПРОБ (шаг «меньше проб», механизм Б) ──────────────────────────────────
+  // Прежде после любого принятого хода спуск заново пробовал все варианты всех связей
+  // (второй и третий проход), хотя ход меняет обстановку у немногих. Теперь связь пробуется
+  // повторно, только если с её прошлой пробы принятый ход изменил её окружение — подпись
+  // состава конфликтов (sig): партнёры по крестам и наложениям, недопустимость, потеря
+  // носителя, разрезанные слоты. Сдвиг дорожки на пиксели без смены состава поводом не
+  // считается (в плотном канале ход сдвигает почти всех). Второй повод — СОСЕДСТВО: связь с
+  // ненулевым вкладом, чья ОБЛАСТЬ (габарит портов и колонн всех её вариантов) задевает
+  // прежний или новый маршрут сдвинутой связи, — ход мог освободить место её варианту
+  // (связь на ZZ ждёт, когда сосед уйдёт с пути её Z; её собственный состав конфликтов при
+  // этом не меняется). Без второго повода замер дал +7…+20 крестов на трёх сценах корпуса.
+  // Сдвинутая связь и её близнец идут в очередь всегда. Круги — прежние проходы: первый по
+  // стартовому списку, следующие — только по очереди, не больше трёх (потолок повторных
+  // проб одной связи).
+  const sigPrev = new Int32Array(edges.length);
+  const inRound = new Uint8Array(edges.length), inNext = new Uint8Array(edges.length);
+  const descend = (start: ReadonlyArray<ZEdge>): void => {
+    let round = start.filter((e) => e.cands.length > 1);
+    for (let pass = 0; pass < 3 && round.length > 0 && evals < MAX_EVALS; pass++) {
+      const next: ZEdge[] = [];
+      for (const e of round) inRound[e.ix] = 1;
+      const enqueue = (f: ZEdge): void => {
+        if (f.cands.length <= 1 || inRound[f.ix] === 1 || inNext[f.ix] === 1) return;
+        inNext[f.ix] = 1;
+        next.push(f);
+      };
+      for (const e of round) {
+        inRound[e.ix] = 0;
         const current = e.cand;
         const twin = twinOf.get(e);
         let moved = false;
@@ -2232,23 +2269,49 @@ export function zRoutes(params: {
             if (stats) count("tries");
             const cost = sceneCost();
             if (__zDebug.on) zlog(e.id.slice(0, 8), "try", c.kind, c.bands.map((b) => `${b[0].toFixed(0)}..${b[1].toFixed(0)}`).join("/"), Number.isFinite(c.x) ? `x=${c.x}` : "", tc ? "+twin" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} ov=${costParts.ov} inv=${costParts.inv} det=${costParts.det.toFixed(0)} lost=${costParts.lost}`, costParts.ovPairs.join(","), __zDebug.trace ? `[${costParts.crPairs.join(" ")}]` : "");
-            if (cost < best - EPS) { best = cost; improved = true; moved = true; if (stats) count("accepted"); scanBest(); break; }
+            if (cost < best - EPS) {
+              best = cost; moved = true;
+              if (stats) count("accepted");
+              sigPrev.set(sig);
+              // прежние и новые габариты сдвинутых связей — до того, как scanBest их перепишет
+              const moves: number[] = [];
+              for (const m of twin && tc ? [e, twin] : [e]) {
+                const P = 4 * (nS + m.ix);
+                moves.push(boxBest[P], boxBest[P + 1], boxBest[P + 2], boxBest[P + 3]);
+                if (newId[nS + m.ix] !== 0) moves.push(placeBox[P], placeBox[P + 1], placeBox[P + 2], placeBox[P + 3]);
+              }
+              scanBest();
+              for (const f of edges) if (sig[f.ix] !== sigPrev[f.ix]) enqueue(f);
+              for (const f of edges) {
+                if (contrib[f.ix] <= EPS) continue;
+                const F = 4 * f.ix;
+                for (let q = 0; q < moves.length; q += 4) {
+                  if (envelope[F] - NEAR_PAD <= moves[q + 1] && moves[q] - NEAR_PAD <= envelope[F + 1] && envelope[F + 2] - NEAR_PAD <= moves[q + 3] && moves[q + 2] - NEAR_PAD <= envelope[F + 3]) { enqueue(f); break; }
+                }
+              }
+              enqueue(e);
+              if (twin) enqueue(twin);
+              break;
+            }
             if (current) apply(e, current);
             if (twin && tc && twinCurrent) apply(twin, twinCurrent);
           }
           if (moved) break;
         }
       }
-      if (!improved) break;
+      for (const f of next) inNext[f.ix] = 0;
+      next.sort((a, b) => a.ix - b.ix);
+      round = next;
     }
+    for (const f of round) inRound[f.ix] = 0;
   };
   // ПРОХОД ПО НОСИТЕЛЯМ (Ф3): носитель — тоже переменная спуска. Его слот и толщина
   // двигают чужие дорожки и колонну; где это стоит креста или крюка дороже плашки (либо
   // слот всё равно режут), носитель выключается, и связь прокладывается как без подписи.
   // После снятия носителей спуск по вариантам повторяется: без их ограничений прежний
   // оптимум (например, вложенная встречная пара) снова достижим.
-  const hostPass = (): boolean => {
-    let any = false;
+  const hostPass = (): Set<ZEdge> => {
+    const offs = new Set<ZEdge>();
     for (let pass = 0; pass < 2; pass++) {
       let improved = false;
       for (const e of edges) {
@@ -2258,19 +2321,22 @@ export function zRoutes(params: {
         if (stats) count("hostTries");
         const cost = sceneCost();
         if (__zDebug.on) zlog(e.id.slice(0, 8), "host-off", prevHost, e.hostLost ? "(lost)" : "", `cost=${cost.toFixed(0)}`, `best=${best.toFixed(0)}`, `cr=${costParts.cr} lost=${costParts.lost} det=${costParts.det.toFixed(0)}`);
-        if (cost < best - EPS) { best = cost; improved = true; any = true; if (stats) count("hostAccepted"); scanBest(); continue; }
+        if (cost < best - EPS) { best = cost; improved = true; offs.add(e); if (stats) count("hostAccepted"); scanBest(); continue; }
         e.hostOff = false; e.host = prevHost;
       }
       if (!improved) break;
     }
-    return any;
+    return offs;
   };
-  descend();
+  descend(movable);
   if (LABEL_HOSTS.on) {
     for (let round = 0; round < 2; round++) {
-      if (!hostPass()) break;
+      // после снятых носителей — спуск по тем, чьё окружение они изменили (очередь)
+      const sig0 = sig.slice();
+      const offs = hostPass();
+      if (offs.size === 0) break;
       const before = best;
-      descend();
+      descend(movable.filter((f) => sig[f.ix] !== sig0[f.ix] || offs.has(f) || offs.has(twinOf.get(f) ?? f)));
       if (best >= before - EPS) break;
     }
     sceneCost(); // флаги hostLost — по итоговому выбору
