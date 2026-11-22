@@ -1,11 +1,20 @@
-/* Кнопка и панель «Рекомендации» (SchemaAlerts, спека alerts.md AL10–AL15).
-   Стили живут классами, а не инлайном: инлайновый фон перебил бы :hover и
-   состояние «открыто». Все рекомендации равнозначны — ни янтаря, ни цветовых
-   акцентов, ни пульса: подача спокойная, смотрят по желанию. */
+/* Кнопка и панель «Рекомендации» (SchemaAlerts, спека alerts.md AL10–AL15) на новом языке
+   (редизайн, фаза 10): панель того же вида, что меню ds-menu (фон, рамка, радиус, тень),
+   строки — тихие строки окон. Значения — токены ui/tokens.css. Стили живут классами, а не
+   инлайном: инлайновый фон перебил бы :hover и фокус. Все рекомендации равнозначны: ни
+   цветовых акцентов, ни пульса; подача спокойная, смотрят по желанию. */
 
 /* ---- кнопка — общая кнопка-значок ds-icon-btn (ui/ds.css) ---- */
 
-/* Точка «рекомендации есть»: серая, без числа. Белое кольцо отделяет её от иконки. */
+/* Якорь выпадающей панели (relative). flex, а не блок: иначе строчный бокс кнопки добавил
+   бы снизу зазор под строку. */
+.sa-anchor {
+  position: relative;
+  display: flex;
+}
+
+/* Точка «рекомендации есть»: тихим цветом, без числа. Кольцо цветом фона шапки отделяет её
+   от значка. */
 .sa-dot {
   position: absolute;
   top: 5px;
@@ -13,29 +22,33 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #64748b;
-  box-shadow: 0 0 0 2px #fff;
+  background: var(--c-fg-muted);
+  box-shadow: 0 0 0 2px var(--c-bg);
   pointer-events: none;
 }
 
 /* ---- панель ---- */
-/* z-index 50: у соседей он задан явно (меню ⋯ и выпадающие списки страницы
-   объекта — 20/15/14), а холст React Flow расставляет свои значения элементам
-   схемы; без него панель уходила под них (находка ручной проверки 2026-08-08).
-   Ниже тостов (60); модалки живут в top-layer <dialog> и вне этой шкалы. */
+/* Под кнопкой у её правого края, как меню «Действия со схемой» (ds-menu--end).
+   z-index 50: у соседей он задан явно (меню шапки и выпадающие списки страницы объекта —
+   20/15/14), а холст React Flow расставляет свои значения элементам схемы; без него панель
+   уходила под них (находка ручной проверки 2026-08-08). Ниже тостов (60); модалки живут в
+   top-layer <dialog> и вне этой шкалы. Не выше экрана без 96px: на низком окне панель
+   целиком в экране, прокручивается внутри. */
 .sa-panel {
   position: absolute;
   z-index: 50;
-  top: calc(100% + 6px);
+  top: calc(100% + 4px);
   right: 0;
-  width: 320px;
-  max-height: 440px;
+  width: 360px;
+  max-height: min(560px, calc(100vh - 96px));
   overflow-y: auto;
   box-sizing: border-box;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, .14);
+  padding: 0 4px 4px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
   text-align: left;
   transform-origin: top right;
   animation: saPanelIn .14s ease-out;
@@ -45,60 +58,95 @@
   to   { opacity: 1; transform: none; }
 }
 
-/* Шапка панели липнет к верху при скролле длинного списка. */
+/* Шапка панели липнет к верху при прокрутке длинного списка. Выходит на поля панели, чтобы
+   строки под ней не выглядывали сбоку. */
 .sa-head {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #fff;
-  padding: 12px 14px 4px;
+  margin: 0 -4px;
+  padding: 12px 12px 4px;
+  background: var(--c-bg);
 }
-.sa-title { margin: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
-.sa-sub { margin: 3px 0 0; font-size: 12px; color: #64748b; }
-
-/* Разделы: заголовок — мелкая серая подпись с числом, между разделами тонкая линия. */
-.sa-sec { padding: 8px 8px 2px; }
-.sa-sec + .sa-sec { border-top: 1px solid #eef0f2; }
-.sa-sec-head {
-  display: flex;
-  align-items: center;
-  padding: 0 6px 2px;
-  font-size: 11.5px;
+.sa-title {
+  margin: 0;
+  font-size: var(--fs-ui);
   font-weight: 600;
-  color: #64748b;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
 }
-.sa-sec-count { margin-left: 6px; color: #94a3b8; font-variant-numeric: tabular-nums; }
 
-/* Пункт — обычный текст; стрелка перехода только у пункта под курсором. */
+/* Пусто: одна тихая фраза под заголовком. */
+.sa-empty {
+  margin: 0;
+  padding: 2px 8px 8px;
+}
+
+/* Разделы: заголовок — тихая подпись без числа, между разделами волосяная линия. */
+.sa-sec {
+  padding: 4px 0;
+}
+.sa-sec + .sa-sec {
+  border-top: 1px solid var(--c-line);
+}
+.sa-sec-head {
+  padding: 4px 8px 2px;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+
+/* Строка: обычный текст основным цветом; кликабельная — подложкой под курсором и в фокусе
+   клавиатуры (в фокусе ещё и кольцом языка). Длинное неразрывное имя переносится, а не
+   уводит панель вбок. */
 .sa-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 6px;
-  border-radius: 7px;
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: #334155;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: var(--fs-ui);
+  line-height: 1.4;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
 }
-.sa-item--clickable { cursor: pointer; transition: background .12s; }
+.sa-item--clickable {
+  cursor: pointer;
+}
 .sa-item--clickable:hover,
-.sa-item--clickable:focus-visible { background: #f1f5f9; outline: none; }
-.sa-go { flex: none; font-size: 13px; color: #94a3b8; opacity: 0; transition: opacity .12s; }
-.sa-item--clickable:hover .sa-go,
-.sa-item--clickable:focus-visible .sa-go { opacity: 1; }
-.sa-text { flex: 1; min-width: 0; }
-.sa-line { display: block; }
-.sa-row { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-/* Служебные части строки: префикс «где», вторая строка-пояснение и связки — серым. */
-.sa-where { color: #64748b; font-weight: 600; }
-.sa-hint { display: block; font-size: 11.5px; color: #94a3b8; }
-.sa-muted { color: #94a3b8; }
+.sa-item--clickable:focus-visible {
+  background: var(--c-hover);
+}
+.sa-item--clickable:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.sa-line {
+  display: block;
+}
+.sa-row {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 5px;
+}
+/* Служебные части строки: префикс «где», вторая строка-пояснение и связки — тихим цветом. */
+.sa-where {
+  color: var(--c-fg-muted);
+}
+.sa-hint {
+  display: block;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sa-muted {
+  color: var(--c-fg-muted);
+}
 /* Конец-нарушитель в строке связи: полужирным, без цвета — выделять цветом нельзя. */
-.sa-strong { color: #1e293b; font-weight: 600; }
-
-.sa-empty { padding: 26px 16px; text-align: center; font-size: 13px; color: #64748b; }
+.sa-strong {
+  font-weight: 600;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .sa-panel { animation: none; }
-  .sa-item--clickable, .sa-go { transition: none; }
+  .sa-panel {
+    animation: none;
+  }
 }

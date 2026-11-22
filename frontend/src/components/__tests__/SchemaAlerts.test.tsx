@@ -102,17 +102,19 @@ describe("SchemaAlerts: кнопка «Рекомендации»", () => {
 });
 
 describe("SchemaAlerts: панель «Рекомендации»", () => {
-  it("пустое состояние: «Рекомендаций нет. Схема описана полностью.»", async () => {
+  // Пустое состояние — одна тихая фраза нового языка (ds-empty, редизайн, фаза 10).
+  it("пустое состояние: «Рекомендаций нет»", async () => {
     render(<SchemaAlerts alerts={EMPTY} />);
     await openPanel();
 
     expect(screen.getByRole("dialog", { name: "Рекомендации" })).toBeTruthy();
-    expect(screen.getByText("Рекомендаций нет. Схема описана полностью.")).toBeTruthy();
-    // Подзаголовок про «что ещё дополнить» при пустой панели не нужен.
+    expect(screen.getByText("Рекомендаций нет")).toHaveClass("ds-empty");
+    // Ни второй фразы, ни подзаголовка про «что ещё дополнить».
+    expect(screen.queryByText(/Схема описана полностью/)).toBeNull();
     expect(screen.queryByText("Что ещё можно дополнить в схеме.")).toBeNull();
   });
 
-  it("заголовок, подзаголовок и разделы подписью с числом; слова «алерт» нет", async () => {
+  it("заголовок без подзаголовка, разделы подписью без числа; слова «алерт» нет", async () => {
     render(
       <SchemaAlerts
         alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED, { ...DISCONNECTED, node_id: "n-8", node_name: "Поиск" }] }}
@@ -122,14 +124,26 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
 
     const panel = screen.getByRole("dialog", { name: "Рекомендации" });
     expect(screen.getByRole("heading", { name: "Рекомендации" })).toBeTruthy();
-    expect(screen.getByText("Что ещё можно дополнить в схеме.")).toBeTruthy();
+    expect(screen.queryByText("Что ещё можно дополнить в схеме.")).toBeNull();
     const head = screen.getByText("Объекты без связей").closest(".sa-sec-head");
-    expect(head?.textContent).toBe("Объекты без связей2");
+    expect(head?.textContent).toBe("Объекты без связей");
     expect(screen.queryByText(/Рекомендаций нет/)).toBeNull();
     expect(panel.textContent ?? "").not.toMatch(/алерт|незавершённ/i);
   });
 
-  it("пункт — текст со стрелкой «→» и подсказкой «Показать на схеме»; без перехода их нет", async () => {
+  // Панель — своя область нового языка: вид не зависит от шапки, где её открыли; якорь
+  // и панель без инлайн-стилей (стили классами, schemaAlerts.css).
+  it("панель — область нового языка, якорь и панель без инлайн-стилей", async () => {
+    const { container } = render(<SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} />);
+    await openPanel();
+
+    const panel = screen.getByRole("dialog", { name: "Рекомендации" });
+    expect(panel).toHaveClass("sa-panel", "ds");
+    expect(container.firstElementChild).toHaveClass("sa-anchor");
+    expect(container.querySelectorAll("[style]")).toHaveLength(0);
+  });
+
+  it("пункт — текст с подсказкой «Показать на схеме», без стрелки; без перехода подсказки нет", async () => {
     const { unmount } = render(
       <SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} onLocate={vi.fn()} />,
     );
@@ -137,8 +151,8 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
     const row = screen.getByText("Уведомления").closest(".sa-item");
     expect(row?.getAttribute("role")).toBe("button");
     expect(row?.getAttribute("title")).toBe("Показать на схеме");
-    expect(row?.querySelector(".sa-go")?.textContent).toBe("→");
-    // Стрелка — украшение: в имя кнопки-пункта она не входит.
+    // Стрелки перехода у строки нет: переход обещают подложка под курсором и подсказка.
+    expect(row?.textContent).toBe("Уведомления");
     expect(screen.getByRole("button", { name: "Уведомления" })).toBeTruthy();
     unmount();
 
@@ -146,7 +160,7 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
     await openPanel();
     const still = screen.getByText("Уведомления").closest(".sa-item");
     expect(still?.getAttribute("title")).toBeNull();
-    expect(still?.querySelector(".sa-go")).toBeNull();
+    expect(still?.getAttribute("role")).toBeNull();
   });
 
   it("клавиатура: Enter и пробел ведут к цели и закрывают панель", async () => {
@@ -745,7 +759,7 @@ describe("SchemaAlerts: документация не на своём месте
     await openPanel();
 
     const head = screen.getByText("Системы и контейнеры со своей документацией").closest(".sa-sec-head");
-    expect(head?.textContent).toBe("Системы и контейнеры со своей документацией2");
+    expect(head?.textContent).toBe("Системы и контейнеры со своей документацией");
     expect(screen.getByText("Торговля").nextElementSibling?.textContent).toBe(
       "спецификацию, конфигурацию и схемы логики можно перенести контейнерам этой системы",
     );
@@ -770,7 +784,7 @@ describe("SchemaAlerts: документация не на своём месте
     );
     await openPanel();
 
-    const titles = [...document.querySelectorAll(".sa-sec-head > span:first-child")].map((s) => s.textContent);
+    const titles = [...document.querySelectorAll(".sa-sec-head")].map((s) => s.textContent);
     expect(titles).toEqual(["Системы и контейнеры со своей документацией", "Конфигурация и спецификации у компонентов"]);
     expect(screen.getByText("orders/api · конфигурация, спецификация")).toBeTruthy();
     expect(screen.getByText("worker · спецификация")).toBeTruthy();

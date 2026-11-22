@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type {
   SchemaAlerts as Alerts,
   UnresolvedChannelRefAlert,
@@ -21,11 +21,12 @@ import { useDismiss } from "../ui/useDismiss";
  *  • Кнопка-иконка «Рекомендации» (лампочка) того же вида, что «три точки»
  *    (SchemaActions), видна ВСЕГДА, в том числе при нуле рекомендаций. Пока
  *    рекомендации есть, в углу кнопки маленькая серая точка; числа нет.
- *  • Клик раскрывает панель: разделы подписями с числом, пункты обычным текстом.
- *    Все рекомендации равнозначны — ни деления по важности, ни выделения цветом.
- *    Пункт кликабелен и ведёт к объекту/связи на схеме (через onLocate — поведение
- *    перехода реализует вызывающая сторона); стрелка «→» появляется у пункта под
- *    курсором. Пустая панель говорит «Рекомендаций нет».
+ *  • Клик раскрывает панель нового языка (вид меню ds-menu, редизайн, фаза 10): разделы
+ *    тихими подписями без числа, пункты обычным текстом. Все рекомендации равнозначны —
+ *    ни деления по важности, ни выделения цветом. Пункт кликабелен и ведёт к
+ *    объекту/связи на схеме (через onLocate — поведение перехода реализует вызывающая
+ *    сторона); под курсором и в фокусе у него подложка, стрелки перехода нет. Пустая
+ *    панель говорит «Рекомендаций нет».
  *
  * Разделы (формулировки на «объект», не «узел»):
  *  1) Объекты без связей — атомарные объекты без единой связи;
@@ -172,8 +173,10 @@ function section<T>(spec: SectionSpec<T>): AlertSection {
     },
     render: (a, { locate, openProcess }) => {
       const items = spec.items(a);
+      // Пустые разделы не показываем.
+      if (items.length === 0) return null;
       return (
-        <Section key={spec.title} title={spec.title} count={items.length}>
+        <Section key={spec.title} title={spec.title}>
           {items.map((item, i) => {
             const go = spec.go(item, i);
             const onClick = "locate" in go
@@ -477,7 +480,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   };
 
   return (
-    <div ref={ref} style={wrap}>
+    <div ref={ref} className="sa-anchor">
       {/* Тихая кнопка-значок нового языка (ui/ds.css) в обеих шапках, как её сосед
           «Действия со схемой» (редизайн, фазы 4б и 5). */}
       <button
@@ -493,15 +496,16 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
         {total > 0 && <span className="sa-dot" aria-hidden="true" />}
       </button>
 
+      {/* Панель — своя область нового языка (ds): метрики текста не зависят от шапки, в
+          которой она открыта. */}
       {open && (
-        <div className="sa-panel" role="dialog" aria-label="Рекомендации">
+        <div className="sa-panel ds" role="dialog" aria-label="Рекомендации">
           <div className="sa-head">
             <h3 className="sa-title">Рекомендации</h3>
-            {total > 0 && <p className="sa-sub">Что ещё можно дополнить в схеме.</p>}
           </div>
 
           {/* Пустые разделы не рендерятся, поэтому при нуле ниже ничего нет. */}
-          {total === 0 && <div className="sa-empty">Рекомендаций нет. Схема описана полностью.</div>}
+          {total === 0 && <p className="sa-empty ds-empty">Рекомендаций нет</p>}
 
           {ALERT_SECTIONS.map((s) => s.render(alerts, nav))}
         </div>
@@ -510,21 +514,18 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   );
 }
 
-/* раздел: подпись с числом + строки */
-function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
-  if (count === 0) return null; // пустые разделы не показываем
+/* раздел: тихая подпись без числа и строки */
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="sa-sec">
-      <div className="sa-sec-head">
-        <span>{title}</span>
-        <span className="sa-sec-count">{count}</span>
-      </div>
+      <div className="sa-sec-head">{title}</div>
       {children}
     </div>
   );
 }
 
-/* строка-пункт: обычный текст, стрелка перехода — у пункта под курсором. Кликабельна, если есть onClick */
+/* строка-пункт: обычный текст. Кликабельна, если есть onClick: тогда под курсором и в
+   фокусе у неё подложка (schemaAlerts.css) */
 // hint — подсказка перехода: к объекту на схеме или (у пунктов процессов) в процесс.
 function Item({ children, onClick, hint = "Показать на схеме" }: {
   children: ReactNode; onClick?: (() => void) | false | undefined; hint?: string;
@@ -538,12 +539,7 @@ function Item({ children, onClick, hint = "Показать на схеме" }: 
       title={onClick ? hint : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
     >
-      <span className="sa-text">{children}</span>
-      {onClick && <span className="sa-go" aria-hidden="true">→</span>}
+      {children}
     </div>
   );
 }
-
-// Якорь выпадающей панели (relative). flex, а не блок: иначе строчный бокс кнопки добавил
-// бы снизу зазор под строку.
-const wrap: CSSProperties = { position: "relative", display: "flex" };
