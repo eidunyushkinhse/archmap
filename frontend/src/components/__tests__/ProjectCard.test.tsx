@@ -1,4 +1,4 @@
-// Карточка проекта на лендинге: пункты меню ⋯ по роли в проекте (у читателя меню
+// Карточка проекта на экране «Проекты»: пункты меню по роли в проекте (у читателя меню
 // нет). Глобальная роль здесь ни при чём.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -47,6 +47,56 @@ describe("ProjectCard: меню по роли в проекте", () => {
   it("у читателя меню ⋯ нет: состав участников ему не показываем", () => {
     render(<ProjectCard project={проект("reader")} archivedTab={false} {...колбэки} />);
     expect(screen.queryByRole("button", { name: "Меню проекта" })).not.toBeInTheDocument();
+  });
+
+  // Вид нового языка (редизайн, фаза 12а): подвал — кто менял и дата, без чисел; меню —
+  // кнопка-значок, «Удалить навсегда» опасным пунктом.
+  it("подвал: логин с полным текстом в подсказке и дата, чисел объектов и связей нет", () => {
+    render(<ProjectCard project={{ ...проект("owner"), updated_by: "very-long-login-of-the-editor", object_count: 12, edge_count: 7 }} archivedTab={false} {...колбэки} />);
+    const кто = screen.getByText("very-long-login-of-the-editor");
+    expect(кто).toHaveAttribute("title", "very-long-login-of-the-editor");
+    expect(screen.getByText("1 окт.")).toBeInTheDocument();
+    expect(screen.queryByText(/объект/)).toBeNull();
+    expect(screen.queryByText(/связ/)).toBeNull();
+    expect(screen.queryByText("·")).toBeNull();
+  });
+
+  it("подвал: подпись вместо логина («Гость»), без логина — прочерк", () => {
+    const { unmount } = render(<ProjectCard project={{ ...проект("owner"), updated_by: "guest-1" }} archivedTab={false} updaterLabel="Гость" {...колбэки} />);
+    expect(screen.getByText("Гость")).toHaveAttribute("title", "Гость");
+    expect(screen.queryByText("guest-1")).toBeNull();
+    unmount();
+    render(<ProjectCard project={проект("owner")} archivedTab={false} {...колбэки} />);
+    expect(screen.getByText("—")).not.toHaveAttribute("title");
+  });
+
+  it("меню — кнопка-значок нового языка, опасный пункт «Удалить навсегда»", async () => {
+    render(<ProjectCard project={проект("owner")} archivedTab {...колбэки} />);
+    const кнопка = screen.getByRole("button", { name: "Меню проекта" });
+    expect(кнопка).toHaveClass("ds-icon-btn");
+    expect(кнопка).toHaveAttribute("aria-haspopup", "menu");
+    expect(кнопка).toHaveAttribute("aria-expanded", "false");
+    expect(кнопка.textContent).toBe("");
+    await userEvent.click(кнопка);
+    expect(кнопка).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("menu")).toHaveClass("ds-menu", "ds-menu--end");
+    expect(screen.getByRole("button", { name: "Удалить навсегда" })).toHaveClass("ds-menu-item", "ds-menu-item--danger");
+    expect(screen.getByRole("button", { name: "Восстановить" })).not.toHaveClass("ds-menu-item--danger");
+    // Escape закрывает меню.
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("щелчок по кнопке меню и по пункту меню (кроме «Открыть») проект не открывает", async () => {
+    const onOpen = vi.fn();
+    render(<ProjectCard project={проект("owner")} archivedTab={false} {...колбэки} onOpen={onOpen} />);
+    await userEvent.click(screen.getByRole("button", { name: "Меню проекта" }));
+    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
+    expect(колбэки.onEdit).toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByTitle("Открыть проект"));
+    await userEvent.click(screen.getByText("Ярмарка"));
+    expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
   it("«Доступ» открывает окно доступа", async () => {

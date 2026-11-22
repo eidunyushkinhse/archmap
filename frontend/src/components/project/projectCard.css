@@ -1,19 +1,120 @@
-/* Карточка проекта на лендинге: подъём с тенью на наведении и подсветка пунктов меню ⋯
-   — псевдокласс :hover, а не стейт (аудит F-58): наведение больше не перерисовывает
-   карточку вместе с мини-схемой. Значения — прежние инлайновые. */
+/* Карточка проекта на экране «Проекты» (редизайн, фаза 12а): рамка и радиус нового языка, без
+   тени и подъёма. Под курсором, при фокусе клавиатуры внутри и при открытом меню рамка темнее.
+   Состояния — псевдоклассами, а не стейтом (аудит F-58): наведение не перерисовывает карточку
+   вместе с мини-схемой. Значения — только токены ui/tokens.css. */
 .project-card {
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  background: var(--c-bg);
 }
-.project-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, .12);
+.project-card:hover,
+.project-card:has(:focus-visible),
+.project-card:has([aria-expanded="true"]) {
+  border-color: var(--c-line-strong);
 }
-.project-card-menuitem {
-  background: transparent;
+
+/* Превью и текст — две кнопки, обе открывают проект. Кольцо фокуса внутри карточки. */
+.project-card-top {
+  position: relative;
 }
-.project-card-menuitem:hover {
-  background: #f1f5f9;
+.project-card-preview,
+.project-card-body {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.project-card-menuitem--danger:hover {
-  background: #fef2f2;
+.project-card-preview {
+  padding: var(--space-3);
+}
+.project-card-body {
+  padding: var(--space-1) var(--space-3) 0;
+}
+.project-card-preview:focus-visible,
+.project-card-body:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.project-card-name {
+  display: block;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+/* Описание — две строки с многоточием; место под две строки и у короткого описания, чтобы
+   подвалы карточек одного ряда стояли на одной линии. */
+.project-card-desc {
+  display: -webkit-box;
+  min-height: calc(2em * 1.45);
+  margin-top: var(--space-1);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Подвал: кто менял (с многоточием) и дата у правого края, одной строкой 12px тихим цветом.
+   Прижат к низу карточки: у соседа по ряду с длинным именем подвалы стоят на одной линии. */
+.project-card-foot {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: auto;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+.project-card-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-card-date {
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Меню карточки: кнопка-значок в правом верхнем углу превью на фоне страницы (читается
+   поверх мини-схемы). Видна под курсором, при фокусе клавиатуры внутри карточки и при
+   открытом меню; прозрачностью, а не скрытием: кнопка остаётся в порядке Tab.
+   :has(:focus-visible), а не :focus-within: щелчок мышью кнопку не закрепляет. На
+   устройствах без наведения видна всегда (тот же приём, что у значков строк «Площадок»,
+   deployment/deployment.css). */
+.project-card-menu {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  opacity: 0;
+}
+.project-card:hover .project-card-menu,
+.project-card:has(:focus-visible) .project-card-menu,
+.project-card-menu:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+@media (hover: none) {
+  .project-card-menu {
+    opacity: 1;
+  }
+}
+.project-card-kebab {
+  background: var(--c-bg);
 }
