@@ -513,6 +513,15 @@ button.ds-sub:hover {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
+/* Поле в несколько строк того же вида («Описание» площадки): высота по строкам (rows),
+   поля сверху и снизу вместо высоты 30px, тянется только по высоте. */
+textarea.ds-input {
+  display: block;
+  height: auto;
+  padding: 5px 8px;
+  line-height: var(--lh-ui);
+  resize: vertical;
+}
 
 /* ── Список выбора формы: того же вида и высоты, что .ds-input ───────────────
    Обёртка .ds-select несёт шеврон (ChevronDownIcon) поверх правого края списка, у самого
