@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 
 /**
  * Общий словарь стилей модалок («китчен»). Сюда вынесено только то, что
- * повторялось в ≥2 модальных окнах: подпись поля, текстовый инпут и набор кнопок.
+ * повторялось в ≥2 модальных окнах: набор кнопок и текст ошибки.
  * Специфика одной модалки (теги, дерево, дропдауны, превью) остаётся по месту.
  *
  * Палитра — единый синий акцент (#2563eb) + slate-нейтрали. Новые цвета не
@@ -10,31 +10,9 @@ import type { CSSProperties } from "react";
  * стилями псевдоклассы недоступны) — он накрывает все инпуты/кнопки внутри .app-modal.
  *
  * Окна, переведённые на новый язык (редизайн, ui/ds.css), словарём не пользуются: подпись
- * поля и текстовое поле остались у одного окна прежнего вида (FixVersionDialog).
+ * поля и текстовое поле ушли вместе с последним окном прежнего вида, где они были
+ * (FixVersionDialog, фаза 9ж).
  */
-
-// Подпись поля формы окна прежнего вида (FixVersionDialog)
-export const labelStyle: CSSProperties = {
-  display: "block",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#475569",
-  marginBottom: 6,
-};
-
-// Текстовое поле окна прежнего вида (FixVersionDialog)
-export const input: CSSProperties = {
-  display: "block",
-  width: "100%",
-  marginBottom: 10,
-  padding: "9px 11px",
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-  fontSize: 14,
-  boxSizing: "border-box",
-  color: "#0f172a",
-  background: "#fff",
-};
 
 // Общая геометрия всех кнопок: единая высота, радиус 8, плотная типографика.
 const btnBase: CSSProperties = {
@@ -48,9 +26,10 @@ const btnBase: CSSProperties = {
   border: "1px solid transparent",
 };
 
-// Главная кнопка окон прежнего вида (PlacementDialog, FixVersionDialog), страничных
-// отказов (ErrorBoundary, LoadError), плашки обновления (UpdateNotice) и оболочки проекта
-// (ProjectShell, DeploymentPage). Окна документации объекта ушли на ds-btn (фаза 9е).
+// Главная кнопка окна прежнего вида (PlacementDialog), страничных отказов (ErrorBoundary,
+// LoadError), плашки обновления (UpdateNotice) и оболочки проекта (ProjectShell,
+// DeploymentPage). Окна документации объекта ушли на ds-btn (фаза 9е), окно фиксации
+// версии — тоже (фаза 9ж).
 export const primaryBtn: CSSProperties = {
   ...btnBase,
   background: "#2563eb",
@@ -65,5 +44,5 @@ export const secondaryBtn: CSSProperties = {
   border: "1px solid #e2e8f0",
 };
 
-// Текст ошибки под полями окна прежнего вида (PlacementDialog, SitesDialog, FixVersionDialog).
+// Текст ошибки под полями окон прежнего вида (PlacementDialog, SitesDialog).
 export const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };

@@ -59,14 +59,22 @@ function inlineName(item: VersionItem): string {
   return subject ? `${inline} «${subject}»` : inline;
 }
 
-/** «изменения с v3: схема логики «Создать заказ», конфигурация и ещё 2» — строка над
- *  списком версий (с «Есть …») и подзаголовок окна фиксации. */
+/** «изменения с v3: схема логики «Создать заказ», конфигурация и ещё 2» — строка
+ *  состояния списка версий (с «Есть …») и первый абзац окна фиксации (fixLead). */
 export function changesPhrase(latest: number, items: VersionItem[]): string {
   const head = `изменения с v${latest}`;
   if (items.length === 0) return head;
   const shown = items.slice(0, PENDING_SHOWN).map(inlineName).join(", ");
   const rest = items.length - PENDING_SHOWN;
   return `${head}: ${shown}${rest > 0 ? ` и ещё ${rest}` : ""}`;
+}
+
+/** Первый абзац окна «Зафиксировать версию»: что войдёт в версию, той же фразой с
+ *  заглавной буквы («Изменения с v3: …»). У первой версии перечислять не с чем — null. */
+export function fixLead(latest: number | null, items: VersionItem[]): string | null {
+  if (latest === null) return null;
+  const phrase = changesPhrase(latest, items);
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
 }
 
 /** Дата версии — как на карточке проекта («19 окт.»); у прошлых лет — с годом, иначе

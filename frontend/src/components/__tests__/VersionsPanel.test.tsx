@@ -391,13 +391,20 @@ describe("VersionsPanel: фиксация", () => {
   async function openFix() {
     renderPanel();
     await userEvent.click(await screen.findByRole("button", { name: "Зафиксировать версию" }));
-    return screen.getByLabelText("Комментарий: номер версии, релиза или задачи");
+    return screen.getByLabelText("Комментарий");
   }
 
-  it("окно: строка «объект · изменения с vN: …», пустой комментарий не отправляется", async () => {
+  it("окно: первым абзацем «Изменения с vN: …», пустой комментарий не отправляется", async () => {
     const field = await openFix();
-    expect(screen.getByText("Сервис заказов · изменения с v3: схема логики «Создать заказ»")).toBeInTheDocument();
-    expect(field).toHaveAttribute("placeholder", "orders 2.4 · ORD-430");
+    // Перечень без имени объекта перед ним и без склейки точкой; подсказка — внутри поля.
+    expect(screen.getByText("Изменения с v3: схема логики «Создать заказ»").className).toBe("vp-fix-lead");
+    expect(screen.getByRole("heading", { level: 2, name: "Зафиксировать версию" })).toBeInTheDocument();
+    expect(field).toHaveAttribute("placeholder", "номер версии, релиза или задачи");
+    expect(field).toHaveAttribute("id", "version-comment");
+    expect(field.className).toBe("ds-input");
+    const fix = screen.getAllByRole("dialog").at(-1);
+    expect(fix).not.toHaveTextContent("·");
+    expect(fix).not.toHaveTextContent("Сервис заказов");
     const ok = screen.getByRole("button", { name: "Зафиксировать" });
     expect(ok).toBeDisabled();
     await userEvent.type(field, "   ");
@@ -407,10 +414,13 @@ describe("VersionsPanel: фиксация", () => {
     expect(versionsApi.create).not.toHaveBeenCalled();
   });
 
-  it("первая версия: в окне «объект · первая версия»", async () => {
+  it("первая версия: абзаца с перечнем нет", async () => {
     vi.mocked(versionsApi.list).mockResolvedValue(list([], { changed: true }));
-    await openFix();
-    expect(screen.getByText("Сервис заказов · первая версия")).toBeInTheDocument();
+    const { container } = renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: "Зафиксировать версию" }));
+    expect(screen.getByLabelText("Комментарий")).toBeInTheDocument();
+    expect(container.ownerDocument.querySelector(".vp-fix-lead")).toBeNull();
+    expect(screen.queryByText(/первая версия/)).toBeNull();
   });
 
   it("успех: запрос с комментарием, окно закрывается, список перечитан", async () => {
@@ -422,7 +432,7 @@ describe("VersionsPanel: фиксация", () => {
 
     expect(versionsApi.create).toHaveBeenCalledWith("n1", "orders 2.4 · ORD-430");
     expect(await screen.findByText("Изменений с v4 нет")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Комментарий: номер версии, релиза или задачи")).toBeNull();
+    expect(screen.queryByLabelText("Комментарий")).toBeNull();
     expect(versionsApi.list).toHaveBeenCalledTimes(2);
   });
 
@@ -439,6 +449,7 @@ describe("VersionsPanel: фиксация", () => {
     await userEvent.type(field, "x");
     await userEvent.click(screen.getByRole("button", { name: "Зафиксировать" }));
     expect(await screen.findByText("Комментарий версии не может быть пустым")).toBeInTheDocument();
+    expect(screen.getByRole("alert").className).toBe("ds-danger ds-win-err");
     expect(screen.getByRole("button", { name: "Зафиксировать" })).toBeEnabled();
   });
 

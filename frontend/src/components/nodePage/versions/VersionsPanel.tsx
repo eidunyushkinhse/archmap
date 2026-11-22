@@ -26,7 +26,7 @@ import { versionsApi } from "../../../api/versions";
 import type { VersionBase } from "../../../api/versions";
 import type { RestorePreview, VersionItem, VersionList, VersionOut } from "../../../types";
 import { useVersionList } from "./useVersions";
-import { changesPhrase, remarksLine, restoreLead, versionDate } from "./versionText";
+import { changesPhrase, fixLead, remarksLine, restoreLead, versionDate } from "./versionText";
 import FixVersionDialog from "./FixVersionDialog";
 import VersionScreen from "./VersionScreen";
 import type { SideLabels } from "./VersionScreen";
@@ -38,7 +38,7 @@ import "./versions.css";
 interface Props {
   // null — весь проект: страница проекта — корень дерева.
   nodeId: string | null;
-  // Имя объекта или проекта — в пояснении отката и в окне фиксации.
+  // Имя объекта или проекта — в пояснении отката.
   title: string;
   // Фиксация и откат — редактору; читателю строки «Есть изменения…» и кнопки отката нет.
   canEdit: boolean;
@@ -182,7 +182,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
       {fixOpen && data && (
         <FixVersionDialog
           nodeId={nodeId}
-          lead={`${title} · ${latest === null ? "первая версия" : changesPhrase(latest, data.pending.items)}`}
+          lead={fixLead(latest, data.pending.items)}
           onClose={() => setFixOpen(false)}
           onDone={() => {
             setFixOpen(false);
