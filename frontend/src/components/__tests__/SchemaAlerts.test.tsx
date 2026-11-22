@@ -49,6 +49,11 @@ function dot(): Element | null {
   return document.querySelector(".ds-icon-btn .sa-dot");
 }
 
+// Первая строка пункта целиком (имя и то, что за ним).
+function line(name: string): string | null | undefined {
+  return screen.getByText(name).closest(".sa-line")?.textContent;
+}
+
 // ── Кнопка и панель (подача «А1. Чистый список», 2026-09-29) ─────────────────
 // Рекомендации смотрят по желанию, а не под давлением: кнопка видна всегда,
 // число заменено точкой, панель без иконок и цвета, у пустой схемы — пустое
@@ -191,6 +196,41 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
     await openPanel();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+// ── Документацию пора обновить (AL37) ───────────────────────────────────────
+// Сигнал CI о слияниях в репозиторий: строка — имя репозитория и тихо число слияний.
+// Сколько объектов ждут обновления, говорит плашка сигнала, а не строка панели.
+describe("SchemaAlerts: документацию пора обновить (AL37)", () => {
+  const CODE_CHANGE = {
+    id: "cc1", repo: "github.com/yarmarka/orders", merges: 3,
+    first_at: "2026-11-20T10:00:00Z", last_at: "2026-11-22T10:00:00Z",
+    first_commit: null, last_commit: null, branch: "main",
+    nodes: [{ node_id: "n1", node_name: "Order API" }, { node_id: "n2", node_name: "Оркестратор" }],
+  };
+
+  it("строка: имя репозитория основным цветом и тихо число слияний, без числа объектов", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, code_changes: [CODE_CHANGE] }} onLocate={vi.fn()} />);
+    expect(dot()).not.toBeNull();
+    await openPanel();
+
+    const row = screen.getByRole("button", { name: /github\.com\/yarmarka\/orders/ });
+    expect(row.textContent).toBe("github.com/yarmarka/orders 3 слияния");
+    // Имя без своего класса: ни полужирного, ни тихого цвета.
+    expect(screen.getByText("github.com/yarmarka/orders").className).toBe("");
+    expect(screen.getByText("3 слияния")).toHaveClass("sa-muted");
+  });
+
+  it("слово по числу слияний", async () => {
+    const { unmount } = render(<SchemaAlerts alerts={{ ...EMPTY, code_changes: [{ ...CODE_CHANGE, merges: 1 }] }} />);
+    await openPanel();
+    expect(screen.getByText("1 слияние")).toBeTruthy();
+    unmount();
+
+    render(<SchemaAlerts alerts={{ ...EMPTY, code_changes: [{ ...CODE_CHANGE, merges: 5 }] }} />);
+    await openPanel();
+    expect(screen.getByText("5 слияний")).toBeTruthy();
   });
 });
 
@@ -350,7 +390,8 @@ describe("SchemaAlerts: ответ на асинхронном канале", ()
     await openPanel();
 
     expect(screen.getByText(/«номер заказа»/)).toBeTruthy();
-    expect(screen.getByText(/канал «оформить заказ»/)).toBeTruthy();
+    // Канал — через запятую за концами, без склейки точкой.
+    expect(screen.getByText("Сервис заказов → Покупатель, канал «оформить заказ»")).toBeTruthy();
   });
 
   it("входит в общее число: зажигает точку на кнопке", async () => {
@@ -394,7 +435,8 @@ describe("SchemaAlerts: обращения к неописанным данны�
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
-    expect(screen.getByText(/Биллинг · POST \/pay/)).toBeTruthy();
+    // Где: объект, косая черта, имя схемы и двоеточие.
+    expect(screen.getByText("Биллинг / POST /pay:")).toHaveClass("sa-where");
     expect(screen.getByText("«ordrs.status»")).toBeTruthy();
     // Причина — не украшение: без неё непонятно, что чинить.
     expect(screen.getByText(/таблица не найдена/)).toBeTruthy();
@@ -454,7 +496,7 @@ describe("SchemaAlerts: обращения к неописанным канал�
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
-    expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
+    expect(screen.getByText("Заказы / POST /orders:")).toHaveClass("sa-where");
     expect(screen.getByText("«создание»")).toBeTruthy();
     expect(screen.getByText(/канал не найден у брокеров проекта/)).toBeTruthy();
   });
@@ -663,7 +705,7 @@ describe("SchemaAlerts: обращения к неописанным парам�
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным параметрам")).toBeTruthy();
-    expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
+    expect(screen.getByText("Заказы / POST /orders:")).toHaveClass("sa-where");
     expect(screen.getByText("«FEATURE_Y»")).toBeTruthy();
     // Класс ловит и прозу («зависит от: нагрузки») — подсказка обязана называть
     // второй выход, иначе такая строка читается как шум продукта.
@@ -786,10 +828,12 @@ describe("SchemaAlerts: документация не на своём месте
 
     const titles = [...document.querySelectorAll(".sa-sec-head")].map((s) => s.textContent);
     expect(titles).toEqual(["Системы и контейнеры со своей документацией", "Конфигурация и спецификации у компонентов"]);
-    expect(screen.getByText("orders/api · конфигурация, спецификация")).toBeTruthy();
-    expect(screen.getByText("worker · спецификация")).toBeTruthy();
+    // Имя компонента и за ним тихо то, что осталось, без точки между ними.
+    expect(line("orders/api")).toBe("orders/api конфигурация, спецификация");
+    expect(screen.getByText("конфигурация, спецификация")).toHaveClass("sa-muted");
+    expect(line("worker")).toBe("worker спецификация");
     // порядок слов: конфигурация, спецификация, площадки
-    expect(screen.getByText("handlers · конфигурация, площадки")).toBeTruthy();
+    expect(line("handlers")).toBe("handlers конфигурация, площадки");
     expect(screen.getAllByText("можно собрать у контейнера «orders»")).toHaveLength(3);
   });
 
@@ -804,7 +848,8 @@ describe("SchemaAlerts: документация не на своём месте
     );
     await openPanel();
 
-    expect(screen.getByText("orders/api · площадки").nextElementSibling?.textContent).toBe(
+    expect(line("orders/api")).toBe("orders/api площадки");
+    expect(screen.getByText("orders/api").nextElementSibling?.textContent).toBe(
       "площадки можно задать контейнеру «orders»",
     );
     expect(screen.queryByText("можно собрать у контейнера «orders»")).toBeNull();
@@ -816,7 +861,7 @@ describe("SchemaAlerts: документация не на своём месте
     expect(dot()).not.toBeNull();
     await openPanel();
 
-    await userEvent.click(screen.getByText("orders/api · конфигурация, спецификация"));
+    await userEvent.click(screen.getByText("orders/api"));
 
     expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "a1" });
   });

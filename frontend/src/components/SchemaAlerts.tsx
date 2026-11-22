@@ -212,6 +212,8 @@ const ALERT_SECTIONS: AlertSection[] = [
   // Сигнал CI: в основную ветку репозитория слиты изменения, а обновления из кода с тех
   // пор не было (AL37, app/code_changes.py). Строка на репозиторий, переход к верхнему
   // объекту из него; гаснет обновлением из кода или «Документация актуальна» на плашке.
+  // Строка — имя репозитория и тихо число слияний; сколько объектов ждут обновления,
+  // говорит плашка сигнала (CodeChangeNotice).
   section({
     title: "Документацию пора обновить",
     items: (a: Alerts) => a.code_changes,
@@ -219,11 +221,8 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (c) => toNode(c.nodes[0]?.node_id ?? ""),
     body: (c) => (
       <span className="sa-row">
-        <span className="sa-strong">{c.repo}</span>
-        <span className="sa-muted">
-          {c.merges} {plural(c.merges, ["слияние", "слияния", "слияний"])} · {c.nodes.length}{" "}
-          {plural(c.nodes.length, ["объект", "объекта", "объектов"])}
-        </span>
+        <span>{c.repo}</span>{" "}
+        <span className="sa-muted">{c.merges} {plural(c.merges, ["слияние", "слияния", "слияний"])}</span>
       </span>
     ),
   }),
@@ -299,8 +298,8 @@ const ALERT_SECTIONS: AlertSection[] = [
     ),
   }),
   // Факты процесса у компонента (AL36): спецификацию отдаёт, конфигурацию читает и на
-  // площадках стоит контейнер целиком. Строка называет, что осталось, и контейнер —
-  // куда перенести; ведёт к самому компоненту.
+  // площадках стоит контейнер целиком. Строка называет компонент и тихо то, что осталось,
+  // ниже контейнер — куда перенести; ведёт к самому компоненту.
   section({
     title: "Конфигурация и спецификации у компонентов",
     items: (a: Alerts) => a.component_facts,
@@ -308,7 +307,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (c) => toNode(c.node_id),
     body: (c) => (
       <>
-        <span className="sa-line">{c.node_name} · {componentFacts(c)}</span>
+        <span className="sa-line">{c.node_name} <span className="sa-muted">{componentFacts(c)}</span></span>
         <span className="sa-hint">{componentFactsHint(c)}</span>
       </>
     ),
@@ -324,7 +323,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (r) => toNode(r.node_id),
     body: (r) => (
       <span className="sa-line">
-        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-where">{r.node_name} / {r.doc_name}:</span>{" "}
         <span className="sa-strong">«{r.ref}»</span>: {REF_REASON[r.reason]}
       </span>
     ),
@@ -339,7 +338,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (r) => toNode(r.node_id),
     body: (r) => (
       <span className="sa-line">
-        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-where">{r.node_name} / {r.doc_name}:</span>{" "}
         <span className="sa-strong">«{r.ref}»</span>: {CHANNEL_REASON[r.reason]}
       </span>
     ),
@@ -357,7 +356,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (r) => toNode(r.node_id),
     body: (r) => (
       <span className="sa-line">
-        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-where">{r.node_name} / {r.doc_name}:</span>{" "}
         <span className="sa-strong">«{r.ref}»</span>: {configReason(r)}
       </span>
     ),
@@ -406,7 +405,7 @@ const ALERT_SECTIONS: AlertSection[] = [
         {stepLine(m)}
         <span className="sa-hint">
           {m.from_name} → {m.to_name}
-          {m.edge_label ? ` · канал «${m.edge_label}»` : ""}
+          {m.edge_label ? `, канал «${m.edge_label}»` : ""}
         </span>
       </>
     ),

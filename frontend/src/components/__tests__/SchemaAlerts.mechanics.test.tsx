@@ -181,6 +181,14 @@ describe("SchemaAlerts: механика панели", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  // Служебных склеек через точку в строках нет (редизайн, фаза 10): части строки
+  // разделяют косая черта, запятая или тихий цвет.
+  it("в панели со всеми классами нет склеек « · »", async () => {
+    setup();
+    await openPanel();
+    expect(screen.getByRole("dialog", { name: "Рекомендации" }).textContent).not.toMatch(/·/);
+  });
+
   it("после перехода по строке лампа снова открывает панель", async () => {
     const { onLocate } = setup();
     await openPanel();
