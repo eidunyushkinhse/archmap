@@ -5,7 +5,9 @@
 // «Сохранить» в подвале.
 // Превью перерисовывается по вводу с дебаунсом; при ошибке держит последний
 // удачный svg (при правке) или показывает заглушку с текстом ошибки (в просмотре
-// код не меняется, держать нечего). Пан/зум и вид для чтения — usePanZoom.
+// код не меняется, держать нечего). Пан/зум и вид для чтения — usePanZoom. Сцена
+// одного вида при чтении и при правке (редизайн, фаза 7б): ровный фон, пилюля
+// масштаба на токенах.
 import { useCallback, useEffect, useRef, useState } from "react";
 import MermaidRenderer from "../MermaidRenderer";
 import type { MmdStatus } from "../MermaidRenderer";
@@ -173,7 +175,7 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
   return (
     <>
       {column}
-      <div className={"doc-pv" + (isArchitect ? "" : " doc-pv--read")}>
+      <div className="doc-pv">
         <div
           ref={stageRef}
           className={"doc-pvstage" + (pz.dragging ? " doc-pvstage--drag" : "")}

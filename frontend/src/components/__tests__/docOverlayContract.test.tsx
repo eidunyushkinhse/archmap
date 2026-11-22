@@ -193,11 +193,12 @@ describe("окно схемы логики: каркас нового языка
     vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1")]);
   });
 
-  it("чтение: корень .ds, сцена doc-pv--read, тело без legacy-root, крестик ds-icon-btn", async () => {
+  it("чтение: корень .ds, сцена одного вида, тело без legacy-root, крестик ds-icon-btn", async () => {
     render(<DocOverlay {...base} isArchitect initialDocId="d1" onDocEvent={vi.fn()} />);
     await screen.findByTestId("mmd");
     expect(document.querySelector(".doc-root")).toHaveClass("ds");
-    expect(document.querySelector(".doc-pv")).toHaveClass("doc-pv--read");
+    // Модификатора сцены чтения больше нет: вид сцены один (фаза 7б).
+    expect(document.querySelector(".doc-pv")?.className).toBe("doc-pv");
     expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
     expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-icon-btn");
   });

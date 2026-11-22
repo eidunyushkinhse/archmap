@@ -76,9 +76,9 @@ describe("OpenApiPane · просмотр", () => {
 describe("OpenApiPane · чтение на новом языке", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("чтение: сцена doc-pv--read, спецификация в колонке без карточки", () => {
+  it("чтение: сцена одного вида, спецификация в колонке без карточки", () => {
     render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect onCommitOpenapi={vi.fn()} />);
-    expect(document.querySelector(".doc-pv")).toHaveClass("doc-pv--read");
+    expect(document.querySelector(".doc-pv")?.className).toBe("doc-pv");
     expect(screen.getByTestId("swagger").closest(".doc-oascard")).not.toBeNull();
     expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
   });

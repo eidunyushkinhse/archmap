@@ -1,8 +1,9 @@
 /* Оверлей документации (DocOverlay): широкий сплит «код | живое превью».
-   Каркас, шапка и чтение — новый язык (редизайн, фаза 7а): значения только из
-   ui/tokens.css, корень несёт область .ds. Стадии «Вручную» и «Через ИИ-агента» —
-   прежнего вида (их тело, подвал и кнопки шапки в legacy-root), их переделывает
-   следующая фаза. */
+   Каркас, шапка и чтение — новый язык (редизайн, фаза 7а), стадия «Вручную», колонка
+   кода читателя и сцена превью — тоже (фаза 7б): значения только из ui/tokens.css,
+   корень несёт область .ds. Стадия «Через ИИ-агента» — прежнего вида (её тело, подвал и
+   кнопка шапки в legacy-root). Сцену превью этими же классами рисуют ER-диаграмма базы
+   и просмотр документа в вопросах слияния. */
 
 /* ── каркас ─────────────────────────────────────────────────────────────── */
 
@@ -491,11 +492,18 @@
 .doc-refrow--bad {
   color: var(--c-warn);
 }
+/* Высоту строки задаёт текст строки: у моноширинной гарнитуры другие выносные, и без
+   line-height: 1 строка с именем выходила выше соседней (18,5 px вместо 17,4) и в пять
+   строк списка помещалось четыре с половиной. */
 .doc-refname {
   font-family: var(--font-mono);
+  line-height: 1;
 }
 
-/* ── превью ─────────────────────────────────────────────────────────────── */
+/* ── превью: сцена схемы и колонка спецификации ─────────────────────────────
+   Вид сцены один (редизайн, фаза 7б): ровный фон окна, пилюля масштаба на токенах — при
+   чтении и при правке, у ER-диаграммы базы (ErDiagramModal) и у просмотра документа в
+   вопросах слияния (remainder/DocViewer): они рисуют сцену этими же классами. */
 
 .doc-pv {
   flex: 1;
@@ -503,9 +511,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background-color: #fbfcfd;
-  background-image: radial-gradient(#e3e8ee 1px, transparent 1px);
-  background-size: 16px 16px;
+  background: var(--c-bg);
 }
 
 /* Сцена с пан/зумом (flowchart) */
@@ -524,42 +530,47 @@
 .doc-pvstage--drag { cursor: grabbing; }
 .doc-pz { position: absolute; left: 0; top: 0; width: max-content; }
 
-/* Скролл-область OpenAPI (без пан/зума) */
+/* Спецификация: колонка до 860 px по центру с полями 24 px на ровном фоне, без карточки
+   с рамкой и тенью; прокручивается колонка. Внутренний вид Swagger UI — прежний
+   (подгонка ниже). При ошибке в тексте держит последний текст без ошибок притушенным. */
 .doc-pvscroll {
   flex: 1;
   overflow: auto;
   min-height: 0;
-  padding: 18px;
+  padding: var(--space-6);
 }
 .doc-oascard {
-  max-width: 640px;
+  max-width: 860px;
   margin: 0 auto;
-  background: #fff;
-  border: 1px solid #e5e9ef;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
-  padding: 16px 18px;
 }
 .doc-dim { opacity: 0.6; filter: saturate(0.85); }
 
-/* Заглушки по центру превью */
+/* Заглушки по центру превью: «Схема пуста», «Нет спецификации», ошибка синтаксиса у
+   читателя — тихим текстом и текстом цвета ошибки, без плашек. */
 .doc-pvcenter {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--space-6);
 }
-.doc-pvempty { color: #9ca3af; }
-.doc-pvnote { color: #94a3b8; padding: 24px; text-align: center; }
+.doc-pvempty {
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
 .doc-mmderr {
-  font-size: 12px;
-  color: #b91c1c;
-  background: #fef2f2;
-  border-radius: 8px;
-  padding: 14px 18px;
-  max-width: 80%;
+  max-width: 68ch;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-danger);
   overflow-wrap: anywhere;
+}
+/* Заметка рендерера («Схема большая…», «Открываем спецификацию»). Вне сцены (отчёт
+   стадии агента) — прежнего вида, на сцене — тихим цветом. */
+.doc-pvnote { color: #94a3b8; padding: 24px; text-align: center; }
+.doc-pv .doc-pvnote {
+  color: var(--c-fg-muted);
 }
 
 /* Спецификация с ошибкой: строкой предупреждения над превью, по левому краю колонки
@@ -573,111 +584,55 @@
   padding: var(--space-3) var(--space-6) 0;
 }
 
-/* Зум-пилюля (правый нижний угол превью) */
+/* Пилюля масштаба в правом нижнем углу сцены: на токенах, без тяжёлой тени. Кегли
+   заданы явно: ER-диаграмма открывается окном прежних метрик. */
 .doc-zoom {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
-  display: flex;
-  align-items: center;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 9px;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
-  overflow: hidden;
-}
-.doc-zoom button {
-  border: none;
-  background: none;
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  color: #475569;
-  cursor: pointer;
-  font-size: 14px;
-  font-family: inherit;
-}
-.doc-zoom button:hover { background: #f6f8fa; }
-.doc-zval {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #334155;
-  padding: 0 4px;
-  min-width: 38px;
-  text-align: center;
-}
-.doc-zsep { width: 1px; height: 18px; background: #eef0f2; }
-
-/* ── сцена чтения (новый язык) ─────────────────────────────────────────── */
-
-/* Сцена чтения (схема и спецификация): ровный фон без точек. Превью стадии «Вручную»,
-   ER-диаграмма и документ в вопросах слияния остаются на прежнем .doc-pv. */
-.doc-pv.doc-pv--read {
-  background: var(--c-bg);
-}
-.doc-pv--read .doc-pvnote,
-.doc-pv--read .doc-pvempty {
-  color: var(--c-fg-muted);
-}
-.doc-pv--read .doc-mmderr {
-  max-width: 68ch;
-  padding: 0;
-  border-radius: 0;
-  background: none;
-  font-size: var(--fs-ui);
-  line-height: var(--lh-ui);
-  color: var(--c-danger);
-}
-
-/* Пилюля масштаба в чтении: на токенах, без тяжёлой тени. */
-.doc-pv--read .doc-zoom {
   right: var(--space-4);
   bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
   background: var(--c-bg);
   border: 1px solid var(--c-line);
   border-radius: var(--radius);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+  letter-spacing: 0;
 }
-.doc-pv--read .doc-zoom button {
+.doc-zoom button {
+  display: grid;
+  place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: var(--fs-body);
   color: var(--c-fg-muted);
+  cursor: pointer;
 }
-.doc-pv--read .doc-zoom button:hover {
+.doc-zoom button:hover {
   background: var(--c-hover);
   color: var(--c-fg);
 }
-.doc-pv--read .doc-zoom button:focus-visible {
+.doc-zoom button:focus-visible {
   outline: 2px solid var(--c-accent);
   outline-offset: -2px;
 }
-.doc-pv--read .doc-zval {
+.doc-zval {
   min-width: 40px;
+  padding: 0 4px;
   font-size: var(--fs-caption);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  text-align: center;
   color: var(--c-fg-muted);
 }
-.doc-pv--read .doc-zsep {
+.doc-zsep {
+  width: 1px;
   height: 16px;
   background: var(--c-line);
-}
-
-/* Чтение спецификации: колонка до 860 px по центру с полями 24 px на ровном фоне, без
-   карточки с рамкой и тенью; прокручивается тело окна. Внутренний вид Swagger UI —
-   прежний (подгонка ниже). */
-.doc-pv--read .doc-pvscroll {
-  padding: var(--space-6);
-}
-.doc-pv--read .doc-oascard {
-  max-width: 860px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
 }
 
 /* ── подгонка Swagger UI под карточку ───────────────────────────────────── */
