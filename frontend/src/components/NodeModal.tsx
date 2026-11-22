@@ -1,13 +1,9 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
-import type { CSSProperties } from "react";
+import { useId, useMemo, useState, useSyncExternalStore } from "react";
 import type { Node, NodeCreate, NodeElement, NodeStatus } from "../types";
-import { getNodeColors, STATUS_META } from "./graph/colors";
 import { nodesApi, viewsApi } from "../api/nodes";
 import Modal from "../ui/Modal";
-import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
-import { useScrollEdges } from "../ui/useScrollEdges";
-import { CloseIcon } from "../ui/icons";
-import "../ui/modalShell.css";
+import GrowField from "../ui/GrowField";
+import { ChevronDownIcon, CloseIcon } from "../ui/icons";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
@@ -19,19 +15,34 @@ import { useAsyncLoad } from "../lib/useAsyncLoad";
 import { STATUS_ORDER, shapeOfType, type NodeType } from "./nodeTerms";
 import { preselectType, typeOptions } from "./element/typeOptions";
 import TypeSelect from "./element/TypeSelect";
+import { PropDropdown, StatusLabel } from "./nodePage/PropRows";
+import { BELONGING_LABEL, BELONGING_ORDER, EXTERNAL_HINT } from "./nodePage/belonging";
+import "../ui/ds.css";
+import "./nodePage/propRows.css";
+// Классы этого окна отсюда не берутся: файл держит крестик .modal-close окна
+// ErDiagramModal, которое само его не подключает (до перевода того окна на новый язык).
+import "../ui/modalShell.css";
 
-// Модалка СОЗДАНИЯ объекта. Просмотр и правка существующего узла переехали в правую
-// панель схемы (inspector/NodeInspector) — здесь осталась только форма нового объекта:
-// «+» в дереве и бросок шаблона из палитры на схему.
+// Окно СОЗДАНИЯ объекта (редизайн, фаза 9б): каркас окна нового языка (ui/ds.css, ds-win)
+// и один список строк «подпись — значение» того же вида, что «Свойства» в панели объекта:
+// тихая подпись слева, значение справа, текст любого значения с одного x. Просмотр и
+// правка существующего узла — в правой панели схемы (inspector/NodeInspector); здесь
+// только новый объект: «+» в дереве и бросок шаблона из палитры на схему.
 //
-// Первое поле — «Тип» (Р36 раздела 13 docs/plan-c4-elements.md), обязательное: какие из
-// шести типов возможны под этим родителем, решает typeOptions, серые не выбираются.
-// Родителя и соседей окно загружает само по parentId: по ним — варианты и предвыбор
-// (тип шаблона, «Компонент» внутри контейнера, тип последнего созданного соседа). Тип
-// родителя окно не меняет: у листа он выбран всегда (решение владельца 2026-11-01).
-// Обучающий тур демо на шаге создания с плитки (tourStore) держит тип плитки: поле видно,
-// но заблокировано (строки-пояснения под ним нет по решению владельца 2026-11-01), —
-// иначе объект другого типа оставлял тур стоять на шаге.
+// Первая строка — «Тип» (Р36 раздела 13 docs/plan-c4-elements.md): какие из шести типов
+// возможны под этим родителем, решает typeOptions, серые не выбираются. Родителя и соседей
+// окно загружает само по parentId: по ним — варианты и предвыбор (тип шаблона,
+// «Компонент» внутри контейнера, тип последнего созданного соседа). Тип родителя окно не
+// меняет: у листа он выбран всегда (решение владельца 2026-11-01). Обучающий тур демо на
+// шаге создания с плитки (tourStore) держит тип плитки: значение видно, но заперто
+// (строки-пояснения нет по решению владельца 2026-11-01), иначе объект другого типа
+// оставлял тур стоять на шаге.
+//
+// «Принадлежность» и «Статус» — выпадающие значения панели объекта (nodePage/PropRows);
+// у «Пользователя» нет технологии и принадлежности. «Создать» заперта, пока тип не выбран
+// или название пустое; Enter в однострочном поле (и Ctrl+Enter в описании) делает то же,
+// что кнопка (ui/Modal.onSubmit). Меню значений — слоем position: fixed: тело окна
+// прокручивается и обрезало бы их.
 interface Props {
   parentId: string | null;
   // Тип шаблона из палитры: предвыбран, если возможен в этом месте.
@@ -55,7 +66,11 @@ interface Place {
   siblings: Node[];
 }
 
+// Шеврон значения-кнопки: виден при наведении на строку и при фокусе (ui/ds.css).
+const chevron = <span className="ds-value-chev" aria-hidden="true"><ChevronDownIcon /></span>;
+
 export default function NodeModal({ parentId, type: templateType, initialPos, posView, onClose, onSaved }: Props) {
+  const uid = useId();
   // Дроп в раскрытую рамку: позицию пишем отдельным батчем в вид текущего уровня.
   const intoFrame = posView !== undefined;
   const [picked, setPicked] = useState<NodeType | null>(null);
@@ -93,21 +108,12 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
   const type = typeLocked && templateType ? templateType : picked ?? preselect;
   // Поля по форме типа: у «Пользователя» нет технологии и внешности.
   const isPerson = type === "person";
-
-  const { atTop, atBottom, topRef, bottomRef } = useScrollEdges(false);
-  const headerClass = `modal-header${atTop ? " modal-header--at-top" : ""}`;
-  const footerClass = `modal-footer${atBottom ? " modal-footer--at-bottom" : ""}`;
+  // Без типа (Р36) и без названия объект не создаётся; во время записи — тоже.
+  const canSave = !saving && type !== null && name.trim() !== "";
 
   async function handleSave() {
-    if (saving) return; // Enter во время сохранения — как неактивная кнопка
-    if (!type) {
-      setError("Выберите тип объекта");
-      return;
-    }
-    if (!name.trim()) {
-      setError("Название обязательно");
-      return;
-    }
+    // Enter в поле — то же, что кнопка: при запертой кнопке ничего не происходит.
+    if (!canSave || type === null) return;
     setSaving(true);
     setError(null);
     setLimit(null);
@@ -150,128 +156,147 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
       setSaving(false);
     }
   }
-
   return (
-    <Modal onClose={onClose} onSubmit={handleSave} closeButton={false} boxStyle={{ width: 560, maxHeight: "90vh", overflowY: "auto" }}>
-      <div ref={topRef} style={{ height: 1 }} aria-hidden />
-      <div className={headerClass}>
-        <h2>Новый объект</h2>
-        <button onClick={onClose} className="modal-close" aria-label="Закрыть">
-          <CloseIcon />
-        </button>
-      </div>
-
-      <label style={labelStyle}>Тип *</label>
-      {place.error ? (
-        // Без родителя варианты не посчитать: причина и «Повторить» прямо в окне.
-        <div role="alert" style={loadFail}>
-          <span style={{ flex: 1 }}>
-            Не удалось узнать, какие типы возможны здесь.
-            <span style={loadFailDetail}>{loadErrorText(place.error)}</span>
-          </span>
-          <button type="button" style={retryBtn} onClick={place.reload}>Повторить</button>
+    <Modal onClose={onClose} onSubmit={handleSave} closeButton={false} boxStyle={{ width: 480, padding: 0 }}>
+      <div className="ds ds-win">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Новый объект</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
         </div>
-      ) : place.loading ? (
-        <div style={{ ...input, color: "#94a3b8" }}>Загрузка</div>
-      ) : (
-        <div style={typeField}>
-          <TypeSelect
-            value={type}
-            options={options}
-            onPick={(t) => { setPicked(t); setError(null); }}
-            triggerClass="ts-field"
-            chevron={<span className="ts-chev"><ChevronDown /></span>}
-            label="Тип"
-            disabled={typeLocked}
-          />
+
+        <div className="ds-win-body">
+          <dl className="ds-props">
+            <div className="ds-prop">
+              <dt className="ds-prop-term">Тип</dt>
+              <dd className="ds-prop-value">
+                {place.error ? (
+                  // Без родителя варианты не посчитать: причина и «Повторить» прямо в строке.
+                  <div className="ds-prop-fail" role="alert">
+                    <p className="ds-danger">
+                      Не удалось узнать, какие типы возможны здесь.
+                      <span className="ds-prop-fail-why">{loadErrorText(place.error)}</span>
+                    </p>
+                    <button type="button" className="ds-btn" onClick={place.reload}>Повторить</button>
+                  </div>
+                ) : place.loading ? (
+                  <span className="ds-empty">Загрузка</span>
+                ) : (
+                  <TypeSelect
+                    value={type}
+                    options={options}
+                    onPick={(t) => { setPicked(t); setError(null); }}
+                    triggerClass="ds-value-btn"
+                    // Запертое туром значение — текстом, без шеврона: менять его здесь нельзя.
+                    chevron={typeLocked ? undefined : chevron}
+                    label="Тип"
+                    inline
+                    disabled={typeLocked}
+                    fixedMenu
+                  />
+                )}
+              </dd>
+            </div>
+
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor={`${uid}-name`}>Название</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  {...noAutofill("node-modal-1")}
+                  id={`${uid}-name`}
+                  className="ds-field"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  data-autofocus
+                />
+              </dd>
+            </div>
+
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor={`${uid}-desc`}>Описание</label></dt>
+              <dd className="ds-prop-value">
+                <GrowField
+                  {...noAutofill("node-modal-2")}
+                  id={`${uid}-desc`}
+                  multiline
+                  initial=""
+                  onValue={setDescription}
+                  onCommit={setDescription}
+                />
+              </dd>
+            </div>
+
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor={`${uid}-role`}>Роль</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  {...noAutofill("node-modal-3")}
+                  id={`${uid}-role`}
+                  className="ds-field"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  placeholder="например, API или шлюз"
+                />
+              </dd>
+            </div>
+
+            {!isPerson && (
+              <>
+                <div className="ds-prop">
+                  <dt className="ds-prop-term"><label htmlFor={`${uid}-tech`}>Технология</label></dt>
+                  <dd className="ds-prop-value">
+                    <input
+                      {...noAutofill("node-modal-4")}
+                      id={`${uid}-tech`}
+                      className="ds-field"
+                      value={technology}
+                      onChange={(e) => setTechnology(e.target.value)}
+                      placeholder="например, Python"
+                    />
+                  </dd>
+                </div>
+
+                {/* Внешность — относительно контура организации; пояснение на всю строку. */}
+                <div className="ds-prop" title={EXTERNAL_HINT}>
+                  <dt className="ds-prop-term">Принадлежность</dt>
+                  <dd className="ds-prop-value">
+                    <PropDropdown
+                      current={BELONGING_LABEL[isExternal ? "external" : "internal"]}
+                      options={BELONGING_ORDER}
+                      renderOption={(b) => BELONGING_LABEL[b]}
+                      onPick={(b) => setIsExternal(b === "external")}
+                      fixedMenu
+                    />
+                  </dd>
+                </div>
+              </>
+            )}
+
+            <div className="ds-prop">
+              <dt className="ds-prop-term">Статус</dt>
+              <dd className="ds-prop-value">
+                <PropDropdown
+                  current={<StatusLabel status={status} isExternal={!isPerson && isExternal} />}
+                  options={STATUS_ORDER}
+                  renderOption={(st) => <StatusLabel status={st} isExternal={!isPerson && isExternal} />}
+                  onPick={setStatus}
+                  fixedMenu
+                />
+              </dd>
+            </div>
+          </dl>
         </div>
-      )}
 
-      <label style={labelStyle}>Название *</label>
-      <input {...noAutofill("node-modal-1")} value={name} onChange={(e) => setName(e.target.value)} style={input} data-autofocus />
-
-      <label style={labelStyle}>Описание</label>
-      <textarea {...noAutofill("node-modal-2")} value={description} onChange={(e) => setDescription(e.target.value)} style={textarea} rows={2} />
-
-      <label style={labelStyle}>Роль</label>
-      <input {...noAutofill("node-modal-3")} value={role} onChange={(e) => setRole(e.target.value)} placeholder="например, API или шлюз" style={input} />
-
-      {!isPerson && (
-        <>
-          <label style={labelStyle}>Технология</label>
-          <input {...noAutofill("node-modal-4")} value={technology} onChange={(e) => setTechnology(e.target.value)} placeholder="например, Python" style={input} />
-
-          <label style={toggleRow}>
-            <input type="checkbox" checked={isExternal} onChange={(e) => setIsExternal(e.target.checked)} style={{ marginRight: 8, cursor: "pointer" }} />
-            Внешний
-          </label>
-        </>
-      )}
-
-      <label style={labelStyle}>Статус</label>
-      <div style={statusSeg} role="radiogroup" aria-label="Статус">
-        {STATUS_ORDER.map((st) => {
-          const active = status === st;
-          const dot = getNodeColors(isExternal, 0, st).bg;
-          return (
-            <button
-              key={st}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => setStatus(st)}
-              style={active ? statusSegBtnActive : statusSegBtn}
-            >
-              <span style={{ ...metaDot, background: dot }} />
-              {STATUS_META[st].label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div ref={bottomRef} style={{ height: 1 }} aria-hidden />
-      <div className={footerClass}>
-        {error && <p style={errStyle}>{error}</p>}
-        {limit && <p style={errStyle} role="alert"><LimitText message={limit} /></p>}
-        <div style={{ display: "flex", gap: 8 }}>
-          {/* Без типа объект не создаётся (Р36): кнопка ждёт выбора. */}
-          <button onClick={handleSave} disabled={saving || !type} style={primaryBtn}>
+        <div className="ds-win-foot">
+          {error && <p className="ds-danger ds-win-err">{error}</p>}
+          {limit && <p className="ds-danger ds-win-err" role="alert"><LimitText message={limit} /></p>}
+          <button type="button" className="ds-btn ds-btn--primary" disabled={!canSave} onClick={handleSave}>
             {saving ? "Создаём" : "Создать"}
           </button>
+          <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
         </div>
       </div>
     </Modal>
   );
 }
-
-function ChevronDown() {
-  return <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9 L12 15 L18 9" /></svg>;
-}
-
-const typeField: CSSProperties = { marginBottom: 10 };
-const loadFail: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "8px 11px",
-  border: "1px solid #fecaca", borderRadius: 8, background: "#fef2f2", color: "#991b1b", fontSize: 13,
-};
-const loadFailDetail: CSSProperties = { display: "block", marginTop: 2, color: "#b91c1c", fontSize: 12.5 };
-const retryBtn: CSSProperties = { ...secondaryBtn, padding: "5px 10px", fontSize: 12.5, flexShrink: 0 };
-const textarea: CSSProperties = {
-  display: "block", width: "100%", marginBottom: 10, padding: "9px 11px",
-  border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, boxSizing: "border-box",
-  color: "#0f172a", resize: "vertical",
-};
-const errStyle: CSSProperties = { color: "#dc2626", margin: "0 0 8px" };
-const toggleRow: CSSProperties = {
-  display: "flex", alignItems: "center", fontSize: 14, fontWeight: 500,
-  color: "#374151", marginBottom: 12, cursor: "pointer", userSelect: "none",
-};
-const statusSeg: CSSProperties = { display: "flex", gap: 6, marginBottom: 12 };
-const statusSegBtn: CSSProperties = {
-  flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-  padding: "8px 6px", border: "1px solid #e2e8f0", borderRadius: 8,
-  background: "#f8fafc", color: "#475569", cursor: "pointer", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
-};
-const statusSegBtnActive: CSSProperties = {
-  ...statusSegBtn, border: "1px solid #2563eb", background: "#eff6ff", color: "#1e3a8a",
-};
-const metaDot: CSSProperties = { width: 7, height: 7, borderRadius: 4, flexShrink: 0 };

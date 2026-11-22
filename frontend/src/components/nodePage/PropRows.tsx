@@ -2,7 +2,8 @@
 // один раз и стоит в двух местах: в «Свойствах» страницы объекта (две колонки,
 // NodeProperties) и в панели объекта редактора-карты (один столбец,
 // inspector/NodeInspector). Порядок строк и колонки решает место вызова, что показать —
-// сама строка.
+// сама строка. Части строки — выпадающее значение (PropDropdown), статус словом с точкой,
+// подписи и пояснение принадлежности — делит с ними и окно «Новый объект» (NodeModal).
 //
 // Строка — пара «подпись — значение»: тихая подпись слева, значение справа. Текст любого
 // значения начинается с одного x, чем бы значение ни было: кнопка-значение, поле в виде
@@ -25,23 +26,13 @@ import { typeView } from "../element/elementView";
 import { typeOptions } from "../element/typeOptions";
 import { TypeValue } from "../element/ElementParts";
 import { revertOnEscape } from "./revertOnEscape";
+import { useFixedMenu } from "./useFixedMenu";
+import { BELONGING_LABEL, BELONGING_ORDER, EXTERNAL_HINT } from "./belonging";
 import "../element/element.css";
 import "../../ui/ds.css";
 import "./propRows.css";
 
 type NodePatch = ReturnType<typeof useNodePatch>;
-
-// Внешность — относительно контура организации, не системы (спека N2а).
-const EXTERNAL_HINT =
-  "Внешний объект принадлежит не вам: SaaS, сторонний сервис, клиент. Свои сотрудники и " +
-  "серверы внутренние, даже если они вне системы. Границу системы показывает вложенность " +
-  "объектов.";
-
-// Принадлежность — выпадашкой из двух пунктов, как статус (переключатель с меняющейся
-// подписью читался хуже).
-type Belonging = "internal" | "external";
-const BELONGING_ORDER: readonly Belonging[] = ["internal", "external"];
-const BELONGING_LABEL: Record<Belonging, string> = { internal: "Внутренний", external: "Внешний" };
 
 // Точка статуса: у существующего — нейтральная серая, у прочих — цвет статуса.
 function statusDotColor(status: NodeStatus, isExternal: boolean): string {
@@ -67,17 +58,24 @@ const chevron = <span className="ds-value-chev" aria-hidden="true"><ChevronDownI
 // Выпадашка свойства (статус, принадлежность): значение-кнопка и меню вариантов поверх
 // подложки; выбор закрывает меню, а коммит делает хук правки — только при реальном
 // изменении. Escape закрывает только меню (дальше клавиша не уходит: в редакторе она
-// закрыла бы панель), фокус возвращается на значение.
-function PropDropdown<T extends string>({ current, options, renderOption, onPick }: {
+// закрыла бы панель), фокус возвращается на значение. Клавиша гасится и по умолчанию:
+// в окне (нативный <dialog>, «Новый объект») иначе браузер закрыл бы всё окно.
+export function PropDropdown<T extends string>({ current, options, renderOption, onPick, fixedMenu = false }: {
   current: ReactNode;
   options: readonly T[];
   renderOption: (v: T) => ReactNode;
   onPick: (v: T) => void;
+  // Меню слоем position: fixed от кнопки (useFixedMenu): значение стоит в прокручиваемом
+  // теле окна («Новый объект»), absolute-меню тело обрезало бы.
+  fixedMenu?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLUListElement>(null);
+  useFixedMenu(open && fixedMenu, button, menu, 2, () => setOpen(false));
   const onKeyDown = (e: KeyboardEvent<HTMLSpanElement>) => {
     if (e.key !== "Escape" || !open) return;
+    e.preventDefault();
     e.stopPropagation();
     setOpen(false);
     button.current?.focus();
@@ -98,7 +96,7 @@ function PropDropdown<T extends string>({ current, options, renderOption, onPick
       {open && (
         <>
           <div className="ds-backdrop" onClick={() => setOpen(false)} />
-          <ul className="np-menu ds-menu">
+          <ul ref={menu} className="np-menu ds-menu">
             {options.map((v) => (
               <li key={v}>
                 <button type="button" className="ds-menu-item" onClick={() => { setOpen(false); onPick(v); }}>
@@ -176,7 +174,7 @@ export function StatusProp({ patch, isArchitect }: { patch: NodePatch; isArchite
 // системы», границу системы выражает дерево. Подсказка снимает двусмысленность (QA
 // Zabbix v4).
 export function BelongingProp({ patch, isArchitect }: { patch: NodePatch; isArchitect: boolean }) {
-  const belonging: Belonging = patch.isExternal ? "external" : "internal";
+  const belonging = patch.isExternal ? "external" : "internal";
   return (
     <Prop term="Принадлежность" title={EXTERNAL_HINT}>
       {isArchitect ? (

@@ -1063,3 +1063,21 @@ button.ds-sub:hover {
   font-weight: 400;
   color: var(--c-fg-muted);
 }
+
+/* ── Окна правки схемы: «Новый объект», «Новая связь», «Выберите связь» ─────
+   (фаза 9б редизайна; components/NodeModal, EdgeQuickCreate, EdgeChoiceModal) */
+/* Отказ загрузки значения строки окна («Тип» в «Новом объекте»): текст опасности,
+   причина строкой ниже, «Повторить» под ними. */
+.ds-prop-fail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.ds-prop-fail .ds-danger {
+  margin: 0;
+}
+.ds-prop-fail-why {
+  display: block;
+  font-size: var(--fs-caption);
+}

@@ -3,7 +3,10 @@
 // выбирается, предвыбор по шаблону палитры и по последнему созданному соседу, без типа
 // «Создать» неактивна, сбой загрузки родителя виден в окне. Тип родителя окно не меняет:
 // у листа он выбран всегда (решение владельца 2026-11-01). Подтверждение клавишей Enter —
-// то же, что кнопка «Создать» (ui/Modal.onSubmit). События тура — NodeModal.tourEvents.test.
+// то же, что кнопка «Создать» (ui/Modal.onSubmit): без типа или с пустым названием кнопка
+// заперта, и Enter ничего не делает (подсказок «Выберите тип объекта» и «Название
+// обязательно» с фазы 9б редизайна нет). События тура — NodeModal.tourEvents.test, тело
+// запроса и позиция броска — NodeModal.body.test.
 //
 // jsdom не открывает <dialog>: роли внутри скрыты, поэтому поля ищутся селекторами.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -191,15 +194,18 @@ describe("NodeModal — предвыбор", () => {
 });
 
 describe("NodeModal — поля и отказы", () => {
-  it("«Пользователь»: без технологии и признака «Внешний»", async () => {
+  it("«Пользователь»: без технологии и принадлежности", async () => {
     place(null);
     render(<NodeModal parentId={null} type="person" onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
     expect(screen.queryByText("Технология")).toBeNull();
+    expect(screen.queryByText("Принадлежность")).toBeNull();
     expect(screen.queryByText("Внешний")).toBeNull();
     pick("Система");
     expect(screen.getByText("Технология")).toBeInTheDocument();
-    expect(screen.getByText("Внешний")).toBeInTheDocument();
+    // Принадлежность — выпадающее значение, по умолчанию «Внутренний».
+    expect(screen.getByText("Принадлежность")).toBeInTheDocument();
+    expect(screen.getByText("Внутренний").closest("button")).toHaveAttribute("aria-haspopup", "menu");
   });
 
   it("сбой загрузки родителя — причина в окне, «Повторить» загружает снова", async () => {
@@ -226,22 +232,71 @@ describe("NodeModal — поля и отказы", () => {
     expect(nodesApi.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Склад", shape: "database" }));
   });
 
-  it("Enter при пустом названии — подсказка, запроса нет", async () => {
+  it("пустое название: «Создать» заперта, Enter ничего не делает; пробелы — не название", async () => {
     place(null);
     render(<NodeModal parentId={null} type="database" onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
+    expect(createBtn()).toBeDisabled();
     fireEvent.keyDown(nameField(), { key: "Enter" });
-    expect(screen.getByText("Название обязательно")).toBeInTheDocument();
+    fireEvent.change(nameField(), { target: { value: "   " } });
+    expect(createBtn()).toBeDisabled();
+    fireEvent.keyDown(nameField(), { key: "Enter" });
     expect(nodesApi.create).not.toHaveBeenCalled();
+    fireEvent.change(nameField(), { target: { value: "Склад" } });
+    expect(createBtn()).toBeEnabled();
   });
 
-  it("Enter без типа — подсказка, запроса нет", async () => {
+  it("без типа: «Создать» заперта и при названии, Enter ничего не делает", async () => {
     place(null);
     render(<NodeModal parentId={null} onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
     fireEvent.change(nameField(), { target: { value: "Склад" } });
+    expect(createBtn()).toBeDisabled();
     fireEvent.keyDown(nameField(), { key: "Enter" });
-    expect(screen.getByText("Выберите тип объекта")).toBeInTheDocument();
     expect(nodesApi.create).not.toHaveBeenCalled();
+  });
+
+  it("в описании Enter — перевод строки, Ctrl+Enter создаёт объект", async () => {
+    place(null);
+    const onSaved = vi.fn();
+    render(<NodeModal parentId={null} type="database" onClose={vi.fn()} onSaved={onSaved} />);
+    await ready();
+    fireEvent.change(nameField(), { target: { value: "Склад" } });
+    const desc = document.querySelector<HTMLTextAreaElement>("dialog textarea")!;
+    fireEvent.change(desc, { target: { value: "Остатки" } });
+    fireEvent.keyDown(desc, { key: "Enter" });
+    expect(nodesApi.create).not.toHaveBeenCalled();
+    fireEvent.keyDown(desc, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(nodesApi.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Склад", description: "Остатки" }));
+  });
+
+  it("«Отмена» и крестик закрывают окно без запроса", async () => {
+    place(null);
+    const onClose = vi.fn();
+    render(<NodeModal parentId={null} type="database" onClose={onClose} onSaved={vi.fn()} />);
+    await ready();
+    fireEvent.change(nameField(), { target: { value: "Склад" } });
+    fireEvent.click(screen.getByText("Отмена"));
+    fireEvent.click(document.querySelector<HTMLButtonElement>('dialog button[aria-label="Закрыть"]')!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(nodesApi.create).not.toHaveBeenCalled();
+  });
+
+  it("принадлежность и статус выбираются меню значения; Escape закрывает только меню", async () => {
+    place(null);
+    render(<NodeModal parentId={null} type="system" onClose={vi.fn()} onSaved={vi.fn()} />);
+    await ready();
+    fireEvent.click(screen.getByText("Существует").closest("button")!);
+    const menu = document.querySelector<HTMLElement>("dialog .np-menu")!;
+    expect([...menu.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Существует", "Проектируется", "Выводится"]);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(document.querySelector("dialog .np-menu")).toBeNull();
+    expect(document.querySelector("dialog")).not.toBeNull();
+    fireEvent.click(screen.getByText("Внутренний").closest("button")!);
+    expect([...document.querySelectorAll("dialog .np-menu button")].map((b) => b.textContent)).toEqual(["Внутренний", "Внешний"]);
+    fireEvent.click(screen.getByText("Внешний").closest("button")!);
+    expect(document.querySelector("dialog .np-menu")).toBeNull();
+    expect(screen.getByText("Внешний").closest("button")).toHaveAttribute("aria-haspopup", "menu");
   });
 });

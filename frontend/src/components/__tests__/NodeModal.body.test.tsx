@@ -4,8 +4,9 @@
 // создание, бросок в раскрытую рамку — отдельным сохранением раскладки в вид текущего
 // уровня (posView), после создания.
 //
-// Страховочные тесты фазы 9б редизайна: зелёные на прежнем виде окна. Как выбрать
-// «Внешний» и статус, знают помощники ниже; ожидания от вида окна не зависят.
+// Страховочные тесты фазы 9б редизайна: зелёные на прежнем виде окна (флажок «Внешний» и
+// три кнопки статуса) и на новом (выпадающие значения «Принадлежность» и «Статус»). Как
+// выбрать «Внешний» и статус, знают помощники ниже; ожидания от вида окна не зависят.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeModal from "../NodeModal";
@@ -47,12 +48,18 @@ function pickType(label: string) {
     .find((b) => b.querySelector(".ts-label")?.textContent === label)!;
   fireEvent.click(option);
 }
-// Принадлежность «Внешний» и статус — выбор в окне (вид окна решает, как именно).
+// Принадлежность «Внешний» и статус — выбор в окне (вид окна решает, как именно): пункт
+// меню выпадающего значения.
+function pickFromMenu(current: string, label: string) {
+  fireEvent.click(screen.getByText(current).closest("button")!);
+  const item = [...dialog().querySelectorAll<HTMLButtonElement>(".np-menu button")].find((b) => b.textContent === label)!;
+  fireEvent.click(item);
+}
 function setExternal() {
-  fireEvent.click(screen.getByLabelText("Внешний"));
+  pickFromMenu("Внутренний", "Внешний");
 }
 function setStatus(label: string) {
-  fireEvent.click(screen.getByText(label).closest("button")!);
+  pickFromMenu("Существует", label);
 }
 
 describe("NodeModal — тело POST /nodes", () => {
