@@ -1,0 +1,41 @@
+/* Окно экспорта (редизайн, фаза 9г; ExportModal): каркас ds-win (ui/ds.css). Текст
+   экспорта — блок кода того же вида, что поле кода окна документа (inspector/
+   docOverlay.css, .doc-edta): моноширинный 12px с интерлиньяжем 1,75, основной цвет на
+   фоне окна, без рамки. Блок занимает всё тело от края до края окна, от шапки и подвала
+   его отделяют волосяные линии, текст стоит с x заголовка. Блок сам — единственная
+   область прокрутки окна: по вертикали и по горизонтали (длинные строки не переносятся),
+   поэтому горизонтальная полоса видна внизу блока сразу, а шапка и подвал на месте.
+   Значения — только токены ui/tokens.css. */
+
+/* Тело с блоком кода: без своих полей и своей прокрутки — их несёт блок. */
+.ds-win-body.ex-body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.ex-code {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-3) var(--win-pad);
+  overflow: auto;
+  border-top: 1px solid var(--c-line);
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.75;
+  letter-spacing: 0;
+  color: var(--c-fg);
+  white-space: pre;
+}
+/* Браузер ставит фокус с клавиатуры на прокручиваемый блок без фокусируемых детей
+   (прокрутка стрелками): кольцо языка внутри блока. */
+.ex-code:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+/* «Готовим экспорт» и отказ — строкой тела без своего нижнего поля. */
+.ex-note {
+  margin: 0;
+}

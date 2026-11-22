@@ -64,7 +64,8 @@ describe("ExportModal", () => {
     await userEvent.click(кнопка);
     expect(copyText).toHaveBeenCalledTimes(1);
     expect(copyText).toHaveBeenCalledWith(ТЕКСТ);
-    expect(await screen.findByRole("button", { name: /^Скопировано/ })).toBeInTheDocument();
+    // Надпись та же, что у кнопок задания агенту (PromptCopyButton): без значка «✓».
+    expect(await screen.findByRole("button", { name: "Скопировано" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Скопировать" })).toBeInTheDocument(), { timeout: 3000 });
   });
 
@@ -90,6 +91,33 @@ describe("ExportModal", () => {
     expect(screen.queryByText("старое")).not.toBeInTheDocument();
     await act(async () => второй.resolve({ content: "новое" }));
     expect(document.querySelector("pre")?.textContent).toBe("новое");
+  });
+
+  // Вид (редизайн, фаза 9г): каркас окна нового языка, блок кода на всё тело.
+  it("вид: заголовок h2, блок кода, «Скопировать» основной первой и «Закрыть» за ней", async () => {
+    render(<ExportModal title="Экспорт схемы" loadKey="all" load={() => Promise.resolve({ content: ТЕКСТ })} onClose={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Экспорт схемы" })).toHaveClass("ds-win-title");
+    expect(screen.getByText("Готовим экспорт")).toHaveClass("ds-empty");
+    await waitFor(() => expect(document.querySelector("pre")).not.toBeNull());
+    const pre = document.querySelector("pre");
+    expect(pre).toHaveClass("ex-code");
+    // Блок кода — единственное содержимое тела.
+    expect(pre?.parentElement).toHaveClass("ds-win-body", "ex-body");
+    expect(pre?.parentElement?.children).toHaveLength(1);
+    const кнопки = screen.getAllByRole("button").filter((b) => b.textContent !== "");
+    expect(кнопки.map((b) => b.textContent)).toEqual(["Скопировать", "Закрыть"]);
+    expect(кнопки[0].className).toBe("ds-btn ds-btn--primary");
+    expect(кнопки[1].className).toBe("ds-btn");
+    expect(screen.getAllByRole("button", { name: "Закрыть" }).filter((b) => b.classList.contains("ds-win-close"))).toHaveLength(1);
+    // Инлайн-стилей у разметки окна нет: единственный — у обёртки ui/Modal (поля окна).
+    expect(document.querySelectorAll("dialog [style]")).toHaveLength(1);
+  });
+
+  it("вид: отказ строкой опасности", async () => {
+    const d = отложенный();
+    render(<ExportModal title="Экспорт схемы" loadKey="all" load={d.load} onClose={vi.fn()} />);
+    await act(async () => d.reject(new Error("Нет доступа к проекту")));
+    expect(screen.getByText("Нет доступа к проекту")).toHaveClass("ds-danger");
   });
 
   it("«Закрыть» зовёт onClose", async () => {
