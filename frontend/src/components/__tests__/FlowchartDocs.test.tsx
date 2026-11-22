@@ -1,8 +1,8 @@
 // Рендер-тесты FlowchartDocs — окна ОДНОЙ схемы логики (вьюер v2,
 // docs/tasks/doc-viewer-v2.md): просмотр, «Изменить ▾» (Вручную | Через ИИ-агента),
 // явное сохранение, новая схема только по «Сохранить», заглушка с «Описать ▾»,
-// строка «Используется в процессах». Тяжёлый редактор FlowchartDoc (mermaid) и
-// панель агента замоканы — тестируем стадии окна и CRUD-оркестрацию.
+// строка «Используется в процессах». Тяжёлый редактор FlowchartDoc (mermaid) замокан,
+// стадия агента настоящая (сеть замокана) — тестируем стадии окна и CRUD-оркестрацию.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -22,7 +22,12 @@ vi.mock("../../api/nodes", () => ({
     usage: vi.fn(),
   },
 }));
-vi.mock("../../api/docsImport", () => ({ docsImportApi: { prompt: vi.fn() } }));
+vi.mock("../../api/docsImport", () => ({ docsImportApi: { prompt: vi.fn(), preview: vi.fn(), apply: vi.fn() } }));
+// Стадия агента настоящая: проверка Mermaid и рисунок входящей схемы — без тяжёлого чанка.
+vi.mock("../mermaidLoader", () => ({ validateMermaid: vi.fn().mockResolvedValue(null) }));
+vi.mock("../MermaidRenderer", () => ({
+  default: ({ chart }: { chart: string }) => <div data-testid="mmd">{chart}</div>,
+}));
 vi.mock("../../api/dataRefs", () => ({ dataRefsApi: { preview: vi.fn(() => Promise.resolve([])) } }));
 
 // Редактор схемы: показывает текст, роль (правка/просмотр) и умеет прислать черновик.
@@ -33,14 +38,6 @@ vi.mock("../inspector/FlowchartDoc", () => ({
     <div data-testid="doc-editor" data-edit={String(isArchitect)} data-code={String(showCode)}>
       {initial}
       {onDraft && <button onClick={() => onDraft("graph TD\n  новое")}>набрать</button>}
-    </div>
-  ),
-}));
-// Панель пакета агента: какую схему обновляет и кнопка «применить».
-vi.mock("../docsImport/DocsAgentPanel", () => ({
-  default: ({ mode, onApplied }: { mode: { kind: string; docName?: string }; onApplied: (more: boolean) => void }) => (
-    <div data-testid="agent-panel" data-doc={mode.docName ?? ""}>
-      <button onClick={() => onApplied(false)}>применить-пакет</button>
     </div>
   ),
 }));
@@ -440,7 +437,7 @@ describe("FlowchartDocs · «Через ИИ-агента»", () => {
     vi.mocked(nodeDocsApi.usage).mockResolvedValue([]);
   });
 
-  it("шаги слева, промпт нацелен на эндпоинт, «← К схеме» возвращает", async () => {
+  it("малое окно стадии, задание нацелено на эндпоинт, «Отмена» возвращает", async () => {
     vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1", { name: "Оформление", operation: "POST /orders" })]);
     vi.mocked(docsImportApi.prompt).mockResolvedValue({ prompt: "промпт" });
     const writeText = vi.fn((_text: string) => Promise.resolve());
@@ -449,18 +446,20 @@ describe("FlowchartDocs · «Через ИИ-агента»", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
 
-    expect(screen.getByText(/Запустите агента с этим промптом в репозитории «Заказы»/)).toBeInTheDocument();
-    expect(screen.getByText("Перетащите файл, который вернёт агент, в поле справа.")).toBeInTheDocument();
-    expect(screen.getByTestId("agent-panel")).toHaveAttribute("data-doc", "Оформление");
+    // Шапка: имя объекта и название схемы; кнопки «← К схеме» нет.
+    expect(document.querySelector(".doc-agentwin .ds-win-head")).toHaveTextContent(/^ЗаказыОформление$/);
+    expect(screen.queryByRole("button", { name: "← К схеме" })).toBeNull();
+    expect(screen.getByText("Перетащите сюда файл схемы от агента")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));
+    await userEvent.click(screen.getByRole("button", { name: "Скопировать задание" }));
     await waitFor(() => expect(docsImportApi.prompt).toHaveBeenCalled());
     expect(vi.mocked(docsImportApi.prompt).mock.calls[0][0]).toMatchObject({
       nodeId: "n1", include: "logic", target: "POST /orders", variant: "orchestrated",
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "← К схеме" }));
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(screen.getByTestId("doc-editor")).toHaveAttribute("data-edit", "false");
+    expect(document.querySelector(".doc-agentwin")).toBeNull();
   });
 
   it("у воркера адрес промпта — имя схемы", async () => {
@@ -470,7 +469,7 @@ describe("FlowchartDocs · «Через ИИ-агента»", () => {
     render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
     await userEvent.click(await screen.findByRole("button", { name: "Описать" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
-    await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));
+    await userEvent.click(screen.getByRole("button", { name: "Скопировать задание" }));
     await waitFor(() => expect(docsImportApi.prompt).toHaveBeenCalled());
     expect(vi.mocked(docsImportApi.prompt).mock.calls[0][0].target).toBe("email_senders");
   });
@@ -479,11 +478,24 @@ describe("FlowchartDocs · «Через ИИ-агента»", () => {
     vi.mocked(nodeDocsApi.list)
       .mockResolvedValueOnce([doc("d1", { content: "" })])
       .mockResolvedValueOnce([doc("d1", { content: "от агента", version: 2 })]);
+    const row = {
+      node_path: "Ярмарка / Заказы", source: "a.mmd", name: "Схема d1", kind: "operation" as const,
+      operation: null, action: "fill" as const, mermaid: "graph TD\n  A-->B",
+    };
+    const report = {
+      logic: [row], specs: [], errors: [], warnings: [], conflicts: [], applied: false,
+      created_docs: 0, filled_docs: 0, updated_docs: 0, specs_written: 0, data_refs_total: 0, channel_refs_total: 0,
+    };
+    vi.mocked(docsImportApi.preview).mockResolvedValue(report);
+    vi.mocked(docsImportApi.apply).mockResolvedValue({ ...report, applied: true, filled_docs: 1 });
     const onApplied = vi.fn();
     render(<FlowchartDocs {...props} onApplied={onApplied} isArchitect initialDocId="d1" />);
     await userEvent.click(await screen.findByRole("button", { name: "Описать" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
-    await userEvent.click(screen.getByText("применить-пакет"));
+    const input = document.querySelector("input[type=file]") as HTMLInputElement;
+    await userEvent.upload(input, new File(["graph TD\n  A-->B"], "a.mmd"));
+    expect(await screen.findByText("Схема «Схема d1» будет описана", {}, { timeout: 3000 })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
     await waitFor(() => expect(screen.getByTestId("doc-editor")).toHaveTextContent("от агента"));
     expect(onApplied).toHaveBeenCalledOnce();
     expect(nodeDocsApi.list).toHaveBeenCalledTimes(2);

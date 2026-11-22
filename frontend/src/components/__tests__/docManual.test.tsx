@@ -35,7 +35,6 @@ vi.mock("../OpenApiViewer", () => ({
     <div data-testid="swagger">{spec.info?.title ?? "без заголовка"}</div>
   ),
 }));
-vi.mock("../docsImport/DocsAgentPanel", () => ({ default: () => <div data-testid="agent-panel" /> }));
 vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div data-testid="spec-panel" /> }));
 
 const doc = (over: Partial<NodeDoc> = {}): NodeDoc => ({

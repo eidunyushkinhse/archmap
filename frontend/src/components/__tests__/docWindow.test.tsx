@@ -32,7 +32,6 @@ vi.mock("../OpenApiViewer", () => ({
     <div data-testid="swagger">{spec.info?.title ?? "без заголовка"}</div>
   ),
 }));
-vi.mock("../docsImport/DocsAgentPanel", () => ({ default: () => <div data-testid="agent-panel" /> }));
 vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div data-testid="spec-panel" /> }));
 
 const doc = (over: Partial<NodeDoc> = {}): NodeDoc => ({
@@ -139,15 +138,16 @@ describe("окно схемы логики: стадии правки на ме�
     expect(screen.getByRole("button", { name: "Изменить" })).toBeInTheDocument();
   });
 
-  it("«Через ИИ-агента»: шаги и панель пакета, подпись подвала; «← К схеме» — к чтению", async () => {
+  it("«Через ИИ-агента»: задание и зона файлов, без примечания подвала; «Отмена» — к чтению", async () => {
     openFlow();
     await userEvent.click(await screen.findByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
-    expect(screen.getByRole("button", { name: "Скопировать промпт" })).toBeInTheDocument();
-    expect(screen.getByTestId("agent-panel")).toBeInTheDocument();
-    expect(screen.getByText("Схема не изменится, пока вы не нажмёте «Применить»")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "← К схеме" }));
-    expect(screen.queryByTestId("agent-panel")).toBeNull();
+    expect(screen.getByRole("button", { name: "Скопировать задание" })).toBeInTheDocument();
+    expect(screen.getByText("Перетащите сюда файл схемы от агента")).toBeInTheDocument();
+    // Примечание подвала убрано (редизайн, фаза 7в).
+    expect(screen.queryByText("Схема не изменится, пока вы не нажмёте «Применить»")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByText("Перетащите сюда файл схемы от агента")).toBeNull();
     expect(screen.getByTestId("mmd")).toBeInTheDocument();
   });
 

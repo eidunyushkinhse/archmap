@@ -50,7 +50,6 @@ vi.mock("../inspector/FlowchartDoc", () => ({
     </div>
   ),
 }));
-vi.mock("../docsImport/DocsAgentPanel", () => ({ default: () => <div /> }));
 vi.mock("../OpenApiViewer", () => ({ default: () => <div data-testid="swagger" /> }));
 vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div /> }));
 vi.mock("../processes/ProcessCanvas", () => ({ default: () => <div data-testid="process-canvas" /> }));

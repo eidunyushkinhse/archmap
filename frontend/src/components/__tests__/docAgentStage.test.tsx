@@ -9,12 +9,17 @@
 // помощники ниже: сетка написана на прежней стадии и зелёная на ней. Окно настоящее
 // (DocOverlay, FlowchartDocs, OpenApiPane, панели пакета, настоящий Modal: test-setup
 // открывает <dialog> атрибутом open). Замоканы сеть, mermaid и Swagger UI.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+//
+// Тесты нового вида (фаза 7в) — в конце файла: малое окно семьи без шагов и примечаний,
+// порядок кнопок подвала, отказ применения над кнопками, отчёт одной схемы, вставка
+// текстом, замечания и неизменившийся вход, вход из карточки неописанной схемы.
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DocOverlay from "../inspector/DocOverlay";
 import { nodeDocsApi, nodesApi } from "../../api/nodes";
 import { docsImportApi } from "../../api/docsImport";
+import { ApiError } from "../../api/client";
 import type { DocsImportReport, Node, NodeDoc } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
@@ -241,5 +246,143 @@ describe("стадия агента у спецификации", () => {
     expect(fileInput()).not.toBeNull();
     cancel();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+// ── вид нового языка (редизайн, фаза 7в) ─────────────────────────────────────
+
+const окно = () => document.querySelector("dialog .doc-agentwin") as HTMLElement;
+const подвал = () => окно().querySelector(".ds-win-foot") as HTMLElement;
+
+async function положитьФайл(report: DocsImportReport, name = "a.mmd", text = MMD) {
+  vi.mocked(docsImportApi.preview).mockResolvedValue(report);
+  await userEvent.upload(fileInput(), new File([text], name));
+  await waitFor(() => expect(docsImportApi.preview).toHaveBeenCalled(), WAIT);
+}
+
+describe("стадия агента у схемы: вид нового языка", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc()]);
+  });
+
+  it("малое окно семьи: шапка, задание, зона файлов; шагов, примечаний и кнопок прежнего вида нет", async () => {
+    await стадияСхемы();
+    expect(окно()).toHaveClass("ds-win");
+    // Шапка: имя объекта и название схемы, крестик; кнопки «← К схеме» нет.
+    expect(окно().querySelector(".ds-win-head")).toHaveTextContent(/^Order APIСоздание заказа$/);
+    expect(screen.queryByRole("button", { name: "← К схеме" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Закрыть" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Задание агенту", "Ответы агента"]);
+    // Кнопка задания — вторичная кнопка нового языка, как в окне «Описать схемы логики…».
+    expect(кнопкаЗадания()).toHaveClass("ds-btn");
+    expect(кнопкаЗадания()).not.toHaveClass("ds-btn--primary");
+    expect(screen.getByText("Перетащите сюда файл схемы от агента")).toBeInTheDocument();
+    for (const text of [
+      "Скопируйте промпт.", /Он уже нацелен на схему/, /Запустите агента с этим промптом/,
+      "Перетащите файл, который вернёт агент, в поле справа.",
+      "Схема не изменится, пока вы не нажмёте «Применить»",
+    ]) expect(screen.queryByText(text)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Загрузить файлы" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ вставить из буфера" })).toBeNull();
+    expect(document.querySelector("dialog .legacy-root")).toBeNull();
+    // Отчёта до файла нет, галочки «Заменять уже описанное» нет вовсе.
+    expect(окно().querySelector(".apl")).toBeNull();
+    expect(screen.queryByText("Заменять уже описанное")).toBeNull();
+  });
+
+  it("подвал: «Применить» первой и погашена до файла, «Отмена» за ней", async () => {
+    await стадияСхемы();
+    const кнопки = within(подвал()).getAllByRole("button");
+    expect(кнопки.map((b) => b.textContent)).toEqual(["Применить", "Отмена"]);
+    expect(кнопки[0]).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(кнопки[0]).toBeDisabled();
+    expect(кнопки[1]).toHaveClass("ds-btn");
+    expect(кнопки[1]).not.toHaveClass("ds-btn--primary");
+  });
+
+  it("сводка словами про эту схему; имя и вид в строке не правятся; рисунок того, что придёт", async () => {
+    await стадияСхемы();
+    await положитьФайл(logicReport());
+    expect(await screen.findByText("Схема «Создание заказа» будет обновлена", {}, WAIT)).toHaveClass("apl-summary", "is-ok");
+    // Строка: путь объекта над ней, имя, эндпоинт, вид и что будет; без полей правки и
+    // без заголовка «Схемы логики:» над единственной строкой.
+    expect(screen.getByText("Ярмарка / Заказы / Order API")).toHaveClass("apl-path");
+    const строка = окно().querySelector(".apl-row") as HTMLElement;
+    expect(строка).toHaveTextContent(/^Создание заказаPOST \/ordersОперацияперезапись$/);
+    expect(screen.queryByLabelText(/Имя схемы из файла/)).toBeNull();
+    expect(screen.queryByLabelText(/Вид схемы из файла/)).toBeNull();
+    expect(screen.queryByText("Схемы логики:")).toBeNull();
+    // Рисунок схемы, которую получит окно.
+    expect(окно().querySelector(".doc-incoming")).toHaveTextContent("A[От агента]");
+    expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled();
+  });
+
+  it("файл совпадает со схемой: применять нечего", async () => {
+    await стадияСхемы();
+    await положитьФайл(logicReport({ logic: [{ ...logicReport().logic[0], action: "unchanged" }] }));
+    expect(await screen.findByText("Файл совпадает со схемой, менять нечего", {}, WAIT)).not.toHaveClass("is-ok");
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+  });
+
+  it("отказ применения строкой над кнопками; окно и файл на месте", async () => {
+    vi.mocked(docsImportApi.apply).mockRejectedValue(new ApiError(422, "Слишком длинное имя схемы"));
+    const onApplied = vi.fn();
+    await стадияСхемы({ onApplied });
+    await положитьФайл(logicReport());
+    await screen.findByText("Схема «Создание заказа» будет обновлена", {}, WAIT);
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+
+    const отказ = await screen.findByRole("alert");
+    expect(отказ).toHaveTextContent("Не сохранилось. Слишком длинное имя схемы");
+    expect(отказ).toHaveClass("ds-danger", "ds-win-err");
+    expect(отказ.parentElement).toBe(подвал());
+    expect(отказ.compareDocumentPosition(screen.getByRole("button", { name: "Применить" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "a.mmd" })).toBeInTheDocument();
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it("вставка текстом: поле, правка текста, отчёт обновляется", async () => {
+    vi.mocked(docsImportApi.preview)
+      .mockResolvedValueOnce(logicReport({ logic: [{ ...logicReport().logic[0], source: "вставка-1", action: "unchanged" }] }))
+      .mockResolvedValue(logicReport({ logic: [{ ...logicReport().logic[0], source: "вставка-1" }] }));
+    await стадияСхемы();
+    await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
+    const поле = screen.getByRole("textbox", { name: "Текст вставка-1" });
+    fireEvent.change(поле, { target: { value: "graph TD\n  A-->B" } });
+    expect(await screen.findByText("Файл совпадает со схемой, менять нечего", {}, WAIT)).toBeInTheDocument();
+    expect(vi.mocked(docsImportApi.preview).mock.calls.at(-1)![0].files).toEqual([{ name: "вставка-1", content: "graph TD\n  A-->B" }]);
+    fireEvent.change(поле, { target: { value: "graph TD\n  A-->C" } });
+    expect(await screen.findByText("Схема «Создание заказа» будет обновлена", {}, WAIT)).toBeInTheDocument();
+    expect(vi.mocked(docsImportApi.preview).mock.calls.at(-1)![0].files).toEqual([{ name: "вставка-1", content: "graph TD\n  A-->C" }]);
+  });
+
+  it("замечания: копирование и вопрос о файлах; тот же файл ещё раз — заметка о неизменившемся входе", async () => {
+    const writeText = clipboard();
+    await стадияСхемы();
+    await положитьФайл(logicReport({ warnings: ["a.mmd: в пометке «ordrs» нет такой таблицы"] }));
+    await userEvent.click(await screen.findByRole("button", { name: "Скопировать замечания для агента" }, WAIT));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).toMatch(/^ArchMap проверил файлы archmap-docs и нашёл замечания\. Исправь пакет/);
+    expect(writeText.mock.calls[0][0]).toMatch(/\n- a\.mmd: в пометке «ordrs» нет такой таблицы$/);
+    expect(screen.getByRole("button", { name: "Скопировано" })).toBeInTheDocument();
+    expect(screen.getByText(/Агент пришлёт исправленные файлы/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Оставить" }));
+    expect(screen.queryByText(/Агент пришлёт исправленные файлы/)).toBeNull();
+
+    await userEvent.upload(fileInput(), new File([MMD], "a.mmd"));
+    expect(await screen.findByText(/^Содержимое не изменилось с прошлой проверки/, {}, WAIT)).toHaveClass("ds-warn");
+  });
+
+  it("неописанная схема: «Описать» → «Через ИИ-агента» открывает ту же стадию", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc({ content: "" })]);
+    render(<DocOverlay {...base} mode="flowchart" isArchitect initialDocId="d1" onClose={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Описать" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
+    expect(окно().querySelector(".ds-win-head")).toHaveTextContent(/^Order APIСоздание заказа$/);
+    expect(кнопкаЗадания()).toHaveTextContent("Скопировать задание");
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.getByRole("button", { name: "Описать" })).toBeInTheDocument();
   });
 });

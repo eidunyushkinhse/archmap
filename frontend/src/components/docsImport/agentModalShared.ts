@@ -124,10 +124,6 @@ export function useRepeatedInput(input: readonly unknown[], fingerprint: string)
 // в прежнем виде (DocsAgentPanel, SpecAgentPanel) и их общие части.
 
 export const rightCol: CSSProperties = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" };
-export const radioRow: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#334155",
-  cursor: "pointer", userSelect: "none",
-};
 export const chipsRow: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 8 };
 export const chip: CSSProperties = {
   display: "inline-flex", alignItems: "center", border: "1px solid #e2e8f0",

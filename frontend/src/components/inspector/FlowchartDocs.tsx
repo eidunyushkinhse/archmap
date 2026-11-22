@@ -8,15 +8,15 @@
 //     ширину окна: «Сохранить», «Отмена», справа «Удалить схему»; отказ — строкой над
 //     кнопками. Сохранение ЯВНОЕ: одно «Сохранить» — один PATCH под CAS и одно событие
 //     edit;
-//   • «Через ИИ-агента» — шаги с промптом слева, панель пакета справа
-//     (DocsAgentPanel в режиме «doc»); после «Применить» окно перечитывает схему.
+//   • «Через ИИ-агента» — малое окно семьи окон агента (DocAgentStage): задание агенту,
+//     ответы агента и отчёт, подвал «Применить», «Отмена»; после «Применить» окно
+//     перечитывает схему и возвращается к чтению.
 // Новая схема («+ Добавить → Вручную» на странице) открывается сразу в «Вручную» и
 // создаётся только по «Сохранить»: «Отмена» закрывает окно, ничего не оставив.
 // Мутации репортятся наверх событием NodeDocEvent: страница освежает мету узла,
 // процесс перечитывает шаги (истории на страницах нет).
-// Каркас, шапка и чтение — на новом языке (редизайн, фаза 7а), стадия «Вручную» — тоже
-// (фаза 7б); тело, подвал и кнопку шапки стадии «Через ИИ-агента» прежнего вида держит
-// legacy-root.
+// Все стадии на новом языке: каркас, шапка и чтение (редизайн, фаза 7а), «Вручную» (фаза
+// 7б), «Через ИИ-агента» (фаза 7в).
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { NodeDoc, NodeDocKind, NodeDocUpdate, NodeDocUsage, PromptVariant } from "../../types";
@@ -28,8 +28,8 @@ import type { LimitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
 import FlowchartDoc from "./FlowchartDoc";
 import FlowchartView, { StubCard } from "./FlowchartView";
-import DocsAgentPanel from "../docsImport/DocsAgentPanel";
-import { CodeToggle, DocAgentSteps, DocHead, EditMenu, LegacyActions, TwoStepDeleteButton } from "./docChrome";
+import { FlowchartAgentStage } from "./DocAgentStage";
+import { CodeToggle, DocHead, EditMenu, TwoStepDeleteButton } from "./docChrome";
 import type { DocHeadTail } from "./docChrome";
 import { noAutofill } from "../../ui/noAutofill";
 import { ChevronDownIcon } from "../../ui/icons";
@@ -276,6 +276,22 @@ export default function FlowchartDocs({
     toView();
   }
 
+  // «Через ИИ-агента» — своё малое окно целиком: шапка, тело и подвал стадии. «Отмена»
+  // возвращает к чтению этой схемы.
+  if (stage === "agent" && active && isArchitect) {
+    return (
+      <FlowchartAgentStage
+        nodeId={nodeId}
+        nodeName={nodeName}
+        docName={active.name}
+        copy={copyPrompt}
+        onClose={onRequestClose ?? onClose}
+        onCancel={toView}
+        onApplied={() => void afterAgent()}
+      />
+    );
+  }
+
   const described = active !== null && active.content.trim() !== "";
 
   // ── шапка ──
@@ -290,22 +306,14 @@ export default function FlowchartDocs({
   // В правке в шапке только имя объекта, название и крестик: кнопки правки — в подвале.
   const editing = docs !== null && stage === "manual" && form !== null && isArchitect;
   let actions: ReactNode = null;
-  if (stage === "agent" && active) {
-    actions = (
-      <LegacyActions>
-        <button type="button" className="doc-back" onClick={toView}>← К схеме</button>
-      </LegacyActions>
-    );
-  } else if (stage === "view" && described && isArchitect) {
+  if (stage === "view" && described && isArchitect) {
     actions = <EditMenu label="Изменить" onManual={enterManual} onAgent={enterAgent} />;
   } else if (stage === "view" && described && !isArchitect) {
     actions = <CodeToggle shown={showCode} onToggle={() => setShowCode((s) => !s)} />;
   }
 
   // ── тело ──
-  // legacy — стадия агента: тело и подвал прежнего вида.
   let body: ReactNode;
-  let legacy = false;
   if (docs === null) {
     body = <div className="doc-readnote">Загрузка</div>;
   } else if (editing && form) {
@@ -348,18 +356,6 @@ export default function FlowchartDocs({
         </div>
       </div>
     );
-  } else if (stage === "agent" && active && isArchitect) {
-    legacy = true;
-    body = (
-      <div className="doc-agent">
-        <div className="doc-agentleft">
-          <DocAgentSteps target={active.operation ?? active.name} service={nodeName} copy={copyPrompt} />
-        </div>
-        <div className="doc-agentright">
-          <DocsAgentPanel nodeId={nodeId} mode={{ kind: "doc", docName: active.name }} onApplied={() => void afterAgent()} />
-        </div>
-      </div>
-    );
   } else if (active && described) {
     body = (
       <FlowchartView
@@ -397,8 +393,6 @@ export default function FlowchartDocs({
         {active && <TwoStepDeleteButton key={active.id} label="Удалить схему" onConfirm={() => void remove()} />}
       </div>
     );
-  } else if (stage === "agent" && active && isArchitect) {
-    foot = <div className="doc-foot legacy-root">Схема не изменится, пока вы не нажмёте «Применить»</div>;
   }
 
   return (
@@ -411,7 +405,7 @@ export default function FlowchartDocs({
         actions={actions}
         onClose={onRequestClose ?? onClose}
       />
-      <div className={"doc-body" + (legacy ? " legacy-root" : "")}>{body}</div>
+      <div className="doc-body">{body}</div>
       {foot}
     </>
   );
