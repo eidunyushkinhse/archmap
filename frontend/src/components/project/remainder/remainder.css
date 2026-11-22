@@ -214,12 +214,15 @@
   position: fixed; inset: 0; z-index: 20; box-sizing: border-box; background: rgb(15 23 42 / 45%);
   display: flex; align-items: center; justify-content: center; padding: var(--space-8);
 }
+/* Текст — прежней ширины и высотой по содержимому до экрана без полей подложки (32px сверху
+   и снизу); схема (--diagram) — размером окна документа (docOverlay.css, .doc-root). */
 .rq-ov-w {
-  box-sizing: border-box; width: min(860px, 94vw); max-height: 86vh;
+  box-sizing: border-box; width: min(860px, 94vw); max-height: calc(100vh - 64px);
   background: var(--c-bg); border-radius: var(--radius-lg);
   box-shadow: 0 30px 70px -20px rgb(15 23 42 / 50%);
   display: flex; flex-direction: column; overflow: hidden;
 }
+.rq-ov-w--diagram { width: min(1120px, calc(100vw - 64px)); height: calc(100vh - 64px); }
 .rq-ov-hd {
   flex: none; display: flex; align-items: baseline; gap: var(--space-2);
   padding: var(--space-3) var(--space-3) var(--space-3) var(--space-6);
@@ -235,18 +238,20 @@
 }
 .rq-ov-x { margin-left: auto; align-self: center; }
 .rq-ov-bd { padding: var(--space-4) var(--space-6); overflow: auto; flex: 1; min-height: 0; }
-/* Сцена пан/зума (схема логики): своя высота, а не «по содержимому» — иначе у
-   короткой диаграммы не остаётся места, чтобы её подвинуть или приблизить.
-   Остальное — классы docOverlay.css: жесты общие с превью доков.
+/* Сцена пан/зума (схема логики): всё место окна между шапкой и подвалом, а не «по
+   содержимому» — иначе у короткой диаграммы не остаётся места, чтобы её подвинуть
+   или приблизить. Остальное — классы docOverlay.css: жесты общие с превью доков.
    ⚠️ БАГ Ф2г («Открыть» показывал шапку и подвал без диаграммы): сцена — это
    ещё и .doc-pv, а там flex: 1, то есть flex-basis 0%. В колонке окна без
    заданной высоты (только max-height) такой basis считается от содержимого, а
    содержимое сцены — абсолютная обёртка пан/зума (.doc-pz), ноль. height при
    этом игнорируется, сцена схлопывалась в 0, а fitInitial мерил пустую коробку.
-   Поэтому basis — auto (берёт height; сжаться под max-height окна можно), а
-   селектор сильнее одиночного .doc-pv: исход не зависит от порядка подключения
-   CSS. Сторож — docViewerStage.test.ts. */
-.rq-ov-w .rq-ov-stage { flex: 0 1 auto; min-height: 0; height: min(62vh, 520px); }
+   Поэтому basis — auto (берёт height), а селектор сильнее одиночного .doc-pv: исход
+   не зависит от порядка подключения CSS. С фазы 8б у окна схемы своя высота
+   (.rq-ov-w--diagram), и сцена растёт от нулевой высоты на всё свободное место; без
+   высоты окна она снова схлопнулась бы, поэтому модификатор и сцена ставятся вместе
+   (DocViewer). Сторож — docViewerStage.test.ts. */
+.rq-ov-w .rq-ov-stage { flex: 1 1 auto; min-height: 0; height: 0; }
 .rq-ov-pre {
   margin: 0; font-family: var(--font-mono); font-size: var(--fs-caption); line-height: var(--lh-body);
   color: var(--c-fg); white-space: pre-wrap; overflow-wrap: anywhere;

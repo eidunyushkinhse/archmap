@@ -25,6 +25,11 @@
 // окна .imp-res, поэтому стили просмотра свои, в remainder.css на токенах), в шапке
 // название и тихая подпись источника рядом, крестик — кнопка-значок; в подвале «Выбрать
 // этот вариант» первой, «Закрыть» за ней. Тега формата нет.
+//
+// Размер (фаза 8б): схема — во весь экран, как окно документа (до 1120px в ширину, высота
+// экрана без 64px), сцена занимает всё между шапкой и подвалом. Текст (таблица, канал,
+// параметр, спецификация) — прежней ширины, высотой по содержимому до экрана без 64px,
+// тело прокручивается.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import MermaidRenderer from "../../MermaidRenderer";
@@ -87,7 +92,7 @@ export default function DocViewer({ title, source, body, diagram, onPick, onClos
       className="ds rq-ov"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="rq-ov-w" role="dialog" aria-label={title}>
+      <div className={"rq-ov-w" + (diagram ? " rq-ov-w--diagram" : "")} role="dialog" aria-label={title}>
         <div className="rq-ov-hd">
           <span className="rq-ov-t" title={title}>{title}</span>
           <span className="rq-ov-src">{source}</span>

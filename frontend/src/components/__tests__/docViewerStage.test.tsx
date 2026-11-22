@@ -65,6 +65,25 @@ describe("сцена вьюера схемы логики (баг Ф2г)", () =>
     expect(classCount(сцена[0]!.selector)).toBeGreaterThan(classCount(".doc-pv"));
   });
 
+  // Фаза 8б: сцена растёт на всё место окна схемы. Рост возможен, только пока у окна своя
+  // высота: без неё сцена снова схлопнулась бы в 0.
+  it("окно схемы — во весь экран с заданной высотой, сцена растёт на свободное место", () => {
+    const { decls } = сцена[0]!;
+    expect(decls["flex-grow"] ?? decls.flex?.split(/\s+/)[0]).toBe("1");
+    const окно = rules(remainderCss).find((r) => r.selector === ".rq-ov-w--diagram");
+    expect(окно?.decls.height).toBe("calc(100vh - 64px)");
+    expect(окно?.decls.width).toBe("min(1120px, calc(100vw - 64px))");
+    const { unmount } = render(
+      <DocViewer title="Схема" source="Из файла a.yaml" body="flowchart TD" diagram onPick={vi.fn()} onClose={vi.fn()} />,
+    );
+    expect(document.querySelector(".rq-ov-stage")!.closest(".rq-ov-w")).toHaveClass("rq-ov-w--diagram");
+    unmount();
+    // Текст — окно прежней ширины, высотой по содержимому: модификатора нет.
+    render(<DocViewer title="Т" source="Из файла a.yaml" body="a" diagram={false} onPick={vi.fn()} onClose={vi.fn()} />);
+    expect(document.querySelector(".rq-ov-w")).not.toHaveClass("rq-ov-w--diagram");
+    expect(rules(remainderCss).find((r) => r.selector === ".rq-ov-w")?.decls["max-height"]).toBe("calc(100vh - 64px)");
+  });
+
   it("селектор правила совпадает с разметкой вьюера", () => {
     render(
       <DocViewer
