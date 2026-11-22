@@ -1,12 +1,15 @@
-// Варианты ответа текущего вопроса (§4 ТЗ). Шапка, прогресс, подвал и навигация —
+// Варианты ответа текущего вопроса (§4 ТЗ). Счётчик, заголовок, подвал и навигация —
 // в RemainderBlock; здесь только тело: что именно выбирают.
 //
-// Ничего не предвыбрано — в том числе дефолт бэка: он назван сноской «Если не
-// отвечать», а предвыбор превратил бы вопрос в согласие с уже сделанным выбором.
+// Ничего не предвыбрано — в том числе дефолт бэка: вариант, который действует без ответа,
+// помечен тегом «по умолчанию» (фаза 8а), а предвыбор превратил бы вопрос в согласие с
+// уже сделанным выбором.
 import type { Answer, Answers, NewEdgesAnswer, Question, Resolutions } from "./questions";
 import type { EdgesDraft, MergeDraft } from "./drafts";
 import { draftFromAnswer, mergeDraftFor } from "./drafts";
-import { endIsSystem, humanValue, lastSegment, pairEdges } from "./questionText";
+import {
+  ADD_ALL, DIFF_PAIR, KEEP_GROUP, humanValue, keepEdgeLabel, lastSegment, pairEdges,
+} from "./questionText";
 import DocViewer from "./DocViewer";
 import MergeNameStep from "./MergeNameStep";
 import NewEdgeForm from "./NewEdgeForm";
@@ -47,20 +50,25 @@ export default function QuestionBody(p: Props) {
             const общее = {
               main: <b>{k.source_label}</b>,
               selected: choice === value,
+              byDefault: c.default === value,
               onSelect: () => p.onResolve(q.id, value),
             };
-            // Сплит-кнопка только у схем логики: их тела длинные, и «Открыть»
-            // показывает диаграмму. Спека, таблица, канал и параметр коротки.
+            // «Открыть» только у схем логики: их тела длинные, и просмотр показывает
+            // диаграмму. Спецификация, таблица, канал и параметр коротки.
             return c.family === "doc" ? (
               <SplitOption key={i} {...общее} open={p.viewer === i} onOpen={() => p.onViewer(i)} />
             ) : (
-              <Option key={i} main={общее.main} selected={общее.selected} onClick={общее.onSelect} />
+              <Option
+                key={i} main={общее.main} selected={общее.selected} byDefault={общее.byDefault}
+                onClick={общее.onSelect}
+              />
             );
           })}
           {c.allow_all && (
             <Option
-              main={<b>Добавить все</b>}
+              main={<b>{ADD_ALL}</b>}
               selected={choice === "all"}
+              byDefault={c.default === "all"}
               onClick={() => p.onResolve(q.id, "all")}
             />
           )}
@@ -89,6 +97,7 @@ export default function QuestionBody(p: Props) {
             main={<b>{humanValue(q.source.field, k.value)}</b>}
             sub={k.source_label}
             selected={a?.kind === "field" && a.index === i}
+            byDefault={i === q.source.default}
             onClick={() => p.onAnswer(q.id, { kind: "field", index: i })}
           />
         ))}
@@ -107,11 +116,10 @@ export default function QuestionBody(p: Props) {
           value={a?.kind === "edge" ? a.toPath : null}
           onPick={(path) => p.onAnswer(q.id, { kind: "edge", toPath: path })}
         />
-        <div className="rq-opts" style={{ marginTop: 6 }}>
+        <div className="rq-opts">
           <Option
-            main={`Оставить на ${endIsSystem(q.source) ? "системе" : "контейнере"} «${q.source.container_path}»`}
-            tag="как сейчас"
-            keep
+            main={`${keepEdgeLabel(q.source)} «${q.source.container_path}»`}
+            byDefault
             selected={a?.kind === "keep"}
             onClick={() => p.onAnswer(q.id, { kind: "keep" })}
           />
@@ -170,9 +178,8 @@ export default function QuestionBody(p: Props) {
           onClick={() => p.onStage2(true)}
         />
         <Option
-          main="Оставить как есть"
-          tag="как сейчас"
-          keep
+          main={KEEP_GROUP}
+          byDefault
           selected={a?.kind === "keep"}
           onClick={() => p.onAnswer(q.id, { kind: "keep" })}
         />
@@ -202,9 +209,8 @@ export default function QuestionBody(p: Props) {
         onClick={() => { p.onMergeDraft(mergeDraftFor(q.source, null)); p.onStage2(true); }}
       />
       <Option
-        main="Разные объекты"
-        tag="как сейчас"
-        keep
+        main={DIFF_PAIR}
+        byDefault
         selected={a?.kind === "diff"}
         onClick={() => p.onAnswer(q.id, { kind: "diff" })}
       />

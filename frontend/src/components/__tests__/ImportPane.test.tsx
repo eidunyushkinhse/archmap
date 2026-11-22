@@ -306,12 +306,14 @@ describe("архивные входы", () => {
     // Прежней секции «Споры содержимого (1)» с радиокнопками нет: спор задан
     // вопросом, кандидаты подписаны источником знания, а не именем файла.
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
-    expect(screen.getByText(/Без ваших решений не объединить/)).toBeInTheDocument();
+    expect(screen.getByText("Вопрос 1 из 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «openapi» в разных файлах разные спецификации с одинаковым названием."
+      "У объекта «orders» в разных файлах разные спецификации OpenAPI."
       + " Какую считаем правильной?");
-    // Ничего не предвыбрано — дефолт бэка назван сноской, а не галкой.
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+    // Ничего не предвыбрано — дефолт бэка помечен «по умолчанию» и назван в подсказке «?».
+    expect(screen.getByRole("button", { name: /^Из архива Ярмарка/ })).toHaveTextContent("по умолчанию");
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    expect(screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent).toContain(
       "в проект попадёт вариант «Из архива Ярмарка»");
     expect(document.querySelectorAll(".rq-opt--on")).toHaveLength(0);
 
@@ -327,7 +329,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     expect(screen.getByText("Готово к импорту")).toBeInTheDocument();
     expect(screen.queryByText(/Готово к импорту: /)).toBeNull();
     expect(screen.queryByText(/Корневые:/)).toBeNull();
-    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
+    expect(document.querySelector(".rq-block")).toBeNull();
   });
 
   it("есть вопросы — статус «не всё сошлось», блок показывает первый", () => {
@@ -340,7 +342,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     );
 
     expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
-    expect(screen.getByText("вопрос 1 из 1")).toBeInTheDocument();
+    expect(screen.getByText("Вопрос 1 из 1")).toBeInTheDocument();
   });
 
   it("незакрываемое замечание без вопросов — тоже «Не всё сошлось идеально»", () => {
@@ -363,7 +365,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     // Ф2г-2: состояние бывает и без вопросов — прежнее «Есть вопросы» тут врало бы.
     expect(screen.queryByText("Есть вопросы")).toBeNull();
-    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
+    expect(document.querySelector(".rq-block")).toBeNull();
     expect(screen.getByRole("button", { name: "Придется подправить вручную (1)" }))
       .toBeInTheDocument();
   });
@@ -379,7 +381,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
       "Проблема в файле 1. Строка 29: Некорректный YAML: ошибка разметки."
       + " Частая причина — двоеточие.");
     expect(screen.queryByText("Не получается разобрать YAML:")).toBeNull();
-    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
+    expect(document.querySelector(".rq-block")).toBeNull();
   });
 
   it("ошибка без файла-виновника — без подписи файла и без ссылки", () => {

@@ -1,10 +1,11 @@
 /* Итог превью ввоза на новом языке: окна «Новый проект» (ImportPane) и «Догрузить архив»
    (ImportIntoModal). Значения — только токены ui/tokens.css.
    Строку статуса, блок вопросов, массовые ответы и свёртку окна делят между собой; их
-   прежний вид (remainder.css) остаётся у других мест, новый задан здесь, только внутри
-   области .imp-res (её ставят оба окна на свой корень). Слова не меняются. 13px, тихие
-   цвета; рамка-карточка блока вопросов ушла (его отделяет волосяная линия), рамки
-   вариантов ответа остались: они — признак выбора. */
+   прежний вид (remainder.css) остаётся окну «Собрать с компонентов», новый задан здесь,
+   только внутри области .imp-res (её ставят оба окна на свой корень). 13px, тихие цвета;
+   рамка-карточка блока вопросов ушла (его отделяет волосяная линия), рамки вариантов ответа
+   остались: они — признак выбора. Кнопки блока — ds-add и ds-btn (фаза 8а). Просмотр
+   схемы порталится из области окна, его вид — в remainder.css. */
 .imp-res .rq-root {
   font-family: inherit;
   font-size: var(--fs-ui);
@@ -33,7 +34,9 @@
   height: 16px;
   background: var(--c-bg-subtle);
   color: var(--c-fg-muted);
+  font-size: var(--fs-caption);
   font-weight: 600;
+  line-height: 1;
 }
 .imp-res .rq-st--bad .rq-st-mk {
   background: color-mix(in srgb, var(--c-danger) 12%, var(--c-bg));
@@ -51,7 +54,10 @@
   color: var(--c-fg);
 }
 
-/* Блок вопросов: без карточки, под волосяной линией. */
+/* Блок вопросов: без карточки, под одной волосяной линией (фаза 8а). Над вопросом одна
+   строка: тихий счётчик слева, «Все вопросы» (ds-add) справа. Левые края счётчика,
+   заголовка, текста вариантов и «← Назад» совпадают: варианты и строки списка выходят
+   рамкой и подложкой за колонку на свои поля, как строки ds-rows. */
 .imp-res .rq-block {
   margin-top: 0;
   border: 0;
@@ -60,41 +66,45 @@
   background: none;
   box-shadow: none;
 }
-.imp-res .rq-hd {
-  padding: var(--space-3) 0 0;
-}
-.imp-res .rq-h1 {
-  font-size: var(--fs-ui);
-  line-height: var(--lh-ui);
-  font-weight: 600;
-  color: var(--c-fg);
-}
-.imp-res .rq-h1 span {
-  font-weight: 400;
-  color: var(--c-fg-muted);
-}
 .imp-res .rq-sub {
-  padding: 2px 0 0;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 0;
 }
 .imp-res .rq-cnt {
   font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
   color: var(--c-fg-muted);
 }
-.imp-res .rq-prog {
-  padding: var(--space-2) 0 0;
-}
 .imp-res .rq-bd {
-  padding: var(--space-3) 0 var(--space-2);
+  padding: var(--space-1) 0 var(--space-3);
 }
 .imp-res .rq-ft {
-  padding: var(--space-1) 0 0;
+  gap: var(--space-2);
+  padding: 0;
   border-top: 0;
 }
+/* «← Назад» на первом вопросе: тихо и без подложки. */
+.imp-res .ds-add:disabled {
+  color: var(--c-fg-faint);
+  background: none;
+  cursor: default;
+}
+
+/* Заголовок вопроса — самый заметный текст блока; знак «?» сразу за текстом. Знак ниже
+   строки текста по высоте и опущен к его середине: строка заголовка не растёт. */
 .imp-res .rq-q {
-  font-size: var(--fs-ui);
+  font-size: var(--fs-body);
   line-height: var(--lh-ui);
   font-weight: 600;
   color: var(--c-fg);
+}
+.imp-res .rq-q .ipop-wrap {
+  margin-left: var(--space-1);
+  vertical-align: -3px;
+}
+/* Подсказка лежит в DOM внутри заголовка: начертание у неё своё, обычное. */
+.imp-res .rq-q .ipop-panel {
+  font-weight: 400;
 }
 .imp-res .rq-ctx {
   margin-top: 2px;
@@ -103,33 +113,25 @@
   line-height: var(--lh-ui);
   color: var(--c-fg-muted);
 }
-.imp-res .rq-why summary,
-.imp-res .rq-why p {
-  max-width: none;
-  font-size: var(--fs-caption);
-  color: var(--c-fg-muted);
-}
-.imp-res .rq-ifnot {
-  margin-top: var(--space-2);
-  padding-top: 0;
-  border-top: 0;
-  font-size: var(--fs-caption);
-  line-height: var(--lh-ui);
-  color: var(--c-fg-muted);
-}
 
-/* Варианты ответа. */
+/* Варианты ответа: один вид на все пять видов вопросов. Строка не ниже 32px, волосяная
+   рамка, радиус ds-input; выбранный — рамкой и фоном акцента. Главная строка 13px обычным
+   начертанием у всех вариантов (у выбранного 500), подпись под ней 12px тихим. */
 .imp-res .rq-opts {
   gap: var(--space-1);
-  margin-top: var(--space-2);
+  margin: var(--space-2) -11px 0;
 }
 .imp-res .rq-opt {
-  padding: 6px 10px;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 5px 10px;
   border-color: var(--c-line);
   border-radius: var(--radius);
+  background: var(--c-bg);
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   color: var(--c-fg);
+  cursor: pointer;
 }
 .imp-res .rq-opt:hover {
   border-color: var(--c-line-strong);
@@ -142,121 +144,131 @@
   font-weight: 500;
   color: var(--c-fg);
 }
-.imp-res .rq-opt--keep {
-  color: var(--c-fg-muted);
+.imp-res .rq-opt:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
 }
 .imp-res .rq-opt-b b {
-  font-weight: 500;
+  font-weight: inherit;
 }
 .imp-res .rq-opt-sub,
 .imp-res .rq-opt--on .rq-opt-sub {
+  margin-top: 0;
   font-size: var(--fs-caption);
+  font-weight: 400;
   color: var(--c-fg-muted);
 }
-/* Серый префикс пути в варианте («Grafana / Сервер Grafana / …»). */
+/* Тихий префикс пути в варианте («Grafana / Сервер Grafana / …»). */
 .imp-res .rq-opt-m,
 .imp-res .rq-opt--on .rq-opt-m {
   color: var(--c-fg-muted);
 }
+/* Теги справа: «по умолчанию», «система», «контейнер»; «изменить» у выбранного — акцентом. */
 .imp-res .rq-opt-tag {
   font-size: var(--fs-caption);
-  color: var(--c-fg-faint);
+  font-weight: 400;
+  color: var(--c-fg-muted);
 }
-.imp-res .rq-opt--on .rq-opt-tag {
+.imp-res .rq-opt--on .rq-opt-tag:not(.rq-opt-def) {
   color: var(--c-accent);
 }
-.imp-res .rq-opt-row .rq-opt {
-  border-radius: var(--radius) 0 0 var(--radius);
+
+/* Вариант схемы логики: строка и есть вариант (рамка и фон выбора у неё), «Открыть» — тихая
+   кнопка-текст у правого края той же строки, высота строки как у прочих вариантов. */
+.imp-res .rq-opt-row {
+  align-items: center;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg);
 }
-.imp-res .rq-opt-r {
-  border-color: var(--c-line);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  font-size: var(--fs-ui);
-  font-weight: 500;
-  color: var(--c-accent);
-}
-.imp-res .rq-opt-r:hover {
+.imp-res .rq-opt-row:hover {
+  border-color: var(--c-line-strong);
   background: var(--c-hover);
 }
+.imp-res .rq-opt-row--on,
+.imp-res .rq-opt-row--on:hover {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.imp-res .rq-opt-row .rq-opt,
+.imp-res .rq-opt-row .rq-opt:hover,
 .imp-res .rq-opt-row .rq-opt--on {
-  border-right-color: var(--c-accent);
-}
-.imp-res .rq-opt-row .rq-opt--on + .rq-opt-r {
-  border-color: var(--c-accent);
-  border-left: none;
-}
-
-/* Прогресс. */
-.imp-res .rq-dot,
-.imp-res .rq-bar-t {
-  background: var(--c-line);
-}
-.imp-res .rq-dot--done,
-.imp-res .rq-dot--on,
-.imp-res .rq-bar-f {
-  background: var(--c-accent);
-}
-.imp-res .rq-bar-l {
-  font-size: var(--fs-caption);
-  color: var(--c-fg-muted);
-}
-
-/* Кнопки-ссылки. */
-.imp-res .rq-nav,
-.imp-res .rq-link {
-  font-size: var(--fs-ui);
-  line-height: var(--lh-ui);
-  font-weight: 500;
-  color: var(--c-accent);
-}
-.imp-res .rq-nav:disabled,
-.imp-res .rq-link:disabled {
-  color: var(--c-fg-faint);
-}
-.imp-res .rq-link--mut {
-  color: var(--c-fg-muted);
-}
-
-/* Поля и формы внутри вопросов. */
-.imp-res .rq-inp,
-.imp-res .rq-filter {
-  border-color: var(--c-line-strong);
+  align-self: stretch;
+  min-height: 30px;
+  border: 0;
   border-radius: var(--radius);
+  background: none;
+}
+.imp-res .rq-opt-r,
+.imp-res .rq-opt-row .rq-opt--on + .rq-opt-r {
+  margin-right: 3px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
   font-size: var(--fs-ui);
-  color: var(--c-fg);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-accent);
+  cursor: pointer;
 }
-.imp-res .rq-inp:focus,
-.imp-res .rq-filter:focus {
-  border-color: var(--c-accent);
-  box-shadow: 0 0 0 3px var(--c-accent-soft);
+.imp-res .rq-opt-r:hover {
+  background: var(--c-accent-soft);
 }
+.imp-res .rq-opt-r--open,
+.imp-res .rq-opt-row .rq-opt--on + .rq-opt-r--open {
+  color: var(--c-fg-muted);
+}
+.imp-res .rq-opt-r:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+
+/* Список объектов связи: «Показать остальные N» (ds-add), поле поиска (ds-input),
+   прокручиваемый список выходит за колонку вместе с вариантами. */
+.imp-res .rq-more {
+  margin-top: var(--space-1);
+}
+.imp-res .rq-filter {
+  margin-top: var(--space-2);
+}
+.imp-res .rq-scroll {
+  margin: var(--space-2) -11px 0;
+  padding-right: 0;
+}
+.imp-res .rq-scroll .rq-opts {
+  margin: 0;
+}
+.imp-res .rq-empty {
+  font-size: var(--fs-ui);
+  color: var(--c-fg-muted);
+}
+
+/* Шаг имени и форма связей: поля ds-input, кнопки ds-btn, подписи полей 12px тихим. */
 .imp-res .rq-flbl {
   font-size: var(--fs-caption);
-  font-weight: 500;
+  font-weight: 400;
+  line-height: var(--lh-ui);
   color: var(--c-fg-muted);
+}
+.imp-res .rq-acts {
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .imp-res .rq-erow {
   border-color: var(--c-line);
   border-radius: var(--radius-lg);
   background: var(--c-bg-subtle);
 }
+/* Объект группы — плашка той же высоты, что поле ds-input рядом. */
 .imp-res .rq-eend--fixed {
+  height: 30px;
+  padding: 0 8px;
   border-color: var(--c-line);
   border-radius: var(--radius);
   background: var(--c-bg-subtle);
   font-size: var(--fs-ui);
-  color: var(--c-fg);
-}
-.imp-res .rq-seg2 button {
-  border-color: var(--c-line-strong);
-  border-radius: var(--radius);
-  font-size: var(--fs-ui);
-  font-weight: 500;
-  color: var(--c-fg);
-}
-.imp-res .rq-seg2 button.rq-on {
-  border-color: var(--c-accent);
-  background: var(--c-accent-soft);
+  line-height: 28px;
   color: var(--c-fg);
 }
 .imp-res .rq-cbo-list {
@@ -272,46 +284,52 @@
   background: var(--c-accent-soft);
   color: var(--c-fg);
 }
-.imp-res .rq-empty {
-  font-size: var(--fs-ui);
-  color: var(--c-fg-muted);
-}
 
-/* Список «Все вопросы» и итог разбора. */
+/* Список «Все вопросы»: номер тихим, заголовок в одну строку с многоточием, справа ответ.
+   Отвечено — основным цветом, без ответа — тихим вариант по умолчанию. Текущий вопрос —
+   фоном. Строки выходят подложкой на 8px за колонку: номер стоит на её левом крае. */
+.imp-res .rq-ql {
+  margin: 0 -8px;
+}
 .imp-res .rq-ql-r {
+  gap: var(--space-2);
+  padding: 6px 8px;
   border-radius: var(--radius);
   font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
   color: var(--c-fg);
+  cursor: pointer;
 }
 .imp-res .rq-ql-r:hover {
   background: var(--c-hover);
 }
-.imp-res .rq-ql-r--on {
+.imp-res .rq-ql-r--on,
+.imp-res .rq-ql-r--on:hover {
   background: var(--c-accent-soft);
 }
 .imp-res .rq-ql-n {
+  width: 20px;
   font-size: var(--fs-caption);
-  color: var(--c-fg-faint);
+  color: var(--c-fg-muted);
 }
 .imp-res .rq-ql-a {
   font-size: var(--fs-caption);
-  font-weight: 500;
-  color: var(--c-accent);
-}
-.imp-res .rq-ql-a--none {
   font-weight: 400;
-  color: var(--c-fg-faint);
-}
-.imp-res .rq-done-t {
-  font-size: var(--fs-ui);
   color: var(--c-fg);
 }
-.imp-res .rq-done-s {
-  font-size: var(--fs-ui);
+.imp-res .rq-ql-a--none {
   color: var(--c-fg-muted);
 }
-.imp-res .rq-done-s b {
-  font-weight: 500;
+
+/* Итог разбора: значок и заголовок 14px/600 в одну строку, под ними ds-btn. */
+.imp-res .rq-done {
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+.imp-res .rq-done-t {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: var(--lh-ui);
   color: var(--c-fg);
 }
 .imp-res .rq-tick {
@@ -321,6 +339,7 @@
 .imp-res .rq-tick--open {
   background: var(--c-bg-subtle);
   color: var(--c-fg-muted);
+  font-size: var(--fs-caption);
 }
 
 /* Свёртка «Придется подправить вручную» и списки пунктов. */
@@ -358,33 +377,14 @@
   margin-top: 2px;
 }
 
-/* Массовые ответы догрузки: без карточки, подпись тихо, кнопки вторичные (ds-btn). */
+/* Массовые ответы догрузки: подпись тихим цветом, кнопки ds-btn. */
 .imp-res .rq-bulk {
-  margin-top: 0;
   gap: var(--space-2);
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
 }
 .imp-res .rq-bulk-l {
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   color: var(--c-fg-muted);
-}
-.imp-res .rq-bulk .rq-soft {
-  height: 30px;
-  padding: 0 12px;
-  border-color: var(--c-line-strong);
-  border-radius: var(--radius);
-  background: var(--c-bg);
-  font-size: var(--fs-ui);
-  font-weight: 500;
-  line-height: var(--lh-ui);
-  color: var(--c-fg);
-}
-.imp-res .rq-bulk .rq-soft:hover {
-  background: var(--c-hover);
 }
 
 /* «схема не найдена» в строке процессов отчёта применения. */

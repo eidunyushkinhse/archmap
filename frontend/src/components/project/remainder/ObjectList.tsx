@@ -11,6 +11,7 @@ import type { ComponentOut } from "../../../types";
 import Option, { PathLabel } from "./Option";
 import { nestedTag } from "./questionText";
 import { noAutofill } from "../../../ui/noAutofill";
+import "../../../ui/ds.css";
 
 interface Props {
   items: ComponentOut[];
@@ -51,7 +52,7 @@ export default function ObjectList({ items, base = null, value = null, onPick }:
       {expanded && (
         <input
           {...noAutofill("object-list-1")}
-          className="rq-filter"
+          className="ds-input rq-filter"
           value={filter}
           aria-label="Поиск по имени"
           placeholder="Поиск по имени"
@@ -67,7 +68,7 @@ export default function ObjectList({ items, base = null, value = null, onPick }:
           {shown.length > 0 ? <div className="rq-opts">{rows}</div> : empty}
           {hit.length > CAP && (
             <div className="rq-more">
-              <button type="button" className="rq-link" onClick={() => setExpanded(true)}>
+              <button type="button" className="ds-add" onClick={() => setExpanded(true)}>
                 Показать остальные {hit.length - CAP}
               </button>
             </div>

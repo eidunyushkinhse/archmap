@@ -1,5 +1,5 @@
 // Чистая логика разбора остатка (Ф-E): список вопросов из превью, их тексты,
-// прогресс, итог и payload применения.
+// подписи ответов и вариантов по умолчанию, итог и payload применения.
 //
 // Что закрепляем: порядок видов (§4 ТЗ — от дешёвого решения к ответственному),
 // формы слов по родам (спор схемы и спор канала звучат по-разному), число
@@ -14,8 +14,8 @@ import type {
   IsolatedGroupOut, RemainderCandidateOut, RemainderOut,
 } from "../../types";
 import {
-  answerLabel, answerState, buildQuestions, bulkAnswers, hasMineDisputes, progressMode,
-  pruneAnswers, segments, summarize, toDecisions,
+  answerLabel, answerState, buildQuestions, bulkAnswers, defaultLabel, hasMineDisputes,
+  pruneAnswers, summarize, toDecisions,
 } from "../project/remainder/questions";
 import type { Answers, Resolutions } from "../project/remainder/questions";
 import { humanValue, sourcesPhrase } from "../project/remainder/questionText";
@@ -93,29 +93,44 @@ describe("buildQuestions: порядок и id", () => {
   });
 });
 
-describe("тексты спора содержимого (§4.1)", () => {
-  const текст = (family: FamilyConflictOut["family"]) =>
-    buildQuestions({ family_conflicts: [семья({ family })], remainder: остаток() })[0]!;
+describe("тексты спора содержимого (§4.1, фаза 8а)", () => {
+  const текст = (family: FamilyConflictOut["family"], over: Partial<FamilyConflictOut> = {}) =>
+    buildQuestions({ family_conflicts: [семья({ family, ...over })], remainder: остаток() })[0]!;
 
-  it("схема логики — «объекта … схемы … Какую … правильной»", () => {
+  it("называет владельца записи и ключ: пять семей", () => {
     expect(текст("doc").title).toBe(
-      "У объекта «Опрос» в разных файлах разные схемы с одинаковым названием. Какую считаем правильной?");
+      "У объекта «server» в разных файлах разные схемы логики «Опрос». Какую считаем правильной?");
+    expect(текст("table", { key: "order_items" }).title).toBe(
+      "У объекта «server» в разных файлах разные таблицы «order_items». Какую считаем правильной?");
+    expect(текст("channel", { key: "orders.events" }).title).toBe(
+      "У объекта «server» в разных файлах разные описания канала «orders.events». Какое считаем правильным?");
+    expect(текст("config", { key: "MAX_ITEMS" }).title).toBe(
+      "У объекта «server» в разных файлах разные значения параметра «MAX_ITEMS». Какое считаем правильным?");
+    // У спецификации ключ «openapi» объектом не называется: она у объекта одна.
+    expect(текст("spec", { key: "openapi" }).title).toBe(
+      "У объекта «server» в разных файлах разные спецификации OpenAPI. Какую считаем правильной?");
+  });
+
+  it("в догрузке с кандидатом «Из проекта» — «в проекте и в архиве»", () => {
+    const из = (n: number) => семья({
+      candidates: [
+        { origin: 0, origin_label: "Текущий проект", source_label: "Из проекта", summary: "", body: "", truncated: false, current: true },
+        ...Array.from({ length: n }, (_, i) => ({
+          origin: i + 1, origin_label: `${i + 1} · a${i}.zip`, source_label: `Из архива a${i}.zip`,
+          summary: "", body: "", truncated: false, current: false,
+        })),
+      ],
+    });
+    expect(buildQuestions({ family_conflicts: [из(1)], remainder: остаток(), mode: "into" })[0]!.title).toBe(
+      "У объекта «server» в проекте и в архиве разные схемы логики «Опрос». Какую считаем правильной?");
+    // Архивных кандидатов несколько — «в архивах».
+    expect(buildQuestions({ family_conflicts: [из(2)], remainder: остаток(), mode: "into" })[0]!.title)
+      .toContain("в проекте и в архивах разные");
+  });
+
+  it("«почему» — прежнее", () => {
     expect(текст("doc").why).toContain("Схемы разные (отличаются хотя бы одним символом)");
-  });
-
-  it("канал брокера — «канала … описания … Какое … правильным»", () => {
-    expect(текст("channel").title).toBe(
-      "У канала «Опрос» в разных файлах разные описания. Какое считаем правильным?");
     expect(текст("channel").why).toContain("Содержимое разное (отличаются хотя бы одним символом)");
-  });
-
-  it("параметр конфигурации — «параметра … значения»", () => {
-    expect(текст("config").title).toContain("У параметра «Опрос» в разных файлах разные значения.");
-  });
-
-  it("спека и таблица — свои слова", () => {
-    expect(текст("spec").title).toContain("разные спецификации с одинаковым названием");
-    expect(текст("table").title).toContain("разные таблицы с одинаковым названием");
   });
 
   it("дефолт «все» обещает нумерацию, дефолт-кандидат — имя источника", () => {
@@ -145,11 +160,14 @@ describe("тексты спора полей (§4.2)", () => {
   const текст = (over: Partial<FieldDisputeOut>) =>
     buildQuestions({ family_conflicts: [], remainder: остаток({ field_conflicts: [поле(over)] }) })[0]!;
 
-  it("правило авторитетности названо словами продукта", () => {
-    expect(текст({ field: "description" }).why).toBe(
-      "В обоих файлах есть описание, и ни у одного из объектов нет вложенных."
-      + " ArchMap обычно берёт описание у объекта, у которого больше вложенных объектов,"
-      + " а здесь их нет ни у одного.");
+  it("правило авторитетности — одно на все поля и любое число файлов (фаза 8а)", () => {
+    const пояснение = "ArchMap обычно берёт значение из того файла, где объект описан подробнее."
+      + " Здесь файлы описывают его одинаково подробно.";
+    for (const field of ["description", "technology", "shape", "status", "element"] as const) {
+      expect(текст({ field }).why).toBe(пояснение);
+    }
+    expect(текст({ candidates: [кандидат(), кандидат({ origin: 1 }), кандидат({ origin: 2 })] }).why)
+      .toBe(пояснение);
   });
 
   it("описание, технология и роль спрягаются по-своему", () => {
@@ -202,9 +220,9 @@ describe("тексты спора полей (§4.2)", () => {
     expect(трое.ifLeft).toContain(", а остальные будут отброшены.");
   });
 
-  it("сноска называет значение, источник и судьбу второго", () => {
+  it("сноска называет значение, источник со строчной и судьбу второго", () => {
     expect(текст({}).ifLeft).toBe(
-      "Если не отвечать, то в проект попадёт значение «Сервер мониторинга» (Из файла zabbix.yaml),"
+      "Если не отвечать, то в проект попадёт значение «Сервер мониторинга» (из файла zabbix.yaml),"
       + " а второе будет отброшено.");
   });
 
@@ -213,7 +231,7 @@ describe("тексты спора полей (§4.2)", () => {
       default: 1,
       candidates: [кандидат(), кандидат({ origin: 1, source_label: "Из проекта", value: "Моё", current: true })],
     });
-    expect(q.ifLeft).toContain("значение «Моё» (Из проекта)");
+    expect(q.ifLeft).toContain("значение «Моё» (из проекта)");
   });
 });
 
@@ -229,9 +247,9 @@ describe("тексты жестов (§4.3–4.5)", () => {
     })[0]!;
     expect(начало.title).toContain(
       "выходит из контейнера «Zabbix». С каким компонентом контейнера «Zabbix» связан объект «Zabbix»?");
+    // Пояснение верно и при одном файле (фаза 8а): ни «в одном файле», ни «в другом».
     expect(конец.why).toBe(
-      "В одном файле «Zabbix» описан одним объектом, а в другом у него есть компоненты."
-      + " После слияния он станет контейнером, а вызовы принимают его компоненты."
+      "Связь указана на контейнере «Zabbix», а вызовы принимают его компоненты."
       + " Конец связи нужно перенести на один из них.");
   });
 
@@ -243,8 +261,7 @@ describe("тексты жестов (§4.3–4.5)", () => {
       + "С каким объектом внутри системы «Zabbix» связан объект «Датасорс»?");
     expect(конец.context).toBe("внутри 2 объектов, считая вложенные");
     expect(конец.why).toBe(
-      "В одном файле «Zabbix» описана одним объектом, а в другом у неё есть вложенные объекты."
-      + " После слияния она станет системой, а вызовы принимают объекты внутри неё."
+      "Связь указана на системе «Zabbix», а вызовы принимают объекты внутри неё."
       + " Конец связи нужно перенести на один из них.");
     expect(конец.ifLeft).toBe(
       "Если не отвечать, то связь останется на системе и после создания проекта"
@@ -259,7 +276,8 @@ describe("тексты жестов (§4.3–4.5)", () => {
     expect(начало.ifLeft).toBe(
       "Если не отвечать, то связь останется на системе и после догрузки"
       + " попадёт в рекомендации проекта. Там её можно будет перенести.");
-    expect(answerLabel(начало, { [начало.id]: { kind: "keep" } }, {})).toBe("на системе");
+    expect(answerLabel(начало, { [начало.id]: { kind: "keep" } }, {})).toBe("Оставить на системе");
+    expect(defaultLabel(начало)).toBe("Оставить на системе");
   });
 
   it("сноска связи называет момент своего окна: создание или догрузка", () => {
@@ -280,13 +298,19 @@ describe("тексты жестов (§4.3–4.5)", () => {
     expect(догрузка.why).toBe(создание.why);
   });
 
-  it("прочие сноски в догрузке не меняются", () => {
+  it("сноски содержимого и группы в догрузке не меняются, у похожих имён — «догрузке»", () => {
     const общие = (mode: "create" | "into") => buildQuestions({
       family_conflicts: [семья()],
-      remainder: остаток({ isolated_groups: [группа()], fuzzy_pairs: [пара()] }),
+      remainder: остаток({ isolated_groups: [группа()] }),
       mode,
     }).map((q) => q.ifLeft);
     expect(общие("into")).toEqual(общие("create"));
+    const пары = (mode: "create" | "into") =>
+      buildQuestions({ family_conflicts: [], remainder: остаток({ fuzzy_pairs: [пара()] }), mode })[0]!.ifLeft;
+    expect(пары("create")).toBe(
+      "Если не отвечать, то останутся два объекта, и при следующем импорте вопрос повторится.");
+    expect(пары("into")).toBe(
+      "Если не отвечать, то останутся два объекта, и при следующей догрузке вопрос повторится.");
   });
 
   it("изолированная группа перечисляет три имени и остаток", () => {
@@ -299,12 +323,16 @@ describe("тексты жестов (§4.3–4.5)", () => {
       + " проекта как изолированная группа.");
   });
 
-  it("похожие имена называют оба источника и место", () => {
+  it("похожие имена называют оба источника со строчной и место", () => {
     const q = buildQuestions({ family_conflicts: [], remainder: остаток({ fuzzy_pairs: [пара()] }) })[0]!;
     expect(q.title).toBe(
       "«Пользователь Zabbix» и «Пользователь» — похожие имена из разных файлов."
       + " Это один объект или разные?");
-    expect(q.context).toBe("Из файла zabbix.yaml и Из архива plugin.zip, оба на верхнем уровне");
+    expect(q.context).toBe("из файла zabbix.yaml и из архива plugin.zip, оба на верхнем уровне");
+    const догрузка = buildQuestions({
+      family_conflicts: [], remainder: остаток({ fuzzy_pairs: [пара({ a_source: "Из проекта" })] }), mode: "into",
+    })[0]!;
+    expect(догрузка.context).toBe("из проекта и из архива plugin.zip, оба на верхнем уровне");
     expect(q.ifLeft).toBe(
       "Если не отвечать, то останутся два объекта, и при следующем импорте вопрос повторится.");
   });
@@ -322,33 +350,6 @@ describe("тексты жестов (§4.3–4.5)", () => {
   });
 });
 
-describe("прогресс", () => {
-  const много = (n: number) => buildQuestions({
-    family_conflicts: [], remainder: остаток({
-      field_conflicts: Array.from({ length: n }, (_, i) => поле({ id: `f${i}` })),
-    }),
-  });
-
-  it("14 вопросов — точки, 15 — полоса", () => {
-    expect(progressMode(много(14).length)).toBe("dots");
-    expect(progressMode(много(15).length)).toBe("segments");
-  });
-
-  it("сегменты считают отвеченное и «как сейчас» по видам", () => {
-    const qs = всё();
-    const answers: Answers = {
-      "edge|Плагин/Датасорс|Zabbix||target": { kind: "edge", toPath: "Zabbix / server" },
-      "group|Плагин": { kind: "keep" },
-    };
-    const s = segments(qs, answers, { "doc|Zabbix/server|Опрос": "cand:1" });
-    expect(s.map((x) => x.caption)).toEqual([
-      "Содержимое · 1/1", "Поля · 0/1", "В систему или контейнер · 1/1", "Связи · 1/1", "Имена · 0/1",
-    ]);
-    expect(s[3]!.kept).toBe(1);
-    expect(s.map((x) => x.first)).toEqual([0, 1, 2, 3, 4]);
-  });
-});
-
 describe("состояние ответа и подпись в списке", () => {
   const qs = всё();
   const [content, field_, edge, group, pair] = qs;
@@ -362,28 +363,45 @@ describe("состояние ответа и подпись в списке", ()
     expect(answerState(pair!, answers, res)).toBe("keep");
   });
 
-  it("подпись ответа — источник, значение, имя склейки", () => {
+  it("подпись ответа — с заглавной, как на варианте: источник, значение, имя склейки", () => {
     const answers: Answers = {
       "field|Zabbix/server|description": { kind: "field", index: 1 },
       "edge|Плагин/Датасорс|Zabbix||target": { kind: "edge", toPath: "Zabbix / server / Поллер" },
       "pair|Пользователь Zabbix|Пользователь": { kind: "merge", name: "Оператор" },
     };
-    expect(answerLabel(content!, {}, { "doc|Zabbix/server|Опрос": "all" })).toBe("добавить все");
+    expect(answerLabel(content!, {}, { "doc|Zabbix/server|Опрос": "all" })).toBe("Добавить все");
     expect(answerLabel(content!, {}, { "doc|Zabbix/server|Опрос": "cand:1" })).toBe("Из архива plugin.zip");
     expect(answerLabel(content!, {}, {})).toBeNull();
     expect(answerLabel(field_!, answers, {})).toBe("Ядро Zabbix");
     expect(answerLabel(edge!, answers, {})).toBe("Поллер");
     expect(answerLabel(pair!, answers, {})).toBe("Оператор");
-    // «Как сейчас» — такой же ответ: называется словами своего вида (П8).
-    expect(answerLabel(group!, { "group|Плагин": { kind: "keep" } }, {})).toBe("как есть");
-    expect(answerLabel(edge!, { [edge!.id]: { kind: "keep" } }, {})).toBe("на контейнере");
-    expect(answerLabel(pair!, { [pair!.id]: { kind: "diff" } }, {})).toBe("разные объекты");
+    // Ответ вариантом по умолчанию — такой же ответ: называется словами варианта (П8).
+    expect(answerLabel(group!, { "group|Плагин": { kind: "keep" } }, {})).toBe("Оставить как есть");
+    expect(answerLabel(edge!, { [edge!.id]: { kind: "keep" } }, {})).toBe("Оставить на контейнере");
+    expect(answerLabel(pair!, { [pair!.id]: { kind: "diff" } }, {})).toBe("Разные объекты");
     expect(answerLabel(group!, {
       "group|Плагин": { kind: "new_edges", edges: [
         { fromPath: "Плагин", toPath: "Zabbix", label: "", tech: "" },
         { fromPath: "Плагин / Датасорс", toPath: "Zabbix", label: "", tech: "" },
       ] },
-    }, {})).toBe("проведено связей 2");
+    }, {})).toBe("Связей: 2");
+  });
+
+  it("без ответа — подпись варианта, который действует по умолчанию", () => {
+    expect(defaultLabel(content!)).toBe("Добавить все");
+    const одна = buildQuestions({
+      family_conflicts: [семья({ default: "cand:1", allow_all: false })], remainder: остаток(),
+    })[0]!;
+    expect(defaultLabel(одна)).toBe("Из архива plugin.zip");
+    expect(defaultLabel(field_!)).toBe("Сервер мониторинга");
+    expect(defaultLabel(edge!)).toBe("Оставить на контейнере");
+    expect(defaultLabel(group!)).toBe("Оставить как есть");
+    expect(defaultLabel(pair!)).toBe("Разные объекты");
+    // Форма и статус — словами.
+    const форма = buildQuestions({ family_conflicts: [], remainder: остаток({
+      field_conflicts: [поле({ field: "shape", candidates: [кандидат({ value: "database" }), кандидат({ origin: 1, value: "service" })] })],
+    }) })[0]!;
+    expect(defaultLabel(форма)).toBe("База данных");
   });
 });
 

@@ -168,16 +168,20 @@ describe("догрузка архива · превью и споры", () => {
     // подписаны источником знания, живой — «Из проекта» (§4.7).
     expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
+    // Владелец назван, а кандидат «Из проекта» меняет «в разных файлах» на «в проекте и
+    // в архиве» (фаза 8а).
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «Оформление заказа» в разных файлах разные схемы с одинаковым"
-      + " названием. Какую считаем правильной?");
-    const моё = screen.getByRole("button", { name: "Из проекта" });
+      "У объекта «orders» в проекте и в архиве разные схемы логики «Оформление заказа»."
+      + " Какую считаем правильной?");
+    const моё = screen.getByRole("button", { name: /^Из проекта/ });
     const изАрхива = screen.getByRole("button", { name: "Из архива Ярмарка" });
-    // Ничего не предвыбрано: дефолт бэка («оставить моё») назван сноской, а не
-    // галкой — перетереть живое знание можно только явным выбором.
+    // Ничего не предвыбрано: дефолт бэка («оставить моё») помечен «по умолчанию» и назван
+    // в подсказке, а не галкой — перетереть живое знание можно только явным выбором.
     expect(моё).toHaveAttribute("aria-pressed", "false");
+    expect(моё).toHaveTextContent("по умолчанию");
     expect(изАрхива).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    expect(screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent).toContain(
       "в проект попадёт вариант «Из проекта»");
 
     // Файлы уехали в превью в том порядке, в каком их видит пользователь.
@@ -192,7 +196,7 @@ describe("догрузка архива · превью и споры", () => {
       remainder: остаток({ container_edges: [В_КОНТЕЙНЕР] }),
     }));
     await открыть(zip("b.zip"), zip("c.zip"));
-    await screen.findByText("вопрос 1 из 3");
+    await screen.findByText("Вопрос 1 из 3");
 
     await userEvent.click(screen.getByRole("button", { name: "Взять из новых архивов" }));
     expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
@@ -225,13 +229,15 @@ describe("догрузка архива · превью и споры", () => {
       remainder: остаток({ container_edges: [В_КОНТЕЙНЕР] }),
     }));
     await открыть(zip("b.zip"));
-    await screen.findByText("вопрос 1 из 1");
+    await screen.findByText("Вопрос 1 из 1");
 
     // Сноска в догрузке говорит о ДОГРУЗКЕ: проект уже создан.
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
-      "после догрузки попадёт в рекомендации проекта");
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    const подсказка = screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent;
+    expect(подсказка).toContain("после догрузки попадёт в рекомендации проекта");
     // «его рекомендации» — только после «создания проекта»: здесь «его» не к чему отнести.
-    expect(screen.getByText(/Если не отвечать/).textContent).not.toContain("его рекомендации");
+    expect(подсказка).not.toContain("его рекомендации");
+    await userEvent.keyboard("{Escape}");
     // Массовых кнопок нет: спорить не с чем, а жест закрывает только человек.
     expect(screen.queryByRole("button", { name: "Взять из новых архивов" })).toBeNull();
 
@@ -249,7 +255,7 @@ describe("догрузка архива · превью и споры", () => {
 
   it("409 применения: превью перезапрошено, ручной выбор уцелел", async () => {
     await открыть(zip("b.zip"));
-    await screen.findByText("вопрос 1 из 1");
+    await screen.findByText("Вопрос 1 из 1");
 
     await userEvent.click(screen.getByRole("button", { name: "Из архива Ярмарка" }));
     expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))

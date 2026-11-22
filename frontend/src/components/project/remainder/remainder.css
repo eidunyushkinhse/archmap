@@ -3,6 +3,10 @@
    синий выбора. ЯНТАРНОГО И КРАСНОГО ВНУТРИ БЛОКА НЕТ ВОВСЕ: остаток — не ошибка
    (красный живёт только в строке статуса, и та снаружи блока).
 
+   Здесь каркас и прежний вид вопросов окна «Собрать с компонентов»; вид окон ввоза на
+   новом языке — importResult.css (область .imp-res), просмотр схемы (rq-ov) — здесь же
+   на токенах: он порталится из области окна (фаза 8а редизайна).
+
    Классы с префиксом rq-: блок живёт внутри двух чужих окон (создание проекта и
    догрузка архивов), и общие имена там уже заняты. Все интерактивные элементы
    наследуют шрифт явно (font-family: inherit) — иначе браузер подставит им свой,
@@ -30,9 +34,6 @@
   background: #fff;
   box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
 }
-.rq-hd { padding: 13px 15px 0; }
-.rq-h1 { font-size: 14px; line-height: 1.35; font-weight: 600; color: #0f172a; }
-.rq-h1 span { font-weight: 500; color: #475569; }
 .rq-sub { display: flex; align-items: center; gap: 10px; padding: 7px 15px 0; }
 .rq-cnt { font-size: 12px; color: #94a3b8; }
 .rq-bd { padding: 11px 15px 14px; }
@@ -41,24 +42,6 @@
   padding: 11px 15px; border-top: 1px solid #eef2f7;
 }
 .rq-sp { margin-left: auto; }
-
-/* ── прогресс ─────────────────────────────────────────────────── */
-.rq-prog { display: flex; align-items: center; gap: 5px; padding: 8px 15px 0; flex-wrap: wrap; }
-.rq-dot { width: 9px; height: 9px; border-radius: 50%; border: none; background: #e2e8f0; padding: 0; }
-.rq-dot:hover { background: #cbd5e1; }
-.rq-dot--done { background: #2563eb; }
-.rq-dot--on { width: 20px; border-radius: 5px; background: #2563eb; }
-.rq-bar { display: flex; gap: 3px; width: 100%; }
-.rq-bar-g {
-  flex: 1; display: flex; flex-direction: column; gap: 4px;
-  border: none; background: none; padding: 0; text-align: left; font-family: inherit; min-width: 0;
-}
-.rq-bar-t { height: 5px; border-radius: 3px; background: #e9edf3; overflow: hidden; display: flex; }
-.rq-bar-f { background: #2563eb; }
-.rq-bar-l {
-  font-size: 11.5px; color: #64748b;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 
 /* ── вопрос ───────────────────────────────────────────────────── */
 .rq-q {
@@ -69,6 +52,8 @@
 .rq-why { margin-top: 4px; }
 .rq-why summary { font-size: 12px; color: #64748b; cursor: pointer; white-space: nowrap; }
 .rq-why p { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: #64748b; max-width: 460px; }
+/* Последнее слово заголовка и знак «?» без переноса между ними (RemainderBlock). */
+.rq-q-end { white-space: nowrap; }
 .rq-ifnot {
   margin-top: 11px; padding-top: 9px; border-top: 1px solid #eef2f7;
   font-size: 12px; line-height: 1.5; color: #64748b;
@@ -111,11 +96,8 @@
 
 /* ── список объектов (§5.3) ───────────────────────────────────── */
 .rq-more { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
-.rq-filter {
-  width: 100%; padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 8px;
-  font-family: inherit; font-size: 12.5px; line-height: 1.3; margin-top: 9px; color: #0f172a;
-}
-.rq-filter:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgb(37 99 235 / 12%); }
+/* Поле «Поиск по имени» — ds-input; здесь только место. */
+.rq-filter { margin-top: 9px; }
 .rq-scroll { max-height: 214px; overflow-y: auto; overflow-x: hidden; margin-top: 9px; padding-right: 2px; }
 .rq-scroll .rq-opts { margin-top: 0; }
 .rq-empty { font-size: 12.5px; color: #94a3b8; margin-top: 9px; }
@@ -149,25 +131,17 @@
 .rq-econn-btn:hover { color: #1d4ed8; border-color: #cbd5e1; background: #f8fafc; }
 
 /* ── поля формы и шаг имени (§5.4) ────────────────────────────── */
+/* Поля — ds-input, кнопки — ds-btn (фаза 8а); здесь сетка и места. */
 .rq-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 9px; }
 .rq-frow > div { min-width: 0; }
-.rq-flbl { font-size: 11.5px; font-weight: 600; color: #64748b; margin-bottom: 4px; }
-.rq-inp {
-  width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px;
-  font-family: inherit; font-size: 13.5px; line-height: 1.4; color: #0f172a; background: #fff;
-}
-.rq-inp:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgb(37 99 235 / 12%); }
-.rq-seg2 { display: flex; gap: 6px; }
-.rq-seg2 button {
-  flex: 1; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff;
-  font-family: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.3; color: #1e293b;
-}
-.rq-seg2 button:hover { background: #f1f5f9; }
-.rq-seg2 button.rq-on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+.rq-flbl { font-size: 12px; color: #64748b; margin-bottom: 2px; }
+.rq-own { margin-top: 8px; }
+/* Кнопки шага имени и формы связей: главная первой, «Назад к вопросу» за ней. */
+.rq-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 
 /* ── комбобокс выбора объекта (П4 v2) ─────────────────────────── */
 .rq-cbo { position: relative; min-width: 0; }
-.rq-cbo-inp { padding-right: 26px; }
+.ds-input.rq-cbo-inp { padding-right: 26px; }
 .rq-cbo-x {
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   border: none; background: none; color: #94a3b8; font-family: inherit;
@@ -189,29 +163,16 @@
 .rq-cbo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rq-cbo-empty { margin: 0; padding: 6px 8px; }
 
-/* ── кнопки (§9) ──────────────────────────────────────────────── */
-.rq-nav, .rq-link {
+/* ── ссылка строки статуса («Открыть файл …») ─────────────────── */
+/* Кнопки блока — ds-add и ds-btn нового языка (фаза 8а). */
+.rq-link {
   border: none; background: none; padding: 0; font-family: inherit;
   font-size: 12.5px; font-weight: 600; line-height: 1.3; color: #1d4ed8; white-space: nowrap;
 }
-.rq-nav:hover, .rq-link:hover { text-decoration: underline; }
-.rq-nav:disabled, .rq-link:disabled { color: #cbd5e1; text-decoration: none; }
-.rq-link--mut { color: #64748b; font-weight: 500; }
+.rq-link:hover { text-decoration: underline; }
 /* Ссылка внутри строки текста (адрес файла в пункте списка ошибок): кегль и
    высота строки — от абзаца, чтобы пункт не «прыгал» по базовой линии. */
 .rq-link--in { font-size: inherit; line-height: inherit; }
-.rq-soft {
-  border: 1px solid #e2e8f0; background: #fff; color: #1e293b; border-radius: 8px;
-  padding: 6px 11px; font-family: inherit; font-size: 12.5px; font-weight: 600;
-  line-height: 1.3; white-space: nowrap;
-}
-.rq-soft:hover { background: #f1f5f9; }
-.rq-pri {
-  border: 1px solid #2563eb; background: #2563eb; color: #fff; border-radius: 8px;
-  padding: 8px 16px; font-family: inherit; font-size: 13.5px; font-weight: 600;
-  line-height: 1.3; white-space: nowrap;
-}
-.rq-pri:hover:not(:disabled) { background: #1d4ed8; }
 
 /* ── список «Все вопросы» (§3) ────────────────────────────────── */
 .rq-ql { margin-top: 2px; }
@@ -233,15 +194,13 @@
 .rq-ql-a--none { color: #94a3b8; font-weight: 400; }
 
 /* ── итог разбора (§8) ────────────────────────────────────────── */
-.rq-done { display: flex; align-items: flex-start; gap: 11px; }
+.rq-done { display: flex; align-items: center; gap: 8px; }
 .rq-tick {
-  width: 22px; height: 22px; border-radius: 50%; background: #dcfce7; color: #15803d;
+  width: 20px; height: 20px; border-radius: 50%; background: #dcfce7; color: #15803d;
   display: flex; align-items: center; justify-content: center; flex: none;
 }
-.rq-tick--open { background: #f1f5f9; color: #475569; font-size: 13px; font-weight: 700; }
+.rq-tick--open { background: #f1f5f9; color: #475569; font-size: 12px; font-weight: 600; }
 .rq-done-t { font-size: 14px; font-weight: 600; color: #0f172a; }
-.rq-done-s { font-size: 12.5px; color: #64748b; margin-top: 3px; }
-.rq-done-s b { color: #334155; font-weight: 600; }
 
 /* ── просмотр схемы (§5.5): новый язык, корень в области .ds ──── */
 /* Портал уходит из области окна (.imp-res), поэтому вид задан здесь, только токенами. Шапка
@@ -324,8 +283,6 @@
 .rq-ul li { margin-top: 5px; }
 .rq-ul li:first-child { margin-top: 0; }
 
-.rq-bulk {
-  margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  padding: 11px 13px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc;
-}
+/* Массовые ответы догрузки: подпись строкой, под ней кнопки ds-btn. */
+.rq-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rq-bulk-l { flex: 0 0 100%; font-size: 12px; color: #64748b; }

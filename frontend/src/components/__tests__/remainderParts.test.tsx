@@ -32,7 +32,10 @@ describe("ObjectList (§5.3)", () => {
     expect(screen.getAllByRole("button")).toHaveLength(5); // 4 варианта + «Показать остальные»
     expect(screen.getByText("Компонент 4")).toBeInTheDocument();
     expect(screen.queryByText("Компонент 5")).toBeNull();
+    // Кнопка-текст и поле поиска — примитивы нового языка (фаза 8а).
+    expect(screen.getByRole("button", { name: "Показать остальные 3" })).toHaveClass("ds-add");
     await userEvent.click(screen.getByRole("button", { name: "Показать остальные 3" }));
+    expect(screen.getByLabelText("Поиск по имени")).toHaveClass("ds-input");
     expect(screen.getByText("Компонент 7")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Показать остальные/ })).toBeNull();
   });
@@ -225,6 +228,19 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     });
   });
 
+  it("кнопки и поля нового языка: «Провести связь» первой, подписи полей на месте", () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    const провести = screen.getByRole("button", { name: /^Провести связ/ });
+    const назад = screen.getByRole("button", { name: "Назад к вопросу" });
+    expect(провести).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(назад).toHaveClass("ds-btn");
+    expect(провести.compareDocumentPosition(назад) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const поле of screen.getAllByLabelText(/^(Описание|Технология) связи/)) expect(поле).toHaveClass("ds-input");
+    for (const поле of screen.getAllByRole("combobox")) expect(поле).toHaveClass("ds-input");
+    expect(screen.getAllByText("Описание")).toHaveLength(2);
+    expect(screen.getAllByText("Технология")).toHaveLength(2);
+  });
+
   it("«Назад к вопросу» ничего не отдаёт", async () => {
     const onAdd = vi.fn();
     const onBack = vi.fn();
@@ -262,10 +278,22 @@ function MergeStepStand({ onApply }: { onApply: (name: string) => void }) {
 }
 
 describe("MergeNameStep (§4.5, шаг 2)", () => {
-  it("подписывает варианты источником и числом связей", () => {
+  it("подписывает варианты источником и числом связей, без «·»", () => {
     render(<MergeStepStand onApply={vi.fn()} />);
-    expect(screen.getByText("Из файла zabbix.yaml · 2 связи")).toBeInTheDocument();
-    expect(screen.getByText("Из проекта · 1 связь")).toBeInTheDocument();
+    expect(screen.getByText("Из файла zabbix.yaml, 2 связи")).toBeInTheDocument();
+    expect(screen.getByText("Из проекта, 1 связь")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("·");
+  });
+
+  it("кнопки нового языка: «Объединить» первой, «Назад к вопросу» за ней; поле ds-input", async () => {
+    render(<MergeStepStand onApply={vi.fn()} />);
+    const кнопки = [screen.getByRole("button", { name: "Объединить" }), screen.getByRole("button", { name: "Назад к вопросу" })];
+    expect(кнопки[0]).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(кнопки[1]).toHaveClass("ds-btn");
+    expect(кнопки[1]).not.toHaveClass("ds-btn--primary");
+    expect(кнопки[0]!.compareDocumentPosition(кнопки[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(screen.getByText("Своё имя"));
+    expect(screen.getByLabelText("Своё имя")).toHaveClass("ds-input");
   });
 
   it("своё имя: пока пусто — «Объединить» неактивна, потом отдаёт введённое", async () => {

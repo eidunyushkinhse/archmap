@@ -198,13 +198,14 @@ describe("единый ввоз · создание проекта", () => {
 
     // Спор стал ВОПРОСОМ разбора: секции «Споры содержимого» с радиокнопками нет,
     // кандидаты подписаны источником знания, и ничего не предвыбрано.
-    expect(await screen.findByText(/Без ваших решений не объединить/, {}, { timeout: 3000 }))
+    expect(await screen.findByText("Вопрос 1 из 1", {}, { timeout: 3000 }))
       .toBeInTheDocument();
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «Оформление заказа» в разных файлах разные схемы с одинаковым"
-      + " названием. Какую считаем правильной?");
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+      "У объекта «orders» в разных файлах разные схемы логики «Оформление заказа»."
+      + " Какую считаем правильной?");
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    expect(screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent).toContain(
       "будут добавлены все схемы");
     expect(document.querySelectorAll(".rq-opt--on")).toHaveLength(0);
 
@@ -237,7 +238,7 @@ describe("единый ввоз · создание проекта", () => {
     );
 
     expect(await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.getByText("вопрос 1 из 2")).toBeInTheDocument();
+    expect(screen.getByText("Вопрос 1 из 2")).toBeInTheDocument();
     // Вопрос о поле: значения вариантами, источник — подписью.
     await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
     // Второй вопрос — о связи в контейнер; «как сейчас» в применение не едет.
@@ -285,7 +286,7 @@ describe("единый ввоз · создание проекта", () => {
     });
     await waitFor(
       () => expect(projectsApi.unifiedPreview).toHaveBeenCalledTimes(3), { timeout: 3000 });
-    await waitFor(() => expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull());
+    await waitFor(() => expect(document.querySelector(".rq-block")).toBeNull());
 
     await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Федерация");
     // Пока свежая сводка не пришла, кнопка гаснет — дожидаемся её.

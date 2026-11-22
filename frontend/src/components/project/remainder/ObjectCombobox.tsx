@@ -11,6 +11,7 @@ import type { ComponentOut } from "../../../types";
 import { lastSegment, nestedTag } from "./questionText";
 import { PathLabel } from "./Option";
 import { noAutofill } from "../../../ui/noAutofill";
+import "../../../ui/ds.css";
 
 interface Props {
   /** Объекты, из которых выбирают (левый объект строки сюда не попадает). */
@@ -90,7 +91,7 @@ export default function ObjectCombobox({ items, value, onChange, label }: Props)
     <div className="rq-cbo" ref={wrapRef}>
       <input
         {...noAutofill("object-combobox-1")}
-        className="rq-inp rq-cbo-inp"
+        className="ds-input rq-cbo-inp"
         role="combobox"
         aria-expanded={open}
         aria-controls={listId}

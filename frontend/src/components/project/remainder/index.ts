@@ -16,12 +16,12 @@ export { default as SplitOption } from "./SplitOption";
 export { default as DocViewer } from "./DocViewer";
 
 export {
-  answerLabel, answerState, buildQuestions, bulkAnswers, hasMineDisputes,
-  progressMode, pruneAnswers, segments, summarize, toDecisions,
+  answerLabel, answerState, buildQuestions, bulkAnswers, defaultLabel, hasMineDisputes,
+  pruneAnswers, summarize, toDecisions,
 } from "./questions";
 export type {
-  Answer, Answers, DecisionsPayload, NewEdgeDecision, NewEdgesAnswer, ProgressSegment,
-  Question, QuestionKind, Resolutions, Summary,
+  Answer, Answers, DecisionsPayload, NewEdgeDecision, NewEdgesAnswer,
+  Question, Resolutions, Summary,
 } from "./questions";
 export { humanValue, splitErrorLine } from "./questionText";
 export { useRemainderAnswers } from "./useRemainderAnswers";

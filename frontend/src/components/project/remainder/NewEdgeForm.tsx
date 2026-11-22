@@ -9,6 +9,9 @@
 //
 // Типа канала здесь нет вовсе: синхронность связи — предмет «Процессов», а не
 // разбора остатка (бэк без поля channel ставит дефолт движка).
+//
+// Поля и кнопки на новом языке (ds-input, ds-btn; фаза 8а): «Провести связь» первой,
+// «Назад к вопросу» за ней. Раскладка строк прежняя.
 import type { ComponentOut } from "../../../types";
 import type { NewEdgesAnswer } from "./questions";
 import type { EdgesDraft } from "./drafts";
@@ -17,6 +20,7 @@ import { SwapIcon } from "../../../ui/icons";
 import ObjectCombobox from "./ObjectCombobox";
 import { PathLabel } from "./Option";
 import { noAutofill } from "../../../ui/noAutofill";
+import "../../../ui/ds.css";
 
 interface Props {
   /** Всё слитое дерево: сосед выбирается по нему. */
@@ -69,7 +73,7 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
               <div className="rq-flbl">Описание</div>
               <input
                 {...noAutofill("new-edge-form-1")}
-                className="rq-inp"
+                className="ds-input"
                 value={row.label}
                 aria-label={`Описание связи от «${row.nodePath}»`}
                 placeholder="что ходит по связи"
@@ -80,7 +84,7 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
               <div className="rq-flbl">Технология</div>
               <input
                 {...noAutofill("new-edge-form-2")}
-                className="rq-inp"
+                className="ds-input"
                 value={row.tech}
                 aria-label={`Технология связи от «${row.nodePath}»`}
                 placeholder="например, HTTP или gRPC"
@@ -90,16 +94,16 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
           </div>
         </div>
       ))}
-      <div className="rq-more">
+      <div className="rq-acts">
         <button
           type="button"
-          className="rq-pri"
+          className="ds-btn ds-btn--primary"
           disabled={готово === 0}
           onClick={() => onAdd(answerFromDraft(draft))}
         >
           {готово > 1 ? "Провести связи" : "Провести связь"}
         </button>
-        <button type="button" className="rq-link rq-link--mut" onClick={onBack}>
+        <button type="button" className="ds-btn" onClick={onBack}>
           Назад к вопросу
         </button>
       </div>

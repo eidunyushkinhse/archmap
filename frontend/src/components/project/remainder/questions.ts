@@ -16,11 +16,9 @@ import type {
 } from "../../../types";
 import type { QuestionMode } from "./questionText";
 import {
-  edgeTexts, endIsSystem, familyTexts, fieldTexts, groupTexts, humanValue, lastSegment,
-  pairTexts,
+  ADD_ALL, DIFF_PAIR, KEEP_GROUP, edgeTexts, familyTexts, fieldTexts, groupTexts, humanValue,
+  keepEdgeLabel, lastSegment, pairTexts,
 } from "./questionText";
-
-export type QuestionKind = "family" | "field" | "edge" | "group" | "pair";
 
 interface QuestionBase {
   /** id элемента бэка: детерминирован между превью и применением. */
@@ -119,18 +117,14 @@ export function buildQuestions(input: {
     out.push({ kind: "group", id: g.id, source: g, nodes: дерево, ...groupTexts(g) });
   }
   for (const p of r.fuzzy_pairs) {
-    out.push({ kind: "pair", id: p.id, source: p, ...pairTexts(p) });
+    out.push({ kind: "pair", id: p.id, source: p, ...pairTexts(p, mode) });
   }
   return out;
 }
 
-/** Точки или полоса по видам: на полутора десятках точек ряд перестаёт читаться. */
-export const progressMode = (n: number): "dots" | "segments" => (n <= 14 ? "dots" : "segments");
-
 /**
- * Состояние ответа. «Как сейчас» (keep/diff) — отдельное значение ДЛЯ СЧЁТА
- * (строка итога «оставлено как есть N»), но на экране это такой же ответ, как
- * прочие: пользователь его выбрал (П8 приёмки).
+ * Состояние ответа. «Как сейчас» (keep/diff) — отдельное значение ДЛЯ СЧЁТА, но на
+ * экране это такой же ответ, как прочие: пользователь его выбрал (П8 приёмки).
  */
 export function answerState(
   q: Question, answers: Answers, resolutions: Resolutions,
@@ -140,45 +134,6 @@ export function answerState(
   const a = answers[q.id];
   if (a === undefined) return "none";
   return a.kind === "keep" || a.kind === "diff" ? "keep" : "answered";
-}
-
-// Подписи сегментов полосы прогресса (§3 ТЗ) — единственное место, где названия
-// видов видны пользователю.
-const SEGMENT_LABEL: Record<QuestionKind, string> = {
-  family: "Содержимое", field: "Поля", edge: "В систему или контейнер", group: "Связи",
-  pair: "Имена",
-};
-
-export interface ProgressSegment {
-  kind: QuestionKind;
-  label: string;
-  /** Готовая подпись «Содержимое · 3/8». */
-  caption: string;
-  /** Индекс первого вопроса вида: клик по сегменту ведёт туда. */
-  first: number;
-  total: number;
-  done: number;
-  /** Сколько из отвеченных — «как сейчас»; полоса их не выделяет (П8). */
-  kept: number;
-}
-
-export function segments(
-  questions: Question[], answers: Answers, resolutions: Resolutions,
-): ProgressSegment[] {
-  const out: ProgressSegment[] = [];
-  questions.forEach((q, i) => {
-    let s = out.find((x) => x.kind === q.kind);
-    if (!s) {
-      s = { kind: q.kind, label: SEGMENT_LABEL[q.kind], caption: "", first: i, total: 0, done: 0, kept: 0 };
-      out.push(s);
-    }
-    s.total += 1;
-    const st = answerState(q, answers, resolutions);
-    if (st !== "none") s.done += 1;
-    if (st === "keep") s.kept += 1;
-  });
-  for (const s of out) s.caption = `${s.label} · ${s.done}/${s.total}`;
-  return out;
 }
 
 export interface Summary {
@@ -310,36 +265,55 @@ export const hasMineDisputes = (questions: Question[]): boolean =>
     return false;
   });
 
+/** Подпись кандидата спора содержимого по выбору «cand:<i>» или «all». */
+function familyChoiceLabel(q: FamilyQuestion, choice: string): string {
+  if (choice === "all") return ADD_ALL;
+  return q.source.candidates[Number(choice.slice(5))]?.source_label ?? choice;
+}
+
 /**
- * Данный ответ одной строкой — для списка «Все вопросы» (§3). «—» здесь не
- * возвращается: пустой ответ список рисует сам своим начертанием.
+ * Данный ответ одной строкой — для списка «Все вопросы» (§3). Подписи с заглавной, как
+ * на самих вариантах. Ответа нет — null: тогда список показывает тихим цветом вариант,
+ * который действует без ответа (defaultLabel).
  */
 export function answerLabel(
   q: Question, answers: Answers, resolutions: Resolutions,
 ): string | null {
   if (q.kind === "family") {
     const r = resolutions[q.id];
-    if (r === undefined) return null;
-    if (r === "all") return "добавить все";
-    const i = Number(r.slice(5));
-    return q.source.candidates[i]?.source_label ?? r;
+    return r === undefined ? null : familyChoiceLabel(q, r);
   }
   const a = answers[q.id];
   if (a === undefined) return null;
   // «Как сейчас» — такой же ответ, как остальные (П8 приёмки): называем его
-  // словами вида вопроса, а не общим «как сейчас».
-  if (a.kind === "keep") {
-    if (q.kind === "edge") return endIsSystem(q.source) ? "на системе" : "на контейнере";
-    return "как есть";
-  }
-  if (a.kind === "diff") return "разные объекты";
+  // словами самого варианта.
+  if (a.kind === "keep") return q.kind === "edge" ? keepEdgeLabel(q.source) : KEEP_GROUP;
+  if (a.kind === "diff") return DIFF_PAIR;
   if (a.kind === "edge") return lastSegment(a.toPath);
-  if (a.kind === "new_edges") {
-    return `проведено связей ${a.edges.length}`;
-  }
+  if (a.kind === "new_edges") return `Связей: ${a.edges.length}`;
   if (a.kind === "merge") return a.name;
   // Ответ о поле — само выбранное значение человеческими словами (форма/статус).
   return q.kind === "field"
     ? humanValue(q.source.field, q.source.candidates[a.index]?.value ?? "")
     : null;
+}
+
+/**
+ * Вариант, который действует без ответа (дефолт бэка), подписью этого варианта: спор
+ * содержимого — кандидат из default или «Добавить все», спор поля — кандидат default,
+ * связь — «Оставить на системе/контейнере», группа — «Оставить как есть», похожие имена —
+ * «Разные объекты». Список «Все вопросы» показывает его у вопроса без ответа: так видно,
+ * что будет на самом деле.
+ */
+export function defaultLabel(q: Question): string {
+  switch (q.kind) {
+    case "family": return familyChoiceLabel(q, q.source.default);
+    case "field": {
+      const k = q.source.candidates[q.source.default];
+      return k ? humanValue(q.source.field, k.value) : "";
+    }
+    case "edge": return keepEdgeLabel(q.source);
+    case "group": return KEEP_GROUP;
+    case "pair": return DIFF_PAIR;
+  }
 }
