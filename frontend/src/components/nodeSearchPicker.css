@@ -1,0 +1,84 @@
+/* Поиск объекта для конца связи (NodeSearchPicker) — новый язык (редизайн, фаза 9в).
+   Поле — ds-input (ui/ds.css): высота 30, кольцо фокуса языка и в окне, и в панели.
+   Найденное — слоем меню под полем (фон, рамка и тень как у ds-menu), строки 30 px:
+   значок формы слева (.nt-glyph, NodeTreePanel.css), имя, тихая роль справа. */
+
+.nsp {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.nsp-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  box-sizing: border-box;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+
+.nsp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.nsp-row:hover {
+  background: var(--c-hover);
+}
+
+.nsp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nsp-role {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c-fg-muted);
+}
+
+/* Предзаполненный выбор (value не пустой): имя и «Снять выбор». У нынешних мест вызова
+   value пустой, а выбор сразу закрывает поиск, так что строка не показывается. */
+.nsp-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin-bottom: 10px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-accent-soft);
+}
+.nsp-selected-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-ui);
+  color: var(--c-fg);
+}
