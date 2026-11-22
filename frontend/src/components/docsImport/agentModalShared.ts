@@ -1,9 +1,8 @@
-// Общие НЕ-компонентные части BYOA-окон (DocsAgentPanel — схемы логики,
-// SpecAgentPanel — OpenAPI-спека): бейджи действий превью, подсчёт действий и
-// inline-стили двухколоночного макета (чипы файлов, редактор, подвал). Стили
-// переиспользуются как есть — окна визуально едины. Компоненты отчёта
-// (ItemList/NoteList) — в agentModalReport.tsx (требование react-refresh:
-// файл экспортирует только компоненты).
+// Общие НЕ-компонентные части окон дозаливки от агента: подписи действий превью и их
+// подсчёт, текст отказа применения, проверка схем mermaid-парсером, гвард «вход не
+// изменился» и inline-стили окон прежнего вида (схемы логики и спецификация в
+// DocsAgentPanel и SpecAgentPanel). Компоненты отчёта (NoteList и соседи) — в
+// agentModalReport.tsx (требование react-refresh: файл экспортирует только компоненты).
 import { useState } from "react";
 import { ApiError } from "../../api/client";
 import { plural } from "../../ui/plural";
@@ -120,10 +119,10 @@ export function useRepeatedInput(input: readonly unknown[], fingerprint: string)
   return seen.repeat;
 }
 
-// ── inline-стили, общие для обеих модалок ─────────────────────────────
+// ── inline-стили окон прежнего вида ─────────────────────────────────────
+// Остались у окон, которые ещё не переведены на новый язык: схемы логики и спецификация
+// в прежнем виде (DocsAgentPanel, SpecAgentPanel) и их общие части.
 
-export const head: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 };
-export const sub: CSSProperties = { margin: "0 0 12px", fontSize: 12.5, color: "#64748b", lineHeight: 1.5 };
 export const rightCol: CSSProperties = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" };
 export const radioRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#334155",

@@ -157,7 +157,7 @@ describe("догрузка архива · превью и споры", () => {
   it("архив положен: дифф, семьи и спор вопросом с живым кандидатом «Из проекта»", async () => {
     await открыть(zip("b.zip"));
 
-    expect(await screen.findByText(/Нового: 3 объекта · 2 связи/)).toBeInTheDocument();
+    expect(await screen.findByText(/Нового: 3 объекта, 2 связи/)).toBeInTheDocument();
     expect(screen.getByText(/Добавится:.*4 схемы логики.*2 площадки/)).toBeInTheDocument();
     expect(screen.getByText("Ярмарка / billing")).toBeInTheDocument();
     // Ф2г: сырых строк «Проверьте» в окне нет — тёзку показывает свёртка
@@ -285,7 +285,7 @@ describe("догрузка архива · превью и споры", () => {
     await userEvent.click(применить());
 
     expect(await screen.findByText("Архивы догружены")).toBeInTheDocument();
-    expect(screen.getByText(/Создано объектов: 3 · связей: 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Создано объектов: 3, связей: 2/)).toBeInTheDocument();
     // Замечания видны ДО закрытия — свёрткой «Придется подправить вручную», а не
     // сырым списком «Замечания» (Ф2г-2): сырые строки ответа на экран не попадают.
     expect(screen.queryByText("Замечания")).toBeNull();
@@ -313,8 +313,8 @@ describe("догрузка архива · отказ и свёртка (пра�
     }));
     await открыть(zip("a.zip"), zip("c.zip"));
 
-    expect(await screen.findByText("Что-то пошло не так")).toBeInTheDocument();
-    const пункты = within(screen.getByRole("list")).getAllByRole("listitem");
+    const статус = (await screen.findByText("Что-то пошло не так")).closest(".rq-root") as HTMLElement;
+    const пункты = within(within(статус).getByRole("list")).getAllByRole("listitem");
     expect(пункты.map((li) => li.textContent)).toEqual([
       "a.zip: Файл не читается как zip-архив.",
       "c.zip: В архиве нет файла C4 (contents.c4).",
@@ -393,9 +393,12 @@ describe("основание склейки и источника новых (Ф
     await открыть(zip("b.zip"));
 
     expect(await screen.findByText(/Найдено в проекте: 5 объектов/)).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка / orders · по коду")).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка / Каталог-БД · по имени зависимости")).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка · по имени на верхнем уровне")).toBeInTheDocument();
+    // Строка: путь, затем тихим цветом основание (как строка плана «Обновить из кода»).
+    const строка = (путь: string) => screen.getByText(путь).closest("li");
+    expect(строка("Ярмарка / orders")).toHaveTextContent(/^Ярмарка \/ orders: по коду$/);
+    expect(строка("Ярмарка / Каталог-БД")).toHaveTextContent(/^Ярмарка \/ Каталог-БД: по имени зависимости$/);
+    expect(строка("Ярмарка")).toHaveTextContent(/^Ярмарка: по имени на верхнем уровне$/);
+    expect(screen.getByText(": по коду")).toHaveClass("ii-quiet");
     // Перечень обрезан капом — остаток назван счётчиком, а не съеден молча.
     expect(screen.getByText("и ещё 2")).toBeInTheDocument();
   });
@@ -412,6 +415,8 @@ describe("основание склейки и источника новых (Ф
 
     // Фикстура: у «billing» источник-код есть, у его компонента — нет.
     expect(await screen.findByText("Ярмарка / billing")).toBeInTheDocument();
-    expect(screen.getByText(/Ярмарка \/ billing \/ api \(без источника\)/)).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка / billing / api").closest("li"))
+      .toHaveTextContent(/^Ярмарка \/ billing \/ api \(без источника\)$/);
+    expect(screen.getByText("Ярмарка / billing").closest("li")).toHaveTextContent(/^Ярмарка \/ billing$/);
   });
 });

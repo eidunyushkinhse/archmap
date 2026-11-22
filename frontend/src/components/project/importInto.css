@@ -1,0 +1,63 @@
+/* Окно «Догрузить архив» (ImportIntoModal, IntoReport): одна колонка на общем каркасе окна
+   (ui/ds.css: ds-win). Зона файлов — общая часть окон ввоза (docsImport/importParts.css),
+   строка статуса, вопросы слияния и свёртка — общий вид итога ввоза с «Новым проектом»
+   (importResult.css, область imp-res). Здесь только своё: место окна, дифф и отчёт.
+   Значения — только токены ui/tokens.css. */
+
+/* Окно прижато к верху (8vh, ImportIntoModal): не выше экрана без этого отступа и 24px
+   снизу, прокручивается только тело. */
+.ds-win.ii-win {
+  max-height: calc(92vh - 24px);
+}
+
+/* Итог превью под зоной: статус, дифф, вопросы, массовые ответы, свёртка. */
+.ii-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+}
+.ii-line {
+  margin: 0;
+}
+.ii-quiet {
+  color: var(--c-fg-muted);
+}
+
+/* Дифф: «Нового: …» строкой итога, семьи и перечни путей тихо, как план «Обновить из
+   кода»: путь, затем тихим цветом основание или пометка. */
+.ii-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ii-new {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-fg);
+}
+.ii-sec-title {
+  margin: 0 0 2px;
+  font-weight: 500;
+  color: var(--c-fg);
+}
+.ii-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ii-rows li {
+  padding: 1px 0;
+  overflow-wrap: anywhere;
+}
+/* «и ещё N» — кнопка-текст на x путей (ds-add выносит подложку на 6px влево). */
+.ii-more {
+  margin: 0 -6px;
+}
+
+/* Отчёт применения. */
+.ii-report div {
+  overflow-wrap: anywhere;
+}

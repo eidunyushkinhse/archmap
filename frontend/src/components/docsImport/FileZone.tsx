@@ -1,6 +1,7 @@
 // Зона файлов окон ввоза нового языка («Обновить из кода», «Новый проект» в режимах
-// «Импорт» и «ИИ-агент», «Описать схемы логики с помощью ИИ-агента»): тихая пунктирная рамка со строкой о том, что сюда класть, и
-// двумя текстовыми кнопками; клик по самой зоне тоже открывает выбор файлов. Под зоной
+// «Импорт» и «ИИ-агент», окна дозаливки от агента, «Догрузить архив»): тихая пунктирная
+// рамка со строкой о том, что сюда класть, и текстовыми кнопками «Выбрать файлы» и
+// «Вставить текст» (у архивов только первая); клик по самой зоне тоже открывает выбор файлов. Под зоной
 // имена принесённых файлов с крестиком (длинное имя обрезается, целиком — в подсказке) и
 // поле текста открытого файла.
 //
@@ -46,7 +47,8 @@ export default function FileZone({
   /** Предел числа файлов: выбор и вставка выключены. */
   full: boolean;
   onFiles: (list: FileList | null) => void;
-  onPaste: () => void;
+  /** «Вставить текст»; без него кнопки нет (архив не текст: «Догрузить архив»). */
+  onPaste?: () => void;
   files: ZoneFile[];
   onOpen: (i: number) => void;
   onRemove: (i: number) => void;
@@ -65,9 +67,11 @@ export default function FileZone({
           <button type="button" className="ds-add" disabled={full} onClick={(e) => { e.stopPropagation(); pick(); }}>
             Выбрать файлы
           </button>
-          <button type="button" className="ds-add" disabled={full} onClick={(e) => { e.stopPropagation(); onPaste(); }}>
-            Вставить текст
-          </button>
+          {onPaste && (
+            <button type="button" className="ds-add" disabled={full} onClick={(e) => { e.stopPropagation(); onPaste(); }}>
+              Вставить текст
+            </button>
+          )}
         </div>
       </div>
       <input

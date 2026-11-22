@@ -134,7 +134,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
             {части.length > 0 && (
               <div className="rq-done-s">
                 {части.map((ч, i) => (
-                  <span key={ч.t}>{i > 0 && " · "}{ч.t} <b>{ч.n}</b></span>
+                  <span key={ч.t}>{i > 0 && ", "}{ч.t} <b>{ч.n}</b></span>
                 ))}
               </div>
             )}

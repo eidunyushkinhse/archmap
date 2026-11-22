@@ -47,8 +47,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     // «Пустого» без содержимого, у «Импорта» с превью), и по центру поля и вкладки
     // прыгали бы по экрану при смене режима.
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
-      {/* Файлы принимает всё окно, пока открыт режим ввоза. */}
-      <div className="ds ds-win cp-win" {...(cp.importish ? cp.imp.inputs.drop.bind : {})}>
+      {/* Файлы принимает всё окно, пока открыт режим ввоза. imp-res — область вида итога
+          ввоза, общего с «Догрузить архив» (importResult.css). */}
+      <div className="ds ds-win cp-win imp-res" {...(cp.importish ? cp.imp.inputs.drop.bind : {})}>
         <div className="ds-win-head">
           <h2 className="ds-win-title">Новый проект</h2>
           <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>

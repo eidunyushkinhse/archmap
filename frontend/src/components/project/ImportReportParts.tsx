@@ -1,9 +1,11 @@
 // Общие строки отчётов применения ввоза: создание проекта (CreateProjectDialog) и
 // догрузка архивов (ImportIntoModal). Шапка и счётчики узлов, доков и параметров у
 // окон свои (у догрузки — «дополнено» и «заменено»), а факты, процессы и хвост
-// отчёта были копиями (аудит F-16).
+// отчёта были копиями (аудит F-16). Части строки — через запятую (склейки через «·» в
+// текстах продукта нет, редизайн, фаза 6г).
 import type { ArchiveImportResult } from "../../types";
 import { UnfixableFold } from "./remainder";
+import "./importResult.css";
 
 type Facts = Pick<ArchiveImportResult, "db" | "channels" | "channel_stubs">;
 type Tail = Pick<ArchiveImportResult, "processes" | "resolved_conflicts" | "unfixable">;
@@ -29,10 +31,8 @@ export function ReportTail({ result }: { result: Tail }) {
     <>
       {result.processes.length > 0 && (
         <div>
-          Процессов: {result.processes.length} · привязок шагов: {linked}
-          {unresolved > 0 && (
-            <span style={{ color: "#b45309" }}> · схема не найдена: {unresolved}</span>
-          )}
+          Процессов: {result.processes.length}, привязок шагов: {linked}
+          {unresolved > 0 && <span className="imp-warn">, схема не найдена: {unresolved}</span>}
         </div>
       )}
       {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}

@@ -1,10 +1,11 @@
-/* Итог превью ввоза в окне «Новый проект» (ImportPane) на новом языке. Значения — только
-   токены ui/tokens.css.
-   Строку статуса, блок вопросов и свёртку окно делит с «Догрузить архив», который
-   остаётся прежнего вида: новый вид задан здесь, только внутри этого окна (.cp-win).
-   Слова не меняются. 13px, тихие цвета; рамка-карточка блока вопросов ушла (его
-   отделяет волосяная линия), рамки вариантов ответа остались: они — признак выбора. */
-.cp-win .rq-root {
+/* Итог превью ввоза на новом языке: окна «Новый проект» (ImportPane) и «Догрузить архив»
+   (ImportIntoModal). Значения — только токены ui/tokens.css.
+   Строку статуса, блок вопросов, массовые ответы и свёртку окна делят между собой; их
+   прежний вид (remainder.css) остаётся у других мест, новый задан здесь, только внутри
+   области .imp-res (её ставят оба окна на свой корень). Слова не меняются. 13px, тихие
+   цвета; рамка-карточка блока вопросов ушла (его отделяет волосяная линия), рамки
+   вариантов ответа остались: они — признак выбора. */
+.imp-res .rq-root {
   font-family: inherit;
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
@@ -12,46 +13,46 @@
 }
 
 /* Статус. */
-.cp-win .rq-st {
+.imp-res .rq-st {
   margin-top: 0;
   gap: 6px;
   font-size: var(--fs-ui);
   font-weight: 600;
 }
-.cp-win .rq-st--ok {
+.imp-res .rq-st--ok {
   color: var(--c-ok);
 }
-.cp-win .rq-st--ask {
+.imp-res .rq-st--ask {
   color: var(--c-fg);
 }
-.cp-win .rq-st--bad {
+.imp-res .rq-st--bad {
   color: var(--c-danger);
 }
-.cp-win .rq-st-mk {
+.imp-res .rq-st-mk {
   width: 16px;
   height: 16px;
   background: var(--c-bg-subtle);
   color: var(--c-fg-muted);
   font-weight: 600;
 }
-.cp-win .rq-st--bad .rq-st-mk {
+.imp-res .rq-st--bad .rq-st-mk {
   background: color-mix(in srgb, var(--c-danger) 12%, var(--c-bg));
   color: var(--c-danger);
 }
-.cp-win .rq-st-sub {
+.imp-res .rq-st-sub {
   margin-top: 2px;
   padding-left: 22px;
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   color: var(--c-fg-muted);
 }
-.cp-win .rq-st-sub b {
+.imp-res .rq-st-sub b {
   font-weight: 500;
   color: var(--c-fg);
 }
 
 /* Блок вопросов: без карточки, под волосяной линией. */
-.cp-win .rq-block {
+.imp-res .rq-block {
   margin-top: 0;
   border: 0;
   border-top: 1px solid var(--c-line);
@@ -59,56 +60,56 @@
   background: none;
   box-shadow: none;
 }
-.cp-win .rq-hd {
+.imp-res .rq-hd {
   padding: var(--space-3) 0 0;
 }
-.cp-win .rq-h1 {
+.imp-res .rq-h1 {
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   font-weight: 600;
   color: var(--c-fg);
 }
-.cp-win .rq-h1 span {
+.imp-res .rq-h1 span {
   font-weight: 400;
   color: var(--c-fg-muted);
 }
-.cp-win .rq-sub {
+.imp-res .rq-sub {
   padding: 2px 0 0;
 }
-.cp-win .rq-cnt {
+.imp-res .rq-cnt {
   font-size: var(--fs-caption);
   color: var(--c-fg-muted);
 }
-.cp-win .rq-prog {
+.imp-res .rq-prog {
   padding: var(--space-2) 0 0;
 }
-.cp-win .rq-bd {
+.imp-res .rq-bd {
   padding: var(--space-3) 0 var(--space-2);
 }
-.cp-win .rq-ft {
+.imp-res .rq-ft {
   padding: var(--space-1) 0 0;
   border-top: 0;
 }
-.cp-win .rq-q {
+.imp-res .rq-q {
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   font-weight: 600;
   color: var(--c-fg);
 }
-.cp-win .rq-ctx {
+.imp-res .rq-ctx {
   margin-top: 2px;
   max-width: none;
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   color: var(--c-fg-muted);
 }
-.cp-win .rq-why summary,
-.cp-win .rq-why p {
+.imp-res .rq-why summary,
+.imp-res .rq-why p {
   max-width: none;
   font-size: var(--fs-caption);
   color: var(--c-fg-muted);
 }
-.cp-win .rq-ifnot {
+.imp-res .rq-ifnot {
   margin-top: var(--space-2);
   padding-top: 0;
   border-top: 0;
@@ -118,11 +119,11 @@
 }
 
 /* Варианты ответа. */
-.cp-win .rq-opts {
+.imp-res .rq-opts {
   gap: var(--space-1);
   margin-top: var(--space-2);
 }
-.cp-win .rq-opt {
+.imp-res .rq-opt {
   padding: 6px 10px;
   border-color: var(--c-line);
   border-radius: var(--radius);
@@ -130,229 +131,263 @@
   line-height: var(--lh-ui);
   color: var(--c-fg);
 }
-.cp-win .rq-opt:hover {
+.imp-res .rq-opt:hover {
   border-color: var(--c-line-strong);
   background: var(--c-hover);
 }
-.cp-win .rq-opt--on,
-.cp-win .rq-opt--on:hover {
+.imp-res .rq-opt--on,
+.imp-res .rq-opt--on:hover {
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
   font-weight: 500;
   color: var(--c-fg);
 }
-.cp-win .rq-opt--keep {
+.imp-res .rq-opt--keep {
   color: var(--c-fg-muted);
 }
-.cp-win .rq-opt-b b {
+.imp-res .rq-opt-b b {
   font-weight: 500;
 }
-.cp-win .rq-opt-sub,
-.cp-win .rq-opt--on .rq-opt-sub {
+.imp-res .rq-opt-sub,
+.imp-res .rq-opt--on .rq-opt-sub {
   font-size: var(--fs-caption);
   color: var(--c-fg-muted);
 }
 /* Серый префикс пути в варианте («Grafana / Сервер Grafana / …»). */
-.cp-win .rq-opt-m,
-.cp-win .rq-opt--on .rq-opt-m {
+.imp-res .rq-opt-m,
+.imp-res .rq-opt--on .rq-opt-m {
   color: var(--c-fg-muted);
 }
-.cp-win .rq-opt-tag {
+.imp-res .rq-opt-tag {
   font-size: var(--fs-caption);
   color: var(--c-fg-faint);
 }
-.cp-win .rq-opt--on .rq-opt-tag {
+.imp-res .rq-opt--on .rq-opt-tag {
   color: var(--c-accent);
 }
-.cp-win .rq-opt-row .rq-opt {
+.imp-res .rq-opt-row .rq-opt {
   border-radius: var(--radius) 0 0 var(--radius);
 }
-.cp-win .rq-opt-r {
+.imp-res .rq-opt-r {
   border-color: var(--c-line);
   border-radius: 0 var(--radius) var(--radius) 0;
   font-size: var(--fs-ui);
   font-weight: 500;
   color: var(--c-accent);
 }
-.cp-win .rq-opt-r:hover {
+.imp-res .rq-opt-r:hover {
   background: var(--c-hover);
 }
-.cp-win .rq-opt-row .rq-opt--on {
+.imp-res .rq-opt-row .rq-opt--on {
   border-right-color: var(--c-accent);
 }
-.cp-win .rq-opt-row .rq-opt--on + .rq-opt-r {
+.imp-res .rq-opt-row .rq-opt--on + .rq-opt-r {
   border-color: var(--c-accent);
   border-left: none;
 }
 
 /* Прогресс. */
-.cp-win .rq-dot,
-.cp-win .rq-bar-t {
+.imp-res .rq-dot,
+.imp-res .rq-bar-t {
   background: var(--c-line);
 }
-.cp-win .rq-dot--done,
-.cp-win .rq-dot--on,
-.cp-win .rq-bar-f {
+.imp-res .rq-dot--done,
+.imp-res .rq-dot--on,
+.imp-res .rq-bar-f {
   background: var(--c-accent);
 }
-.cp-win .rq-bar-l {
+.imp-res .rq-bar-l {
   font-size: var(--fs-caption);
   color: var(--c-fg-muted);
 }
 
 /* Кнопки-ссылки. */
-.cp-win .rq-nav,
-.cp-win .rq-link {
+.imp-res .rq-nav,
+.imp-res .rq-link {
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   font-weight: 500;
   color: var(--c-accent);
 }
-.cp-win .rq-nav:disabled,
-.cp-win .rq-link:disabled {
+.imp-res .rq-nav:disabled,
+.imp-res .rq-link:disabled {
   color: var(--c-fg-faint);
 }
-.cp-win .rq-link--mut {
+.imp-res .rq-link--mut {
   color: var(--c-fg-muted);
 }
 
 /* Поля и формы внутри вопросов. */
-.cp-win .rq-inp,
-.cp-win .rq-filter {
+.imp-res .rq-inp,
+.imp-res .rq-filter {
   border-color: var(--c-line-strong);
   border-radius: var(--radius);
   font-size: var(--fs-ui);
   color: var(--c-fg);
 }
-.cp-win .rq-inp:focus,
-.cp-win .rq-filter:focus {
+.imp-res .rq-inp:focus,
+.imp-res .rq-filter:focus {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
-.cp-win .rq-flbl {
+.imp-res .rq-flbl {
   font-size: var(--fs-caption);
   font-weight: 500;
   color: var(--c-fg-muted);
 }
-.cp-win .rq-erow {
+.imp-res .rq-erow {
   border-color: var(--c-line);
   border-radius: var(--radius-lg);
   background: var(--c-bg-subtle);
 }
-.cp-win .rq-eend--fixed {
+.imp-res .rq-eend--fixed {
   border-color: var(--c-line);
   border-radius: var(--radius);
   background: var(--c-bg-subtle);
   font-size: var(--fs-ui);
   color: var(--c-fg);
 }
-.cp-win .rq-seg2 button {
+.imp-res .rq-seg2 button {
   border-color: var(--c-line-strong);
   border-radius: var(--radius);
   font-size: var(--fs-ui);
   font-weight: 500;
   color: var(--c-fg);
 }
-.cp-win .rq-seg2 button.rq-on {
+.imp-res .rq-seg2 button.rq-on {
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
   color: var(--c-fg);
 }
-.cp-win .rq-cbo-list {
+.imp-res .rq-cbo-list {
   border-color: var(--c-line);
   border-radius: var(--radius-lg);
 }
-.cp-win .rq-cbo-row {
+.imp-res .rq-cbo-row {
   border-radius: var(--radius);
   font-size: var(--fs-ui);
   color: var(--c-fg);
 }
-.cp-win .rq-cbo-row--on {
+.imp-res .rq-cbo-row--on {
   background: var(--c-accent-soft);
   color: var(--c-fg);
 }
-.cp-win .rq-empty {
+.imp-res .rq-empty {
   font-size: var(--fs-ui);
   color: var(--c-fg-muted);
 }
 
 /* Список «Все вопросы» и итог разбора. */
-.cp-win .rq-ql-r {
+.imp-res .rq-ql-r {
   border-radius: var(--radius);
   font-size: var(--fs-ui);
   color: var(--c-fg);
 }
-.cp-win .rq-ql-r:hover {
+.imp-res .rq-ql-r:hover {
   background: var(--c-hover);
 }
-.cp-win .rq-ql-r--on {
+.imp-res .rq-ql-r--on {
   background: var(--c-accent-soft);
 }
-.cp-win .rq-ql-n {
+.imp-res .rq-ql-n {
   font-size: var(--fs-caption);
   color: var(--c-fg-faint);
 }
-.cp-win .rq-ql-a {
+.imp-res .rq-ql-a {
   font-size: var(--fs-caption);
   font-weight: 500;
   color: var(--c-accent);
 }
-.cp-win .rq-ql-a--none {
+.imp-res .rq-ql-a--none {
   font-weight: 400;
   color: var(--c-fg-faint);
 }
-.cp-win .rq-done-t {
+.imp-res .rq-done-t {
   font-size: var(--fs-ui);
   color: var(--c-fg);
 }
-.cp-win .rq-done-s {
+.imp-res .rq-done-s {
   font-size: var(--fs-ui);
   color: var(--c-fg-muted);
 }
-.cp-win .rq-done-s b {
+.imp-res .rq-done-s b {
   font-weight: 500;
   color: var(--c-fg);
 }
-.cp-win .rq-tick {
+.imp-res .rq-tick {
   background: color-mix(in srgb, var(--c-ok) 14%, var(--c-bg));
   color: var(--c-ok);
 }
-.cp-win .rq-tick--open {
+.imp-res .rq-tick--open {
   background: var(--c-bg-subtle);
   color: var(--c-fg-muted);
 }
 
 /* Свёртка «Придется подправить вручную» и списки пунктов. */
-.cp-win .rq-uf {
+.imp-res .rq-uf {
   margin-top: 0;
 }
-.cp-win .rq-uf-hd {
+.imp-res .rq-uf-hd {
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   font-weight: 500;
   color: var(--c-fg-muted);
 }
-.cp-win .rq-uf-hd:hover {
+.imp-res .rq-uf-hd:hover {
   color: var(--c-fg);
 }
-.cp-win .rq-uf-car {
+.imp-res .rq-uf-car {
   color: var(--c-fg-faint);
 }
-.cp-win .rq-uf-bd {
+.imp-res .rq-uf-bd {
   margin-top: var(--space-1);
 }
-.cp-win .rq-uf-lead {
+.imp-res .rq-uf-lead {
   max-width: none;
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   color: var(--c-fg-muted);
 }
-.cp-win .rq-ul {
+.imp-res .rq-ul {
   margin-top: var(--space-1);
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
   color: var(--c-fg);
 }
-.cp-win .rq-ul li {
+.imp-res .rq-ul li {
   margin-top: 2px;
+}
+
+/* Массовые ответы догрузки: без карточки, подпись тихо, кнопки вторичные (ds-btn). */
+.imp-res .rq-bulk {
+  margin-top: 0;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.imp-res .rq-bulk-l {
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+.imp-res .rq-bulk .rq-soft {
+  height: 30px;
+  padding: 0 12px;
+  border-color: var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+.imp-res .rq-bulk .rq-soft:hover {
+  background: var(--c-hover);
+}
+
+/* «схема не найдена» в строке процессов отчёта применения. */
+.imp-warn {
+  color: var(--c-warn);
 }

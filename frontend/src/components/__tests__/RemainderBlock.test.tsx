@@ -253,6 +253,8 @@ describe("список всех вопросов и итог (§3, §8)", () => 
     expect(строка?.textContent).toContain("перенесено связей 1");
     expect(строка?.textContent).toContain("оставлено как есть 1");
     expect(строка?.textContent).not.toContain("объединено объектов");
+    // Части итога — через запятую, без «·».
+    expect(строка?.textContent).toBe("перенесено связей 1, оставлено как есть 1");
     await userEvent.click(screen.getByRole("button", { name: "Вернуться к пропущенным" }));
     expect(счётчик()).toBe("вопрос 1 из 5");
   });
