@@ -706,6 +706,21 @@
   background: var(--c-line);
 }
 
+/* Чтение спецификации: колонка до 860 px по центру с полями 24 px на ровном фоне, без
+   карточки с рамкой и тенью; прокручивается тело окна. Внутренний вид Swagger UI —
+   прежний (подгонка ниже). */
+.doc-pv--read .doc-pvscroll {
+  padding: var(--space-6);
+}
+.doc-pv--read .doc-oascard {
+  max-width: 860px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
 /* ── подгонка Swagger UI под карточку ───────────────────────────────────── */
 
 .doc-oas .swagger-ui { font-family: inherit; background: transparent; }

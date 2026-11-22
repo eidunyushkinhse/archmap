@@ -71,6 +71,37 @@ describe("OpenApiPane · просмотр", () => {
   });
 });
 
+// Чтение на новом языке (редизайн, фаза 7а): ровная сцена без карточки, колонка кода
+// читателя прежнего вида (legacy-root); превью при правке — прежняя сцена.
+describe("OpenApiPane · чтение на новом языке", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("чтение: сцена doc-pv--read, спецификация в колонке без карточки", () => {
+    render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect onCommitOpenapi={vi.fn()} />);
+    expect(document.querySelector(".doc-pv")).toHaveClass("doc-pv--read");
+    expect(screen.getByTestId("swagger").closest(".doc-oascard")).not.toBeNull();
+    expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
+  });
+
+  it("читатель: колонка кода прежнего вида, «Скрыть код» её убирает", async () => {
+    render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect={false} onCommitOpenapi={vi.fn()} />);
+    const код = screen.getByRole("button", { name: "Показать код" });
+    expect(код).toHaveClass("ds-btn");
+    await userEvent.click(код);
+    expect(field()?.closest(".legacy-root")).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Скрыть код" }));
+    expect(field()).toBeNull();
+  });
+
+  it("«Вручную»: прежняя сцена превью, тело и подвал прежнего вида", async () => {
+    render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect onCommitOpenapi={vi.fn()} />);
+    await открытьВручную();
+    expect(document.querySelector(".doc-pv")).not.toHaveClass("doc-pv--read");
+    expect(document.querySelector(".doc-body")).toHaveClass("legacy-root");
+    expect(document.querySelector(".doc-foot")).toHaveClass("legacy-root");
+  });
+});
+
 describe("OpenApiPane · «Вручную»", () => {
   beforeEach(() => vi.clearAllMocks());
 

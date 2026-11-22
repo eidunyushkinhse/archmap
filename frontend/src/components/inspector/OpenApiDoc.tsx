@@ -2,6 +2,8 @@
 // ТЗ). Две роли: просмотр (isArchitect=false — только рендер, код по «Показать
 // код» наблюдателя) и ручная правка (isArchitect=true). Пишет в БД не он: правка
 // уходит наверх черновиком (onDraft), сохраняет окно кнопкой «Сохранить».
+// Чтение — новый язык (редизайн, фаза 7а): спецификация колонкой до 860 px на ровном
+// фоне, без карточки; колонка кода читателя и превью при правке — прежнего вида.
 // Ввод валидируется с дебаунсом 500ms (swagger-ui тяжёлый — на каждый символ
 // не перерисовываем); при ошибке превью держит последнюю корректную версию с
 // amber-баннером, статус-строка ведёт кареткой на строку ошибки.
@@ -18,8 +20,6 @@ interface Props {
   showCode: boolean; // наблюдатель нажал «Показать код»
   // Каждая правка текста (ввод, файл) — окну: оно держит черновик до «Сохранить».
   onDraft?: (value: string) => void;
-  // Версия из последнего валидного парса — для тега формата в шапке оверлея
-  onVersion?: (version: string | undefined) => void;
 }
 
 interface OasState {
@@ -28,7 +28,7 @@ interface OasState {
   lastGood: { spec: object; time: string | null } | null;
 }
 
-export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, onVersion }: Props) {
+export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: Props) {
   const [code, setCode] = useState(initial);
   // Первое открытие: сохранённое значение парсится сразу, без дебаунса
   const [st, setSt] = useState<OasState>(() => {
@@ -40,26 +40,12 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
   const [fileError, setFileError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // Версию для тега шапки сообщаем на маунте (первичный парс) и при каждом
-  // валидном перепарсе; на невалидном вводе тег держит последнее валидное.
-  const onVersionRef = useRef(onVersion);
-  useEffect(() => {
-    onVersionRef.current = onVersion;
-  });
-  useEffect(() => {
-    const s = st.status;
-    if (s.kind === "ok") onVersionRef.current?.(s.version);
-    // только маунт: дальнейшие обновления шлёт applyText
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const applyText = useCallback((text: string) => {
     const s = parseOpenApiText(text);
     setSt((prev) => ({
       status: s,
       lastGood: s.kind === "ok" ? { spec: s.spec, time: nowHHMM() } : prev.lastGood,
     }));
-    if (s.kind === "ok") onVersionRef.current?.(s.version);
   }, []);
 
   // Дебаунс перепарса при печати
@@ -106,9 +92,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
       : "В спецификации ошибка, превью недоступно";
   }
 
-  return (
-    <>
-      {(isArchitect || showCode) && (
+  const column = (isArchitect || showCode) && (
         <DocEditorColumn
           width={460}
           title="Код · OpenAPI 3.0 (YAML)"
@@ -124,8 +108,14 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
           fileTitle="Взять спецификацию из файла (.yaml / .yml / .json)."
           onFileError={setFileError}
         />
-      )}
-      <div className="doc-pv">
+  );
+
+  return (
+    <>
+      {/* Колонка кода читателя — прежнего вида (legacy-root), её переделывает следующая
+          фаза; при правке прежний вид держит тело окна. */}
+      {column && (isArchitect ? column : <div className="legacy-root doc-legacy">{column}</div>)}
+      <div className={"doc-pv" + (isArchitect ? "" : " doc-pv--read")}>
         {banner && (
           <div className="doc-banner">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
