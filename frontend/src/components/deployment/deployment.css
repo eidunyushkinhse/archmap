@@ -217,27 +217,31 @@
   color: var(--c-fg-muted);
 }
 
-/* ── Прежний вид окна «Площадки» (до его перевода в этой же фазе) ── */
-/* Карандаш и корзина строки окна «Площадки». */
-.site-row-btn {
+/* ── Окно «Площадки» (SitesDialog) ───────────────────────────────────────
+   Карандаш и корзина (ds-icon-btn) у правого края строки: видны под курсором и при фокусе
+   клавиатуры внутри строки (прозрачность, а не скрытие: значки остаются в порядке Tab;
+   :focus-visible, а не :focus-within: щелчок мышью по шеврону значки не закрепляет); на
+   устройствах без наведения видны всегда. Подложка значка под курсором темнее подложки
+   строки, как у шеврона. */
+.site-row-acts {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
   flex: none;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: #64748b;
-  cursor: pointer;
+  margin-left: auto;
+  opacity: 0;
 }
-.site-row-btn:hover:not(:disabled) {
-  background: #e2e8f0;
-  color: #0f172a;
+.site-row:hover .site-row-acts,
+.site-row:has(:focus-visible) .site-row-acts {
+  opacity: 1;
 }
-.site-row-btn:disabled {
-  color: #cbd5e1;
-  cursor: default;
+@media (hover: none) {
+  .site-row-acts {
+    opacity: 1;
+  }
+}
+.site-row-acts .ds-icon-btn:hover:not(:disabled) {
+  background: var(--c-line);
+}
+/* Отказ записи — абзацем в конце тела окна. */
+.site-err {
+  margin: 0;
 }

@@ -52,6 +52,18 @@ describe("SitesDialog", () => {
     expect(screen.queryByText("Кластер")).toBeNull();
   });
 
+  it("окно нового вида: заголовок «Площадки», крестик закрывает окно; значки строки в её конце", async () => {
+    const props = setup();
+    await screen.findByText("Облако");
+    expect(screen.getByRole("heading", { level: 2, name: "Площадки" })).toBeInTheDocument();
+    // Карандаш и корзина — значки нового языка внутри строки (видимость под курсором — CSS).
+    const acts = within(row("Облако")).getByRole("button", { name: "Изменить площадку «Облако»" }).parentElement;
+    expect(acts).toHaveClass("site-row-acts");
+    expect(within(acts as HTMLElement).getAllByRole("button").map((b) => b.className)).toEqual(["ds-icon-btn", "ds-icon-btn"]);
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("читателю — без правки: ни значков, ни «+», шеврон только у площадки с вложенными", async () => {
     setup(false);
     await screen.findByText("Облако");

@@ -3,15 +3,17 @@
 // (под вложенными площадки и под корнями), карандаш — изменить (CAS: чужая правка
 // перечитывает окно), корзина — удалить (с подтверждением; площадку с вложенными
 // удалить нельзя, пока их не перенесут). Читателю — просмотр.
+// Вид (редизайн, фаза 11): каркас окна нового языка (ui/ds.css, ds-win) шириной 620,
+// прижатый к верху экрана (ds-win--top), как окно «Размещение». Карандаш и корзина —
+// значки ds-icon-btn у правого края строки: видны под курсором и при фокусе клавиатуры
+// внутри строки, на устройствах без наведения — всегда (deployment.css).
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { SiteOut } from "../../types";
 import Modal from "../../ui/Modal";
-import DialogTitle from "../../ui/DialogTitle";
 import ConfirmDialog from "../../ui/ConfirmDialog";
 import LoadError from "../../ui/LoadError";
-import { PencilIcon, TrashIcon } from "../../ui/icons";
-import { errText } from "../../ui/styles";
+import { CloseIcon, PencilIcon, TrashIcon } from "../../ui/icons";
 import { plural } from "../../ui/plural";
 import { loadErrorText } from "../../ui/loadErrorText";
 import { useAsyncLoad } from "../../lib/useAsyncLoad";
@@ -23,6 +25,7 @@ import SiteForm, { type SiteFormValue } from "./SiteForm";
 import SiteTree, { SiteRowTitle } from "./SiteTree";
 import { useSiteExpansion } from "./useSiteExpansion";
 import { siteAncestorIds } from "./siteTree";
+import "../../ui/ds.css";
 import "./deployment.css";
 
 interface Props {
@@ -31,6 +34,9 @@ interface Props {
   // площадки изменились — хозяин перечитывает граф холста
   onChanged: () => void;
 }
+
+// Окно у верха экрана, как «Размещение»: верх на месте, когда дерево раскрывается.
+const BOX = { width: 620, padding: 0, margin: "8vh auto auto" };
 
 // Родительный падеж при числе: «Размещение 1 объекта / 3 объектов на ней будет снято».
 const objectsOf = (n: number): string => `${n} ${plural(n, ["объекта", "объектов", "объектов"])}`;
@@ -122,12 +128,19 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
 
   return (
     <>
-      <Modal onClose={onClose} boxStyle={{ width: 620, maxHeight: "86vh", overflowY: "auto" }}>
-        <DialogTitle>Площадки</DialogTitle>
+      <Modal onClose={onClose} closeButton={false} boxStyle={BOX}>
+        <div className="ds ds-win ds-win--top">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Площадки</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="ds-win-body">
         {list.error ? (
           <LoadError what="площадки" error={list.error} onRetry={list.reload} />
         ) : list.loading ? (
-          <p className="site-tree-empty">Загрузка</p>
+          <p className="ds-empty site-tree-empty">Загрузка</p>
         ) : (
           <SiteTree
             sites={sites}
@@ -154,12 +167,11 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
             row={(site, { hasChildren }) => (
               <>
                 <SiteRowTitle site={site} />
-                <span style={{ flex: 1 }} />
                 {isArchitect && (
-                  <>
+                  <span className="site-row-acts">
                     <button
                       type="button"
-                      className="site-row-btn"
+                      className="ds-icon-btn"
                       onClick={() => { setError(null); setEditing(site.id); }}
                       disabled={busy}
                       title="Изменить"
@@ -169,7 +181,7 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
                     </button>
                     <button
                       type="button"
-                      className="site-row-btn"
+                      className="ds-icon-btn"
                       onClick={() => { setError(null); setConfirmDelete(site); }}
                       disabled={busy || hasChildren}
                       title={hasChildren ? "Сначала перенесите вложенные площадки" : "Удалить"}
@@ -177,14 +189,16 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
                     >
                       <TrashIcon size={15} />
                     </button>
-                  </>
+                  </span>
                 )}
               </>
             )}
           />
         )}
 
-        {error && <p style={errText} role="alert">{error}</p>}
+        {error && <p className="ds-danger site-err" role="alert">{error}</p>}
+        </div>
+        </div>
       </Modal>
       {/* Подтверждение — СИБЛИНГОМ окна, не внутри: вложенные <dialog> закрывались бы
           по Escape разом (ui/Modal, грабли нативного dialog). */}
