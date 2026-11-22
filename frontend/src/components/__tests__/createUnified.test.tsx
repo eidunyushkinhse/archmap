@@ -119,7 +119,7 @@ const ОТЧЁТ: ArchiveImportResult = {
 };
 
 const onCreated = vi.fn();
-const ИМЯ = "Например, «Платёжная платформа»";
+const ИМЯ = "например: Платёжная платформа";
 
 /** Открыть окно на табе «Импорт» — единой панели ввоза. */
 async function открыть() {
@@ -157,8 +157,9 @@ describe("единый ввоз · создание проекта", () => {
 
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));
 
-    expect(await screen.findByText(/Имя и описание из архива/, {}, { timeout: 3000 }))
-      .toHaveTextContent("«Ярмарка v2»");
+    // Вместо полей — значения из архива: название с пометкой «из архива» и описание.
+    expect(await screen.findByText("из архива", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("из архива").parentElement).toHaveTextContent("Ярмарка v2 из архива");
     expect(screen.getByText("демо-проект")).toBeInTheDocument();
     // П3: полей нет вовсе, и кнопка активна без единого символа имени.
     expect(screen.queryByPlaceholderText(ИМЯ)).toBeNull();
@@ -266,8 +267,10 @@ describe("единый ввоз · создание проекта", () => {
     await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 });
     await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
 
-    // Правка YAML пересчитывает превью: тот же вопрос — ответ на месте.
-    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+    // Правка YAML пересчитывает превью: тот же вопрос — ответ на месте. Текст файла
+    // открывается по его имени в списке.
+    await userEvent.click(screen.getByRole("button", { name: "b.yaml" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Текст b.yaml" }), {
       target: { value: "nodes:\n  - name: Ярмарка" },
     });
     await waitFor(
@@ -277,7 +280,7 @@ describe("единый ввоз · создание проекта", () => {
 
     // А теперь вопрос из сводки пропал — ответ отбрасывается, в применение не едет.
     vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью({ c4: c4({ files: 2 }) }));
-    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Текст b.yaml" }), {
       target: { value: "nodes:\n  - name: Ярмарка v2" },
     });
     await waitFor(
@@ -294,14 +297,15 @@ describe("единый ввоз · создание проекта", () => {
 
   it("yaml + zip: имя обязательно, входы едут в порядке «тексты, потом архивы»", async () => {
     await открыть();
-    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+    await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
+    fireEvent.change(screen.getByPlaceholderText("Вставьте сюда YAML"), {
       target: { value: "nodes:\n  - name: Ярмарка" },
     });
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));
 
     await waitFor(() => expect(projectsApi.unifiedPreview).toHaveBeenCalled(), { timeout: 3000 });
-    // Норматив порядка: непустые YAML в порядке чипов, затем архивы. Вставленный
-    // текстом YAML едет БЕЗ имени — подпись его источника бэк строит номером чипа
+    // Норматив порядка: непустые YAML в порядке списка, затем архивы. Вставленный
+    // текстом YAML едет БЕЗ имени — подпись его источника бэк строит номером входа
     // («Из файла 1»), а не выдуманным «Файл 1.yaml» (правка Ф2г).
     await waitFor(() => expect(входы()).toEqual(["", "archmap.zip"]));
 

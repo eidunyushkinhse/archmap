@@ -76,7 +76,7 @@ describe("Новый проект → Импорт", () => {
   it("объектов больше предела: плашка, полоска «142 из 100», «Создать» погашена", async () => {
     vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(unified(OVER));
     await открыть();
-    await userEvent.type(screen.getByPlaceholderText("Например, «Платёжная платформа»"), "Плёнка");
+    await userEvent.type(screen.getByPlaceholderText("например: Платёжная платформа"), "Плёнка");
     await положить(new File(["nodes: []"], "Файл 1.yaml"), new File(["nodes: []"], "Файл 2.yaml"));
     const alert = await screen.findByText("Проект не помещается в демо.", {}, { timeout: 3000 });
     expect(alert.parentElement).toHaveTextContent(OVER_TEXT);
@@ -89,7 +89,7 @@ describe("Новый проект → Импорт", () => {
   it("в пределах: плашки нет, кнопка доступна", async () => {
     vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(unified(null));
     await открыть();
-    await userEvent.type(screen.getByPlaceholderText("Например, «Платёжная платформа»"), "Плёнка");
+    await userEvent.type(screen.getByPlaceholderText("например: Платёжная платформа"), "Плёнка");
     await положить(new File(["nodes: []"], "a.yaml"));
     await waitFor(() => expect(screen.getByRole("button", { name: "Создать проект" })).toBeEnabled(),
       { timeout: 3000 });

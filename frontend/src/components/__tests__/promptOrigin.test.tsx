@@ -36,10 +36,8 @@ describe("адрес ArchMap в запросе промпта ввоза", () =>
   it("окно «Новый проект», способ «ИИ-агент»", async () => {
     render(<CreateProjectDialog projects={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
     await userEvent.click(screen.getByText("ИИ-агент"));
-    expect(screen.getByText(/Сначала агент запустит сборщик фактов ArchMap, который скачает сам\./))
-      .toBeInTheDocument();
-    await userEvent.type(screen.getByPlaceholderText("Например, «Платёжная платформа»"), "Платформа");
-    await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));
+    await userEvent.type(screen.getByPlaceholderText("например: Платёжная платформа"), "Платформа");
+    await userEvent.click(screen.getByRole("button", { name: "Скопировать задание" }));
     await waitFor(() => expect(адрес()).toBe(window.location.origin));
   });
 

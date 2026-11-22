@@ -24,7 +24,7 @@ vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const ИМЯ = "Например, «Платёжная платформа»";
+const ИМЯ = "например: Платёжная платформа";
 
 const проект = (id: string, name: string): Project => ({
   id, name, description: null, archived_at: null,
@@ -36,9 +36,9 @@ const проект = (id: string, name: string): Project => ({
 
 const onCreated = vi.fn();
 
-/** Подписи кнопок-способов в порядке показа. */
+/** Подписи вкладок-способов в порядке показа. */
 const способы = () =>
-  Array.from(document.querySelectorAll(".cp-segs > .cp-seg")).map((b) => b.textContent);
+  Array.from(document.querySelectorAll(".cp-modes > .ds-tab")).map((b) => b.textContent);
 
 const создать = () => screen.getByRole("button", { name: "Создать проект" });
 
@@ -52,8 +52,10 @@ describe("окно создания проекта · способы старт�
     render(<CreateProjectDialog projects={[]} onClose={vi.fn()} onCreated={onCreated} />);
     expect(способы()).toEqual(["Пустой", "Копия", "Импорт", "ИИ-агент"]);
     expect(screen.queryByText("Шаблон")).toBeNull();
-    expect(screen.getByRole("button", { name: "Пустой" })).toHaveClass("cp-seg--on");
-    expect(screen.getByText("Пустая схема")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Пустой" })).toHaveAttribute("aria-pressed", "true");
+    // Карточки «Пустая схема» больше нет (редизайн, фаза 6б): у пустого проекта
+    // содержимого режима нет вовсе.
+    expect(screen.queryByText("Пустая схема")).toBeNull();
     // Без проектов копировать нечего.
     expect(screen.getByRole("button", { name: "Копия" })).toBeDisabled();
   });

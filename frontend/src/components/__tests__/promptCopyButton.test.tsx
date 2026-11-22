@@ -103,14 +103,14 @@ const кейсы: Кейс[] = [
     вариант: () => vi.mocked(channelsImportApi.prompt).mock.calls.at(-1)?.[0],
   },
   {
-    окно: "создание проекта «Из репозитория» (CreateProjectDialog)",
-    подпись: "Скопировать промпт",
-    скопировано: "Промпт скопирован ✓",
+    окно: "создание проекта «ИИ-агент» (CreateProjectDialog)",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
       render(<CreateProjectDialog projects={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
       await userEvent.click(screen.getByText("ИИ-агент"));
-      // Имя системы вшивается в промпт ЛЮБОГО варианта — без имени вся тройка мертва.
-      await userEvent.type(screen.getByPlaceholderText("Например, «Платёжная платформа»"), "Платформа");
+      // Имя системы вшивается в задание: без имени кнопка просит его, а не копирует.
+      await userEvent.type(screen.getByPlaceholderText("например: Платёжная платформа"), "Платформа");
     },
     вариант: () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-1)?.[0]?.variant,
   },
