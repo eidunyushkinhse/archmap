@@ -6,6 +6,7 @@
 // текст заметки и сам гвард — в agentModalShared.ts.
 import type { CSSProperties, ReactNode } from "react";
 import { badge, UNCHANGED_INPUT_NOTE } from "./agentModalShared";
+import "./agentParts.css";
 
 // Строки превью: текст + бейдж действия + советующий статус + опциональный
 // доп. элемент справа (например, селект вида схемы в режиме «по одной»).
@@ -76,8 +77,19 @@ export function StaleFilesConfirm({ onKeep, onClear, text, clearLabel }: {
   );
 }
 
-// Список замечаний (конфликты файлов / предупреждения превью)
-export function NoteList({ title, items }: { title: string; items: string[] }) {
+// Список замечаний (конфликты файлов / предупреждения превью). ds — вид нового языка
+// для окна «Обновить из кода» (редизайн, фаза 6а; классы agentParts.css): окна прежнего
+// вида его не передают и рисуют список как раньше.
+export function NoteList({ title, items, ds = false }: { title: string; items: string[]; ds?: boolean }) {
+  if (ds) {
+    return (
+      <div className="anl">
+        <p className="anl-title">{title}</p>
+        {items.slice(0, 6).map((s, i) => <p key={i} className="anl-item">{s}</p>)}
+        {items.length > 6 && <p className="anl-item">и ещё {items.length - 6}</p>}
+      </div>
+    );
+  }
   return (
     <div style={{ marginTop: 8, fontSize: 12.5, color: "#b45309" }}>
       <div style={{ fontWeight: 600 }}>{title}</div>

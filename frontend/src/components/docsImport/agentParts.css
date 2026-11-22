@@ -1,0 +1,54 @@
+/* Общие части окон «Доки от агента» и «Обновить из кода» в новом языке: кнопка задания
+   агенту (PromptCopyButton, проп ds) и список замечаний (agentModalReport, NoteList, проп
+   ds). Окна прежнего вида пропа не передают и рисуют части как раньше. Значения — только
+   токены ui/tokens.css. */
+
+/* Кнопка задания: по своей ширине; под ней — текст для ручного копирования, если буфер
+   недоступен. */
+.pcb {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.pcb-hint {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-warn);
+}
+.pcb-area {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  box-sizing: border-box;
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  resize: vertical;
+}
+
+/* Список замечаний: заголовок цветом предупреждения, пункты тихим цветом. */
+.anl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.anl-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-warn);
+}
+.anl-item {
+  margin: 0;
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}

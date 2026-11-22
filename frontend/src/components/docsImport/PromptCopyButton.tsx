@@ -12,11 +12,17 @@
 //
 // Компонент объявлен НА ВЕРХНЕМ УРОВНЕ модуля (инлайновый компонент ремаунтится
 // каждый рендер — ловушка проекта, см. memory «inline components break DnD»).
+//
+// Вид двух языков (редизайн, фаза 6а): окна прежнего вида рисуют кнопку инлайн-стилями,
+// как раньше; окно нового языка («Обновить из кода») передаёт ds — кнопка ds-btn по
+// своей ширине, текст для ручного копирования на токенах (agentParts.css).
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { PromptVariant } from "../../types";
 import { CopyFailed } from "../../lib/copyText";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import "../../ui/ds.css";
+import "./agentParts.css";
 
 // Сколько держится «скопировано».
 const COPIED_MS = 2000;
@@ -39,9 +45,11 @@ interface Props {
    */
   copy: (variant: PromptVariant) => Promise<void>;
   disabled?: boolean;
+  /** Новый язык: классы ds-btn и agentParts.css вместо инлайн-стилей; buttonStyle не нужен. */
+  ds?: boolean;
 }
 
-export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle, copy, disabled }: Props) {
+export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle, copy, disabled, ds = false }: Props) {
   const [copied, setCopied] = useState(false);
   // Текст, который не удалось положить в буфер: показываем его для ручного копирования.
   const [manual, setManual] = useState<string | null>(null);
@@ -63,10 +71,11 @@ export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle
   }
 
   return (
-    <div style={wrap}>
+    <div style={ds ? undefined : wrap} className={ds ? "pcb" : undefined}>
       <button
         type="button"
-        style={{ ...(kind === "primary" ? primaryBtn : secondaryBtn), ...buttonStyle }}
+        className={ds ? `ds-btn${kind === "primary" ? " ds-btn--primary" : ""}` : undefined}
+        style={ds ? undefined : { ...(kind === "primary" ? primaryBtn : secondaryBtn), ...buttonStyle }}
         disabled={disabled}
         onClick={click}
       >
@@ -74,14 +83,15 @@ export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle
       </button>
       {manual !== null && (
         <>
-          <p style={manualHint} role="status">
+          <p style={ds ? undefined : manualHint} className={ds ? "pcb-hint" : undefined} role="status">
             Браузер не дал скопировать автоматически. Выделите текст ниже и скопируйте
             (Ctrl+C).
           </p>
           <textarea
             readOnly
             value={manual}
-            style={manualArea}
+            style={ds ? undefined : manualArea}
+            className={ds ? "pcb-area" : undefined}
             aria-label="Текст промпта"
             onFocus={(e) => e.currentTarget.select()}
             ref={(el) => el?.select()}
