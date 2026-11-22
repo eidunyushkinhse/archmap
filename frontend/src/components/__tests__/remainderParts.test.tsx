@@ -7,9 +7,9 @@
 // своим именем отдаёт именно его; Escape закрывает ВЬЮЕР и не уходит выше — под
 // ним нативный <dialog> окна, который иначе закрылся бы заодно.
 import { useState } from "react";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import type { ComponentOut, FuzzyPairOut } from "../../types";
 import type { NewEdgesAnswer } from "../project/remainder/questions";
 import { draftFromAnswer, emptyEdgesDraft, mergeDraftFor } from "../project/remainder/drafts";
@@ -17,6 +17,7 @@ import type { EdgesDraft, MergeDraft } from "../project/remainder/drafts";
 import ObjectList from "../project/remainder/ObjectList";
 import NewEdgeForm from "../project/remainder/NewEdgeForm";
 import MergeNameStep from "../project/remainder/MergeNameStep";
+import ObjectCombobox from "../project/remainder/ObjectCombobox";
 import DocViewer from "../project/remainder/DocViewer";
 
 vi.mock("../MermaidRenderer", () => ({
@@ -301,6 +302,110 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} start={из} />);
     expect(screen.getAllByRole("combobox")[0]!).toHaveValue("Zabbix / Компонент 3");
     expect(screen.getByLabelText("Описание связи от «Плагин»")).toHaveValue("чтение");
+  });
+});
+
+describe("ObjectCombobox: список поверх окна (фаза 8б)", () => {
+  // jsdom раскладку не считает: прямоугольник поля и высоту содержимого списка задаём сами.
+  // Экран jsdom — 1024×768.
+  // Высота содержимого списка — своим свойством прототипа HTMLElement (у jsdom она 0 и
+  // живёт на Element.prototype); после теста свойство снимается.
+  afterEach(() => { Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight"); });
+
+  function открыть(rect: { top: number; left: number; width: number }, высота = 600) {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) { return this.classList.contains("rq-cbo-list") ? высота : 0; },
+    });
+    const onChange = vi.fn();
+    render(<ObjectCombobox items={дерево(30)} value={null} onChange={onChange} label="Сосед" />);
+    const поле = screen.getByRole("combobox");
+    const прямоугольник = { ...rect };
+    поле.getBoundingClientRect = () => ({
+      top: прямоугольник.top, bottom: прямоугольник.top + 30, left: прямоугольник.left,
+      right: прямоугольник.left + прямоугольник.width, width: прямоугольник.width, height: 30,
+      x: прямоугольник.left, y: прямоугольник.top, toJSON: () => ({}),
+    }) as DOMRect;
+    return {
+      поле, прямоугольник, onChange,
+      список: () => screen.getByRole("listbox"),
+    };
+  }
+
+  it("снизу хватает места — под полем: ширина не меньше 320, высота не больше 320", async () => {
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    const s = с.список().style;
+    expect(s.top).toBe("134px");
+    expect(s.bottom).toBe("auto");
+    expect(s.left).toBe("40px");
+    expect(s.width).toBe("320px");
+    expect(s.maxHeight).toBe("320px");
+  });
+
+  it("у нижнего края — над полем, нижним краем к полю; правый край экрана не переходит", async () => {
+    const с = открыть({ top: 700, left: 900, width: 100 });
+    await userEvent.click(с.поле);
+    const s = с.список().style;
+    // 768 − 700 + 4: нижний край списка в 4px над полем.
+    expect(s.bottom).toBe("72px");
+    expect(s.top).toBe("auto");
+    expect(s.maxHeight).toBe("320px");
+    // 1024 − 12 − 320: список прижат к правому краю экрана с полем 12px.
+    expect(s.left).toBe("692px");
+  });
+
+  it("высота не больше свободного места до края экрана без 12px", async () => {
+    const с = открыть({ top: 500, left: 40, width: 400 });
+    await userEvent.click(с.поле);
+    // Снизу 768 − 530 − 4 − 12 = 222 < 320 и меньше, чем сверху (484): список над полем.
+    expect(с.список().style.bottom).toBe("272px");
+    expect(с.список().style.width).toBe("400px");
+    cleanup();
+    const м = открыть({ top: 500, left: 40, width: 400 }, 120);
+    await userEvent.click(м.поле);
+    // Короткий список помещается снизу: под полем, предел — свободное место (222).
+    expect(м.список().style.top).toBe("534px");
+    expect(м.список().style.maxHeight).toBe("222px");
+  });
+
+  it("прокрутка тела окна двигает список за полем, прокрутка списка его не закрывает", async () => {
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    с.прямоугольник.top = 60;
+    fireEvent.scroll(document.body);
+    expect(с.список().style.top).toBe("94px");
+    fireEvent.scroll(с.список());
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("щелчок по строке выбирает её, Escape закрывает только список", async () => {
+    const выше = vi.fn();
+    document.addEventListener("keydown", выше);
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    await userEvent.click(within(с.список()).getByRole("option", { name: /Компонент 3$/ }));
+    expect(с.onChange).toHaveBeenCalledWith("Zabbix / Компонент 3");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    выше.mockClear();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(выше).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", выше);
+  });
+
+  it("подсвеченная клавиатурой строка прокручивается в вид списка", async () => {
+    const вид = vi.spyOn(Element.prototype, "scrollIntoView");
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    вид.mockClear();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    expect(вид).toHaveBeenCalledWith({ block: "nearest" });
+    expect(вид.mock.contexts.at(-1)).toHaveClass("rq-cbo-row--on");
+    expect(вид.mock.contexts.at(-1)).toHaveTextContent("Компонент 3");
+    вид.mockRestore();
   });
 });
 
