@@ -165,6 +165,97 @@ describe("SitesDialog", () => {
     expect(props.onChanged).toHaveBeenCalled();
   });
 
+  // ── Страховка редизайна (фаза 11): пустые состояния, отказы, форма правки ──
+  it("пока площадки грузятся — «Загрузка»", () => {
+    vi.mocked(deploymentApi.sites).mockReturnValue(new Promise(() => {}));
+    setup();
+    expect(screen.getByText("Загрузка")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Площадки" })).toBeNull();
+  });
+
+  it("площадок нет: «Площадок пока нет»; архитектору «+» на месте, читателю нет", async () => {
+    vi.mocked(deploymentApi.sites).mockResolvedValue([]);
+    const { unmount } = render(<SitesDialog isArchitect onClose={vi.fn()} onChanged={vi.fn()} />);
+    expect(await screen.findByText("Площадок пока нет")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить площадку" })).toBeInTheDocument();
+    unmount();
+    setup(false);
+    expect(await screen.findByText("Площадок пока нет")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Добавить площадку" })).toBeNull();
+  });
+
+  it("значки строки: подсказки «Изменить» и «Удалить»", async () => {
+    setup();
+    await screen.findByText("Облако");
+    expect(within(row("Стойка")).getByRole("button", { name: "Изменить площадку «Стойка»" })).toHaveAttribute("title", "Изменить");
+    expect(within(row("Стойка")).getByRole("button", { name: "Удалить площадку «Стойка»" })).toHaveAttribute("title", "Удалить");
+  });
+
+  it("удаление: пояснение с числом объектов, у пустой площадки без пояснения; «Отмена» — без записи", async () => {
+    vi.mocked(deploymentApi.sites).mockResolvedValue([...SITES, site("Пустая")]);
+    setup();
+    await screen.findByText("Облако");
+    await userEvent.click(within(row("Стойка")).getByRole("button", { name: "Удалить площадку «Стойка»" }));
+    expect(screen.getByText("Удалить площадку «Стойка»?")).toBeInTheDocument();
+    expect(screen.getByText("Размещение 1 объекта на ней будет снято.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByText("Удалить площадку «Стойка»?")).toBeNull();
+    await userEvent.click(within(row("Пустая")).getByRole("button", { name: "Удалить площадку «Пустая»" }));
+    expect(screen.getByText("Удалить площадку «Пустая»?")).toBeInTheDocument();
+    expect(screen.queryByText(/будет снято/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(deploymentApi.deleteSite).not.toHaveBeenCalled();
+  });
+
+  it("отказ удаления — строкой с role=alert в окне, подтверждение закрыто", async () => {
+    vi.mocked(deploymentApi.deleteSite).mockRejectedValue(new ApiError(422, "У площадки есть вложенные"));
+    const props = setup();
+    await screen.findByText("Облако");
+    await userEvent.click(within(row("Стойка")).getByRole("button", { name: "Удалить площадку «Стойка»" }));
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("У площадки есть вложенные");
+    expect(screen.queryByText("Удалить площадку «Стойка»?")).toBeNull();
+    expect(props.onChanged).not.toHaveBeenCalled();
+  });
+
+  it("форма правки: поля заполнены, Enter в имени сохраняет, Enter в описании — нет", async () => {
+    vi.mocked(deploymentApi.updateSite).mockResolvedValue(site("Облако"));
+    setup();
+    await screen.findByText("Облако");
+    await userEvent.click(within(row("Облако")).getByRole("button", { name: "Изменить площадку «Облако»" }));
+    const name = screen.getByRole("textbox", { name: "Имя" });
+    expect(name).toHaveFocus();
+    expect(name).toHaveValue("Облако");
+    expect(screen.getByRole("combobox", { name: "Вид" })).toHaveValue("cloud");
+    expect(screen.getByRole("textbox", { name: "Технология" })).toHaveValue("AWS");
+    expect(screen.getByRole("textbox", { name: "Технология" })).toHaveAttribute("placeholder", "AWS, k8s 1.30, Ubuntu 24.04");
+    await userEvent.type(screen.getByRole("textbox", { name: "Описание" }), "Основное{Enter}");
+    expect(deploymentApi.updateSite).not.toHaveBeenCalled();
+    await userEvent.type(name, "{Enter}");
+    await waitFor(() => expect(deploymentApi.updateSite).toHaveBeenCalledWith("Облако", {
+      name: "Облако", kind: "cloud", technology: "AWS", description: "Основное", parent_id: null, base_version: 3,
+    }));
+  });
+
+  it("форма правки: «Отмена» закрывает её без записи", async () => {
+    setup();
+    await screen.findByText("Облако");
+    await userEvent.click(within(row("Облако")).getByRole("button", { name: "Изменить площадку «Облако»" }));
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByRole("textbox", { name: "Имя" })).toBeNull();
+    expect(deploymentApi.updateSite).not.toHaveBeenCalled();
+  });
+
+  it("прочий отказ правки — строкой в окне, форма остаётся", async () => {
+    vi.mocked(deploymentApi.updateSite).mockRejectedValue(new ApiError(422, "Имя занято"));
+    setup();
+    await screen.findByText("Облако");
+    await userEvent.click(within(row("Стойка")).getByRole("button", { name: "Изменить площадку «Стойка»" }));
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Имя занято");
+    expect(screen.getByRole("textbox", { name: "Имя" })).toHaveValue("Стойка");
+  });
+
   it("площадку с вложенными удалить нельзя — корзина выключена с подсказкой", async () => {
     setup();
     await screen.findByText("Облако");

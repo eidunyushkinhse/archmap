@@ -460,6 +460,20 @@ describe("ProjectShell", () => {
     expect(nav.onNavigateMap).toHaveBeenCalledWith(null);
   });
 
+  it("подтверждение «Открыть редактор схемы?»: пояснение прежнее, «Открыть» по группе кладёт цель группы", async () => {
+    setup(null);
+    await userEvent.click(screen.getByTestId("alert-group"));
+    expect(screen.getByText(
+      "Эта рекомендация касается нескольких объектов, их можно показать только в редакторе схемы.",
+    )).toBeInTheDocument();
+    expect(screen.getAllByRole("button").map((b) => b.textContent).filter((t) => t === "Открыть" || t === "Отмена"))
+      .toEqual(["Открыть", "Отмена"]);
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    expect(JSON.parse(sessionStorage.getItem("archmap.pendingAlertLocate")!)).toEqual({ kind: "group", ids: ["n1", "n2"] });
+    expect(nav.onNavigateMap).toHaveBeenCalledWith(null);
+    expect(screen.queryByText("Открыть редактор схемы?")).not.toBeInTheDocument();
+  });
+
   it("«Отмена» в подтверждении не открывает редактор", async () => {
     setup(null);
     await userEvent.click(screen.getByTestId("alert-group"));

@@ -307,6 +307,86 @@ describe("PlacementDialog", () => {
     expect(screen.queryByText("Загрузка")).toBeNull();
   });
 
+  // ── Страховка редизайна (фаза 11): запертые кнопки, второй шаг, форма площадки ──
+  it("запись в полёте: «Применить», «Снять размещение», «Отмена», галочки и «+» заперты", async () => {
+    let done: () => void = () => {};
+    vi.mocked(deploymentApi.setPlacements).mockReturnValue(new Promise<void>((r) => { done = r; }));
+    const props = setup([obj("a", ["k8s"])]);
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Снять размещение" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled();
+    expect(check("vm1")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Добавить площадку" })).toBeDisabled();
+    done();
+    await waitFor(() => expect(props.onApplied).toHaveBeenCalled());
+  });
+
+  it("«Отмена» закрывает окно без записи", async () => {
+    const props = setup([obj("a", ["k8s"])]);
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+    expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
+  });
+
+  it("второй шаг: отказ записи — строкой с role=alert, шаг остаётся; в полёте «Снять» и «Отмена» заперты", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue(inside());
+    let fail: (e: unknown) => void = () => {};
+    vi.mocked(deploymentApi.setPlacements).mockReturnValue(new Promise<void>((_, r) => { fail = r; }));
+    const props = setup([container()]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Снять размещение" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Снять размещение" }));
+    await userEvent.click(screen.getByRole("button", { name: "Снять" }));
+    expect(screen.getByRole("button", { name: "Снять" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled();
+    fail(new ApiError(500, "Сервер недоступен"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Сервер недоступен");
+    expect(screen.getByText("Снять размещение «Заказы»?")).toBeInTheDocument();
+    expect(props.onApplied).not.toHaveBeenCalled();
+  });
+
+  it("второй шаг на нескольких объектах: вопрос и пояснение про выбранные, перечень всех размещённых", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue(inside());
+    setup([container(), obj("a", ["vm1"])]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Снять размещение" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Снять размещение" }));
+    expect(screen.getByText("Снять размещение выбранных объектов?")).toBeInTheDocument();
+    expect(screen.getByText("Размещение всех объектов внутри будет снято:")).toBeInTheDocument();
+    const list = screen.getByRole("list", { name: "Объекты с другим размещением" });
+    expect(list).toHaveTextContent("A: vm1");
+    expect(list).toHaveTextContent("Каталог: vm1");
+    expect(list).toHaveTextContent("Order API: vm2");
+    await userEvent.click(screen.getByRole("button", { name: "Снять" }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["x", "y", "a"], []));
+  });
+
+  it("форма площадки: фокус на имени; Enter в пустом имени — ничего, с именем — добавляет", async () => {
+    vi.mocked(deploymentApi.createSite).mockResolvedValue({ ...site("new-id"), name: "ВМ-3" });
+    setup([obj("a", [])]);
+    await userEvent.click(screen.getByRole("button", { name: "Добавить площадку" }));
+    const name = screen.getByRole("textbox", { name: "Имя" });
+    expect(name).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(deploymentApi.createSite).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Имя" })).toBeInTheDocument();
+    await userEvent.type(name, "ВМ-3");
+    await userEvent.type(screen.getByRole("textbox", { name: "Технология" }), "Ubuntu{Enter}");
+    await waitFor(() => expect(deploymentApi.createSite).toHaveBeenCalledWith({
+      name: "ВМ-3", kind: "other", technology: "Ubuntu", description: null, parent_id: null,
+    }));
+    expect(check("ВМ-3").checked).toBe(true);
+  });
+
+  it("форма площадки: «Отмена» закрывает её без записи, «+» снова на месте", async () => {
+    setup([obj("a", [])]);
+    await userEvent.click(screen.getByRole("button", { name: "Добавить площадку" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Имя" }), "Черновик");
+    await userEvent.click(screen.getAllByRole("button", { name: "Отмена" })[0]);
+    expect(screen.queryByRole("textbox", { name: "Имя" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Добавить площадку" })).toBeInTheDocument();
+    expect(deploymentApi.createSite).not.toHaveBeenCalled();
+  });
+
   // ── Единица размещения — контейнер (D33) ──
   it("контейнер с компонентами — единица: набор пишется ему самому, состав проекта не грузится", async () => {
     const orders: DeploymentNode = { ...obj("o", ["vm1"]), name: "orders", has_children: true, child_count: 2 };

@@ -596,6 +596,70 @@ describe("DeploymentPage", () => {
     expect(banner()).not.toBeNull();
   });
 
+  // ── Страховка редизайна (фаза 11): тулбар, пустые состояния, цель тура ──
+  it("значки тулбара: порядок, подписи и подсказки прежние", async () => {
+    await setup();
+    const names = screen.getAllByRole("button").map((b) => b.getAttribute("aria-label"))
+      .filter((n) => n === "Площадки" || n === "Переразложить" || n === "Подписи связей");
+    expect(names).toEqual(["Площадки", "Переразложить", "Подписи связей"]);
+    expect(screen.getByRole("button", { name: "Площадки" })).toHaveAttribute("title", "Площадки");
+    expect(screen.getByRole("button", { name: "Переразложить" })).toHaveAttribute("title", "Переразложить уровень");
+    expect(screen.getByRole("button", { name: "Подписи связей" })).toHaveAttribute("title", "Скрыть подписи связей");
+  });
+
+  it("холст — цель обучающего тура (data-tour=deploy-diagram)", async () => {
+    await setup();
+    expect(screen.getByTestId("level-graph").closest('[data-tour="deploy-diagram"]')).not.toBeNull();
+  });
+
+  it("отказ «Переразложить» — строкой с role=alert в тулбаре; смена уровня её снимает", async () => {
+    vi.mocked(viewsApi.saveLayout).mockRejectedValue(new ApiError(500, "Сервер недоступен"));
+    const { goTo } = await setup();
+    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось переразложить. Сервер недоступен");
+    goTo("c1");
+    await waitFor(() => expect(props().containerId).toBe("c1"));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("нет объектов — «Переразложить» заперта", async () => {
+    await setup(true, graph({ nodes: [], edges: [], layout: {} }));
+    await screen.findByText("Нет объектов для размещения");
+    expect(screen.getByRole("button", { name: "Переразложить" })).toBeDisabled();
+  });
+
+  it("пока граф грузится — «Загрузка» вместо холста; пока грузится состав — «Загрузка» в пути", async () => {
+    vi.mocked(deploymentApi.graph).mockReturnValue(new Promise(() => {}));
+    vi.mocked(nodesApi.getAll).mockReturnValue(new Promise(() => {}));
+    render(<DeploymentPage isArchitect level="c2" onNavigateLevel={vi.fn()} onOpenNode={vi.fn()} />);
+    const nav = screen.getByRole("navigation", { name: "Уровень" });
+    expect(within(nav).getByRole("button", { name: "Весь проект" })).toBeInTheDocument();
+    expect(within(nav).getByText("Загрузка")).toBeInTheDocument();
+    expect(screen.getAllByText("Загрузка")).toHaveLength(2);
+    expect(screen.queryByTestId("level-graph")).toBeNull();
+  });
+
+  it("панель выделения: число объектов, «Указать размещение» и «Снять выделение»", async () => {
+    await setup();
+    act(() => { props().drill.onSelectionChange?.(["deploy:a@s1", "deploy:b@s1"]); });
+    const panel = screen.getByRole("status");
+    expect(panel).toHaveTextContent("Выбрано 2 объекта");
+    expect(within(panel).getAllByRole("button").map((b) => b.textContent)).toEqual(["Указать размещение", "Снять выделение"]);
+  });
+
+  it("полоса режима размещения: текст, «Снять размещение» и «Отмена»; отказ — role=alert внутри полосы", async () => {
+    vi.mocked(deploymentApi.setPlacements).mockRejectedValue(new ApiError(422, "Пользователя разместить нельзя"));
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null, { own: ["s1"] })); });
+    const band = screen.getByRole("status");
+    expect(band).toHaveTextContent("Куда поставить «B»? Щёлкните площадку");
+    await within(band).findByRole("button", { name: "Снять размещение" });
+    expect(within(band).getAllByRole("button").map((b) => b.textContent)).toEqual(["Снять размещение", "Отмена"]);
+    act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    const alert = await within(band).findByRole("alert");
+    expect(alert).toHaveTextContent("Не удалось разместить. Пользователя разместить нельзя");
+  });
+
   it("смена уровня режим размещения не сбрасывает", async () => {
     const { goTo } = await setup();
     act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
