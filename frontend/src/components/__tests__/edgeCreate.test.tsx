@@ -64,6 +64,30 @@ describe("EdgeQuickCreate", () => {
       source_id: "a", target_id: "b", technology: "gRPC",
     }));
   });
+
+  // Страховка фазы 9б редизайна: тело запроса байт в байт, с порядком ключей.
+  it("оба поля заполнены: тело запроса строкой JSON", async () => {
+    vi.mocked(edgesApi.create).mockResolvedValue(created);
+    const onCreated = open();
+    await userEvent.type(screen.getByPlaceholderText("например, запрос или событие"), "оплата заказа");
+    await userEvent.type(screen.getByPlaceholderText("например, REST или Kafka"), "gRPC");
+    await userEvent.click(screen.getByRole("button", { name: "Создать связь" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
+    expect(JSON.stringify(vi.mocked(edgesApi.create).mock.calls[0][0]))
+      .toBe('{"source_id":"a","target_id":"b","label":"оплата заказа","technology":"gRPC"}');
+  });
+
+  it("«Отмена» закрывает окно без запроса", async () => {
+    const onClose = vi.fn();
+    render(
+      <EdgeQuickCreate sourceId="a" targetId="b" sourceLabel="Заказы" targetLabel="Оплата"
+        onClose={onClose} onCreated={vi.fn()} />,
+    );
+    await userEvent.type(screen.getByPlaceholderText("например, запрос или событие"), "оплата");
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(edgesApi.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("CrossLevelEdgePicker", () => {
