@@ -6,19 +6,21 @@
 // переключателем вида — там, где статусы и видны.
 //
 // Операция НЕОБРАТИМА, поэтому окно устроено вокруг одного вопроса: что именно
-// исчезнет. Отдельно и заметнее всего показаны «попутные потери» — объекты,
-// которых устаревшими никто не помечал, но которые лежат внутри выводимых и
-// уедут вместе с ними. Undo здесь нет осознанно: пакетное удаление десятков
-// узлов в текущую историю не вписывается (см. docs/plan-work-2026-08-08.md).
+// исчезнет. Отдельным блоком показаны «попутные потери» — объекты, которых
+// устаревшими никто не помечал, но которые лежат внутри выводимых и уедут вместе
+// с ними: у блока фраза-предупреждение. Undo здесь нет осознанно: пакетное удаление
+// десятков узлов в текущую историю не вписывается (см. docs/plan-work-2026-08-08.md).
+//
+// Вид — каркас окна нового языка (.ds-win, редизайн): шапка с крестиком, тело с
+// прокруткой, блоки с тихим числом у заголовка, подвал «Принять переход» и «Отмена».
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
 import type { TransitionPreview } from "../types";
 import { transitionApi } from "../api/nodes";
 import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
-import { primaryBtn, secondaryBtn, dangerBtn } from "../ui/styles";
+import { CloseIcon } from "../ui/icons";
 import { plural } from "../ui/plural";
-import DialogTitle from "../ui/DialogTitle";
+import "../ui/ds.css";
 
 interface Props {
   onClose: () => void;
@@ -71,98 +73,89 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
   const canApply = !!preview && !preview.is_noop && !applying;
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 560, maxHeight: "84vh", overflowY: "auto" }}>
-      <DialogTitle lead={<>
-        Проектируемые объекты станут существующими, а выводимые исчезнут из схемы.
-        Действие затрагивает весь проект и отменить его нельзя.
-      </>}>
-        Принять переход
-      </DialogTitle>
+    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 560, padding: 0 }}>
+      <div className="ds ds-win">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Принять переход</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
 
-      {failed && <p style={errorText}>Не удалось посчитать, что изменится. Закройте окно и попробуйте снова.</p>}
-      {!preview && !failed && <p style={hint}>Считаем, что изменится</p>}
+        <div className="ds-win-body">
+          <p className="ds-confirm-lead">
+            Проектируемые объекты станут существующими, а выводимые исчезнут из схемы.
+            Действие затрагивает весь проект и отменить его нельзя.
+          </p>
 
-      {preview?.is_noop && (
-        <p style={{ ...hint, color: "#334155" }}>
-          Принимать нечего, потому что в схеме нет ни проектируемых, ни выводимых
-          объектов.
-        </p>
-      )}
+          {failed && <p className="ds-danger ds-confirm-flat">Не удалось посчитать, что изменится. Закройте окно и попробуйте снова.</p>}
+          {!preview && !failed && <p className="ds-confirm-note ds-confirm-muted">Считаем, что изменится</p>}
 
-      {preview && !preview.is_noop && (
-        <>
-          {preview.promote.length > 0 && (
-            <Section title={`Станут существующими · ${preview.promote.length}`}>
-              {preview.promote.map((n) => <li key={n.id}>{n.path}</li>)}
-            </Section>
-          )}
-
-          {preview.delete.length > 0 && (
-            <Section title={`Будут удалены · ${preview.delete.length}`} danger>
-              {preview.delete.map((n) => <li key={n.id}>{n.path}</li>)}
-            </Section>
-          )}
-
-          {/* Самое важное в окне: эти объекты никто устаревшими не помечал. */}
-          {preview.collateral.length > 0 && (
-            <div style={warnBox}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                Удалятся вместе с ними · {preview.collateral.length}
-              </div>
-              <div style={{ marginBottom: 6 }}>
-                Эти объекты не помечены выводимыми, но лежат внутри удаляемых.
-              </div>
-              <ul style={list}>
-                {preview.collateral.map((n) => <li key={n.id}>{n.path}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {preview.delete_total > 0 && (
-            <p style={hint}>
-              Всего исчезнет {preview.delete_total} {plural(preview.delete_total, ["объект", "объекта", "объектов"])}
-              {preview.delete_edges > 0 && `, ${preview.delete_edges} ${plural(preview.delete_edges, ["связь", "связи", "связей"])}`}
-              {preview.delete_docs > 0 && `, ${preview.delete_docs} ${plural(preview.delete_docs, ["схема логики", "схемы логики", "схем логики"])}`}
-              {preview.delete_specs > 0 && `, ${preview.delete_specs} ${plural(preview.delete_specs, ["спецификация", "спецификации", "спецификаций"])}`}.
+          {preview?.is_noop && (
+            <p className="ds-confirm-note">
+              Принимать нечего, потому что в схеме нет ни проектируемых, ни выводимых
+              объектов.
             </p>
           )}
-        </>
-      )}
 
-      {error && <p style={errorText}>{error}</p>}
+          {preview && !preview.is_noop && (
+            <>
+              {preview.promote.length > 0 && <Block title="Станут существующими" items={preview.promote} />}
 
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-        <button
-          type="button"
-          style={preview?.delete.length ? dangerBtn : primaryBtn}
-          disabled={!canApply}
-          onClick={apply}
-        >
-          {applying ? "Применяем" : "Принять переход"}
-        </button>
-        <button type="button" style={secondaryBtn} onClick={onClose} data-autofocus>
-          Отмена
-        </button>
+              {preview.delete.length > 0 && <Block title="Будут удалены" items={preview.delete} />}
+
+              {/* Самое важное в окне: эти объекты никто устаревшими не помечал. */}
+              {preview.collateral.length > 0 && (
+                <Block
+                  title="Удалятся вместе с ними"
+                  items={preview.collateral}
+                  warn="Эти объекты не помечены выводимыми, но лежат внутри удаляемых."
+                />
+              )}
+
+              {preview.delete_total > 0 && (
+                <p className="ds-confirm-note">
+                  Всего исчезнет {preview.delete_total} {plural(preview.delete_total, ["объект", "объекта", "объектов"])}
+                  {preview.delete_edges > 0 && `, ${preview.delete_edges} ${plural(preview.delete_edges, ["связь", "связи", "связей"])}`}
+                  {preview.delete_docs > 0 && `, ${preview.delete_docs} ${plural(preview.delete_docs, ["схема логики", "схемы логики", "схем логики"])}`}
+                  {preview.delete_specs > 0 && `, ${preview.delete_specs} ${plural(preview.delete_specs, ["спецификация", "спецификации", "спецификаций"])}`}.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="ds-win-foot">
+          {error && <p className="ds-danger ds-win-err">{error}</p>}
+          <button
+            type="button"
+            className={preview?.delete.length ? "ds-btn ds-btn--danger" : "ds-btn ds-btn--primary"}
+            disabled={!canApply}
+            onClick={apply}
+          >
+            {applying ? "Применяем" : "Принять переход"}
+          </button>
+          <button type="button" className="ds-btn" onClick={onClose} data-autofocus>
+            Отмена
+          </button>
+        </div>
       </div>
     </Modal>
   );
 }
 
-function Section({ title, danger, children }: { title: string; danger?: boolean; children: React.ReactNode }) {
+// Блок плана: заголовок с тихим числом, под ним (у попутных потерь) предупреждение и
+// перечень путей; полный путь — в подсказке строки.
+function Block({ title, items, warn }: { title: string; items: TransitionPreview["promote"]; warn?: string }) {
   return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: danger ? "#b91c1c" : "#334155" }}>
-        {title}
-      </div>
-      <ul style={list}>{children}</ul>
-    </div>
+    <section className="ds-win-block">
+      <h3 className="ds-win-block-title">
+        {title}<span className="ds-confirm-count">{items.length}</span>
+      </h3>
+      {warn && <p className="ds-warn ds-confirm-flat">{warn}</p>}
+      <ul className="ds-confirm-list">
+        {items.map((n) => <li key={n.id} title={n.path}>{n.path}</li>)}
+      </ul>
+    </section>
   );
 }
-
-const hint: CSSProperties = { margin: "0 0 4px", fontSize: 13, lineHeight: 1.5, color: "#64748b" };
-const list: CSSProperties = { margin: "4px 0 0", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.6, color: "#475569" };
-const warnBox: CSSProperties = {
-  marginTop: 12, padding: "10px 12px", borderRadius: 8,
-  background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", fontSize: 12.5,
-};
-const errorText: CSSProperties = { margin: "10px 0 0", fontSize: 13, color: "#b91c1c" };
