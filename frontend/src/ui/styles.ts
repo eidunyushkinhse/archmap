@@ -10,7 +10,7 @@ import type { CSSProperties } from "react";
  * стилями псевдоклассы недоступны) — он накрывает все инпуты/кнопки внутри .app-modal.
  */
 
-// Подпись поля формы (EdgeQuickCreate, диалоги проектов)
+// Подпись поля формы (CrossLevelEdgePicker, FixVersionDialog, диалоги проектов, пользователей и токенов)
 export const labelStyle: CSSProperties = {
   display: "block",
   fontSize: 13,

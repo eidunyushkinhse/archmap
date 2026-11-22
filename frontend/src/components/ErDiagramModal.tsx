@@ -12,6 +12,7 @@ import { pinSvgSize, usePanZoom } from "./usePanZoom";
 import Modal from "../ui/Modal";
 import { CloseIcon } from "../ui/icons";
 import "./inspector/docOverlay.css";
+import "../ui/modalShell.css";
 
 interface Props {
   chart: string;

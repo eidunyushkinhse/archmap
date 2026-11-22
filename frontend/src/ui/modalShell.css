@@ -1,7 +1,7 @@
-/* Крестик окна прежнего вида (.modal-close): остался у ErDiagramModal. Липкие шапка и
-   полоса действий с тенями (.modal-header, .modal-footer и хук useScrollEdges) жили в
-   окне «Новый объект» и ушли с ним на каркас окна нового языка (ui/ds.css, ds-win;
-   редизайн, фаза 9б). Файл подключает NodeModal: ErDiagramModal его сам не подключает. */
+/* Крестик окна прежнего вида (.modal-close): остался у ErDiagramModal, он и подключает
+   файл. Липкие шапка и полоса действий с тенями (.modal-header, .modal-footer и хук
+   useScrollEdges) жили в окне «Новый объект» и ушли с ним на каркас окна нового языка
+   (ui/ds.css, ds-win; редизайн, фаза 9б). */
 .modal-close {
   flex-shrink: 0;
   border: none;

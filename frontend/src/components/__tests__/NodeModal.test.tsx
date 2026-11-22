@@ -271,6 +271,16 @@ describe("NodeModal — поля и отказы", () => {
     expect(nodesApi.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Склад", description: "Остатки" }));
   });
 
+  it("пустые поля с подсказками внутри: куда печатать, видно без фокуса", async () => {
+    place(null);
+    render(<NodeModal parentId={null} type="system" onClose={vi.fn()} onSaved={vi.fn()} />);
+    await ready();
+    expect(nameField()).toHaveAttribute("placeholder", "например, Сервис заказов");
+    expect(document.querySelector("dialog textarea")).toHaveAttribute("placeholder", "что делает объект");
+    expect(screen.getByLabelText("Роль")).toHaveAttribute("placeholder", "например, API или шлюз");
+    expect(screen.getByLabelText("Технология")).toHaveAttribute("placeholder", "например, Python");
+  });
+
   it("«Отмена» и крестик закрывают окно без запроса", async () => {
     place(null);
     const onClose = vi.fn();

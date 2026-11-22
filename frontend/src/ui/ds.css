@@ -404,6 +404,13 @@ button.ds-sub:hover {
   padding: 4px var(--win-pad);
   overflow-y: auto;
 }
+/* Окно без подвала («Выберите связь»): нижнее поле — поле окна, как сверху и с боков.
+   Выхода тела на 4px вниз здесь нет: снизу место кольцу фокуса даёт само поле, а выход
+   за окно давал окну лишние 4px прокрутки. У окон с подвалом тело последним не бывает. */
+.ds-win-body:last-child {
+  margin-bottom: 0;
+  padding-bottom: var(--win-pad);
+}
 .ds-win-foot {
   flex: none;
   display: flex;
@@ -1108,4 +1115,11 @@ button.ds-sub:hover {
 /* «Добавить» под списком в теле окна: по ширине текста, а не во всю строку тела. */
 .ds-win-body > .ds-add {
   align-self: flex-start;
+}
+/* Окно прижато к верху экрана (Modal: boxStyle margin «8vh auto auto», как «Новый проект»
+   — project/createProject.css, .cp-win): не выше экрана без этого отступа и 24px снизу.
+   Высота окна меняется при смене содержимого («Пользователь» без двух строк в «Новом
+   объекте»), а верх и поля остаются на месте. */
+.ds-win.ds-win--top {
+  max-height: calc(92vh - 24px);
 }

@@ -19,9 +19,6 @@ import { PropDropdown, StatusLabel } from "./nodePage/PropRows";
 import { BELONGING_LABEL, BELONGING_ORDER, EXTERNAL_HINT } from "./nodePage/belonging";
 import "../ui/ds.css";
 import "./nodePage/propRows.css";
-// Классы этого окна отсюда не берутся: файл держит крестик .modal-close окна
-// ErDiagramModal, которое само его не подключает (до перевода того окна на новый язык).
-import "../ui/modalShell.css";
 
 // Окно СОЗДАНИЯ объекта (редизайн, фаза 9б): каркас окна нового языка (ui/ds.css, ds-win)
 // и один список строк «подпись — значение» того же вида, что «Свойства» в панели объекта:
@@ -42,7 +39,8 @@ import "../ui/modalShell.css";
 // у «Пользователя» нет технологии и принадлежности. «Создать» заперта, пока тип не выбран
 // или название пустое; Enter в однострочном поле (и Ctrl+Enter в описании) делает то же,
 // что кнопка (ui/Modal.onSubmit). Меню значений — слоем position: fixed: тело окна
-// прокручивается и обрезало бы их.
+// прокручивается и обрезало бы их. Окно прижато к верху экрана, как «Новый проект»:
+// у «Пользователя» строк меньше, и по центру окно прыгало бы при смене типа.
 interface Props {
   parentId: string | null;
   // Тип шаблона из палитры: предвыбран, если возможен в этом месте.
@@ -157,8 +155,8 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
     }
   }
   return (
-    <Modal onClose={onClose} onSubmit={handleSave} closeButton={false} boxStyle={{ width: 480, padding: 0 }}>
-      <div className="ds ds-win">
+    <Modal onClose={onClose} onSubmit={handleSave} closeButton={false} boxStyle={{ width: 480, padding: 0, margin: "8vh auto auto" }}>
+      <div className="ds ds-win ds-win--top">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Новый объект</h2>
           <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
@@ -208,6 +206,7 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
                   className="ds-field"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  placeholder="например, Сервис заказов"
                   data-autofocus
                 />
               </dd>
@@ -223,6 +222,7 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
                   initial=""
                   onValue={setDescription}
                   onCommit={setDescription}
+                  placeholder="что делает объект"
                 />
               </dd>
             </div>
