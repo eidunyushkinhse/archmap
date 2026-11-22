@@ -107,25 +107,6 @@
   inset: 0;
   z-index: 15;
 }
-/* Кнопка-значение поля в окне «Новый объект» — как текстовое поле окна (ui/styles.input). */
-.ts-field {
-  padding: 9px 11px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #0f172a;
-  background: #fff;
-  box-sizing: border-box;
-}
-.ts-field:disabled {
-  background: #f8fafc;
-  color: #475569;
-}
-.ts-chev {
-  display: flex;
-  flex: none;
-  color: #94a3b8;
-}
 /* «Свойства» страницы: кнопка по ширине значения, как у «Статуса»; меню шире кнопки —
    в пунктах объяснения. */
 .ts-wrap--inline {
