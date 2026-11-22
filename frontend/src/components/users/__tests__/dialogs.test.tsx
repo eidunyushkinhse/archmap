@@ -78,6 +78,39 @@ describe("ChangePasswordDialog", () => {
     expect(changePassword).toHaveBeenCalledWith("old-password", "new-password-1");
     expect(await screen.findByText("Пароль изменён")).toBeInTheDocument();
   });
+
+  // Страховка редизайна (фаза 9д): механика окна не меняется вместе с видом.
+  it("«Сменить» заперта, пока не введены все три поля; без текущего пароля — тоже", async () => {
+    render(<ChangePasswordDialog onClose={vi.fn()} />);
+    const btn = screen.getByRole("button", { name: "Сменить" });
+    expect(btn).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Новый пароль"), "new-password-1");
+    await userEvent.type(screen.getByLabelText("Повторите новый пароль"), "new-password-1");
+    expect(btn).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Текущий пароль"), "old-password");
+    expect(btn).toBeEnabled();
+    expect(screen.getByText("Не короче 8 символов")).toBeInTheDocument();
+  });
+
+  it("поля пароля: порядок, id, autoComplete и type для менеджеров паролей", () => {
+    render(<ChangePasswordDialog onClose={vi.fn()} />);
+    const fields = [...document.querySelectorAll("input")];
+    expect(fields.map((f) => [f.id, f.type, f.getAttribute("autocomplete")])).toEqual([
+      ["cp-old", "password", "current-password"],
+      ["cp-new", "password", "new-password"],
+      ["cp-repeat", "password", "new-password"],
+    ]);
+    expect(fields[0]).toHaveAttribute("data-autofocus");
+  });
+
+  it("после успеха: «Пароль изменён», пояснение и «Готово» в фокусе по умолчанию", async () => {
+    vi.mocked(changePassword).mockResolvedValue(undefined);
+    render(<ChangePasswordDialog onClose={vi.fn()} />);
+    await fill("old-password", "new-password-1", "new-password-1");
+    await userEvent.click(screen.getByRole("button", { name: "Сменить" }));
+    expect(await screen.findByText("Остальные активные сессии завершены.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Готово" })).toHaveAttribute("data-autofocus");
+  });
 });
 
 describe("NewUserDialog", () => {
@@ -133,6 +166,48 @@ describe("NewUserDialog", () => {
     expect(onCreated).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Создать" })).toBeEnabled();
   });
+
+  // Страховка редизайна (фаза 9д): механика окна не меняется вместе с видом.
+  it("«Создать» заперта без пароля, без логина и при логине из одних пробелов", async () => {
+    render(<NewUserDialog onClose={vi.fn()} onCreated={vi.fn()} />);
+    const btn = screen.getByRole("button", { name: "Создать" });
+    await userEvent.type(screen.getByLabelText("Логин"), "ivan");
+    expect(btn).toBeDisabled();
+    await userEvent.clear(screen.getByLabelText("Логин"));
+    await userEvent.type(screen.getByLabelText("Временный пароль"), "temp-pass-1");
+    expect(btn).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Логин"), "   ");
+    expect(btn).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Логин"), "ivan");
+    expect(btn).toBeEnabled();
+  });
+
+  it("поля: порядок, id, autoComplete, открытый пароль; роли списком; подсказка о пароле", () => {
+    render(<NewUserDialog onClose={vi.fn()} onCreated={vi.fn()} />);
+    const login = screen.getByLabelText("Логин");
+    const password = screen.getByLabelText("Временный пароль");
+    expect([login.id, login.getAttribute("type") ?? "text", login.getAttribute("autocomplete")]).toEqual(["nu-login", "text", "off"]);
+    expect(login).toHaveAttribute("data-autofocus");
+    expect([password.id, password.getAttribute("type") ?? "text", password.getAttribute("autocomplete")]).toEqual(["nu-password", "text", "off"]);
+    expect(password).toHaveAttribute("spellcheck", "false");
+    expect(screen.getByLabelText("Роль").id).toBe("nu-role");
+    expect([...screen.getByLabelText("Роль").querySelectorAll("option")].map((o) => [o.value, o.textContent])).toEqual([
+      ["architect", "Архитектор"],
+      ["viewer", "Пользователь"],
+    ]);
+    const order = [...document.querySelectorAll("input, select")].map((f) => f.id || (f as HTMLInputElement).type);
+    expect(order.indexOf("nu-login")).toBeLessThan(order.indexOf("nu-role"));
+    expect(order.indexOf("nu-role")).toBeLessThan(order.indexOf("nu-password"));
+    expect(screen.getByText("Не короче 8 символов. Передайте пароль человеку сами, сменить его можно в меню профиля.")).toBeInTheDocument();
+  });
+
+  it("«Отмена» закрывает окно без запроса", async () => {
+    const onClose = vi.fn();
+    render(<NewUserDialog onClose={onClose} onCreated={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(adminApi.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("ResetPasswordDialog", () => {
@@ -157,5 +232,28 @@ describe("ResetPasswordDialog", () => {
     expect(await screen.findByText("Пароль должен быть не короче 8 символов")).toBeInTheDocument();
     expect(onDone).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Сбросить" })).toBeEnabled();
+  });
+
+  // Страховка редизайна (фаза 9д): механика окна не меняется вместе с видом.
+  it("пустой пароль — «Сбросить» заперта, Enter молчит; пояснение и подсказка прежние", async () => {
+    render(<ResetPasswordDialog user={ivan} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Сбросить" })).toBeDisabled();
+    const field = screen.getByLabelText("Новый пароль");
+    expect([field.id, field.getAttribute("type") ?? "text", field.getAttribute("autocomplete")]).toEqual(["rp-password", "text", "off"]);
+    expect(field).toHaveAttribute("data-autofocus");
+    await userEvent.type(field, "{Enter}");
+    expect(adminApi.resetPassword).not.toHaveBeenCalled();
+    expect(screen.getByText(
+      "Новый пароль для «ivan». Передайте его человеку сами. Все активные сессии пользователя будут завершены.",
+    )).toBeInTheDocument();
+    expect(screen.getByText("Не короче 8 символов")).toBeInTheDocument();
+  });
+
+  it("«Отмена» закрывает окно без запроса", async () => {
+    const onClose = vi.fn();
+    render(<ResetPasswordDialog user={ivan} onClose={onClose} onDone={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(adminApi.resetPassword).not.toHaveBeenCalled();
   });
 });
