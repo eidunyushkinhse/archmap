@@ -481,6 +481,22 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
+  // Панель «Рекомендации» на новом языке (редизайн, фаза 10): лампа прямо в ряду значков
+  // шапки рядом с «Действиями со схемой», без обёртки прежнего вида (legacy-root).
+  it("лампа «Рекомендации» в ряду значков шапки, панель без обёртки прежнего вида", async () => {
+    realAlerts.current = true;
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const lamp = screen.getByRole("button", { name: "Рекомендации" });
+    const icons = lamp.closest(".ds-head-icons");
+    expect(icons).not.toBeNull();
+    expect(lamp.parentElement?.parentElement).toBe(icons);
+    expect(icons?.contains(screen.getByRole("button", { name: "Действия со схемой" }))).toBe(true);
+    expect(lamp.closest(".legacy-root")).toBeNull();
+    await userEvent.click(lamp);
+    expect(screen.getByRole("dialog", { name: "Рекомендации" }).closest(".legacy-root")).toBeNull();
+  });
+
   it("Esc при открытом меню и открытой панели объекта: меню, потом панель, потом выход", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");

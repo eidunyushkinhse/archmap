@@ -262,6 +262,8 @@ describe("ProjectShell", () => {
     expect(left?.querySelector('[data-tour="mode-schema"]')).not.toBeNull();
     const acts = head?.querySelector(".ds-head-acts");
     expect(acts?.querySelector(".ds-head-icons [data-testid='alert-node']")).not.toBeNull();
+    // «Рекомендации» без обёртки прежнего вида (редизайн, фаза 10).
+    expect(acts?.querySelector(".legacy-root")).toBeNull();
     expect(screen.getByRole("button", { name: "Действия со схемой" })).toHaveClass("ds-icon-btn");
   });
 

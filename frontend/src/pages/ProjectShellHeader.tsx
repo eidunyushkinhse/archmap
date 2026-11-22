@@ -54,12 +54,9 @@ export default function ProjectShellHeader({
       <div className="ds-head-acts">
         <div className="ds-head-icons">
           {/* «Рекомендации» (кто правит проект): клик по строке ведёт на страницу объекта,
-              в редактор-карту или в процесс. Панель — прежнего вида, как в редакторе:
-              обёртка без своей коробки держит прежние метрики текста (legacy-root). */}
+              в редактор-карту или в процесс. Панель на новом языке, как в редакторе. */}
           {isArchitect && (
-            <span className="ds-head-legacy legacy-root">
-              <SchemaAlerts alerts={alerts} onLocate={onLocate} onOpenProcess={onOpenProcess} />
-            </span>
+            <SchemaAlerts alerts={alerts} onLocate={onLocate} onOpenProcess={onOpenProcess} />
           )}
           <SchemaActions
             projectId={projectId}

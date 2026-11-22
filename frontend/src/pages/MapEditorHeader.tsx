@@ -83,16 +83,13 @@ export default function MapEditorHeader({
       <div className="ds-head-acts">
         <div className="ds-head-icons">
           {isArchitect && (
-            // Панель «Рекомендации» — прежнего вида, как в шапке оболочки: обёртка без своей
-            // коробки держит прежние метрики текста (legacy-root, ui/tokens.css).
-            <span className="ds-head-legacy legacy-root">
-              <SchemaAlerts alerts={alerts} onLocate={onLocate}
-                // Процессные классы (AL26/AL27) на холсте чинить нечем: у повисшего шага
-                // связь удалена, у непривязанного участника объекта нет. Уводим в процесс,
-                // редактор при этом закрывается (решение пользователя: без вопроса и без
-                // возврата).
-                onOpenProcess={onOpenProcess} />
-            </span>
+            // Панель «Рекомендации» на новом языке, как в шапке оболочки.
+            <SchemaAlerts alerts={alerts} onLocate={onLocate}
+              // Процессные классы (AL26/AL27) на холсте чинить нечем: у повисшего шага
+              // связь удалена, у непривязанного участника объекта нет. Уводим в процесс,
+              // редактор при этом закрывается (решение пользователя: без вопроса и без
+              // возврата).
+              onOpenProcess={onOpenProcess} />
           )}
           <SchemaActions
             projectId={projectId}
