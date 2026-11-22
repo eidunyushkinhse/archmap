@@ -116,13 +116,13 @@ const кейсы: Кейс[] = [
   },
   {
     окно: "синк «Обновить из кода» (SyncRepoModal)",
-    подпись: "Скопировать задание для агента",
+    подпись: "Скопировать задание",
     скопировано: "Скопировано",
     открыть: async () => {
       render(<SyncRepoModal projectId="p1" onClose={vi.fn()} onApplied={vi.fn()} />);
       // Имя проекта приезжает запросом — до него кнопки неактивны.
       await waitFor(() =>
-        expect(screen.getByRole("button", { name: "Скопировать задание для агента" })).toBeEnabled(),
+        expect(screen.getByRole("button", { name: "Скопировать задание" })).toBeEnabled(),
       );
     },
     вариант: () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-1)?.[0]?.variant,

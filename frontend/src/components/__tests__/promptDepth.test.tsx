@@ -62,13 +62,13 @@ const окна: Окно[] = [
   },
   {
     имя: "синк «Обновить из кода» (SyncRepoModal)",
-    главная: "Скопировать задание для агента",
+    главная: "Скопировать задание",
     открыть: async () => {
       render(<SyncRepoModal projectId="p1" onClose={vi.fn()} onApplied={vi.fn()} />);
       // Имя проекта приезжает запросом — до него кнопки неактивны.
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Скопировать задание для агента" }),
+          screen.getByRole("button", { name: "Скопировать задание" }),
         ).toBeEnabled(),
       );
     },

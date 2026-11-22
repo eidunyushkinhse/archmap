@@ -45,7 +45,7 @@ describe("адрес ArchMap в запросе промпта ввоза", () =>
 
   it("окно «Обновить из кода»", async () => {
     render(<SyncRepoModal projectId="p1" onClose={vi.fn()} onApplied={vi.fn()} />);
-    const кнопка = screen.getByRole("button", { name: "Скопировать задание для агента" });
+    const кнопка = screen.getByRole("button", { name: "Скопировать задание" });
     await waitFor(() => expect(кнопка).toBeEnabled());
     await userEvent.click(кнопка);
     await waitFor(() => expect(адрес()).toBe(window.location.origin));

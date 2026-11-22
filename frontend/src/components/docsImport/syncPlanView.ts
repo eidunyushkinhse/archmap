@@ -43,7 +43,8 @@ function nodeNote(a: SyncNodeAction): string {
   // имени слабее якорного, и пользователь вправе усомниться в нём глазами — а
   // чтобы сомневаться, надо сперва знать, чем именно объект опознан.
   if (a.matched_by) parts.push(`нашли ${basisLabel(a.matched_by, a.path)}`);
-  return parts.join(" · ");
+  // Через запятую: части строки точкой «·» в продукте не склеиваются (редизайн).
+  return parts.join(", ");
 }
 
 /** Тип канала словами — значение, а не имя поля: «тип ← асинхронный» читается, «is_synchronous» нет. */
@@ -143,9 +144,11 @@ export function planSummary(p: SyncPreviewOut): string {
   add(s.edges_create, "новых связей");
   add(s.edges_update, "изменённых связей");
   add(s.edges_missing, "пропавших связей");
+  if (!bits.length) return "Изменений нет";
+  // Неизменное — последним пунктом того же перечня, а не хвостом через «·».
   const unchanged = (s.nodes_unchanged ?? 0) + (s.edges_unchanged ?? 0);
-  const tail = unchanged ? ` · без изменений ${unchanged}` : "";
-  return bits.length ? bits.join(", ") + tail : "Изменений нет" + tail;
+  if (unchanged) bits.push(`${unchanged} без изменений`);
+  return bits.join(", ");
 }
 
 /** Итог применения — текст тоста. skipped называем явно: эти действия потеряли
