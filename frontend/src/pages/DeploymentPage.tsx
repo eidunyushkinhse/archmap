@@ -37,7 +37,6 @@ import { useAsyncLoad } from "../lib/useAsyncLoad";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import LoadError from "../ui/LoadError";
 import { listToast } from "../ui/pageChrome";
-import { primaryBtn } from "../ui/styles";
 import { ChevronIcon, EdgeLabelsIcon, RelayoutIcon, SiteKindIcon } from "../ui/icons";
 import { loadErrorText } from "../ui/loadErrorText";
 import { plural } from "../ui/plural";
@@ -441,14 +440,14 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             <div className="dp-placing" role="status">
               <span className="dp-placing-text">Куда поставить «{placing.name}»? Щёлкните площадку</span>
               {placingMode.hasOwn && (
-                <button type="button" className="btn-soft" onClick={placingMode.unplace} disabled={placingMode.busy}>
+                <button type="button" className="ds-btn" onClick={placingMode.unplace} disabled={placingMode.busy}>
                   Снять размещение
                 </button>
               )}
-              <button type="button" className="btn-soft" onClick={placingMode.cancel}>
+              <button type="button" className="ds-btn" onClick={placingMode.cancel}>
                 Отмена
               </button>
-              {placingMode.error && <span className="dp-placing-error" role="alert">{placingMode.error}</span>}
+              {placingMode.error && <span className="ds-danger dp-placing-error" role="alert">{placingMode.error}</span>}
             </div>
           )}
           {dep.error ? (
@@ -486,15 +485,16 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
               />
               <SchemaLegend variant="deployment" />
               {isArchitect && !placing && selectedObjects.length > 0 && (
-                <div className="dp-selection" role="status">
+                // Своя область нового языка внутри области холста (legacy-root у опоры).
+                <div className="ds dp-selection" role="status">
                   <span className="dp-selection-count">
                     {plural(selectedObjects.length, ["Выбран", "Выбрано", "Выбрано"])} {selectedObjects.length}{" "}
                     {plural(selectedObjects.length, ["объект", "объекта", "объектов"])}
                   </span>
-                  <button type="button" style={selectionMainBtn} onClick={() => setPlacementOpen(true)}>
+                  <button type="button" className="ds-btn ds-btn--primary" onClick={() => setPlacementOpen(true)}>
                     Указать размещение
                   </button>
-                  <button type="button" className="btn-soft" onClick={() => setClearToken((t) => t + 1)}>
+                  <button type="button" className="ds-btn" onClick={() => setClearToken((t) => t + 1)}>
                     Снять выделение
                   </button>
                 </div>
@@ -548,6 +548,3 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     </>
   );
 }
-
-// Главная кнопка панели выделения — та же, что в окнах, но ниже ростом (панель тихая).
-const selectionMainBtn = { ...primaryBtn, padding: "6px 12px", fontSize: 13 };

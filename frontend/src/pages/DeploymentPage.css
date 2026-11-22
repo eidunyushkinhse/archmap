@@ -136,60 +136,50 @@ button.dp-crumb:focus-visible {
   padding: var(--space-6);
 }
 
-/* Плавающая панель выделения: по центру сверху холста, тихо, одной строкой. */
+/* Плавающая панель выделения над холстом по центру: поверхность как у меню (ds-menu в
+   ui/ds.css: фон, рамка, радиус, тень), одной строкой. */
 .dp-selection {
   position: absolute;
-  top: 12px;
+  top: var(--space-3);
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 14px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
   white-space: nowrap;
 }
-
 .dp-selection-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
-  margin-right: 4px;
+  margin-right: var(--space-1);
+  color: var(--c-fg);
 }
 
-/* Баннер режима размещения (D29): по образцу панели выделения, но голубой — холст ждёт
-   щелчка по площадке. Стоит В ПОТОКЕ между тулбаром и холстом, а не поверх него: поверх
-   он накрывал бы верхний ряд площадок, по которым и надо щёлкать (headless-проверка
-   2026-10-23). Виден и на время загрузки уровня. */
+/* Полоса режима размещения (D29): во всю ширину страницы между тулбаром и холстом, В ПОТОКЕ,
+   а не поверх холста — поверх она накрывала бы верхний ряд площадок, по которым и надо
+   щёлкать (headless-проверка 2026-10-23). Видна и на время загрузки уровня. Мягкий фон
+   акцента, снизу волосяная линия; текст — с x текста первого звена пути (поле тулбара и
+   поле крошки). Отказ записи — своей строкой. */
 .dp-placing {
   flex: none;
-  align-self: center;
-  max-width: 100%;
-  margin-bottom: 10px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 14px;
-  background: #eff6ff;
-  border: 1px solid #93c5fd;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + 7px);
+  background: var(--c-accent-soft);
+  border-bottom: 1px solid var(--c-line);
 }
-
 .dp-placing-text {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e3a8a;
-  margin-right: 4px;
+  margin-right: var(--space-1);
+  color: var(--c-fg);
 }
-
-.dp-placing-error {
+.dp-placing > .dp-placing-error {
   flex-basis: 100%;
-  font-size: 12.5px;
-  color: #dc2626;
+  margin: 0;
 }
