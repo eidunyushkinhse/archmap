@@ -53,6 +53,16 @@ function row(username: string) {
   return within(screen.getByTestId(`user-row-${username}`));
 }
 
+// Действие строки, готовое к нажатию: кнопка в строке.
+async function действие(username: string, label: string): Promise<HTMLElement> {
+  return row(username).getByRole("button", { name: label });
+}
+
+// Все действия строки заперты (идёт запись).
+function заперты(username: string): boolean {
+  return row(username).getAllByRole("button").every((b) => (b as HTMLButtonElement).disabled);
+}
+
 describe("UsersPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -183,6 +193,58 @@ describe("UsersPage", () => {
     vi.mocked(fetchMe).mockResolvedValue({ id: "u-x", username: "x", role: "viewer", is_admin: false, is_guest: false, can_create_project: false });
     render(<UsersPage onAllProjects={vi.fn()} onLogout={vi.fn()} />);
     expect(await screen.findByText("Требуются права администратора")).toBeInTheDocument();
+  });
+
+  // Страховка редизайна (фаза 12а): действие строки находит помощник действие(), тела
+  // запросов, тосты и запертость во время записи не зависят от вида строки.
+  it("сделать админом, разблокировать, сменить роль: тосты итога", async () => {
+    await setup([boss, ivan, petr]);
+    vi.mocked(adminApi.update).mockResolvedValueOnce({ ...ivan, is_admin: true });
+    await userEvent.click(await действие("ivan", "Сделать администратором"));
+    expect(adminApi.update).toHaveBeenLastCalledWith("u-ivan", { is_admin: true });
+    expect(await screen.findByText("Права администратора выданы")).toBeInTheDocument();
+    expect(row("ivan").getByText("Да")).toBeInTheDocument();
+
+    vi.mocked(adminApi.update).mockResolvedValueOnce({ ...petr, is_active: true });
+    await userEvent.click(await действие("petr", "Разблокировать"));
+    expect(adminApi.update).toHaveBeenLastCalledWith("u-petr", { is_active: true });
+    expect(await screen.findByText("Пользователь разблокирован")).toBeInTheDocument();
+
+    vi.mocked(adminApi.update).mockResolvedValueOnce({ ...petr, is_active: true, role: "architect" });
+    await userEvent.selectOptions(row("petr").getByLabelText("Роль petr"), "architect");
+    expect(adminApi.update).toHaveBeenLastCalledWith("u-petr", { role: "architect" });
+    expect(await screen.findByText("Роль изменена")).toBeInTheDocument();
+    expect(adminApi.update).toHaveBeenCalledTimes(3);
+  });
+
+  it("снятие прав после подтверждения: тело запроса, окно закрыто, тост, строка «Нет»", async () => {
+    await setup([boss, olga]);
+    vi.mocked(adminApi.update).mockResolvedValue({ ...olga, is_admin: false });
+    await userEvent.click(await действие("olga", "Снять права администратора"));
+    await userEvent.click(screen.getByRole("button", { name: "Снять" }));
+    expect(adminApi.update).toHaveBeenCalledWith("u-olga", { is_admin: false });
+    expect(await screen.findByText("Права администратора сняты")).toBeInTheDocument();
+    expect(screen.queryByText("Снять права администратора с «olga»?")).toBeNull();
+    expect(row("olga").getByText("Нет")).toBeInTheDocument();
+  });
+
+  it("отказ записи без окна — текстом на странице", async () => {
+    await setup([boss, ivan]);
+    vi.mocked(adminApi.update).mockRejectedValue(new Error("Пользователь не найден"));
+    await userEvent.click(await действие("ivan", "Сделать администратором"));
+    expect(await screen.findByText("Пользователь не найден")).toBeInTheDocument();
+  });
+
+  it("пока идёт запись, действия строк и список роли заперты", async () => {
+    await setup([boss, ivan, petr]);
+    let ответить: (u: AdminUser) => void = () => {};
+    vi.mocked(adminApi.update).mockImplementation(() => new Promise<AdminUser>((res) => { ответить = res; }));
+    await userEvent.click(await действие("petr", "Разблокировать"));
+    expect(заперты("ivan")).toBe(true);
+    expect(row("ivan").getByLabelText("Роль ivan")).toBeDisabled();
+    ответить({ ...petr, is_active: true });
+    await waitFor(() => expect(заперты("ivan")).toBe(false));
+    expect(row("ivan").getByLabelText("Роль ivan")).toBeEnabled();
   });
 
   it("«Все проекты» ведёт обратно", async () => {
