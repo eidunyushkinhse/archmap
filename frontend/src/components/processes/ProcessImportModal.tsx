@@ -22,7 +22,7 @@ import { processesApi } from "../../api/processes";
 import type { ProcessImportPreview, ProcessReplaceResult } from "../../types";
 import { limitMessage } from "../demo/demoLimits";
 import { noAutofill } from "../../ui/noAutofill";
-import { ChevronDownIcon } from "../../ui/icons";
+import { ChevronDownIcon, CloseIcon } from "../../ui/icons";
 import { plural } from "../../ui/plural";
 import { autoName, splitDiagram, splitFile } from "./importDrafts";
 import type { DraftSource } from "./importDrafts";
@@ -249,9 +249,9 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
       : "Импортировать";
 
   return (
-    <Modal onClose={onClose} onSubmit={() => void submit()} boxStyle={{ width: 720, maxHeight: "calc(100vh - 48px)", overflowY: "auto", padding: 24 }}>
+    <Modal onClose={onClose} onSubmit={() => void submit()} closeButton={false} boxStyle={{ width: 720, padding: 0 }}>
       <div
-        className={"ds pim" + (dropping ? " is-drop" : "")}
+        className={"ds ds-win pim" + (dropping ? " is-drop" : "")}
         onDragOver={onDragOver}
         // Уход указателя за пределы окна, а не переход между его частями.
         onDragLeave={(e) => {
@@ -259,82 +259,88 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
         }}
         onDrop={onDrop}
       >
-        <h2 className="pim-title">{title}</h2>
-        {loadError && <p className="ds-danger pim-line" role="alert">{loadError}</p>}
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">{title}</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="ds-win-body">
+          {loadError && <p className="ds-danger pim-line" role="alert">{loadError}</p>}
 
-        {single ? (
-          <SingleDraft
-            v={view[0]}
-            replace={!!replace}
-            onName={(name) => patch(view[0].d.key, { name })}
-            onText={(raw) => patch(view[0].d.key, { raw, failure: null, fileError: null })}
-            onChoose={(alias, id) => patch(view[0].d.key, { choice: { ...view[0].d.choice, [alias]: id } })}
-            schema={schema}
-          />
-        ) : (
-          <div className="pim-rows">
-            {view.map((v) => {
-              const isOpen = open[v.d.key] ?? hasIssues(v.preview, v.errors.length > 0, v.keep);
-              return (
-                <div key={v.d.key} className="pim-row">
-                  <div className="pim-row-head">
-                    <button
-                      type="button"
-                      className="pim-row-chev"
-                      aria-expanded={isOpen}
-                      aria-label={isOpen ? "Свернуть" : "Раскрыть"}
-                      onClick={() => setOpen((o) => ({ ...o, [v.d.key]: !isOpen }))}
-                    >
-                      <span className={"ds-chev" + (isOpen ? "" : " is-closed")}><ChevronDownIcon /></span>
-                    </button>
-                    <input
-                      {...noAutofill(`process-import-name-${v.d.key}`)}
-                      className="ds-field pim-row-name"
-                      value={v.name}
-                      maxLength={256}
-                      placeholder="Название процесса"
-                      aria-label="Название процесса"
-                      onChange={(e) => patch(v.d.key, { name: e.target.value })}
-                    />
-                    {v.preview && (
-                      <span className="pim-row-steps">
-                        {v.preview.message_count} {plural(v.preview.message_count, ["шаг", "шага", "шагов"])}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      className="ds-del"
-                      title="Убрать из импорта"
-                      aria-label="Убрать из импорта"
-                      onClick={() => setDrafts((cur) => cur.filter((d) => d.key !== v.d.key))}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  {isOpen && (
-                    <div className="pim-row-body">
-                      <ImportDraftIssues
-                        preview={v.preview}
-                        choice={v.d.choice}
-                        onChoose={(alias, id) => {
-                          patch(v.d.key, { choice: { ...v.d.choice, [alias]: id } });
-                          // Строка раскрыта сама (были проблемы); выбор их может снять, и
-                          // строка свернулась бы из-под рук: раскрытие закрепляется.
-                          setOpen((o) => ({ ...o, [v.d.key]: o[v.d.key] ?? true }));
-                        }}
-                        errors={v.errors}
-                        keep={v.keep}
-                        schema={schema}
+          {single ? (
+            <SingleDraft
+              v={view[0]}
+              replace={!!replace}
+              onName={(name) => patch(view[0].d.key, { name })}
+              onText={(raw) => patch(view[0].d.key, { raw, failure: null, fileError: null })}
+              onChoose={(alias, id) => patch(view[0].d.key, { choice: { ...view[0].d.choice, [alias]: id } })}
+              schema={schema}
+            />
+          ) : (
+            <div className="pim-rows">
+              {view.map((v) => {
+                const isOpen = open[v.d.key] ?? hasIssues(v.preview, v.errors.length > 0, v.keep);
+                return (
+                  <div key={v.d.key} className="pim-row">
+                    <div className="pim-row-head">
+                      <button
+                        type="button"
+                        className="pim-row-chev"
+                        aria-expanded={isOpen}
+                        aria-label={isOpen ? "Свернуть" : "Раскрыть"}
+                        onClick={() => setOpen((o) => ({ ...o, [v.d.key]: !isOpen }))}
+                      >
+                        <span className={"ds-chev" + (isOpen ? "" : " is-closed")}><ChevronDownIcon /></span>
+                      </button>
+                      <input
+                        {...noAutofill(`process-import-name-${v.d.key}`)}
+                        className="ds-field pim-row-name"
+                        value={v.name}
+                        maxLength={256}
+                        placeholder="Название процесса"
+                        aria-label="Название процесса"
+                        onChange={(e) => patch(v.d.key, { name: e.target.value })}
                       />
+                      {v.preview && (
+                        <span className="pim-row-steps">
+                          {v.preview.message_count} {plural(v.preview.message_count, ["шаг", "шага", "шагов"])}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="ds-del"
+                        title="Убрать из импорта"
+                        aria-label="Убрать из импорта"
+                        onClick={() => setDrafts((cur) => cur.filter((d) => d.key !== v.d.key))}
+                      >
+                        ×
+                      </button>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="pim-foot">
+                    {isOpen && (
+                      <div className="pim-row-body">
+                        <ImportDraftIssues
+                          preview={v.preview}
+                          choice={v.d.choice}
+                          onChoose={(alias, id) => {
+                            patch(v.d.key, { choice: { ...v.d.choice, [alias]: id } });
+                            // Строка раскрыта сама (были проблемы); выбор их может снять, и
+                            // строка свернулась бы из-под рук: раскрытие закрепляется.
+                            setOpen((o) => ({ ...o, [v.d.key]: o[v.d.key] ?? true }));
+                          }}
+                          errors={v.errors}
+                          keep={v.keep}
+                          schema={schema}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="ds-win-foot">
           <button type="button" className="ds-add" onClick={() => fileInput.current?.click()}>
             {replace ? "Выбрать файл" : "Выбрать файлы"}
           </button>
