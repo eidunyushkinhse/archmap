@@ -20,13 +20,12 @@ const NODES = [
   node("k", "Касса", "b", "кэш"),
 ];
 
-function open(props: { subtitle?: string; nodes?: Node[] } = {}) {
+function open(props: { nodes?: Node[] } = {}) {
   const onClose = vi.fn();
   const onCreated = vi.fn();
   render(
     <CrossLevelEdgePicker
       title="Связь внутрь «Оплата»"
-      subtitle={props.subtitle}
       sourceId="a"
       sourceLabel="Заказы"
       loadNodes={() => Promise.resolve(props.nodes ?? NODES)}
@@ -47,14 +46,16 @@ const rowOf = (name: string) => within(tree()).getByText(name).closest(".clp-row
 beforeEach(() => vi.clearAllMocks());
 
 describe("окно связи между уровнями: вид", () => {
-  it("каркас окна: заголовок из пропа, крестик, подзаголовок первой строкой тела", async () => {
-    const { onClose } = open({ subtitle: "Выберите объект внутри «Оплата», к которому ведёт связь." });
+  it("каркас окна: заголовок из пропа, крестик; тело начинается маршрутом, без подзаголовка", async () => {
+    const { onClose } = open();
     await screen.findByText("Оплата");
 
     expect(screen.getByRole("heading", { name: "Связь внутрь «Оплата»" })).toHaveClass("ds-win-title");
-    const lead = screen.getByText("Выберите объект внутри «Оплата», к которому ведёт связь.");
-    expect(lead).toHaveClass("ds-win-lead");
-    expect(lead.parentElement?.firstElementChild).toBe(lead);
+    expect(dialog().querySelector(".ds-win-lead")).toBeNull();
+    expect(dialog().querySelector(".ds-win-body")?.firstElementChild).toHaveClass("clp-route");
+    // Окно прижато к верху, как «Новый объект»: поиск и раскрытие веток его не сдвигают.
+    expect(dialog().querySelector(".ds-win")).toHaveClass("ds-win--top");
+    expect(dialog().style.margin).toBe("8vh auto auto");
     await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     expect(onClose).toHaveBeenCalledOnce();
   });

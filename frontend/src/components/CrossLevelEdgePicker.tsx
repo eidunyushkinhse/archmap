@@ -12,7 +12,6 @@ import "./edgeWindows.css";
 
 interface Props {
   title: string;
-  subtitle?: string;
   // Узел, от которого протянули стрелку (ближний конец связи). Хэндл жеста связь
   // больше не несёт (R3): геометрию пучка display-пары сохраняет MapEditorPage после
   // onCreated (направление выводит из created.source_id).
@@ -46,9 +45,12 @@ interface Props {
  * открывает отдельный список. Направление по умолчанию — от источника к цели; кнопка на
  * соединителе разворачивает его, не меняя элементы местами (источник всегда слева,
  * направление видно по стороне наконечника).
+ *
+ * Окно прижато к верху, как «Новый объект» (NodeModal: отступ 8vh, ds-win--top): поиск и
+ * раскрытие веток меняют высоту дерева, и окно по центру прыгало бы верхним краем.
  */
 export default function CrossLevelEdgePicker({
-  title, subtitle, sourceId, sourceLabel,
+  title, sourceId, sourceLabel,
   loadNodes, scopeKey, rootParentId, excludeIds, slotPlaceholder, onClose, onCreated,
 }: Props) {
   const uid = useId();
@@ -242,8 +244,8 @@ export default function CrossLevelEdgePicker({
   const submit = () => { if (canCreate) void handleCreate(); };
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} closeButton={false} boxStyle={{ width: 480, padding: 0 }}>
-      <div className="ds ds-win">
+    <Modal onClose={onClose} onSubmit={submit} closeButton={false} boxStyle={{ width: 480, padding: 0, margin: "8vh auto auto" }}>
+      <div className="ds ds-win ds-win--top">
         <div className="ds-win-head">
           <h2 className="ds-win-title">{title}</h2>
           <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
@@ -252,8 +254,6 @@ export default function CrossLevelEdgePicker({
         </div>
 
         <div className="ds-win-body">
-          {subtitle && <p className="ds-win-lead">{subtitle}</p>}
-
           {/* Маршрут: источник ——соединитель——> слот цели. Позиции фиксированы (источник
               всегда слева); направление показывает только сторона наконечника. */}
           <div className="clp-route">
