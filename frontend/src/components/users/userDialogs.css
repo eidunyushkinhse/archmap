@@ -1,7 +1,7 @@
 /* Окна учётных данных (редизайн, фаза 9д): «Новый пользователь», «Сбросить пароль»,
-   «Сменить пароль» и «Токены для MCP». Каркас ds-win, строки ds-props, поля ds-input и
-   списки ds-select, флажок ds-check, кнопки ds-btn (ui/ds.css). Здесь только своё этих
-   окон. Значения — только токены ui/tokens.css. */
+   «Сменить пароль», «Токены для MCP» и «Токен выпущен». Каркас ds-win, строки ds-props,
+   поля ds-input и списки ds-select, флажок ds-check, кнопки ds-btn, вкладки ds-tabs
+   (ui/ds.css). Здесь только своё этих окон. Значения — только токены ui/tokens.css. */
 
 /* Строки «подпись — поле в рамке». Это формы учётных данных: пустому полю логина и
    пароля нечего показать подсказкой, поэтому поле видно само (рамка ds-input). Строка
@@ -128,4 +128,64 @@
 .ud-revoke:focus-visible {
   outline: 2px solid var(--c-accent);
   outline-offset: -2px;
+}
+
+/* ── «Токен выпущен»: блоки кода ────────────────────────────────────────────
+   Секрет и строки подключения — блоки кода на токенах: моноширинный 12px, фон
+   --c-bg-subtle, волосяная рамка, радиус окна. Строка блока с «Скопировать» справа:
+   секрет в одну строку высотой с кнопку (длинный переносится по символам и за окно не
+   выходит); над блоком подключения — пояснение вкладки тихим текстом с «Скопировать» в
+   одном ряду. Блок подключения многострочный, длинные строки не переносятся и
+   прокручиваются внутри блока. Клик по блоку выделяет его целиком (скопировать вручную,
+   если браузер не дал). */
+.ud-code-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.ud-code {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  /* 18px: блок секрета в одну строку высотой с кнопку рядом (30px с полями и рамкой). */
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--c-fg);
+  user-select: all;
+}
+.ud-secret {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-all;
+}
+.ud-pre {
+  padding: 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+/* Прокручиваемый блок получает фокус с клавиатуры (прокрутка стрелками): кольцо языка. */
+.ud-pre:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+/* Заглушка имени программы в команде CLI — тихим цветом. */
+.ud-stub {
+  color: var(--c-fg-muted);
+}
+.ud-code-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Блок подключения отделён от секрета, как блоки окна друг от друга (24px). */
+.ud-connect {
+  margin-top: var(--space-3);
 }

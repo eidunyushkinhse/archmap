@@ -1,11 +1,11 @@
-import { Fragment, useState } from "react";
-import type { CSSProperties } from "react";
+import { useState } from "react";
 import { CopyFailed, copyText } from "../../lib/copyText";
 import type { PersonalTokenCreated } from "../../types";
-import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
-import { primaryBtn } from "../../ui/styles";
+import { CloseIcon } from "../../ui/icons";
 import { CI_TABS, ciSnippet } from "./ciSignal";
+import "../../ui/ds.css";
+import "./userDialogs.css";
 
 /**
  * Вид «токен выпущен» окна «Токены для MCP»: секрет показывается ОДИН раз — здесь, с
@@ -15,6 +15,12 @@ import { CI_TABS, ciSnippet } from "./ciSignal";
  * Особые форматы (VS Code, httpUrl у Qwen Code) — в mcp/README.md. Адрес — origin
  * страницы + /mcp: тот же ArchMap, что открыт в браузере (в dev /mcp проксирует Vite).
  * У токена «только сигнал CI» вместо подключения агента — готовые строки CI (ciSignal.ts).
+ *
+ * Вид (редизайн, фаза 9д): каркас окна нового языка (ui/ds.css, ds-win). Секрет — блок
+ * кода в одну строку (длинный переносится по символам) с «Скопировать» справа; блок
+ * подключения — заголовок, вкладки-текст ds-tabs, пояснение вкладки с «Скопировать» в
+ * одном ряду и блок кода того же вида, длинные строки которого прокручиваются внутри него
+ * (users/userDialogs.css). В подвале одна «Готово».
  */
 
 interface Props {
@@ -74,100 +80,59 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
   }
 
   const copyButton = (key: string, text: string) => (
-    <button style={copyBtn} onClick={() => void copy(key, text)}>
+    <button type="button" className="ds-btn" onClick={() => void copy(key, text)}>
       {copied === key ? "Скопировано" : "Скопировать"}
     </button>
   );
 
   return (
-    <Modal onClose={onDone} boxStyle={{ width: 600, padding: 24, maxHeight: "86vh", overflowY: "auto" }}>
-      <DialogTitle lead="Токен будет показан только один раз. Скопируйте его сейчас.">Токен выпущен</DialogTitle>
-
-      <div style={tokenRow}>
-        <code style={tokenText} data-testid="issued-secret">{secret}</code>
-        {copyButton("secret", secret)}
-      </div>
-
-      <div style={connectHead}>
-        <span style={sectionLabel}>{ci ? "Сигнал из CI после слияния в main" : "Подключение"}</span>
-        <div role="tablist" aria-label={ci ? "CI" : "Клиент"} style={seg}>
-          {views.map((v) => (
-            <button
-              key={v.id}
-              role="tab"
-              aria-selected={view.id === v.id}
-              style={segBtn(view.id === v.id)}
-              onClick={() => setTab(v.id)}
-            >
-              {v.label}
-            </button>
-          ))}
+    <Modal onClose={onDone} closeButton={false} boxStyle={{ width: 600, padding: 0 }}>
+      <div className="ds ds-win">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Токен выпущен</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onDone}>
+            <CloseIcon />
+          </button>
         </div>
-      </div>
-      <div style={codeBox}>
-        <div style={codeHead}>
-          <span style={hint}>{view.hint}</span>
-          {copyButton(view.id, view.text)}
-        </div>
-        <pre style={code} data-testid={`issued-${view.id}`}>
-          {view.id === "cli" ? <><span style={stub}>{CLI_STUB}</span> {cliWords(cliArgs)}</> : view.text}
-        </pre>
-      </div>
-      {copyError && <p style={note}>Браузер не дал скопировать. Выделите текст и скопируйте вручную.</p>}
 
-      <div style={{ display: "flex", marginTop: 20 }}>
-        <button data-autofocus style={primaryBtn} onClick={onDone}>Готово</button>
+        <div className="ds-win-body">
+          <p className="ud-lead">Токен будет показан только один раз. Скопируйте его сейчас.</p>
+          <div className="ud-code-row">
+            <code className="ud-code ud-secret" data-testid="issued-secret">{secret}</code>
+            {copyButton("secret", secret)}
+          </div>
+
+          <section className="ds-win-block ud-connect">
+            <h3 className="ds-win-block-title">{ci ? "Сигнал из CI после слияния в main" : "Подключение"}</h3>
+            <div role="tablist" aria-label={ci ? "CI" : "Клиент"} className="ds-tabs">
+              {views.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view.id === v.id}
+                  className={"ds-tab" + (view.id === v.id ? " is-active" : "")}
+                  onClick={() => setTab(v.id)}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <div className="ud-code-row">
+              <span className="ud-code-hint">{view.hint}</span>
+              {copyButton(view.id, view.text)}
+            </div>
+            <pre className="ud-code ud-pre" data-testid={`issued-${view.id}`}>
+              {view.id === "cli" ? <><span className="ud-stub">{CLI_STUB}</span> {cliArgs}</> : view.text}
+            </pre>
+          </section>
+          {copyError && <p className="ds-warn ud-flat">Браузер не дал скопировать. Выделите текст и скопируйте вручную.</p>}
+        </div>
+
+        <div className="ds-win-foot">
+          <button type="button" data-autofocus className="ds-btn ds-btn--primary" onClick={onDone}>Готово</button>
+        </div>
       </div>
     </Modal>
   );
 }
-
-const mono = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-const tokenRow: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 10, padding: "8px 8px 8px 12px",
-  border: "1px solid #e2e8f0", borderRadius: 8, background: "#f8fafc",
-};
-const tokenText: CSSProperties = {
-  flex: 1, minWidth: 0, fontFamily: mono, fontSize: 12.5, lineHeight: 1.5, color: "#0f172a",
-  wordBreak: "break-all", userSelect: "all",
-};
-const copyBtn: CSSProperties = {
-  flex: "none", background: "none", border: "none", padding: "2px 4px", fontSize: 13, fontWeight: 600,
-  color: "#2563eb", cursor: "pointer",
-};
-const connectHead: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between", margin: "20px 0 8px",
-};
-const sectionLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569" };
-// Переключатель — как «Как есть / Переход / Как будет» (.insp-seg--inline).
-const seg: CSSProperties = { display: "inline-flex", gap: 2, padding: 2, background: "#eceef1", borderRadius: 8 };
-const segBtn = (on: boolean): CSSProperties => ({
-  padding: "4px 10px", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-  background: on ? "#fff" : "none", color: on ? "#2563eb" : "#475569",
-  boxShadow: on ? "0 1px 2px rgba(15,23,42,.12)" : "none",
-  transition: "background .12s, color .12s, box-shadow .12s",
-});
-const codeBox: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 8, background: "#f8fafc" };
-const codeHead: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  padding: "6px 8px 6px 12px", borderBottom: "1px solid #e2e8f0",
-};
-const hint: CSSProperties = { fontSize: 12.5, color: "#64748b" };
-const code: CSSProperties = {
-  margin: 0, padding: "10px 12px", fontFamily: mono, fontSize: 12.5, lineHeight: 1.5, color: "#0f172a",
-  // Перенос по пробелам, длинный токен — где придётся (break-all рвал и «--header»).
-  whiteSpace: "pre-wrap", overflowWrap: "anywhere", userSelect: "all",
-};
-// Опции «--header» и «--transport» не рвём на «--» и имя: браузер переносит после дефиса.
-// Только показ — копируется строка connect.cli как есть.
-function cliWords(text: string) {
-  return text.split(" ").map((w, i) => (
-    <Fragment key={i}>
-      {i > 0 && " "}
-      {w.startsWith("--") ? <span style={{ whiteSpace: "nowrap" }}>{w}</span> : w}
-    </Fragment>
-  ));
-}
-
-const stub: CSSProperties = { color: "#2563eb", fontWeight: 600 };
-const note: CSSProperties = { margin: "10px 0 0", fontSize: 13, color: "#64748b" };

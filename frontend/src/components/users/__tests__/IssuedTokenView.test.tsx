@@ -118,3 +118,34 @@ describe("IssuedTokenView", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 });
+
+// Вид (редизайн, фаза 9д): каркас окна нового языка, блоки кода, вкладки-текст ds-tabs.
+describe("вид «Токен выпущен»", () => {
+  it("каркас, блоки кода, вкладки нового языка, кнопки ds-btn; инлайн-стилей нет", async () => {
+    render(<IssuedTokenView issued={{ token: token(), secret: SECRET }} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Токен выпущен" })).toHaveClass("ds-win-title");
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-win-close");
+    const body = document.querySelector(".ds-win-body");
+    expect(body?.firstElementChild).toHaveTextContent("Токен будет показан только один раз. Скопируйте его сейчас.");
+    expect(screen.getByTestId("issued-secret")).toHaveClass("ud-code");
+    expect(screen.getByTestId("issued-cli")).toHaveClass("ud-code");
+    expect(screen.getByText("Подключение").tagName).toBe("H3");
+    expect(screen.getByText("Подключение")).toHaveClass("ds-win-block-title");
+    expect(screen.getByRole("tablist")).toHaveClass("ds-tabs");
+    expect(screen.getByRole("tab", { name: "CLI" })).toHaveClass("ds-tab", "is-active");
+    expect(screen.getByRole("tab", { name: "Desktop" })).toHaveClass("ds-tab");
+    expect(screen.getByRole("tab", { name: "Desktop" })).not.toHaveClass("is-active");
+    // Заглушка имени программы — отдельным тихим словом в начале команды.
+    expect(screen.getByTestId("issued-cli").querySelector(".ud-stub")).toHaveTextContent("<cli>");
+    for (const b of copyButtons()) expect(b.className).toBe("ds-btn");
+    expect(screen.getByRole("button", { name: "Готово" }).className).toBe("ds-btn ds-btn--primary");
+    expect(document.querySelectorAll(".ds-win [style]")).toHaveLength(0);
+  });
+
+  it("отказ буфера — строкой предупреждения ds-warn", async () => {
+    vi.mocked(copyText).mockRejectedValue(new CopyFailed(SECRET));
+    render(<IssuedTokenView issued={{ token: token(), secret: SECRET }} onDone={vi.fn()} />);
+    await userEvent.click(copyButtons()[0]);
+    expect(await screen.findByText("Браузер не дал скопировать. Выделите текст и скопируйте вручную.")).toHaveClass("ds-warn");
+  });
+});
