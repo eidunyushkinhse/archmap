@@ -47,7 +47,7 @@ export default function SyncPlan({ imp }: { imp: SyncImport }) {
     <>
       <div className="sync-policies">
         {POLICY_LABELS.map((p) => (
-          <label key={p.key} className="sync-policy" title={p.hint}>
+          <label key={p.key} className="ds-check" title={p.hint}>
             <input
               type="checkbox"
               checked={imp.policies[p.key]}

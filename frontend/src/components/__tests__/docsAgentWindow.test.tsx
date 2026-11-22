@@ -16,6 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DocsAgentModal from "../docsImport/DocsAgentModal";
 import { docsImportApi } from "../../api/docsImport";
+import { ApiError } from "../../api/client";
 import type { DocsImportReport } from "../../types";
 
 vi.mock("../../api/docsImport", () => ({
@@ -287,6 +288,42 @@ describe("Схемы логики с агентом: вид нового язы�
     expect(fireEvent.keyDown(value, { key: "Escape" })).toBe(true);
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("сводка перечисляет только ненулевые счётчики", async () => {
+    renderWindow();
+    await положитьФайл();
+    expect(screen.getByText("Схем: 1 (новых 1)")).toBeInTheDocument();
+
+    vi.mocked(docsImportApi.preview).mockResolvedValue(report({
+      logic: [row(), row({ source: "b.mmd", name: "Отмена", action: "skip" }), row({ source: "c.mmd", name: "Оплата", action: "fill" })],
+    }));
+    await userEvent.upload(fileInput(), new File(["graph TD\n"], "b.mmd"));
+    expect(await screen.findByText("Схем: 3 (новых 1, заполнение неописанных 1, пропуск 1)", {}, WAIT)).toBeInTheDocument();
+  });
+
+  it("сводка без ненулевых счётчиков — без скобок", async () => {
+    vi.mocked(docsImportApi.preview).mockResolvedValue(report({ logic: [] }));
+    renderWindow();
+    await userEvent.upload(fileInput(), new File(["graph TD\n"], "a.mmd"));
+    expect(await screen.findByText("Схем: 0", {}, WAIT)).toBeInTheDocument();
+  });
+
+  it("отказ применения: строка над кнопками, окно открыто, пакет на месте", async () => {
+    const { onApplied, onClose } = renderWindow();
+    await положитьФайл();
+    vi.mocked(docsImportApi.apply).mockRejectedValueOnce(new ApiError(422, "Имя схемы длиннее 200 символов"));
+    await userEvent.click(button("Применить")!);
+    const foot = document.querySelector(".ds-win-foot") as HTMLElement;
+    expect(await within(foot).findByRole("alert")).toHaveTextContent("Не сохранилось. Имя схемы длиннее 200 символов");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(screen.getByText("a.mmd")).toBeInTheDocument();
+
+    // Повторное применение снимает прежний отказ.
+    await userEvent.click(button("Применить")!);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(within(foot).queryByRole("alert")).toBeNull();
   });
 
   it("кнопка задания: «Скопировать задание», не главная, «Скопировано» без галочки", async () => {

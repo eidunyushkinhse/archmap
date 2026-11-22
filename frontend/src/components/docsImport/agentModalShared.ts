@@ -5,8 +5,17 @@
 // (ItemList/NoteList) — в agentModalReport.tsx (требование react-refresh:
 // файл экспортирует только компоненты).
 import { useState } from "react";
+import { ApiError } from "../../api/client";
 import { plural } from "../../ui/plural";
 import type { CSSProperties } from "react";
+
+/** Текст отказа применения для строки над футером окна. Отказ сервера по существу (4xx:
+ *  предел демо-стенда, длина поля, права) — его словами; сеть и сбой сервера — общей
+ *  строкой, теми же словами, что у «Обновить из кода». */
+export function applyRefusal(e: unknown): string {
+  if (e instanceof ApiError && e.status < 500 && e.message) return `Не сохранилось. ${e.message}`;
+  return "Не удалось сохранить изменения. Проверьте соединение и повторите.";
+}
 
 // Бейдж действия превью/применения (action из отчёта бэка)
 export const ACTION_LABEL: Record<string, string> = {

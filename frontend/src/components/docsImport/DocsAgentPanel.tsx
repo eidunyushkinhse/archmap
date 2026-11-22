@@ -43,6 +43,10 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
 
       {/* Отчёт превью / применения */}
       <DocsAgentReport agent={agent} />
+      {/* Отказ применения — красной строкой, как ошибки отчёта; окно остаётся открытым. */}
+      {agent.applyError && (
+        <p role="alert" style={{ margin: "8px 0 0", fontSize: 12.5, color: "#dc2626" }}>{agent.applyError}</p>
+      )}
 
       <div style={footRow}>
         {docName === null && (

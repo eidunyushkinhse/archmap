@@ -13,30 +13,10 @@
   align-self: flex-start;
 }
 
-/* «Заменять уже описанное»: флажок и текст на одной базовой линии, подсказка — в title. */
+/* «Заменять уже описанное» — общая галочка окон (ds-check в ui/ds.css), здесь только
+   отступ от отчёта. */
 .dap-check {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  width: fit-content;
-  max-width: 100%;
   margin-top: var(--space-1);
-  line-height: var(--lh-ui);
-  color: var(--c-fg);
-  cursor: pointer;
-}
-.dap-check input {
-  flex: none;
-  margin: 0;
-}
-/* Фокус флажка — кольцом языка только с клавиатуры (общее правило окон ui/modal.css
-   рисует светлую рамку и после щелчка мышью). */
-.app-modal .ds-win .dap-check input:focus {
-  box-shadow: none;
-}
-.app-modal .ds-win .dap-check input:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 1px;
 }
 
 /* ── Отчёт превью: строки 13px, итог 600, предупреждения цветом предупреждения ── */

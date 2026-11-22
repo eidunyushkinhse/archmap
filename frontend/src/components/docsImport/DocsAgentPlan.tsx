@@ -19,6 +19,24 @@ import "./docsAgent.css";
 // Сколько строк плана видно; остальные — строкой «и ещё N», как в прежнем отчёте.
 const SHOWN_ROWS = 8;
 
+// Части сводки в порядке прежнего отчёта; слова прежние.
+const SUMMARY_PARTS: [string, string][] = [
+  ["новых", "create"],
+  ["заполнение неописанных", "fill"],
+  ["перезапись", "overwrite"],
+  ["пропуск", "skip"],
+  ["без изменений", "unchanged"],
+];
+
+/** «Схем: 5 (новых 5)»: в скобках только ненулевые счётчики, без них — без скобок. */
+function summaryLine(rows: DocsPlanRow[]): string {
+  const parts = SUMMARY_PARTS
+    .map(([word, action]) => [word, countAction(rows, action)] as const)
+    .filter(([, n]) => n > 0)
+    .map(([word, n]) => `${word} ${n}`);
+  return `Схем: ${rows.length}${parts.length > 0 ? ` (${parts.join(", ")})` : ""}`;
+}
+
 export default function DocsAgentPlan({ agent }: { agent: DocsAgent }) {
   const { report, checking, mmdBroken, willWrite, remarks } = agent;
   const idle = !checking;
@@ -51,12 +69,7 @@ export default function DocsAgentPlan({ agent }: { agent: DocsAgent }) {
         </p>
       )}
       {idle && report !== null && !report.applied && report.errors.length === 0 && (
-        <p className={"dap-summary" + (willWrite ? " is-ok" : "")}>
-          Схем: {report.logic.length} (новых {countAction(report.logic, "create")},
-          заполнение неописанных {countAction(report.logic, "fill")},
-          перезапись {countAction(report.logic, "overwrite")}, пропуск {countAction(report.logic, "skip")},
-          без изменений {countAction(report.logic, "unchanged")})
-        </p>
+        <p className={"dap-summary" + (willWrite ? " is-ok" : "")}>{summaryLine(report.logic)}</p>
       )}
       {idle && report !== null && report.errors.length > 0 && (
         <NoteList ds danger title="Файлы не применить:" items={report.errors} />

@@ -435,6 +435,30 @@ button.ds-sub:hover {
 .app-modal .ds-win .ds-grow-input:focus {
   box-shadow: 0 0 0 1px var(--c-accent);
 }
+/* Галочка окна («Заменять уже описанное», «что обновлять»): флажок и текст на одной
+   базовой линии, подсказка — в title. Фокус флажка — кольцом языка только с клавиатуры:
+   общее правило окон (ui/modal.css) рисует светлую рамку и после щелчка мышью. */
+.ds-check {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.ds-check input {
+  flex: none;
+  margin: 0;
+}
+.app-modal .ds-win input[type="checkbox"]:focus {
+  box-shadow: none;
+}
+.app-modal .ds-win input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
 
 /* ── Поле ввода формы: рамка на токенах, фокус акцентом ──────────────────── */
 .ds-input {

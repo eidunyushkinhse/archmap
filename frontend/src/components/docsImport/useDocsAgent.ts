@@ -21,7 +21,9 @@ import { docsImportApi } from "../../api/docsImport";
 import { validateMermaid } from "../mermaidLoader";
 import { useDocsFiles } from "./useDocsFiles";
 import type { DocsFilesApi } from "./useDocsFiles";
-import { countAction, checkMermaid, type MermaidCheck, inputFingerprint, useRepeatedInput } from "./agentModalShared";
+import {
+  applyRefusal, countAction, checkMermaid, type MermaidCheck, inputFingerprint, useRepeatedInput,
+} from "./agentModalShared";
 import { copyTextOrShow } from "../../lib/copyText";
 import { useToast } from "../../pages/useToast";
 
@@ -87,6 +89,8 @@ export interface DocsAgent {
   /** more=true — «Добавить ещё»: применить и очистить пакет под следующую схему. */
   apply: (more: boolean) => void;
   applying: boolean;
+  /** Отказ последнего применения (окно остаётся открытым); null — отказа не было. */
+  applyError: string | null;
   /** Применение что-то запишет: кнопки применения включены. */
   willWrite: boolean;
   /** Окно одной схемы: схема, которую получит окно (её рисуют до применения). */
@@ -115,6 +119,7 @@ export function useDocsAgent(
   // по ссылке — паттерн importSummary.forDocs): чужому отчёту не показываются.
   const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; check: MermaidCheck } | null>(null);
   const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [remarksCopied, flashRemarksCopied] = useToast(2000);
   // Правки строк превью (окно пакета): ключ — ФАЙЛ-источник (одна схема = один файл
   // .mmd). Уезжают на бэк отдельным полем overrides: манифеста, текст которого
@@ -291,6 +296,7 @@ export function useDocsAgent(
   // эндпоинт (окно остаётся открытым в режиме «по одной»).
   function apply(more: boolean) {
     setApplying(true);
+    setApplyError(null);
     // Применяются только схемы логики (only="logic")
     docsImportApi.apply({ files: pkg.nonEmpty, overwrite, only: "logic", nodeId, overrides })
       .then((r) => {
@@ -299,6 +305,8 @@ export function useDocsAgent(
         if (more) clearPackage(); // следующий воркер — новый пакет, сравнивать не с чем
         onApplied(more);
       })
+      // Отказ сервера виден строкой над кнопками; окно остаётся открытым с тем же пакетом.
+      .catch((e: unknown) => setApplyError(applyRefusal(e)))
       .finally(() => setApplying(false));
   }
 
@@ -324,6 +332,6 @@ export function useDocsAgent(
     pkg, docName, overwriteFlag, setOverwriteFlag, report, checking, mmdErrs, mmdBroken, mmdPending,
     shrank, repeatedInput, askStale: askedFor === pkg.files, keepStale: () => setAskedFor(null),
     clearPackage, removeFile, remarks, copyRemarks, remarksCopied, nameOf, kindOf, edit, apply,
-    applying, willWrite, incoming,
+    applying, applyError, willWrite, incoming,
   };
 }

@@ -107,6 +107,22 @@ describe("DocsAgentPanel · окно одной схемы", () => {
     expect(screen.queryByLabelText("Заменять уже описанное")).toBeNull();
   });
 
+  it("отказ применения виден красной строкой, управление окну не отдаётся", async () => {
+    vi.mocked(docsImportApi.preview).mockResolvedValue(report("fill"));
+    vi.mocked(docsImportApi.apply).mockRejectedValue(new TypeError("Failed to fetch"));
+    const onApplied = vi.fn();
+    render(<DocsAgentPanel nodeId="n1" mode={{ kind: "doc", docName: "GET /orders" }} onApplied={onApplied} />);
+
+    await вставить("graph TD");
+    await screen.findByText("Схема «GET /orders» будет описана");
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось сохранить изменения. Проверьте соединение и повторите.");
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled();
+  });
+
   it("файл совпадает со схемой: применять нечего", async () => {
     vi.mocked(docsImportApi.preview).mockResolvedValue(report("unchanged"));
     render(<DocsAgentPanel nodeId="n1" mode={{ kind: "doc", docName: "GET /orders" }} onApplied={vi.fn()} />);

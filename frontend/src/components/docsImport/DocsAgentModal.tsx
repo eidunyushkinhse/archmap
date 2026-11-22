@@ -178,7 +178,7 @@ export default function DocsAgentModal({ nodeId, onClose, onApplied }: Props) {
               <>
                 <DocsAgentPlan agent={agent} />
                 <label
-                  className="dap-check"
+                  className="ds-check dap-check"
                   title="Если в ArchMap уже есть схема с таким именем, новая по умолчанию пропускается. Отметьте, чтобы новые схемы заменяли старые"
                 >
                   <input
@@ -195,6 +195,7 @@ export default function DocsAgentModal({ nodeId, onClose, onApplied }: Props) {
 
         {/* Главная кнопка первой, «Отмена» за ней (правило окон владельца). */}
         <div className="ds-win-foot">
+          {agent.applyError && <p className="ds-danger ds-win-err" role="alert">{agent.applyError}</p>}
           {single ? (
             <>
               <button type="button" className="ds-btn ds-btn--primary" disabled={!canApply} onClick={() => agent.apply(false)}>
