@@ -121,6 +121,23 @@ describe("ProjectsPage", () => {
     expect(screen.queryByText("Старый биллинг")).toBeNull();
   });
 
+  it("вкладки нового языка: без счётчиков, выбранная нажата и подчёркнута", async () => {
+    списки([ЯРМАРКА, ПЛЁНКА], [СТАРЫЙ]);
+    открыть();
+    await screen.findByText("Плёнка");
+    const активные = screen.getByRole("button", { name: "Активные" });
+    const архив = screen.getByRole("button", { name: "Архив" });
+    expect(активные).toHaveClass("ds-tab", "is-active");
+    expect(активные).toHaveAttribute("aria-pressed", "true");
+    expect(архив).toHaveAttribute("aria-pressed", "false");
+    expect(архив).not.toHaveClass("is-active");
+    await userEvent.click(архив);
+    expect(архив).toHaveAttribute("aria-pressed", "true");
+    expect(архив).toHaveClass("is-active");
+    expect(активные).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByPlaceholderText("Поиск по имени или описанию")).toHaveClass("ds-input");
+  });
+
   it("поиск по имени и описанию без учёта регистра; промах — «Ничего не найдено»", async () => {
     списки([ЯРМАРКА, ПЛЁНКА]);
     открыть();
@@ -137,7 +154,7 @@ describe("ProjectsPage", () => {
 
     await userEvent.clear(поле);
     await userEvent.type(поле, "нет такого");
-    expect(screen.getByText("Ничего не найдено")).toBeInTheDocument();
+    expect(screen.getByText("Ничего не найдено")).toHaveClass("ds-empty");
     expect(screen.queryByText("Пока нет ни одного проекта")).toBeNull();
   });
 
@@ -146,16 +163,18 @@ describe("ProjectsPage", () => {
     открыть();
     await screen.findByText("Маркетплейс «Ярмарка»");
     await userEvent.click(screen.getByRole("button", { name: /^Архив/ }));
-    expect(screen.getByText("В архиве пусто")).toBeInTheDocument();
+    expect(screen.getByText("В архиве пусто")).toHaveClass("ds-empty");
     expect(screen.queryByText("Пока нет ни одного проекта")).toBeNull();
   });
 
   it("первое открытие: заголовок, пояснение и «Создать первый проект» открывает окно", async () => {
     списки([]);
     const props = открыть();
-    expect(await screen.findByText("Пока нет ни одного проекта")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Пока нет ни одного проекта" })).toBeInTheDocument();
     expect(screen.getByText("Создайте первый проект. В каждом проекте своя изолированная схема системы.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Создать первый проект/ }));
+    const создать = screen.getByRole("button", { name: "Создать первый проект" });
+    expect(создать).toHaveClass("ds-btn", "ds-btn--primary");
+    await userEvent.click(создать);
     expect(screen.getByTestId("create-dialog")).toBeInTheDocument();
     // Созданный проект открывается сразу.
     await userEvent.click(screen.getByRole("button", { name: "создан" }));

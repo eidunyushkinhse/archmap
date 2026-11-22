@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
 import { listToast as toastStyle } from "../ui/pageChrome";
 import { fetchMe, getCanCreateProject, getIsGuest, getMe, getUserRole } from "../api/auth";
 import { projectsApi } from "../api/projects";
@@ -11,7 +11,6 @@ import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components
 import ProjectCard from "../components/project/ProjectCard";
 import AccountMenu from "../components/users/AccountMenu";
 import BrandLink from "../ui/BrandLink";
-import { LogoMark } from "../ui/icons";
 import { noAutofill } from "../ui/noAutofill";
 import { useMessageToast } from "./useToast";
 import "../ui/ds.css";
@@ -99,11 +98,9 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
 
       <main className="lp-main">
         {isGuest && (
-          <div style={sandboxBanner} role="note">
-            <div>
-              <b style={{ color: "#78350f" }}>Это песочница.</b> Она удалится через сутки бездействия. Не вносите сюда рабочие данные.
-            </div>
-          </div>
+          <p className="ds-warn lp-sandbox" role="note">
+            <strong>Это песочница.</strong> Она удалится через сутки бездействия. Не вносите сюда рабочие данные.
+          </p>
         )}
         <div className="lp-title-row">
           <h1 className="lp-title">Проекты</h1>
@@ -121,19 +118,15 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
           ))}
         </div>
 
-        {/* Табы + поиск */}
-        <div style={controls}>
-          <div style={{ display: "flex", gap: 6 }}>
-            <TabBtn active={tab === "active"} onClick={() => setTab("active")}>
-              Активные <span style={countPill}>{active.length}</span>
-            </TabBtn>
-            <TabBtn active={tab === "archived"} onClick={() => setTab("archived")}>
-              Архив <span style={countPill}>{archived.length}</span>
-            </TabBtn>
+        {/* Строка управления: вкладки слева, поиск справа. */}
+        <div className="lp-controls">
+          <div className="ds-tabs">
+            <TabBtn active={tab === "active"} onClick={() => setTab("active")}>Активные</TabBtn>
+            <TabBtn active={tab === "archived"} onClick={() => setTab("archived")}>Архив</TabBtn>
           </div>
           <input
             {...noAutofill("projects-page-1")}
-            style={search}
+            className="ds-input lp-search"
             placeholder="Поиск по имени или описанию"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -151,7 +144,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
             onCreate={() => setDialog({ kind: "create" })}
           />
         ) : (
-          <div style={grid}>
+          <div className="lp-grid">
             {filtered.map((p) => (
               <ProjectCard
                 key={p.id}
@@ -250,22 +243,17 @@ function BlockedNewButton() {
   );
 }
 
+// Пустой список: промах поиска и пустой архив — тихим абзацем; первое открытие — заголовок,
+// пояснение и (кому можно создавать) главная кнопка. Без коробки, прижато влево.
 function EmptyState({
   tab, hasQuery, isArchitect, onCreate,
 }: { tab: Tab; hasQuery: boolean; isArchitect: boolean; onCreate: () => void }) {
-  if (hasQuery) {
-    return <div style={empty}><p style={{ color: "#64748b" }}>Ничего не найдено</p></div>;
-  }
-  if (tab === "archived") {
-    return <div style={empty}><p style={{ color: "#94a3b8" }}>В архиве пусто</p></div>;
-  }
+  if (hasQuery) return <p className="ds-empty lp-note">Ничего не найдено</p>;
+  if (tab === "archived") return <p className="ds-empty lp-note">В архиве пусто</p>;
   return (
-    <div style={empty}>
-      <div style={emptyIcon}><LogoMark size={44} /></div>
-      <h3 style={{ margin: "14px 0 4px", color: "#1e293b", fontSize: 18 }}>Пока нет ни одного проекта</h3>
-      <p style={{ color: "#64748b", margin: "0 0 18px", fontSize: 14 }}>
-        Создайте первый проект. В каждом проекте своя изолированная схема системы.
-      </p>
+    <div className="lp-first">
+      <h2 className="lp-first-title">Пока нет ни одного проекта</h2>
+      <p className="lp-first-lead">Создайте первый проект. В каждом проекте своя изолированная схема системы.</p>
       {isArchitect && (
         <button type="button" className="ds-btn ds-btn--primary" onClick={onCreate}>Создать первый проект</button>
       )}
@@ -273,44 +261,16 @@ function EmptyState({
   );
 }
 
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+// Вкладка-текст нового языка: выбранная подчёркнута и нажата (aria-pressed).
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <button onClick={onClick} style={{ ...tabBtn, ...(active ? tabActive : {}) }}>{children}</button>
+    <button
+      type="button"
+      className={"ds-tab" + (active ? " is-active" : "")}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
-
-// ── Стили ─────────────────────────────────────────────────────────────────────
-const sandboxBanner: CSSProperties = {
-  display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 22, padding: "12px 16px",
-  background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12,
-  fontSize: 13.5, lineHeight: 1.5,
-};
-const controls: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  gap: 12, margin: "22px 0 18px", flexWrap: "wrap",
-};
-const tabBtn: CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px",
-  background: "transparent", border: "1px solid transparent", borderRadius: 999,
-  fontSize: 14, fontWeight: 600, color: "#64748b", cursor: "pointer",
-};
-const tabActive: CSSProperties = { background: "#fff", border: "1px solid #e2e8f0", color: "#1d4ed8" };
-const countPill: CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center",
-  minWidth: 20, height: 20, padding: "0 6px", borderRadius: 999,
-  background: "#eef2f6", color: "#64748b", fontSize: 12, fontWeight: 700,
-};
-const search: CSSProperties = {
-  flex: "1 1 240px", maxWidth: 320, padding: "9px 13px", border: "1px solid #e2e8f0",
-  borderRadius: 10, fontSize: 14, color: "#0f172a", background: "#fff", boxSizing: "border-box",
-};
-const grid: CSSProperties = {
-  display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 18,
-};
-const empty: CSSProperties = {
-  textAlign: "center", padding: "60px 20px", background: "#fff", border: "1px dashed #dbe3ec", borderRadius: 16,
-};
-const emptyIcon: CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center", width: 76, height: 76,
-  borderRadius: 20, background: "#eff6ff",
-};

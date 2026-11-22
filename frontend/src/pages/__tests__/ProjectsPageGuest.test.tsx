@@ -60,6 +60,9 @@ describe("ProjectsPage: гость демо-стенда", () => {
     expect(screen.queryByText("Песочница")).toBeNull();
     expect(screen.queryByRole("button", { name: "Профиль" })).toBeNull();
     expect(screen.getByRole("note")).toHaveTextContent(BANNER);
+    // Предупреждение нового языка абзацем без коробки, первое предложение выделено.
+    expect(screen.getByRole("note")).toHaveClass("ds-warn");
+    expect(screen.getByText("Это песочница.").tagName).toBe("STRONG");
     const кнопка = screen.getByRole("button", { name: /Новый проект/ });
     expect(кнопка).not.toHaveAttribute("aria-disabled");
     await userEvent.click(кнопка);
@@ -75,6 +78,8 @@ describe("ProjectsPage: гость демо-стенда", () => {
     await открыть();
     const кнопка = screen.getByRole("button", { name: /Новый проект/ });
     expect(кнопка).toHaveAttribute("aria-disabled", "true");
+    expect(кнопка).toHaveAttribute("data-tour", "new-project");
+    expect(кнопка).toHaveClass("ds-btn", "ds-btn--primary");
     await userEvent.click(кнопка);
     expect(screen.queryByTestId("create-dialog")).toBeNull();
   });
@@ -98,8 +103,8 @@ describe("ProjectsPage: гость демо-стенда", () => {
     expect(пункты).toEqual(["Открыть", "Редактировать", "Архивировать"]);
   });
 
-  // Меню профиля нового языка стоит и в шапке «Проектов» (экран прежнего вида): корень
-  // меню — своя область .ds, пункты работают (редизайн, фаза 5).
+  // Меню профиля нового языка в шапке «Проектов»: корень меню — своя область .ds, пункты
+  // работают (редизайн, фаза 5; экран переведён на новый язык в фазе 12а).
   it("обычный пользователь: меню профиля нового языка работает на «Проектах»", async () => {
     vi.mocked(getIsGuest).mockReturnValue(false);
     список([ЯРМАРКА]);
