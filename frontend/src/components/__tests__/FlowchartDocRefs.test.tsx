@@ -1,8 +1,10 @@
-// Живая плашка «Обращения» в редакторе схемы логики. Пометка «читает:/пишет:» в
+// Живые строки обращений в редакторе схемы логики. Пометка «читает:/пишет:» в
 // тексте — единственный ввод обращений к данным (пивот §9 plan-db-docs.md), и
-// плашка — единственное место, где видно, поймалась ли она. Проверяем ровно это:
-// найденную цель, названную причину промаха, молчание на доках без пометок (там и
-// сеть не трогается) и отсутствие плашки у наблюдателя.
+// строки под кодом — единственное место, где видно, поймалась ли она. Проверяем ровно
+// это: найденную цель, названную причину промаха, молчание на доках без пометок (там и
+// сеть не трогается) и отсутствие строк у наблюдателя. Слова строк (редизайн, фаза 7б):
+// «читает orders.status → Хранилище», «пишет ordrs: таблица не найдена»; без заголовка
+// «Обращения», пилюль действий и знаков ✓ и ⚠.
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import FlowchartDoc from "../inspector/FlowchartDoc";
@@ -37,12 +39,14 @@ function renderDoc(initial: string, isArchitect = true) {
 
 // Переждать дебаунс (600 мс) вместе с ответом мока.
 const пережить_дебаунс = () => act(async () => { await vi.advanceTimersByTimeAsync(700); });
+// Строки обращений под кодом — текстом, в порядке пометок.
+const строки = () => [...document.querySelectorAll(".doc-refrow")].map((e) => e.textContent);
 
-describe("FlowchartDoc: плашка обращений", () => {
+describe("FlowchartDoc: строки обращений", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ shouldAdvanceTime: true }); });
   afterEach(() => vi.useRealTimers());
 
-  it("пометка «читает: …» — плашка называет найденную цель", async () => {
+  it("пометка «читает: …» — строка называет владельца найденной цели", async () => {
     vi.mocked(dataRefsApi.preview).mockResolvedValue([item()]);
     renderDoc(CHART_REF);
 
@@ -50,10 +54,14 @@ describe("FlowchartDoc: плашка обращений", () => {
     expect(dataRefsApi.preview).not.toHaveBeenCalled();
     await пережить_дебаунс();
 
-    await waitFor(() => expect(screen.getByText("Обращения")).toBeInTheDocument());
-    expect(screen.getByText("читает")).toBeInTheDocument();
-    expect(screen.getByText("orders.status")).toBeInTheDocument();
-    expect(screen.getByText(/→ Хранилище · orders\.status ✓/)).toBeInTheDocument();
+    // Хвост « · orders.status» отброшен: имя уже стоит в строке.
+    await waitFor(() => expect(строки()).toEqual(["читает orders.status → Хранилище"]));
+    // Имя — моноширинным отдельным элементом, остальное обычным текстом.
+    expect(screen.getByText("orders.status")).toHaveClass("doc-refname");
+    expect(document.querySelector(".doc-refrow")).not.toHaveClass("doc-refrow--bad");
+    // Ни заголовка, ни знаков.
+    expect(screen.queryByText("Обращения")).toBeNull();
+    expect(document.querySelector(".doc-refs")?.textContent).not.toMatch(/[✓⚠·]/);
     // Разбирается ТЕКСТ редактора, в том числе ещё не сохранённый.
     expect(vi.mocked(dataRefsApi.preview).mock.calls[0][0]).toContain("читает: orders.status");
   });
@@ -66,8 +74,9 @@ describe("FlowchartDoc: плашка обращений", () => {
 
     await пережить_дебаунс();
 
-    await waitFor(() => expect(screen.getByText(/таблица не найдена/)).toBeInTheDocument());
-    expect(screen.getByText("ordrs.status")).toBeInTheDocument();
+    await waitFor(() => expect(строки()).toEqual(["читает ordrs.status: таблица не найдена"]));
+    // Неразрешённое — строкой цвета предупреждения.
+    expect(document.querySelector(".doc-refrow")).toHaveClass("doc-refrow--bad");
   });
 
   it("«нет колонки» и «неоднозначно» — теми же словами, что в панели алертов", async () => {
@@ -80,39 +89,46 @@ describe("FlowchartDoc: плашка обращений", () => {
     await пережить_дебаунс();
 
     // У «нет колонки» таблица известна — её называем, иначе непонятно, с чем сверяться.
-    await waitFor(() =>
-      expect(screen.getByText(/колонки нет в таблице \(Хранилище · orders\)/)).toBeInTheDocument(),
-    );
-    expect(screen.getByText(/таблица с таким именем есть в нескольких базах, укажите «база \/ таблица»/)).toBeInTheDocument();
-    expect(screen.getByText("пишет")).toBeInTheDocument();
+    await waitFor(() => expect(строки()).toEqual([
+      "пишет orders.stat: колонки нет в таблице (Хранилище · orders)",
+      "читает orders: таблица с таким именем есть в нескольких базах, укажите «база / таблица»",
+    ]));
   });
 
-  it("док без пометок: плашки нет и сеть не трогается вовсе", async () => {
+  it("док без пометок: строк нет и сеть не трогается вовсе", async () => {
     vi.mocked(dataRefsApi.preview).mockResolvedValue([item()]);
     renderDoc(CHART_PLAIN);
 
     await пережить_дебаунс();
 
     expect(dataRefsApi.preview).not.toHaveBeenCalled();
-    expect(screen.queryByText("Обращения")).toBeNull();
+    expect(document.querySelector(".doc-refs")).toBeNull();
   });
 
-  it("наблюдателю плашки нет — пометки он читает в самой диаграмме", async () => {
+  it("наблюдателю строк нет — пометки он читает в самой диаграмме", async () => {
     vi.mocked(dataRefsApi.preview).mockResolvedValue([item()]);
     renderDoc(CHART_REF, false);
 
     await пережить_дебаунс();
 
-    expect(screen.queryByText("Обращения")).toBeNull();
+    expect(document.querySelector(".doc-refs")).toBeNull();
     expect(dataRefsApi.preview).not.toHaveBeenCalled();
+  });
+
+  it("строки — под строкой состояния колонки кода", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([item()]);
+    renderDoc(CHART_REF);
+    await пережить_дебаунс();
+    await waitFor(() => expect(document.querySelector(".doc-refs")).not.toBeNull());
+    expect(document.querySelector(".doc-edbar")?.nextElementSibling).toBe(document.querySelector(".doc-refs"));
   });
 });
 
-describe("FlowchartDoc: плашка каналов", () => {
+describe("FlowchartDoc: строки каналов", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ shouldAdvanceTime: true }); });
   afterEach(() => vi.useRealTimers());
 
-  it("пометка «публикует: …» — свой чип и найденная цель", async () => {
+  it("пометка «публикует: …» — своё слово и владелец найденной цели", async () => {
     vi.mocked(dataRefsApi.preview).mockResolvedValue([
       item({ ref: "созданные.order_id", mode: "publish", target: "Kafka · созданные.order_id" }),
     ]);
@@ -121,8 +137,7 @@ describe("FlowchartDoc: плашка каналов", () => {
     await пережить_дебаунс();
 
     // Слово своё: «публикует» — не «пишет» (разные вопросы к карте и разные каталоги).
-    await waitFor(() => expect(screen.getByText("публикует")).toBeInTheDocument());
-    expect(screen.getByText(/→ Kafka · созданные\.order_id ✓/)).toBeInTheDocument();
+    await waitFor(() => expect(строки()).toEqual(["публикует созданные.order_id → Kafka"]));
   });
 
   it("битые канальные пометки: причины теми же словами, что в панели алертов", async () => {
@@ -135,15 +150,14 @@ describe("FlowchartDoc: плашка каналов", () => {
 
     await пережить_дебаунс();
 
-    await waitFor(() =>
-      expect(screen.getByText(/канал не найден у брокеров проекта/)).toBeInTheDocument(),
-    );
     // Квалификатор в подсказке — БРОКЕРА: «БД / таблица» послало бы чинить не туда.
-    expect(screen.getByText(/канал с таким именем есть у нескольких брокеров, укажите «брокер \/ канал»/)).toBeInTheDocument();
-    // У «нет поля» канал известен — его называем, иначе не с чем сверяться.
-    expect(screen.getByText(/поля нет в канале \(Kafka · созданные\)/)).toBeInTheDocument();
-    // Оба потребления получили свой чип — режим показан у каждой строки.
-    expect(screen.getAllByText("потребляет")).toHaveLength(2);
+    // У «нет поля» канал известен — его называем, иначе не с чем сверяться. Действие
+    // названо у каждой строки.
+    await waitFor(() => expect(строки()).toEqual([
+      "публикует создание: канал не найден у брокеров проекта",
+      "потребляет события: канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»",
+      "потребляет созданные.total: поля нет в канале (Kafka · созданные)",
+    ]));
   });
 
   it("маркер канала распознаётся локально — без него запроса бы не было", async () => {
@@ -155,13 +169,13 @@ describe("FlowchartDoc: плашка каналов", () => {
     await пережить_дебаунс();
 
     expect(vi.mocked(dataRefsApi.preview).mock.calls[0][0]).toContain("потребляет: созданные");
-    await waitFor(() => expect(screen.getByText("Обращения")).toBeInTheDocument());
+    await waitFor(() => expect(строки()).toEqual(["потребляет созданные → Kafka"]));
   });
 });
 
 // ── Конфигурация: «зависит от:» ───────────────────────────────────────────────
 // Третья семья пометок. Отличий от двух соседних два: маркер ДВУСЛОВНЫЙ (локальный
-// гейт обязан его узнать, иначе плашка молчит и сеть не дёргается вовсе) и цель
+// гейт обязан его узнать, иначе строки молчат и сеть не дёргается вовсе) и цель
 // ищется у самого узла — поэтому запрос обязан нести его id.
 
 describe("FlowchartDoc: пометки конфигурации", () => {
@@ -175,9 +189,7 @@ describe("FlowchartDoc: пометки конфигурации", () => {
     renderDoc('graph TD\n  A["Новая корзина?<br>зависит от: FEATURE_X"]');
     await пережить_дебаунс();
 
-    await waitFor(() => expect(screen.getByText("Обращения")).toBeInTheDocument());
-    expect(screen.getByText("зависит от")).toBeInTheDocument();
-    expect(screen.getByText(/→ Конфигурация · FEATURE_X ✓/)).toBeInTheDocument();
+    await waitFor(() => expect(строки()).toEqual(["зависит от FEATURE_X → Конфигурация"]));
     // Без узла бэк такие пометки не покажет вовсе: искать конфигурацию негде.
     expect(vi.mocked(dataRefsApi.preview).mock.calls[0][1]).toBe("node-1");
   });
@@ -199,8 +211,6 @@ describe("FlowchartDoc: пометки конфигурации", () => {
     renderDoc('graph TD\n  A["зависит от: FEATURE_Y"]');
     await пережить_дебаунс();
 
-    await waitFor(() =>
-      expect(screen.getByText(/параметра нет в конфигурации этого объекта/)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(строки()).toEqual(["зависит от FEATURE_Y: параметра нет в конфигурации этого объекта"]));
   });
 });

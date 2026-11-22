@@ -358,180 +358,159 @@
   padding: 10px 12px;
 }
 
-/* ── колонка редактора ──────────────────────────────────────────────────── */
-
+/* ── колонка кода (новый язык, фаза 7б) ─────────────────────────────────────
+   Поле кода на ровном фоне окна, без рамки и без полосы-заголовка; между кодом и
+   превью одна линия (правый край колонки). Под кодом строка состояния: слева ошибка или
+   тихая заметка, справа «Загрузить файл»; под ней строки обращений (схема логики). У
+   читателя строки состояния нет. Кегль и интерлиньяж поля кода (12 px × 1,75) держит
+   docShared.caretToLine: прокрутка к строке ошибки считает высоту строки по ним. Кегли
+   колонки заданы явно: в окне она стоит и рядом с частями прежнего вида. */
 .doc-edcol {
   flex: none;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid #eef0f2;
-}
-.doc-edhead {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #f3f4f6;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #94a3b8;
-}
-.doc-savebtn {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: none;
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
-  color: #2563eb;
-  cursor: pointer;
-  font-family: inherit;
-}
-.doc-savebtn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.doc-savebtn:not(:disabled):hover {
-  background: #dbeafe;
-}
-/* Кнопки шапки редактора: «Загрузить файл» + «Сохранить» */
-.doc-edact {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-/* Загрузка спеки нейтральнее сохранения: она ничего не пишет в БД, только
-   подставляет текст в поле. */
-.doc-filebtn {
-  border-color: #e5e7eb;
-  background: #f9fafb;
-  color: #475569;
-}
-.doc-filebtn:not(:disabled):hover {
-  background: #f3f4f6;
-}
-.doc-filein {
-  display: none;
-}
-/* Файл тащат на поле — подсвечиваем, что его тут примут. */
-.doc-edta--drop {
-  background: #eff6ff;
-  box-shadow: inset 0 0 0 2px #bfdbfe;
+  border-right: 1px solid var(--c-line);
 }
 .doc-edta {
   flex: 1;
   min-height: 0;
-  border: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
   outline: none;
   resize: none;
-  padding: 10px 14px;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.75;
-  color: #0f172a;
-  background: #fff;
+  letter-spacing: 0;
+  color: var(--c-fg);
+  background: var(--c-bg);
 }
-.doc-edta[readonly] { background: #fbfcfd; color: #475569; }
+.doc-edta::placeholder {
+  color: var(--c-fg-faint);
+}
+/* Общее правило окон (ui/modal.css) обводит поле в фокусе: у поля кода рамки нет,
+   место ввода видно по каретке. */
+.app-modal .doc-edta:focus {
+  border: 0;
+  box-shadow: none;
+}
+/* Файл тащат на поле — подсвечиваем, что его тут примут. */
+.doc-edta.doc-edta--drop {
+  background: var(--c-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--c-accent);
+}
+.doc-filein {
+  display: none;
+}
 
-/* ── статус-строка редактора (Часть D) ──────────────────────────────────── */
-
-.doc-edstat {
+.doc-edbar {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  gap: var(--space-3);
+  min-height: 32px;
   box-sizing: border-box;
-  padding: 8px 12px;
-  border: none;
-  border-top: 1px solid #f3f4f6;
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-6);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+}
+.doc-edbar-msg {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+/* Ошибка разбора или отказ принять файл: значок и текст цветом ошибки в одну строку,
+   полный текст — в title. Со строкой — кнопка, ставящая каретку на эту строку. */
+.doc-ederr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
   background: none;
-  font-family: inherit;
-  font-size: 11.5px;
+  font: inherit;
+  color: var(--c-danger);
   text-align: left;
-  color: #475569;
 }
-.doc-edstat--ok .doc-stico { color: #16a34a; }
-.doc-edstat--err {
-  background: #fef2f2;
-  border-top-color: #fecaca;
-  color: #b91c1c;
-  font-weight: 600;
+.doc-ederr--btn {
+  cursor: pointer;
 }
-.doc-edstat--btn { cursor: pointer; }
-.doc-stico { display: flex; flex: none; }
-.doc-edstat-msg {
+.doc-ederr--btn:hover .doc-ederr-msg {
+  text-decoration: underline;
+}
+.doc-ederr--btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.doc-ederr-ico {
+  display: flex;
+  flex: none;
+}
+.doc-ederr-msg {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.doc-ednote {
+  color: var(--c-fg-muted);
+}
+/* «Загрузить файл»: тихая кнопка-текст у правого края строки. */
+.doc-filebtn {
+  flex: none;
+  margin: 0 -6px 0 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.doc-filebtn:hover {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.doc-filebtn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
 
-/* ── плашка «Обращения» (пометки «читает:/пишет:» в тексте схемы) ─────────── */
-/* Подсказка под статус-строкой, а не отчёт: мелко, серо, без рамок. Список длинных
-   пометок прокручивается внутри себя — редактор поля от неё усыхать не должен. */
+/* ── строки обращений при правке (пометки «читает:/пишет:» в тексте схемы) ────
+   Подсказка под строкой состояния, а не отчёт: без заголовка, пилюль и знаков.
+   Разрешённое — тихой строкой, неразрешённое — цветом предупреждения; имя
+   моноширинным. Не выше пяти строк, дальше список прокручивается внутри себя: поле
+   кода от него усыхать не должно. Длинная причина переносится, а не обрезается. */
 .doc-refs {
   flex: none;
-  box-sizing: border-box;
-  width: 100%;
-  max-height: 132px;
+  max-height: calc(var(--fs-caption) * var(--lh-ui) * 5);
   overflow-y: auto;
-  padding: 7px 12px 8px;
-  border-top: 1px solid #f3f4f6;
-  background: #fbfcfd;
-  font-size: 11px;
-  line-height: 1.45;
-  color: #475569;
-}
-.doc-refshead {
-  margin-bottom: 4px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #9aa6b4;
+  padding: 0 var(--space-4) var(--space-2) var(--space-6);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+  color: var(--c-fg-muted);
 }
 .doc-refrow {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 1.5px 0;
-}
-/* Действие — цветной чип теми же красками, что в обратном индексе базы
-   (dbStructure.css): «пишет» обязано отличаться от «читает» с одного взгляда. */
-.doc-refmode {
-  flex: none;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-.doc-refmode--read { color: #0369a1; background: #e0f2fe; }
-.doc-refmode--write { color: #9a3412; background: #ffedd5; }
-/* События — свои краски (те же, что в обратном индексе брокера, brokerChannels.css):
-   «публикует» не должно читаться как «пишет», это разные вопросы к карте. */
-.doc-refmode--publish { color: #6d28d9; background: #ede9fe; }
-.doc-refmode--consume { color: #047857; background: #d1fae5; }
-/* Цель переносится, а не обрезается: усечённое имя таблицы бесполезно — сверять
-   его с реальностью нечем. Колонка редактора бывает и узкой (правая панель). */
-.doc-reftext {
-  min-width: 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
-.doc-refname {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: #0f172a;
+.doc-refrow--bad {
+  color: var(--c-warn);
 }
-.doc-refok { color: #15803d; }
-.doc-refbad { color: #b45309; font-weight: 600; }
+.doc-refname {
+  font-family: var(--font-mono);
+}
 
 /* ── превью ─────────────────────────────────────────────────────────────── */
 

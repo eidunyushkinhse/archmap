@@ -71,8 +71,8 @@ describe("OpenApiPane · просмотр", () => {
   });
 });
 
-// Чтение на новом языке (редизайн, фаза 7а): ровная сцена без карточки, колонка кода
-// читателя прежнего вида (legacy-root); превью при правке — прежняя сцена.
+// Чтение на новом языке (редизайн, фаза 7а): ровная сцена без карточки; колонка кода
+// читателя на новом языке (фаза 7б): без обёртки прежнего вида и без строки состояния.
 describe("OpenApiPane · чтение на новом языке", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -83,12 +83,13 @@ describe("OpenApiPane · чтение на новом языке", () => {
     expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
   });
 
-  it("читатель: колонка кода прежнего вида, «Скрыть код» её убирает", async () => {
+  it("читатель: колонка кода без обёртки прежнего вида и строки состояния, «Скрыть код» её убирает", async () => {
     render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect={false} onCommitOpenapi={vi.fn()} />);
     const код = screen.getByRole("button", { name: "Показать код" });
     expect(код).toHaveClass("ds-btn");
     await userEvent.click(код);
-    expect(field()?.closest(".legacy-root")).not.toBeNull();
+    expect(field()?.closest(".legacy-root")).toBeNull();
+    expect(document.querySelector(".doc-edbar")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Скрыть код" }));
     expect(field()).toBeNull();
   });

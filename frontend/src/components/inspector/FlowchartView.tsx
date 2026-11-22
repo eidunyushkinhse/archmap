@@ -9,7 +9,7 @@ import type { DataRefPreviewItem, NodeDoc, NodeDocKind, NodeDocUsage } from "../
 import { dataRefsApi } from "../../api/dataRefs";
 import FlowchartDoc from "./FlowchartDoc";
 import { EditMenu } from "./docChrome";
-import { MODE_LABEL, REF_MARKER, reasonOf } from "./docRefs";
+import { REF_MARKER, unresolvedLine } from "./docRefs";
 import "../../ui/ds.css";
 
 export default function FlowchartView({ doc, nodeId, showCode, usage, onOpenProcess }: {
@@ -49,15 +49,6 @@ export default function FlowchartView({ doc, nodeId, showCode, usage, onOpenProc
       )}
     </div>
   );
-}
-
-// Неразрешённые обращения одной строкой: «{слово режима} {имя}: {причина}» через «; »,
-// первая буква строки заглавная. Все разрешились — null.
-function unresolvedLine(refs: DataRefPreviewItem[]): string | null {
-  const parts = refs.flatMap((r) => (r.status === "ok" ? [] : [`${MODE_LABEL[r.mode]} ${r.ref}: ${reasonOf(r.status, r.mode)}`]));
-  if (parts.length === 0) return null;
-  const line = parts.join("; ");
-  return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
 // Неописанная схема: строка перечня операций без тела. Архитектору — «Описать» с

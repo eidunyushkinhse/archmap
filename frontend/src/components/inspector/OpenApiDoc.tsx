@@ -3,7 +3,8 @@
 // код» наблюдателя) и ручная правка (isArchitect=true). Пишет в БД не он: правка
 // уходит наверх черновиком (onDraft), сохраняет окно кнопкой «Сохранить».
 // Чтение — новый язык (редизайн, фаза 7а): спецификация колонкой до 860 px на ровном
-// фоне, без карточки; колонка кода читателя и превью при правке — прежнего вида.
+// фоне, без карточки; колонка кода — новый язык (фаза 7б), превью при правке — прежнего
+// вида.
 // Ввод валидируется с дебаунсом 500ms (swagger-ui тяжёлый — на каждый символ
 // не перерисовываем); при ошибке превью держит последнюю корректную версию с
 // amber-баннером, статус-строка ведёт кареткой на строку ошибки.
@@ -11,7 +12,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import OpenApiViewer from "../OpenApiViewer";
 import { NOT_OPENAPI_MESSAGE, nowHHMM, parseOpenApiText } from "./docValidate";
 import type { SpecStatus } from "./docValidate";
-import { DocEditorColumn, StatusError, StatusOk, StatusReadOnly } from "./docShared";
+import { DocEditorColumn, StatusError } from "./docShared";
+import "./docOverlay.css";
 
 interface Props {
   initial: string; // спека на момент открытия (сырой текст; черновик живёт внутри)
@@ -65,10 +67,9 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
   const { status, lastGood } = st;
 
   // Отказ по файлу перекрывает статус разбора: пока он висит, в поле лежит не то,
-  // что пользователь выбрал, и сообщать про синтаксис старого текста — врать.
-  const statusRow = !isArchitect ? (
-    <StatusReadOnly />
-  ) : fileError ? (
+  // что пользователь выбрал, и сообщать про синтаксис старого текста — врать. Ошибки нет —
+  // слева пусто. У читателя строки состояния нет вовсе (колонка readOnly).
+  const statusRow = !isArchitect ? null : fileError ? (
     <StatusError text={fileError} />
   ) : status.kind === "yaml-error" ? (
     <StatusError
@@ -78,9 +79,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
     />
   ) : status.kind === "not-openapi" ? (
     <StatusError text={NOT_OPENAPI_MESSAGE} />
-  ) : (
-    <StatusOk />
-  );
+  ) : null;
 
   // Превью: валидная спека — карточка Swagger UI; ошибка — lastGood с баннером
   // (или «превью недоступно», если корректной версии не было); пусто — заглушка.
@@ -95,7 +94,6 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
   const column = (isArchitect || showCode) && (
         <DocEditorColumn
           width={460}
-          title="Код · OpenAPI 3.0 (YAML)"
           placeholder={"openapi: 3.0.0\ninfo:\n  title: My API\n  version: 1.0.0"}
           value={code}
           readOnly={!isArchitect}
@@ -112,9 +110,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
 
   return (
     <>
-      {/* Колонка кода читателя — прежнего вида (legacy-root), её переделывает следующая
-          фаза; при правке прежний вид держит тело окна. */}
-      {column && (isArchitect ? column : <div className="legacy-root doc-legacy">{column}</div>)}
+      {column}
       <div className={"doc-pv" + (isArchitect ? "" : " doc-pv--read")}>
         {banner && (
           <div className="doc-banner">

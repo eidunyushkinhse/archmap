@@ -1,25 +1,33 @@
 // Общие компоненты DocOverlay для обоих режимов (Логика / OpenAPI): колонка
-// редактора кода и варианты статус-строки. Колонка сама ничего не пишет: правка
+// редактора кода и варианты строки состояния. Колонка сама ничего не пишет: правка
 // уходит наверх через onChange, сохраняет окно явной кнопкой (вьюер v2 — прежний
-// коммит по уходу фокуса и страховка при закрытии сняты). Разметка и токены — по
-// ТЗ «Визуализация Mermaid и OpenAPI».
+// коммит по уходу фокуса и страховка при закрытии сняты).
+// Новый язык (редизайн, фаза 7б): полосы-заголовка над кодом нет; под кодом строка
+// состояния: слева ошибка или тихая заметка (когда всё в порядке, пусто), справа тихая
+// кнопка «Загрузить файл». У читателя (readOnly) строки состояния нет.
 import { useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { fileTooBigMessage } from "../demo/demoLimits";
 import { noAutofill } from "../../ui/noAutofill";
+import "../../ui/ds.css";
+import "./docOverlay.css";
 
 interface EditorProps {
   width: number; // flowchart 440 / openapi 460 (Часть A1 ТЗ)
-  title: string; // caps-заголовок «Код · mermaid flowchart» / «Код · OpenAPI 3.0 (YAML)»
   placeholder: string;
   value: string;
   readOnly: boolean;
   onChange?: (v: string) => void;
-  status: ReactNode; // готовая статус-строка (Часть D)
+  // Левая часть строки состояния: ошибка (StatusError) или заметка (StatusNote); null —
+  // слева пусто. У читателя не рисуется.
+  status?: ReactNode;
+  // Под строкой состояния (строки обращений схемы логики). У спецификации обращений не
+  // бывает.
+  after?: ReactNode;
   taRef?: RefObject<HTMLTextAreaElement | null>; // для каретки по клику на ошибку
   // Приём файла — маска для диалога выбора. Передан (и колонка редактируемая) →
-  // в шапке кнопка «Загрузить файл», поле принимает перетаскивание. Не передан —
-  // ни кнопки, ни drop-зоны (у схем логики файла обычно нет — там пишут руками).
+  // справа в строке состояния «Загрузить файл», поле принимает перетаскивание. Не
+  // передан — ни кнопки, ни приёма перетаскиванием.
   fileAccept?: string;
   // Отказ принять файл. Снимать сообщение — забота вызывающего: оно гаснет на
   // следующей правке (иначе висело бы поверх нормального статуса разбора).
@@ -45,12 +53,12 @@ const FILE_LIMIT = 8 * 1024 * 1024;
 
 export function DocEditorColumn({
   width,
-  title,
   placeholder,
   value,
   readOnly,
   onChange,
   status,
+  after,
   taRef,
   fileAccept,
   onFileError,
@@ -59,7 +67,7 @@ export function DocEditorColumn({
 }: EditorProps) {
   // ── Загрузка из файла ──────────────────────────────────────────────────────
   // Содержимое кладётся в редактор ОБЫЧНОЙ правкой (тот же onChange, что у
-  // печати), поэтому дальше работает всё привычное: разбор с превью, статус-строка,
+  // печати), поэтому дальше работает всё привычное: разбор с превью, строка состояния,
   // «Сохранить» окна. Отдельного канала записи нет намеренно — иначе файл затирал
   // бы спеку молча, до того как её увидели.
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,33 +104,6 @@ export function DocEditorColumn({
 
   return (
     <div className="doc-edcol" style={{ width }}>
-      <div className="doc-edhead">
-        <span>{title}</span>
-        <div className="doc-edact">
-          {canLoadFile && (
-            <>
-              <input
-                ref={fileRef}
-                type="file"
-                className="doc-filein"
-                accept={fileAccept}
-                onChange={(e) => {
-                  void loadFile(e.target.files?.[0]);
-                  e.target.value = ""; // тот же файл должен выбираться повторно
-                }}
-              />
-              <button
-                type="button"
-                className="doc-savebtn doc-filebtn"
-                onClick={() => fileRef.current?.click()}
-                title={fileTitle ? `${fileTitle} ${DROP_HINT}` : DROP_HINT}
-              >
-                Загрузить файл
-              </button>
-            </>
-          )}
-        </div>
-      </div>
       <textarea
         {...noAutofill("doc-shared-1")}
         ref={taRef}
@@ -142,25 +123,39 @@ export function DocEditorColumn({
         autoCapitalize="off"
         autoCorrect="off"
       />
-      {status}
+      {!readOnly && (
+        <div className="doc-edbar">
+          <div className="doc-edbar-msg">{status}</div>
+          {canLoadFile && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                className="doc-filein"
+                accept={fileAccept}
+                onChange={(e) => {
+                  void loadFile(e.target.files?.[0]);
+                  e.target.value = ""; // тот же файл должен выбираться повторно
+                }}
+              />
+              <button
+                type="button"
+                className="doc-filebtn"
+                onClick={() => fileRef.current?.click()}
+                title={fileTitle ? `${fileTitle} ${DROP_HINT}` : DROP_HINT}
+              >
+                Загрузить файл
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {after}
     </div>
   );
 }
 
-// ── статус-строки (Часть D) ──────────────────────────────────────────────────
-
-export function StatusOk() {
-  return (
-    <div className="doc-edstat doc-edstat--ok">
-      <span className="doc-stico">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M3 8.5 6.5 12 13 4.5" />
-        </svg>
-      </span>
-      Синтаксис корректен
-    </div>
-  );
-}
+// ── левая часть строки состояния ─────────────────────────────────────────────
 
 // Каретку в начало строки-ошибки + проскроллить textarea так, чтобы строка
 // оказалась примерно по центру. line — 1-базный.
@@ -175,8 +170,9 @@ function caretToLine(ta: HTMLTextAreaElement, line: number): void {
   ta.scrollTop = Math.max(0, idx * lineHeight - ta.clientHeight / 2);
 }
 
-// Ошибка. Когда известна строка и передан taRef — это кнопка «поставить каретку
-// на строку N», иначе — простой текст той же раскраски.
+// Ошибка: значок и текст цветом ошибки в одну строку с многоточием, полный текст — в
+// title. Когда известна строка и передан taRef — это кнопка «поставить каретку на строку
+// N», иначе — простой текст той же раскраски.
 export function StatusError({
   text,
   line,
@@ -188,20 +184,20 @@ export function StatusError({
 }) {
   const inner = (
     <>
-      <span className="doc-stico">
+      <span className="doc-ederr-ico" aria-hidden="true">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
           <circle cx="8" cy="8" r="6.2" />
           <path d="M8 5v3.6M8 11h.01" strokeLinecap="round" />
         </svg>
       </span>
-      <span className="doc-edstat-msg" title={text}>{text}</span>
+      <span className="doc-ederr-msg" title={text}>{text}</span>
     </>
   );
-  if (!line || !taRef) return <div className="doc-edstat doc-edstat--err">{inner}</div>;
+  if (!line || !taRef) return <div className="doc-ederr">{inner}</div>;
   return (
     <button
       type="button"
-      className="doc-edstat doc-edstat--err doc-edstat--btn"
+      className="doc-ederr doc-ederr--btn"
       onClick={() => { if (taRef.current) caretToLine(taRef.current, line); }}
     >
       {inner}
@@ -209,22 +205,7 @@ export function StatusError({
   );
 }
 
-// Нейтральная строка read-only колонки наблюдателя (Часть E).
-export function StatusReadOnly() {
-  return (
-    <div className="doc-edstat">
-      <span className="doc-stico" style={{ color: "#94a3b8" }}>
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="3" y="7" width="10" height="6.5" rx="1.5" />
-          <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
-        </svg>
-      </span>
-      Копировать можно, править — нельзя
-    </div>
-  );
-}
-
-// Нейтральная строка ожидания (первичная загрузка ленивого рендерера).
+// Тихая заметка (первичная загрузка ленивого рендерера).
 export function StatusNote({ text }: { text: string }) {
-  return <div className="doc-edstat">{text}</div>;
+  return <div className="doc-ednote">{text}</div>;
 }
