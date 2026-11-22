@@ -183,7 +183,7 @@
   flex: none; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: #1d4ed8; font-weight: 600;
 }
-/* Подпись «ответа нет» — третичным серым; выбранное «как сейчас» подписывается
+/* Подпись «ответа нет» — третичным серым; выбранный вариант по умолчанию подписывается
    синим наравне с прочими ответами: пользователь его ВЫБРАЛ (П8 приёмки). */
 .rq-ql-a--none { color: #94a3b8; font-weight: 400; }
 

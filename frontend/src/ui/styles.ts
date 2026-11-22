@@ -48,12 +48,16 @@ const btnBase: CSSProperties = {
   border: "1px solid transparent",
 };
 
+// Главная кнопка окон прежнего вида (PlacementDialog, FixVersionDialog), страничных
+// отказов (ErrorBoundary, LoadError), плашки обновления (UpdateNotice) и оболочки проекта
+// (ProjectShell, DeploymentPage). Окна документации объекта ушли на ds-btn (фаза 9е).
 export const primaryBtn: CSSProperties = {
   ...btnBase,
   background: "#2563eb",
   color: "#fff",
 };
 
+// Вторичная кнопка тех же мест (без плашки обновления и DeploymentPage).
 export const secondaryBtn: CSSProperties = {
   ...btnBase,
   background: "#f1f5f9",
