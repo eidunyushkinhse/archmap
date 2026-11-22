@@ -172,7 +172,52 @@
   margin-top: var(--space-2);
 }
 
-/* ── Прежний вид окон (до их перевода в этой же фазе) ── */
+/* ── Окно «Размещение» (PlacementDialog) ─────────────────────────────────
+   О ком речь — первым абзацем тела: имя объекта или «3 объекта» основным цветом, у одной
+   системы под ним тихо — кому достанутся площадки. */
+.pl-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pl-who-name {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+.pl-who-note {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* «Повторить» в строке отказа загрузки контейнеров: тихая кнопка-текст акцентного цвета в
+   той же строке (как «Повторить» строки свойства на странице объекта, nodePage/propRows.css). */
+.pl-retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-accent);
+  cursor: pointer;
+}
+.pl-retry:hover {
+  text-decoration: underline;
+}
+.pl-retry:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+/* «Загрузка» в подвале: состав проекта для систем ещё грузится. */
+.pl-loading {
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+
+/* ── Прежний вид окна «Площадки» (до его перевода в этой же фазе) ── */
 /* Карандаш и корзина строки окна «Площадки». */
 .site-row-btn {
   display: inline-flex;
@@ -195,29 +240,4 @@
 .site-row-btn:disabled {
   color: #cbd5e1;
   cursor: default;
-}
-
-.site-row-link {
-  font: inherit;
-  font-size: 12.5px;
-  padding: 2px 4px;
-  border: none;
-  background: none;
-  color: #2563eb;
-}
-.site-row-link:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.site-dialog-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-/* Окно «Размещение»: состав проекта для предупреждения о контейнере ещё грузится. */
-.placement-loading {
-  font-size: 12.5px;
-  color: #94a3b8;
 }

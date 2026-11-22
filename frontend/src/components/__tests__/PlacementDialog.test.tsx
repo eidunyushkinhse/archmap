@@ -76,10 +76,20 @@ describe("PlacementDialog", () => {
     expect(screen.getByText("A")).toBeInTheDocument();
   });
 
-  it("подзаголовок одной системы: площадки получат все её контейнеры", async () => {
+  it("одна система: вторым абзацем — площадки получат все её контейнеры (без склейки точкой)", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([]);
     setup([box("c", "Заказы", [])]);
-    expect(await screen.findByText("Заказы · площадки получат все контейнеры системы")).toBeInTheDocument();
+    expect(await screen.findByText("Площадки получат все контейнеры системы")).toBeInTheDocument();
+    expect(screen.getByText("Заказы")).toBeInTheDocument();
+    expect(screen.queryByText(/ · /)).toBeNull();
+  });
+
+  it("окно нового вида: заголовок «Размещение», крестик закрывает окно; у объекта второго абзаца нет", async () => {
+    const props = setup([obj("a", [])]);
+    expect(screen.getByRole("heading", { level: 2, name: "Размещение" })).toBeInTheDocument();
+    expect(screen.queryByText("Площадки получат все контейнеры системы")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
   it("галочки: у всех — отмечена, у части — частичная; предки площадок раскрыты", () => {

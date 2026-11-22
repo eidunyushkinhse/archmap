@@ -10,12 +10,15 @@
 // «Снять размещение» у системы снимает его у всех её единиц — второй шаг в том же окне
 // со списком «объект: площадки» (вложенный <dialog> нельзя), «Снять» / «Отмена»
 // («Отмена» возвращает к галочкам).
+// Вид (редизайн, фаза 11): каркас окна нового языка (ui/ds.css, ds-win) шириной 520,
+// прижатый к верху экрана (ds-win--top): дерево раскрывается и высота окна меняется, а верх
+// стоит на месте. Окно не выше экрана, прокручивается тело. Первым абзацем тела — о ком
+// речь, у одной системы вторым — кому достанутся площадки.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { DeploymentNode, Node, SiteOut } from "../../types";
 import Modal from "../../ui/Modal";
-import DialogTitle from "../../ui/DialogTitle";
-import { errText, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { CloseIcon } from "../../ui/icons";
 import { plural } from "../../ui/plural";
 import { loadErrorText } from "../../ui/loadErrorText";
 import { deploymentApi } from "../../api/deployment";
@@ -29,6 +32,7 @@ import { useSiteExpansion } from "./useSiteExpansion";
 import { siteAncestorIds } from "./siteTree";
 import PlacementConflictList from "./PlacementConflictList";
 import { unitsOf, UNPLACE_LEAD, unplaceQuestion, type PlacementConflict } from "./placementConflicts";
+import "../../ui/ds.css";
 import "./deployment.css";
 
 type Mark = "on" | "off" | "mixed";
@@ -50,6 +54,9 @@ type Target = Pick<Node, "id" | "name" | "parent_id" | "sites" | "element_effect
 interface WriteGroup { nodeIds: string[]; siteIds: string[] }
 
 const NO_NODES: Node[] = [];
+
+// Окно у верха экрана (как окно версий): верх на месте, когда дерево раскрывается.
+const BOX = { width: 520, padding: 0, margin: "8vh auto auto" };
 
 // Состояние галочки площадки: стоят все выбранные (у системы — все её единицы:
 // instances), никто (площадки нет и в sites), иначе — часть.
@@ -104,12 +111,13 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   };
 
   const hasOwn = objects.some((o) => o.sites.length > 0);
-  // Окно на одной системе говорит, кому достанутся площадки: её контейнерам (единицам).
-  // На нескольких объектах — прежние слова: среди них бывают и контейнеры.
+  // О ком речь: имя объекта либо «3 объекта». Окно на одной системе вторым абзацем
+  // говорит, кому достанутся площадки: её контейнерам (единицам). На нескольких объектах
+  // второго абзаца нет: среди них бывают и контейнеры.
   const single = objects.length === 1 ? objects[0] : null;
   const singleSystem = single !== null && single.element_effective === "system";
-  const subtitle = single
-    ? (singleSystem ? `${single.name} · площадки получат все контейнеры системы` : single.name)
+  const who = single
+    ? single.name
     : `${objects.length} ${plural(objects.length, ["объект", "объекта", "объектов"])}`;
 
   const run = async (write: () => Promise<void>) => {
@@ -186,23 +194,32 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
     }
   };
 
-  // Второй шаг — вместо галочек в том же окне: у кого внутри снимется размещение.
+  // Второй шаг — вместо галочек в том же окне (вложенный <dialog> нельзя): у кого внутри
+  // снимется размещение. Вид подтверждения нового языка (ds-confirm, ui/ConfirmDialog):
+  // заголовок-вопрос, пояснение, перечень, «Снять» и «Отмена» (к галочкам). Сам
+  // ConfirmDialog сюда не годится: вид card рисует отдельную карточку с рамкой и тенью
+  // поверх окна, а отказ у него без role="alert".
   if (clearing) {
     const one = objects.length === 1 ? objects[0] : null;
     return (
-      <Modal onClose={onClose} boxStyle={{ width: 520, maxHeight: "86vh", overflowY: "auto" }}>
-        <DialogTitle lead={one ? UNPLACE_LEAD : UNPLACE_LEAD_MANY}>
-          {one ? unplaceQuestion(one.name) : "Снять размещение выбранных объектов?"}
-        </DialogTitle>
-        <PlacementConflictList items={clearing} />
-        {error && <p style={errText} role="alert">{error}</p>}
-        <div className="site-dialog-footer">
-          <button type="button" style={primaryBtn} onClick={() => { void clearAll(); }} disabled={busy}>
-            Снять
-          </button>
-          <button type="button" style={secondaryBtn} onClick={() => { setClearing(null); setError(null); }} disabled={busy}>
-            Отмена
-          </button>
+      <Modal onClose={onClose} closeButton={false} boxStyle={BOX}>
+        <div className="ds ds-win ds-win--top ds-confirm">
+          <div className="ds-win-head">
+            <h2 className="ds-win-title">{one ? unplaceQuestion(one.name) : "Снять размещение выбранных объектов?"}</h2>
+          </div>
+          <div className="ds-win-body">
+            <p className="ds-confirm-lead">{one ? UNPLACE_LEAD : UNPLACE_LEAD_MANY}</p>
+            <PlacementConflictList items={clearing} />
+          </div>
+          <div className="ds-win-foot">
+            {error && <p className="ds-danger ds-win-err" role="alert">{error}</p>}
+            <button type="button" className="ds-btn ds-btn--primary" onClick={() => { void clearAll(); }} disabled={busy}>
+              Снять
+            </button>
+            <button type="button" className="ds-btn" onClick={() => { setClearing(null); setError(null); }} disabled={busy}>
+              Отмена
+            </button>
+          </div>
         </div>
       </Modal>
     );
@@ -212,52 +229,64 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   const allPending = needAll && all.data === null;
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 520, maxHeight: "86vh", overflowY: "auto" }}>
-      <DialogTitle lead={subtitle}>Размещение</DialogTitle>
-      <SiteTree
-        sites={sites}
-        expanded={expanded}
-        onToggle={toggle}
-        disabled={busy}
-        create={{ busy, onOpen: () => setError(null), onSubmit: createSite }}
-        row={(site) => {
-          const mark = marks[site.id] ?? "off";
-          return (
-            <label className="site-row-label">
-              <input
-                type="checkbox"
-                checked={mark === "on"}
-                ref={(el) => { if (el) el.indeterminate = mark === "mixed"; }}
-                onChange={() => toggleMark(site.id)}
-                disabled={busy}
-              />
-              <SiteRowTitle site={site} />
-            </label>
-          );
-        }}
-      />
-
-      {error && <p style={errText} role="alert">{error}</p>}
-      {needAll && all.error !== null && (
-        <p style={errText} role="alert">
-          {/* Состав грузится только ради систем — отказ называет их контейнеры. */}
-          {systemCount === 1 ? "Не удалось загрузить контейнеры системы." : "Не удалось загрузить контейнеры систем."}{" "}
-          {loadErrorText(all.error)}{" "}
-          <button type="button" className="site-row-link" onClick={all.reload}>Повторить</button>
-        </p>
-      )}
-
-      <div className="site-dialog-footer">
-        <button type="button" style={primaryBtn} onClick={() => { void apply(); }} disabled={busy || allPending}>
-          Применить
-        </button>
-        <button type="button" style={secondaryBtn} onClick={removeAll} disabled={busy || allPending || !hasOwn}>
-          Снять размещение
-        </button>
-        <button type="button" style={secondaryBtn} onClick={onClose} disabled={busy}>
-          Отмена
-        </button>
-        {needAll && all.loading && <span className="placement-loading">Загрузка</span>}
+    <Modal onClose={onClose} closeButton={false} boxStyle={BOX}>
+      <div className="ds ds-win ds-win--top">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Размещение</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="ds-win-body">
+          <div className="pl-who">
+            <p className="pl-who-name">{who}</p>
+            {singleSystem && <p className="pl-who-note">Площадки получат все контейнеры системы</p>}
+          </div>
+          <SiteTree
+            sites={sites}
+            expanded={expanded}
+            onToggle={toggle}
+            disabled={busy}
+            create={{ busy, onOpen: () => setError(null), onSubmit: createSite }}
+            row={(site) => {
+              const mark = marks[site.id] ?? "off";
+              return (
+                // Вся строка — подпись галочки (галочка нового языка, как в «Доступе к проекту»).
+                <label className="site-row-label">
+                  <input
+                    type="checkbox"
+                    checked={mark === "on"}
+                    ref={(el) => { if (el) el.indeterminate = mark === "mixed"; }}
+                    onChange={() => toggleMark(site.id)}
+                    disabled={busy}
+                  />
+                  <SiteRowTitle site={site} />
+                </label>
+              );
+            }}
+          />
+        </div>
+        <div className="ds-win-foot">
+          {error && <p className="ds-danger ds-win-err" role="alert">{error}</p>}
+          {needAll && all.error !== null && (
+            <p className="ds-danger ds-win-err" role="alert">
+              {/* Состав грузится только ради систем — отказ называет их контейнеры. */}
+              {systemCount === 1 ? "Не удалось загрузить контейнеры системы." : "Не удалось загрузить контейнеры систем."}{" "}
+              {loadErrorText(all.error)}{" "}
+              <button type="button" className="pl-retry" onClick={all.reload}>Повторить</button>
+            </p>
+          )}
+          <button type="button" className="ds-btn ds-btn--primary" onClick={() => { void apply(); }} disabled={busy || allPending}>
+            Применить
+          </button>
+          <button type="button" className="ds-btn" onClick={removeAll} disabled={busy || allPending || !hasOwn}>
+            Снять размещение
+          </button>
+          <button type="button" className="ds-btn" onClick={onClose} disabled={busy}>
+            Отмена
+          </button>
+          {needAll && all.loading && <span className="pl-loading">Загрузка</span>}
+        </div>
       </div>
     </Modal>
   );
