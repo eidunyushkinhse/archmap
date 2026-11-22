@@ -44,7 +44,8 @@ describe("AgentTokensDialog", () => {
     expect(within(reader).getByText("только чтение")).toBeInTheDocument();
     expect(within(reader).getByText(/до 15 янв/)).toBeInTheDocument();
     const agent = screen.getByTestId("token-Агент");
-    expect(within(agent).getByText("не использовался · бессрочно")).toBeInTheDocument();
+    // Редизайн, фаза 9д: части строки срока через запятую, без склейки точкой.
+    expect(within(agent).getByText("не использовался, бессрочно")).toBeInTheDocument();
     expect(within(agent).queryByText("только чтение")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Название")).toHaveValue("Агент 2");
   });
@@ -267,5 +268,62 @@ describe("AgentTokensDialog", () => {
     render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     expect(await screen.findByText(/Нет связи с сервером/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeDisabled();
+  });
+});
+
+// Вид (редизайн, фаза 9д): каркас окна нового языка, токены тихими строками без коробки и
+// пилюль, блок «Новый токен» строками «подпись — поле в рамке», подвал нового языка.
+describe("вид окна «Токены для MCP»", () => {
+  it("строки токенов: доступ словом, срок через запятую, «Отозвать» кнопкой-текстом", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([
+      token({ last_used_at: "2026-11-12T12:00:00+00:00", expires_at: "2027-02-12T12:00:00+00:00" }),
+      token({ id: "t-2", name: "Читатель", read_only: true }),
+      token({ id: "t-3", name: "CI", ci_only: true }),
+    ]);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Токены для MCP" })).toHaveClass("ds-win-title");
+    const agent = await screen.findByTestId("token-Агент");
+    expect(agent.textContent).not.toContain(" · ");
+    expect(within(agent).getByText(/^использовался 12 нояб\. 2026 г\., до 12 февр\. 2027 г\.$/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("token-Читатель")).getByText("только чтение")).toHaveClass("ud-token-access");
+    expect(within(screen.getByTestId("token-CI")).getByText("сигнал из CI")).toHaveClass("ud-token-access");
+    expect(within(agent).getByText("archmap_Zx9se…")).toHaveClass("ds-mono");
+    expect(within(agent).getByRole("button", { name: "Отозвать Агент" })).toHaveClass("ud-revoke");
+    expect(screen.getByText("Новый токен").tagName).toBe("H3");
+    expect(screen.getByText("Новый токен")).toHaveClass("ds-win-block-title");
+    // Инлайн-стилей в окне нет; исключение — общий значок шеврона списка (ui/icons).
+    expect([...document.querySelectorAll(".ds-win [style]")].filter((e) => e.tagName !== "svg")).toHaveLength(0);
+  });
+
+  it("блок «Новый токен»: строки Название, Срок действия, Доступ; подвал", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    const name = await screen.findByLabelText("Название");
+    const rows = [...document.querySelectorAll(".ds-prop")];
+    expect(rows.map((r) => r.querySelector("dt")?.textContent)).toEqual(["Название", "Срок действия", "Доступ"]);
+    expect(name).toHaveClass("ds-input");
+    expect(screen.getByLabelText("Срок действия").closest(".ds-select")).not.toBeNull();
+    expect(screen.getByLabelText("Доступ").closest(".ds-select")).not.toBeNull();
+    const [issue, close] = screen.getAllByRole("button").filter((b) => b.textContent !== "");
+    expect([issue.textContent, close.textContent]).toEqual(["Выпустить токен", "Закрыть"]);
+    expect(issue.className).toBe("ds-btn ds-btn--primary");
+    expect(close.className).toBe("ds-btn");
+    // Крестик окна — кнопка-значок с тем же именем «Закрыть», без текста.
+    const cross = screen.getAllByRole("button", { name: "Закрыть" }).find((b) => b.textContent === "");
+    expect(cross).toHaveClass("ds-icon-btn", "ds-win-close");
+  });
+
+  it("отказ выпуска строкой подвала", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    vi.mocked(tokensApi.create).mockRejectedValue(new Error("Токен с таким именем у вас уже есть"));
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Выпустить токен" }));
+    expect(await screen.findByText("Токен с таким именем у вас уже есть")).toHaveClass("ds-danger", "ds-win-err");
+  });
+
+  it("«Загрузка» тихим текстом", () => {
+    vi.mocked(tokensApi.list).mockReturnValue(new Promise<PersonalToken[]>(() => {}));
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    expect(screen.getByText("Загрузка")).toHaveClass("ds-empty");
   });
 });
