@@ -10,8 +10,10 @@
 // Вид — новый язык (редизайн, фаза 6г): одна колонка на общем каркасе окна (ui/ds.css,
 // ds-win), как «Новый проект». Вступления нет: зона файлов «Перетащите сюда архивы проекта
 // .zip» с одной кнопкой «Выбрать файлы» (архив не текст), под ней имена архивов и итог
-// превью: строка статуса, дифф, вопросы слияния и свёртка того же вида, что в «Новом
-// проекте» (importResult.css, область imp-res). Не-архив — отказом над футером. Футер
+// превью: строка статуса, строка «Нового: …», вопросы слияния с массовыми ответами, перечни
+// найденного и нового, свёртка того же вида, что в «Новом проекте» (importResult.css,
+// область imp-res). Вопросы выше перечней (фаза 8а): они требуют действия и видны без
+// прокрутки, перечни справочные. Не-архив — отказом над футером. Футер
 // слева: «Применить», «Отмена»; после применения отчёт в окне и «Готово». Файлы принимает
 // всё окно. Состояние — useImportInto, дифф и отчёт — IntoReport. Ни слова про агента:
 // окно не знает, откуда архив.
@@ -23,7 +25,7 @@ import { BulkBox, RemainderBlock, StatusLine, UnfixableFold, splitErrorLine } fr
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { useImportInto } from "./useImportInto";
 import type { ImportInto } from "./useImportInto";
-import { IntoApplyReport, IntoDiff } from "./IntoReport";
+import { IntoApplyReport, IntoPaths, IntoSummary } from "./IntoReport";
 import "../../ui/ds.css";
 import "./importResult.css";
 import "./importInto.css";
@@ -123,7 +125,7 @@ function IntoInputs({ into }: { into: ImportInto }) {
               ).map((e) => ({ chipLabel: null, chipIndex: null, ...splitErrorLine(e) }))}
             />
           )}
-          {ok && <IntoDiff preview={fresh} nothingNew={into.nothingNew} />}
+          {ok && <IntoSummary preview={fresh} nothingNew={into.nothingNew} />}
           {ok && questions.length > 0 && (
             <RemainderBlock
               questions={questions}
@@ -139,6 +141,7 @@ function IntoInputs({ into }: { into: ImportInto }) {
           {ok && into.withMine && (
             <BulkBox onKeepMine={() => into.resolveAll(true)} onTakeArchives={() => into.resolveAll(false)} />
           )}
+          {ok && <IntoPaths preview={fresh} />}
           {ok && <UnfixableFold items={fresh.remainder.unfixable} />}
         </div>
       )}

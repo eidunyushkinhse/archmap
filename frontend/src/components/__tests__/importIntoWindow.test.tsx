@@ -223,3 +223,38 @@ describe("догрузка архива: вид нового языка", () => 
     expect(within(подвал()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Готово"]);
   });
 });
+
+describe("догрузка архива: порядок блоков (фаза 8а)", () => {
+  it("статус, «Нового», вопросы с массовыми ответами, перечни, свёртка", async () => {
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
+      nodes_matched: 1, matched_nodes: [{ path: "Grafana", basis: "name" }],
+      family_conflicts: [{
+        id: "doc|Grafana/API|Опрос", family: "doc", node_path: "Grafana / API", key: "Опрос",
+        candidates: [
+          { origin: 0, origin_label: "Текущий проект", source_label: "Из проекта", summary: "", body: "flowchart TD", truncated: false, current: true },
+          { origin: 1, origin_label: "1 · grafana.zip", source_label: "Из архива grafana.zip", summary: "", body: "flowchart LR", truncated: false, current: false },
+        ],
+        default: "cand:0", allow_all: true,
+      }],
+      remainder: {
+        ...превью().remainder,
+        unfixable: [{ id: "u1", file: null, text: "У связи «A → B» с брокером «Kafka» не указан канал." }],
+      },
+    }));
+    await открыть(zip("grafana.zip"));
+    await screen.findByText("Вопрос 1 из 1", {}, WAIT);
+    const итог = document.querySelector(".ii-result") as HTMLElement;
+    const порядок = [".rq-st", ".ii-new", ".rq-block", ".rq-bulk", ".ii-paths", ".rq-uf"]
+      .map((sel) => итог.querySelector(sel) as HTMLElement);
+    for (const el of порядок) expect(el).not.toBeNull();
+    for (let i = 1; i < порядок.length; i++) {
+      expect(порядок[i - 1]!.compareDocumentPosition(порядок[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // Перечни — под вопросами: «Найдено в проекте» и «Появятся» после массовых ответов.
+    expect(within(порядок[4]!).getByText(/Найдено в проекте: 1 объект/)).toBeInTheDocument();
+    expect(within(порядок[4]!).getByText("Появятся:")).toBeInTheDocument();
+    // Массовые ответы — кнопками нового языка, подпись прежняя.
+    expect(within(порядок[3]!).getByText("Ответить на все такие вопросы сразу:")).toBeInTheDocument();
+    for (const b of within(порядок[3]!).getAllByRole("button")) expect(b).toHaveClass("ds-btn");
+  });
+});

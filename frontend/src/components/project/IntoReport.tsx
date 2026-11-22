@@ -21,10 +21,13 @@ const objects = (n: number) => `${n} ${plural(n, ["объект", "объект�
 // «внутри «…»» (он повторял путь). Остальные основания — прежними словами.
 const shortBasis = (basis: MergeBasis): string => (basis === "name" ? "по имени" : basisLabel(basis));
 
-// Дифф превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов. Архив без
-// нового (nothingNew) строки «Нового: …» не получает: окно говорит об этом само.
-export function IntoDiff({ preview, nothingNew }: { preview: IntoPreviewOut; nothingNew: boolean }) {
+// Итог диффа превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов. Архив
+// без нового (nothingNew) строки «Нового: …» не получает: окно говорит об этом само. Стоит
+// над вопросами слияния, перечни путей (IntoPaths) — под ними (фаза 8а): вопросы требуют
+// действия, перечни справочные.
+export function IntoSummary({ preview, nothingNew }: { preview: IntoPreviewOut; nothingNew: boolean }) {
   const families = familyLine(preview.families);
+  if (nothingNew && !families) return null;
   return (
     <div className="ii-diff">
       {!nothingNew && (
@@ -34,6 +37,15 @@ export function IntoDiff({ preview, nothingNew }: { preview: IntoPreviewOut; not
         </p>
       )}
       {families && <p className="ii-line ii-quiet">Добавится: {families}</p>}
+    </div>
+  );
+}
+
+// Перечни путей диффа: найденное в проекте и то, что появится.
+export function IntoPaths({ preview }: { preview: IntoPreviewOut }) {
+  if (preview.nodes_matched === 0 && preview.new_nodes.length === 0) return null;
+  return (
+    <div className="ii-diff ii-paths">
       {/* Догрузка сопоставляет узлы ИСТОЧНИКОМ, и самое спорное её решение («это тот же
           объект») названо вслух, вместе с основанием каждой находки. */}
       {preview.nodes_matched > 0 && (

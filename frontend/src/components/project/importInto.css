@@ -52,6 +52,12 @@
   padding: 1px 0;
   overflow-wrap: anywhere;
 }
+/* Перечни под вопросами и массовыми ответами (фаза 8а) отступают от них сильнее, чем
+   строки одной группы: вопросы — действие, перечни — справка. */
+.ii-result > .rq-block + .ii-paths,
+.ii-result > .rq-bulk + .ii-paths {
+  margin-top: var(--space-2);
+}
 /* «и ещё N» — кнопка-текст на x путей (ds-add выносит подложку на 6px влево). */
 .ii-more {
   margin: 0 -6px;
