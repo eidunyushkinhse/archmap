@@ -393,6 +393,12 @@ button.ds-sub:hover {
   color: var(--c-fg);
   border-bottom-color: var(--c-fg);
 }
+/* Фокус с клавиатуры — кольцом языка, как у кнопок (иначе браузер рисует своё). */
+.ds-tab:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 
 /* ── Меню ────────────────────────────────────────────────────────────── */
 .ds-menu {

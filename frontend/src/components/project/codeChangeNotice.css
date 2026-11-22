@@ -25,18 +25,18 @@
   flex-wrap: wrap;
   gap: 2px 12px;
 }
-/* «Документация актуальна»: тихая текстовая кнопка в конце строки. */
+/* «Документация актуальна»: действие, а не утверждение, поэтому видом ссылки (цвет
+   акцента, подчёркивание при наведении) в конце строки. */
 .ccn-dismiss {
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
-  color: var(--c-fg-muted);
+  color: var(--c-accent);
   white-space: nowrap;
   cursor: pointer;
 }
 .ccn-dismiss:hover:not(:disabled) {
-  color: var(--c-fg);
   text-decoration: underline;
 }
 .ccn-dismiss:focus-visible {
