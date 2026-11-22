@@ -122,6 +122,60 @@ describe("ProjectAccessDialog: владелец", () => {
     expect(within(screen.getByTestId("member-editor")).getByRole("option", { name: "Редактор" })).toBeEnabled();
   });
 
+  it("Enter в поле логина добавляет с ролью по умолчанию «Редактор»", async () => {
+    открыть();
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    await userEvent.type(screen.getByPlaceholderText("Логин"), "stranger{Enter}");
+    expect(projectsApi.putMember).toHaveBeenCalledWith("p1", "u3", "editor");
+    await waitFor(() => expect(screen.getByPlaceholderText("Логин")).toHaveValue(""));
+  });
+
+  it("уже участник: отказ текстом, запроса нет", async () => {
+    открыть();
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    await screen.findByTestId("member-editor");
+    await userEvent.type(screen.getByPlaceholderText("Логин"), "editor{Enter}");
+    expect(screen.getByText("Пользователь уже в проекте")).toBeInTheDocument();
+    expect(projectsApi.putMember).not.toHaveBeenCalled();
+  });
+
+  it("после правки список участников перечитывается, затем зовётся onChanged", async () => {
+    открыть();
+    await userEvent.click(await screen.findByRole("button", { name: "Удалить editor" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(projectsApi.members).toHaveBeenCalledTimes(2);
+    const удаление = vi.mocked(projectsApi.removeMember).mock.invocationCallOrder[0];
+    const перечитать = vi.mocked(projectsApi.members).mock.invocationCallOrder[1];
+    expect(удаление).toBeLessThan(перечитать);
+    expect(перечитать).toBeLessThan(onChanged.mock.invocationCallOrder[0]);
+  });
+
+  it("отказ правки показывается текстом, onChanged не зовётся", async () => {
+    vi.mocked(projectsApi.putMember).mockRejectedValue(new Error("Нет прав на проект"));
+    открыть();
+    await userEvent.selectOptions(await screen.findByRole("combobox", { name: "Роль editor" }), "reader");
+    expect(await screen.findByText("Нет прав на проект")).toBeInTheDocument();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("передача владения: «Отмена» в подтверждении ничего не передаёт", async () => {
+    открыть();
+    await userEvent.click(await screen.findByRole("button", { name: "Передать владение" }));
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    const выбор = screen.getByLabelText("Новый владелец");
+    await waitFor(() => expect(within(выбор).getAllByRole("option")).toHaveLength(3));
+    // Пока никто не выбран, «Передать» заперта.
+    expect(screen.getByRole("button", { name: "Передать" })).toBeDisabled();
+    await userEvent.selectOptions(выбор, "u2");
+    await userEvent.click(screen.getByRole("button", { name: "Передать" }));
+    expect(screen.getByText("Передать проект «Ярмарка» пользователю editor?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByText("Передать проект «Ярмарка» пользователю editor?")).not.toBeInTheDocument();
+    expect(projectsApi.transfer).not.toHaveBeenCalled();
+    // Строка выбора остаётся открытой с выбранным пользователем.
+    expect(screen.getByLabelText("Новый владелец")).toHaveValue("u2");
+  });
+
   it("незнакомый логин не отправляется", async () => {
     открыть();
     await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
@@ -170,6 +224,9 @@ describe("ProjectAccessDialog: не владелец", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Передать владение" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Удалить/ })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Логин")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("member-owner")).getByText("Владелец")).toBeInTheDocument();
     expect(screen.getByText("Менять доступ может владелец проекта.")).toBeInTheDocument();
     // Список пользователей не-владельцу не нужен.
     expect(usersApi.list).not.toHaveBeenCalled();

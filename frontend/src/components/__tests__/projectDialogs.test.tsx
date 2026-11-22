@@ -160,4 +160,29 @@ describe("EditProjectDialog", () => {
     expect(await screen.findByText("Имя занято")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled();
   });
+
+  it("описание обрезается по краям; Enter в описании переносит строку и не сохраняет", async () => {
+    vi.mocked(projectsApi.update).mockResolvedValue(project);
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const описание = screen.getByPlaceholderText(/^коротко о проекте$/i);
+    await userEvent.type(описание, "  первая{Enter}вторая  ");
+    expect(projectsApi.update).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(projectsApi.update).toHaveBeenCalledWith("p1", { name: "Ярмарка", description: "первая\nвторая" });
+  });
+
+  it("«Отмена» закрывает окно без записи", async () => {
+    const onClose = vi.fn();
+    render(<EditProjectDialog project={project} onClose={onClose} onSaved={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(projectsApi.update).not.toHaveBeenCalled();
+  });
+
+  it("Enter в пустом названии ничего не отправляет", async () => {
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    await userEvent.clear(screen.getByDisplayValue("Ярмарка"));
+    await userEvent.keyboard("{Enter}");
+    expect(projectsApi.update).not.toHaveBeenCalled();
+  });
 });
