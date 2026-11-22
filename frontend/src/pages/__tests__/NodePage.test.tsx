@@ -615,7 +615,8 @@ describe("NodePage: правила контейнеров", () => {
     expect(screen.queryByRole("button", { name: "Перенести документацию" })).not.toBeInTheDocument();
 
     await userEvent.click(buttons[0]);
-    expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
+    // Строка компонента двумя колонками: имя и что у него есть (без склейки точкой).
+    expect(screen.getByText("2 параметра, спецификация").previousElementSibling).toHaveTextContent("api");
     // Своя спецификация контейнера в приоритете — фактом, без вопроса.
     expect(screen.getByText(
       "У контейнера есть своя спецификация, поэтому спецификация компонента «api» будет отброшена",
@@ -626,7 +627,8 @@ describe("NodePage: правила контейнеров", () => {
     expect(await screen.findByText("Собрано: 2 параметра.")).toBeInTheDocument();
     expect(screen.getByText("Отброшено: 1 спецификация.")).toBeInTheDocument();
     await waitFor(() => expect(nodesApi.collectPreview).toHaveBeenCalledTimes(2));
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    // Кнопка подвала по тексту: у крестика окна то же имя «Закрыть».
+    await userEvent.click(screen.getByText("Закрыть", { selector: "button" }));
     expect(screen.queryByText("Собрано: 2 параметра.")).not.toBeInTheDocument();
     vi.mocked(nodesApi.collectPreview).mockResolvedValue({
       components: [], param_clashes: [], specs: [], container_has_spec: false, single_spec_from: null,

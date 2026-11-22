@@ -5,28 +5,38 @@
 // одноимённое у компонентов отбрасывается — окно говорит это строками-фактами.
 // Краевые случаи — вопросы на языке разбора ввоза (project/remainder): одноимённый
 // параметр только у компонентов и несколько спецификаций при пустом контейнере.
-// Ничего не предвыбрано; дефолт «как сейчас» — пунктирный вариант, и «Собрать»
-// доступна без ответов: вопрос без ответа оставляет записи у компонентов.
+// Ничего не предвыбрано; вариант «Оставить у компонентов» действует без ответа и помечен
+// словом «по умолчанию», «Собрать» доступна без ответов: вопрос без ответа оставляет
+// записи у компонентов.
 //
 // Превью (GET /nodes/{id}/facts/collect-preview) страница уже загрузила — по нему она
 // решила показать кнопку, окно его только читает. Применение — POST …/facts/collect;
-// отказ сервера — текстом под формой, окно открыто. После записи окно показывает итог
+// отказ сервера — строкой над кнопками, окно открыто. После записи окно показывает итог
 // (собрано, отброшено, осталось у компонентов) до «Закрыть».
+//
+// Вид (редизайн, фаза 9е): каркас окна нового языка (ui/ds.css, ds-win), компоненты двумя
+// колонками (имя и что у него есть) без маркеров, факты абзацами. Вопросы того же вида, что
+// в окнах ввоза: заголовок со знаком «?» (почему возник вопрос и что будет без ответа),
+// варианты с пометкой «по умолчанию». Вид вариантов задан в области .imp-res
+// (project/importResult.css): окно ставит её на свой корень, копии правил нет.
 import { useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { CollectFactsOut, CollectFactsPreview } from "../types";
 import { nodesApi } from "../api/nodes";
 import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
-import DialogTitle from "../ui/DialogTitle";
-import { primaryBtn, secondaryBtn } from "../ui/styles";
+import InfoPopover from "../ui/InfoPopover";
+import { CloseIcon } from "../ui/icons";
 import { DocViewer, Option, PathLabel, SplitOption } from "./project/remainder";
-import "./project/remainder/remainder.css";
 import {
-  asksSpec, candidateSub, collectFacts, collectLine, collectResult, droppedParams, isParamQuestion,
+  asksSpec, candidateSub, collectFacts, collectResult, collectRow, droppedParams, isParamQuestion,
   paramQuestion, specHolders, specQuestion,
 } from "./element/collectTexts";
 import type { CollectQuestionTexts } from "./element/collectTexts";
+import "../ui/ds.css";
+import "./project/remainder/remainder.css";
+import "./project/importResult.css";
+import "./docWindows.css";
 
 interface Props {
   nodeId: string;
@@ -37,8 +47,9 @@ interface Props {
   onApplied: () => void;
 }
 
-// Ответ «как сейчас»: id объектов — UUID, со словом не совпадут.
+// Ответ «Оставить у компонентов»: id объектов — UUID, со словом не совпадут.
 const KEEP = "keep";
+const TITLE = "Собрать с компонентов";
 
 export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, onApplied }: Props) {
   // Ответы: имя параметра → node_id выбранного или KEEP; спецификация — так же. Нет
@@ -85,37 +96,46 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
 
   if (result !== null) {
     return (
-      <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <DialogTitle>Собрать с компонентов</DialogTitle>
-        {collectResult(result).map((line) => <p key={line} style={resultLine}>{line}</p>)}
-        <div style={footRow}>
-          <button type="button" onClick={onClose} style={primaryBtn}>Закрыть</button>
-        </div>
-      </Modal>
+      <Window onClose={onClose} foot={
+        <button type="button" className="ds-btn ds-btn--primary" onClick={onClose}>Закрыть</button>
+      }>
+        {collectResult(result).map((line) => <p key={line} className="dw-text">{line}</p>)}
+      </Window>
     );
   }
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-      <DialogTitle lead={
-        "Конфигурацию читает контейнер целиком, а спецификацию отдаёт он же. Параметры и "
-        + `спецификации компонентов переедут в «${nodeName}», а где у контейнера есть своё `
-        + "описание, останется оно."
-      }>
-        Собрать с компонентов
-      </DialogTitle>
+    <Window onClose={onClose} foot={
+      <>
+        {error && <p className="ds-danger ds-win-err" role="alert">{error}</p>}
+        <button type="button" className="ds-btn ds-btn--primary" onClick={apply} disabled={sending}>
+          {sending ? "Собираем" : "Собрать"}
+        </button>
+        <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
+      </>
+    }>
+      <p className="dw-text">
+        {"Конфигурацию читает контейнер целиком, а спецификацию отдаёт он же. Параметры и "
+          + `спецификации компонентов переедут в «${nodeName}», а где у контейнера есть своё `
+          + "описание, останется оно."}
+      </p>
 
-      <ul style={list}>
-        {preview.components.map((c) => <li key={c.node_id}>{collectLine(c, dropped[c.node_id])}</li>)}
-      </ul>
-      {facts.length > 0 && (
-        <ul style={factList}>
-          {facts.map((f) => <li key={f}>{f}</li>)}
-        </ul>
-      )}
+      {/* Компоненты: имя слева, что у него есть — тихим цветом справа. */}
+      <div className="ds-confirm-rows">
+        {preview.components.map((c) => {
+          const row = collectRow(c, dropped[c.node_id]);
+          return (
+            <div key={c.node_id} className="ds-confirm-row">
+              <span className="ds-confirm-row-name" title={row.name}>{row.name}</span>
+              <span className="ds-confirm-row-value">{row.holds}</span>
+            </div>
+          );
+        })}
+      </div>
+      {facts.map((f) => <p key={f} className="dw-text">{f}</p>)}
 
       {(asked.length > 0 || askSpec) && (
-        <div className="rq-root">
+        <div className="rq-root dw-questions">
           {asked.map((c) => (
             <Question key={c.name} texts={paramQuestion(c, nodeName)}>
               {c.candidates.map((k) => (
@@ -129,8 +149,7 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
               ))}
               <Option
                 main="Оставить у компонентов"
-                tag="как сейчас"
-                keep
+                byDefault
                 selected={params[c.name] === KEEP}
                 onClick={() => setParams((m) => ({ ...m, [c.name]: KEEP }))}
               />
@@ -150,8 +169,7 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
               ))}
               <Option
                 main="Оставить у компонентов"
-                tag="как сейчас"
-                keep
+                byDefault
                 selected={spec === KEEP}
                 onClick={() => setSpec(KEEP)}
               />
@@ -170,46 +188,57 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
           onClose={() => setViewer(null)}
         />
       )}
+    </Window>
+  );
+}
 
-      {error && <p style={errText}>{error}</p>}
-
-      <div style={footRow}>
-        <button
-          type="button"
-          onClick={apply}
-          disabled={sending}
-          style={{ ...primaryBtn, ...(sending ? { opacity: 0.6, cursor: "default" } : {}) }}
-        >
-          {sending ? "Собираем" : "Собрать"}
-        </button>
-        <button type="button" onClick={onClose} style={secondaryBtn}>Отмена</button>
+// Каркас окна: шапка с крестиком, тело с прокруткой, подвал. Область .imp-res даёт
+// вопросам вид окон ввоза (project/importResult.css).
+function Window({ onClose, foot, children }: { onClose: () => void; foot: ReactNode; children: ReactNode }) {
+  return (
+    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 560, padding: 0 }}>
+      <div className="ds ds-win imp-res">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">{TITLE}</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="ds-win-body">{children}</div>
+        <div className="ds-win-foot">{foot}</div>
       </div>
     </Modal>
   );
 }
 
-// Вопрос в виде разбора ввоза (RemainderBlock): заголовок, «почему» свёрнутым, варианты
-// и сноска «Если не отвечать». Шапки с прогрессом и навигации нет: вопросов в окне
-// один–три, они идут списком.
+// Вопрос в виде окон ввоза (RemainderBlock): заголовок со знаком «?» и варианты. Шапки со
+// счётчиком и навигации нет: вопросов в окне один–три, они идут списком.
 function Question({ texts, children }: { texts: CollectQuestionTexts; children: ReactNode }) {
   return (
-    <div className="rq-block">
-      <div className="rq-bd">
-        <h4 className="rq-q">{texts.title}</h4>
-        <details className="rq-why">
-          <summary>почему возник вопрос</summary>
-          <p>{texts.why}</p>
-        </details>
-        <div className="rq-opts">{children}</div>
-        <div className="rq-ifnot">{texts.ifLeft}</div>
-      </div>
-    </div>
+    <section>
+      <h4 className="rq-q"><TitleWithWhy texts={texts} /></h4>
+      <div className="rq-opts">{children}</div>
+    </section>
   );
 }
 
-/* --------------------------------- стили --------------------------------- */
-const list: CSSProperties = { margin: "4px 0 0", paddingLeft: 18, fontSize: 13.5, color: "#1e293b", lineHeight: 1.7 };
-const factList: CSSProperties = { margin: "10px 0 0", paddingLeft: 18, fontSize: 13, color: "#475569", lineHeight: 1.55 };
-const resultLine: CSSProperties = { margin: "0 0 6px", fontSize: 14, color: "#1e293b", lineHeight: 1.5 };
-const errText: CSSProperties = { color: "#dc2626", margin: "10px 0 0", fontSize: 13 };
-const footRow: CSSProperties = { display: "flex", gap: 8, marginTop: 16 };
+/**
+ * Заголовок вопроса со знаком «?» сразу после текста: в подсказке «почему возник вопрос» и
+ * «Если не отвечать, то …» (так же, как в окнах ввоза, RemainderBlock). Последнее слово и
+ * знак в одной обёртке без переноса: знак не уезжает на строку один.
+ */
+function TitleWithWhy({ texts }: { texts: CollectQuestionTexts }) {
+  const cut = texts.title.lastIndexOf(" ") + 1;
+  return (
+    <>
+      {texts.title.slice(0, cut)}
+      <span className="rq-q-end">
+        {texts.title.slice(cut)}
+        <InfoPopover label="Почему возник вопрос" width={380}>
+          <p>{texts.why}</p>
+          <p>{texts.ifLeft}</p>
+        </InfoPopover>
+      </span>
+    </>
+  );
+}

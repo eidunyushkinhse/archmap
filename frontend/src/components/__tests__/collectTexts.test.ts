@@ -3,7 +3,7 @@
 // ввоза и итог сбора. Чистые функции — без окна.
 import { describe, it, expect } from "vitest";
 import {
-  asksSpec, candidateSub, collectFacts, collectLine, collectResult, droppedParams, paramQuestion, specQuestion,
+  asksSpec, candidateSub, collectFacts, collectResult, collectRow, droppedParams, paramQuestion, specQuestion,
 } from "../element/collectTexts";
 import type { CollectFactsOut, CollectFactsPreview } from "../../types";
 
@@ -18,10 +18,14 @@ const result = (over: Partial<CollectFactsOut> = {}): CollectFactsOut => ({
 });
 
 describe("строки окна сбора", () => {
+  // Имя и что у компонента есть — раздельно: окно ставит их в две колонки, склейки точкой нет.
   it("строка компонента", () => {
-    expect(collectLine({ node_id: "a", name: "api", params: 2, has_spec: true })).toBe("api · 2 параметра, спецификация");
-    expect(collectLine({ node_id: "s", name: "scheduler", params: 1, has_spec: false })).toBe("scheduler · 1 параметр");
-    expect(collectLine({ node_id: "c", name: "checkout", params: 0, has_spec: true })).toBe("checkout · спецификация");
+    expect(collectRow({ node_id: "a", name: "api", params: 2, has_spec: true }))
+      .toEqual({ name: "api", holds: "2 параметра, спецификация" });
+    expect(collectRow({ node_id: "s", name: "scheduler", params: 1, has_spec: false }))
+      .toEqual({ name: "scheduler", holds: "1 параметр" });
+    expect(collectRow({ node_id: "c", name: "checkout", params: 0, has_spec: true }))
+      .toEqual({ name: "checkout", holds: "спецификация" });
   });
 
   it("строка компонента честно называет отбрасываемые параметры", () => {
@@ -44,14 +48,14 @@ describe("строки окна сбора", () => {
     });
     const dropped = droppedParams(p, "orders");
     expect(dropped).toEqual({ worker: 2, api: 1 });
-    expect(collectLine({ node_id: "worker", name: "worker", params: 1, has_spec: false }, 1))
-      .toBe("worker · 1 параметр, будет отброшен");
-    expect(collectLine({ node_id: "worker", name: "worker", params: 2, has_spec: false }, dropped.worker))
-      .toBe("worker · 2 параметра, будут отброшены");
-    expect(collectLine({ node_id: "api", name: "api", params: 2, has_spec: true }, dropped.api))
-      .toBe("api · 2 параметра, 1 будет отброшен, спецификация");
-    expect(collectLine({ node_id: "api", name: "api", params: 5, has_spec: false }, 2))
-      .toBe("api · 5 параметров, 2 будут отброшены");
+    expect(collectRow({ node_id: "worker", name: "worker", params: 1, has_spec: false }, 1))
+      .toEqual({ name: "worker", holds: "1 параметр, будет отброшен" });
+    expect(collectRow({ node_id: "worker", name: "worker", params: 2, has_spec: false }, dropped.worker))
+      .toEqual({ name: "worker", holds: "2 параметра, будут отброшены" });
+    expect(collectRow({ node_id: "api", name: "api", params: 2, has_spec: true }, dropped.api))
+      .toEqual({ name: "api", holds: "2 параметра, 1 будет отброшен, спецификация" });
+    expect(collectRow({ node_id: "api", name: "api", params: 5, has_spec: false }, 2))
+      .toEqual({ name: "api", holds: "5 параметров, 2 будут отброшены" });
   });
 
   it("факты: параметр контейнера, своя спецификация контейнера, единственный держатель", () => {

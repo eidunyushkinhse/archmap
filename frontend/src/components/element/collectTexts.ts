@@ -3,7 +3,7 @@
 // приоритете — об этом окно говорит строками-фактами: вопроса там нет. Краевые случаи
 // (одноимённый параметр только у компонентов, несколько спецификаций при пустом
 // контейнере) — вопросы на языке разбора ввоза (project/remainder/questionText):
-// заголовок-вопрос, «почему возник вопрос» и сноска «Если не отвечать, то …». Что
+// заголовок-вопрос, за знаком «?» у него «почему возник вопрос» и «Если не отвечать, то …». Что
 // собирается, решает сервер (app/facts_transfer.py): здесь только текст по его превью
 // и отчёту.
 import type { CollectFactsOut, CollectFactsPreview } from "../../types";
@@ -47,11 +47,14 @@ export function droppedParams(p: CollectFactsPreview, containerId: string): Reco
 }
 
 /**
- * Строка компонента в окне сбора: «api · 2 параметра, спецификация». Отбрасываемые
- * параметры названы честно: «worker · 1 параметр, будет отброшен», «api · 2 параметра,
- * 1 будет отброшен, спецификация».
+ * Строка компонента в окне сбора: имя и что у него есть — раздельно, окно ставит их в две
+ * колонки (без склейки точкой). «api»: «2 параметра, спецификация». Отбрасываемые параметры
+ * названы честно: «1 параметр, будет отброшен», «2 параметра, 1 будет отброшен,
+ * спецификация».
  */
-export function collectLine(c: CollectFactsPreview["components"][number], dropped = 0): string {
+export function collectRow(
+  c: CollectFactsPreview["components"][number], dropped = 0,
+): { name: string; holds: string } {
   const parts: string[] = [];
   if (c.params > 0) {
     const gone = Math.min(dropped, c.params);
@@ -60,7 +63,7 @@ export function collectLine(c: CollectFactsPreview["components"][number], droppe
     parts.push(count(c.params, PARAM) + tail);
   }
   if (c.has_spec) parts.push("спецификация");
-  return `${c.name} · ${parts.join(", ")}`;
+  return { name: c.name, holds: parts.join(", ") };
 }
 
 /** Вопрос — одноимённый параметр, которого у контейнера нет. */

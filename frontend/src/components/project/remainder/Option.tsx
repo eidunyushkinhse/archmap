@@ -2,32 +2,30 @@
 // справа. Ничего не предвыбрано — выбор всегда жест человека.
 //
 // Вариант, который действует без ответа, помечен тихим тегом «по умолчанию» и выглядит
-// как остальные (фаза 8а редизайна): он не выбран, пока человек его не выбрал. Пунктир
-// keep остался окну «Собрать с компонентов», где вопросы прежнего вида.
+// как остальные (фаза 8а редизайна): он не выбран, пока человек его не выбрал. Так же в окне
+// «Собрать с компонентов» (фаза 9е).
 import type { ReactNode } from "react";
 
 interface Props {
   /** Главная строка. Полужирное начертание задаёт вызывающий (<b>), как в ТЗ. */
   main: ReactNode;
   sub?: ReactNode;
-  /** Тег справа: «система», «контейнер»; «как сейчас» в «Собрать с компонентов». */
+  /** Тег справа: «система», «контейнер». */
   tag?: string;
   /** Вариант действует без ответа: тег «по умолчанию» справа. */
   byDefault?: boolean;
   selected?: boolean;
-  /** Пунктирная рамка варианта-дефолта прежнего вида (окно «Собрать с компонентов»). */
-  keep?: boolean;
   title?: string;
   onClick: () => void;
 }
 
 export default function Option({
-  main, sub, tag, byDefault = false, selected = false, keep = false, title, onClick,
+  main, sub, tag, byDefault = false, selected = false, title, onClick,
 }: Props) {
   return (
     <button
       type="button"
-      className={"rq-opt" + (selected ? " rq-opt--on" : "") + (keep ? " rq-opt--keep" : "")}
+      className={"rq-opt" + (selected ? " rq-opt--on" : "")}
       title={title}
       aria-pressed={selected}
       onClick={onClick}

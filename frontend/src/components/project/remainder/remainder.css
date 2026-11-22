@@ -3,9 +3,9 @@
    синий выбора. ЯНТАРНОГО И КРАСНОГО ВНУТРИ БЛОКА НЕТ ВОВСЕ: остаток — не ошибка
    (красный живёт только в строке статуса, и та снаружи блока).
 
-   Здесь каркас и прежний вид вопросов окна «Собрать с компонентов»; вид окон ввоза на
-   новом языке — importResult.css (область .imp-res), просмотр схемы (rq-ov) — здесь же
-   на токенах: он порталится из области окна (фаза 8а редизайна).
+   Здесь каркас вопросов; их вид на новом языке — importResult.css (область .imp-res: окна
+   ввоза и «Собрать с компонентов»), просмотр схемы (rq-ov) — здесь же на токенах: он
+   порталится из области окна (фаза 8а редизайна).
 
    Классы с префиксом rq-: блок живёт внутри двух чужих окон (создание проекта и
    догрузка архивов), и общие имена там уже заняты. Все интерактивные элементы
@@ -49,15 +49,8 @@
   color: #0f172a; text-wrap: pretty;
 }
 .rq-ctx { margin: 5px 0 0; font-size: 12.5px; line-height: 1.45; color: #64748b; max-width: 460px; }
-.rq-why { margin-top: 4px; }
-.rq-why summary { font-size: 12px; color: #64748b; cursor: pointer; white-space: nowrap; }
-.rq-why p { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: #64748b; max-width: 460px; }
-/* Последнее слово заголовка и знак «?» без переноса между ними (RemainderBlock). */
+/* Последнее слово заголовка и знак «?» без переноса между ними (RemainderBlock, CollectFactsModal). */
 .rq-q-end { white-space: nowrap; }
-.rq-ifnot {
-  margin-top: 11px; padding-top: 9px; border-top: 1px solid #eef2f7;
-  font-size: 12px; line-height: 1.5; color: #64748b;
-}
 
 /* ── варианты ответа (§5.1) ───────────────────────────────────── */
 .rq-opts { display: flex; flex-direction: column; gap: 6px; margin-top: 11px; }
@@ -69,8 +62,6 @@
 .rq-opt:hover { border-color: #cbd5e1; background: #f8fafc; }
 .rq-opt--on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
 .rq-opt--on:hover { background: #eff6ff; }
-/* «Как сейчас» — пунктиром: дефолт виден вариантом, но не спорит с остальными. */
-.rq-opt--keep { border-style: dashed; color: #475569; }
 .rq-opt-b { min-width: 0; flex: 1; }
 .rq-opt-b b { font-weight: 600; }
 .rq-opt-sub { display: block; font-size: 12px; font-weight: 400; color: #64748b; margin-top: 2px; }

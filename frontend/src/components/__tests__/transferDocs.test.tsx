@@ -183,12 +183,25 @@ describe("окно «Собрать с компонентов»", () => {
 
   const PARAM_Q = "Параметр «DATABASE_URL» описан у компонентов «api» и «outbox» по-разному. Чьё описание считаем верным?";
   const SPEC_Q = "Спецификация есть у компонентов «api» и «outbox». Чью считаем спецификацией контейнера «orders»?";
+  // Заголовки вопросов (h4): последнее слово и знак «?» в своей обёртке, поэтому текст
+  // заголовка сверяется целиком по textContent, а не поиском по тексту узла.
+  const titles = (): string[] => screen.queryAllByRole("heading", { level: 4 }).map((h) => h.textContent ?? "");
   // Блок вопроса по его заголовку: варианты ищутся внутри него.
   const block = (title: string): HTMLElement => {
-    const el = screen.getByText(title).closest(".rq-block");
-    if (!(el instanceof HTMLElement)) throw new Error(`нет блока вопроса «${title}»`);
-    return el;
+    const h = screen.getAllByRole("heading", { level: 4 }).find((x) => x.textContent === title);
+    if (!h?.parentElement) throw new Error(`нет блока вопроса «${title}»`);
+    return h.parentElement;
   };
+  // Строка компонента: имя слева (полное — в title), что у него есть — справа.
+  const holdsOf = (name: string): string | null => screen.getByTitle(name).nextElementSibling?.textContent ?? null;
+  // Подсказка «?» вопроса: текст панели, затем Escape её закрывает.
+  async function why(title: string): Promise<string> {
+    await userEvent.click(within(block(title)).getByRole("button", { name: "Почему возник вопрос" }));
+    const text = screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent ?? "";
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Почему возник вопрос" })).toBeNull();
+    return text;
+  }
 
   function open(p: CollectFactsPreview = preview) {
     const onApplied = vi.fn();
@@ -201,21 +214,21 @@ describe("окно «Собрать с компонентов»", () => {
 
   it("факты строками, вопросы без предвыбора; «Собрать» без ответов — дефолт и итог", async () => {
     const { onApplied, onClose } = open();
-    expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
-    expect(screen.getByText("worker · 1 параметр, будет отброшен")).toBeInTheDocument();
+    expect(holdsOf("api")).toBe("2 параметра, спецификация");
+    expect(holdsOf("worker")).toBe("1 параметр, будет отброшен");
     expect(screen.getByText(
       "Параметр «RETRY_TIMEOUT» есть у контейнера, поэтому остаётся его описание, а у компонента «worker» параметр будет отброшен",
     )).toBeInTheDocument();
     // По параметру с записью контейнера вопроса нет.
     expect(screen.queryByText(/Параметр «RETRY_TIMEOUT» описан/)).not.toBeInTheDocument();
-    expect(screen.getByText(PARAM_Q)).toBeInTheDocument();
-    expect(screen.getByText(SPEC_Q)).toBeInTheDocument();
-    expect(within(block(PARAM_Q)).getByText(
-      "Если не отвечать, то параметр останется у компонентов, рекомендация тоже останется.",
-    )).toBeInTheDocument();
-    expect(within(block(SPEC_Q)).getByText(
-      "Если не отвечать, то спецификации останутся у компонентов, рекомендация тоже останется.",
-    )).toBeInTheDocument();
+    expect(titles()).toEqual([PARAM_Q, SPEC_Q]);
+    // «Почему возник вопрос» и «Если не отвечать, то …» — за знаком «?» своего вопроса.
+    const paramWhy = await why(PARAM_Q);
+    expect(paramWhy).toContain("У контейнера «orders» этого параметра нет. ArchMap оставит у контейнера одну запись, вторая будет отброшена.");
+    expect(paramWhy).toContain("Если не отвечать, то параметр останется у компонентов, рекомендация тоже останется.");
+    const specWhy = await why(SPEC_Q);
+    expect(specWhy).toContain("У контейнера своей спецификации нет, а у компонента её быть не может");
+    expect(specWhy).toContain("Если не отвечать, то спецификации останутся у компонентов, рекомендация тоже останется.");
     expect(screen.queryAllByRole("button", { pressed: true })).toEqual([]);
 
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
@@ -225,11 +238,31 @@ describe("окно «Собрать с компонентов»", () => {
     expect(screen.getByText("Осталось у компонентов: параметр «DATABASE_URL», 2 спецификации.")).toBeInTheDocument();
     expect(onApplied).toHaveBeenCalledOnce();
     expect(onClose).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    // Кнопка подвала по тексту: у крестика окна то же имя «Закрыть».
+    await userEvent.click(screen.getByText("Закрыть", { selector: "button" }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("ответ по параметру уходит в param_choices, «как сейчас» по спецификации — без spec_from", async () => {
+  // Вид вопросов тот же, что в окнах ввоза (фаза 9е редизайна): раскрывашки и сноски под
+  // вариантами нет, вариант, который действует без ответа, помечен «по умолчанию», склеек
+  // точкой в окне нет.
+  it("вопросы вида окон ввоза: «по умолчанию» у «Оставить у компонентов», без «как сейчас»", () => {
+    const { container } = render(
+      <CollectFactsModal nodeId="orders" nodeName="orders" preview={preview} onClose={vi.fn()} onApplied={vi.fn()} />,
+    );
+    expect(container.querySelector("details, .rq-why, .rq-ifnot, .rq-opt--keep")).toBeNull();
+    expect(container.textContent).not.toContain("как сейчас");
+    expect(container.textContent).not.toContain(" · ");
+    for (const title of [PARAM_Q, SPEC_Q]) {
+      const keep = within(block(title)).getByRole("button", { name: /^Оставить у компонентов/ });
+      expect(keep).toHaveTextContent("Оставить у компонентовпо умолчанию");
+      // Остальные варианты пометки нет.
+      const others = within(block(title)).getAllByRole("button", { pressed: false }).filter((b) => b !== keep);
+      expect(others.filter((b) => b.textContent?.includes("по умолчанию"))).toEqual([]);
+    }
+  });
+
+  it("ответ по параметру уходит в param_choices, «Оставить у компонентов» по спецификации — без spec_from", async () => {
     open();
     await userEvent.click(within(block(PARAM_Q)).getByRole("button", { name: /^outbox/ }));
     expect(within(block(PARAM_Q)).getByRole("button", { name: /^outbox/ })).toHaveAttribute("aria-pressed", "true");
@@ -267,7 +300,7 @@ describe("окно «Собрать с компонентов»", () => {
     expect(screen.getByText(
       "У контейнера есть своя спецификация, поэтому спецификации компонентов «api» и «outbox» будут отброшены",
     )).toBeInTheDocument();
-    expect(screen.queryByText(SPEC_Q)).not.toBeInTheDocument();
+    expect(titles()).not.toContain(SPEC_Q);
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
     expect(await screen.findByText("Для параметра «DATABASE_URL» выбран объект, у которого его нет.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Собрать" })).toBeInTheDocument();
