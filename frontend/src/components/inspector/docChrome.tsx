@@ -1,16 +1,13 @@
 // Обвязка окна документации (DocOverlay), общая для схемы логики и спецификации: шапка,
-// меню «Изменить» («Вручную» | «Через ИИ-агента»), шаги левой колонки режима агента и
-// двухшаговое удаление. Классы — docOverlay.css; шапка и меню на новом языке (ui/ds.css,
-// редизайн, фаза 7а), удаление тоже (фаза 7б), шаги и кнопка шапки стадии агента —
-// прежнего вида.
+// меню «Изменить» («Вручную» | «Через ИИ-агента»), «Показать код» и двухшаговое удаление.
+// Классы — docOverlay.css; всё на новом языке (ui/ds.css): шапка и меню — редизайн, фаза
+// 7а, удаление — фаза 7б. Стадия «Через ИИ-агента» рисует своё малое окно (DocAgentStage).
 //
 // Компоненты объявлены на верхнем уровне модуля: объявленный внутри другого
 // ремаунтится каждый рендер (ловушка проекта).
 import { useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import type { PromptVariant } from "../../types";
+import type { ReactNode } from "react";
 import AddDocsMenu from "../AddDocsMenu";
-import PromptCopyButton from "../docsImport/PromptCopyButton";
 import { CloseIcon } from "../../ui/icons";
 import "../../ui/ds.css";
 import "./docOverlay.css";
@@ -62,12 +59,6 @@ export function DocHead({ objectName, title, tail, notice, actions, onClose }: {
   );
 }
 
-// Кнопка стадии «Через ИИ-агента» в шапке («← К схеме») — прежнего вида: её метрики
-// (высота строки) держит legacy-root (ui/tokens.css), обёртка своей коробки не имеет.
-export function LegacyActions({ children }: { children: ReactNode }) {
-  return <span className="legacy-root doc-legacy">{children}</span>;
-}
-
 // Меню правки: тот же список, что «+ Добавить» на странице объекта (AddDocsMenu), —
 // способ правки везде выглядит одинаково. «Изменить» в шапке — вторичная кнопка,
 // «Описать» у неописанной схемы — главная.
@@ -100,34 +91,6 @@ export function CodeToggle({ shown, onToggle }: { shown: boolean; onToggle: () =
   );
 }
 
-// Левая колонка режима «Через ИИ-агента»: три шага. target — адрес, на который
-// нацелен промпт (у схемы логики); у спеки его нет.
-export function DocAgentSteps({ target, service, copy }: {
-  target?: string | null;
-  service: string;
-  copy: (variant: PromptVariant) => Promise<void>;
-}) {
-  return (
-    <ol className="doc-steps">
-      <li>
-        <div>
-          Скопируйте промпт.
-          {target && <> Он уже нацелен на схему <span className="doc-target">{target}</span>.</>}
-          <PromptCopyButton
-            label="Скопировать промпт"
-            copiedLabel="Скопировано ✓"
-            kind="primary"
-            buttonStyle={copyBtn}
-            copy={copy}
-          />
-        </div>
-      </li>
-      <li><div>Запустите агента с этим промптом в репозитории «{service}».</div></li>
-      <li><div>Перетащите файл, который вернёт агент, в поле справа.</div></li>
-    </ol>
-  );
-}
-
 // Двухшаговое удаление вместо вложенной модалки подтверждения: <dialog> внутри
 // <dialog> нельзя (cancel бубблит — ui/Modal). Второй клик по той же кнопке
 // подтверждает, увод фокуса — отменяет. Вторая ступень спрашивает тем же действием:
@@ -146,6 +109,3 @@ export function TwoStepDeleteButton({ label, onConfirm }: { label: string; onCon
     </button>
   );
 }
-
-// Кнопка промпта в шаге — по ширине подписи, а не на всю колонку.
-const copyBtn: CSSProperties = { marginTop: 8, alignSelf: "flex-start" };

@@ -386,3 +386,123 @@ describe("стадия агента у схемы: вид нового язык�
     expect(screen.getByRole("button", { name: "Описать" })).toBeInTheDocument();
   });
 });
+
+describe("стадия агента у спецификации: вид нового языка", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("малое окно семьи: шапка, задание, зона; шагов, примечаний и кнопок прежнего вида нет", async () => {
+    await стадияСпецификации(SPEC("Order API"));
+    expect(окно()).toHaveClass("ds-win");
+    expect(окно().querySelector(".ds-win-head")).toHaveTextContent(/^Order APIOpenAPI$/);
+    expect(screen.queryByRole("button", { name: "← К спецификации" })).toBeNull();
+    expect(кнопкаЗадания()).toHaveTextContent("Скопировать задание");
+    expect(screen.getByText("Перетащите сюда файл спецификации от агента")).toBeInTheDocument();
+    for (const text of [
+      "Скопируйте промпт.", /Запустите агента с этим промптом/,
+      "Перетащите файл, который вернёт агент, в поле справа.",
+      "Спецификация не изменится, пока вы не нажмёте «Применить»",
+    ]) expect(screen.queryByText(text)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Загрузить файлы" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ вставить из буфера" })).toBeNull();
+    expect(document.querySelector("dialog .legacy-root")).toBeNull();
+    const кнопки = within(подвал()).getAllByRole("button");
+    expect(кнопки.map((b) => b.textContent)).toEqual(["Применить", "Отмена"]);
+    expect(кнопки[0]).toHaveClass("ds-btn--primary");
+    expect(кнопки[0]).toBeDisabled();
+  });
+
+  it("сводка только с ненулевыми счётчиками; строка без «·» и без происхождения", async () => {
+    await стадияСпецификации(SPEC("Order API"));
+    await положитьФайл(specReport(), "openapi.yaml", SPEC("От агента"));
+    expect(await screen.findByText("Спецификаций: 1 (перезапись 1)", {}, WAIT)).toHaveClass("apl-summary", "is-ok");
+    expect(screen.getByText("Ярмарка / Заказы / Order API")).toHaveClass("apl-path");
+    const строка = окно().querySelector(".apl-row") as HTMLElement;
+    expect(строка).toHaveTextContent(/^openapi\.yamlOAS 3\.0\.3перезапись$/);
+    expect(within(строка).getByText("OAS 3.0.3")).toHaveClass("apl-detail");
+    expect(screen.queryByText("OpenAPI-спецификации:")).toBeNull();
+    expect(окно().textContent).not.toContain("·");
+    expect(окно().textContent).not.toMatch(/found|synthesized|generated/);
+    expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled();
+  });
+
+  it("без счётчиков сводка без скобок; без версии строка без «OAS»", async () => {
+    await стадияСпецификации(SPEC("Order API"));
+    await положитьФайл(specReport({
+      specs: [{ ...specReport().specs[0], action: "unchanged", oas_version: null }],
+    }), "openapi.yaml", SPEC("Order API"));
+    expect(await screen.findByText("Спецификаций: 1 (без изменений 1)", {}, WAIT)).not.toHaveClass("is-ok");
+    expect(окно().querySelector(".apl-row")).toHaveTextContent(/^openapi\.yamlбез изменений$/);
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+
+    vi.mocked(docsImportApi.preview).mockResolvedValue(specReport({ specs: [] }));
+    fireEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Текст вставка-1" }), { target: { value: "paths: {}" } });
+    expect(await screen.findByText("Спецификаций: 0", {}, WAIT)).toBeInTheDocument();
+  });
+
+  it.each([
+    [{ valid_yaml: false, looks_openapi: false, oas_version: null }, "YAML не читается"],
+    [{ origin: "synthesized" as const }, "синтезирована из кода, проверьте глазами"],
+    [{ looks_openapi: false, oas_version: null }, "не похожа на OpenAPI"],
+  ])("пометка строки цветом предупреждения: %o", async (over, пометка) => {
+    await стадияСпецификации(SPEC("Order API"));
+    await положитьФайл(specReport({ specs: [{ ...specReport().specs[0], ...over }] }), "openapi.yaml", "x: [");
+    const знак = await screen.findByText(пометка, {}, WAIT);
+    expect(знак).toHaveClass("apl-bad");
+    expect(окно().querySelector(".apl-row")).toContainElement(знак);
+    expect(окно().textContent).not.toContain("synthesized");
+  });
+
+  it("ошибки файлов: «Файлы не применить:», «Применить» погашена", async () => {
+    await стадияСпецификации(SPEC("Order API"));
+    await положитьФайл(specReport({ specs: [], errors: ["logo.png: это не спецификация"] }), "logo.png", "PNG");
+    expect(await screen.findByText("Файлы не применить:", {}, WAIT)).toBeInTheDocument();
+    expect(screen.getByText("logo.png: это не спецификация")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+  });
+
+  it("отказ применения строкой над кнопками; окно и файл на месте", async () => {
+    vi.mocked(docsImportApi.apply).mockRejectedValue(new ApiError(409, "Объект только что изменили в другом окне"));
+    const onApplied = vi.fn();
+    await стадияСпецификации(SPEC("Order API"), { onApplied });
+    await положитьФайл(specReport(), "openapi.yaml", SPEC("От агента"));
+    await screen.findByText("Спецификаций: 1 (перезапись 1)", {}, WAIT);
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+
+    const отказ = await screen.findByRole("alert");
+    expect(отказ).toHaveTextContent("Не сохранилось. Объект только что изменили в другом окне");
+    expect(отказ).toHaveClass("ds-danger", "ds-win-err");
+    expect(отказ.parentElement).toBe(подвал());
+    expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "openapi.yaml" })).toBeInTheDocument();
+    expect(onApplied).not.toHaveBeenCalled();
+
+    // Сбой сети — общей строкой.
+    vi.mocked(docsImportApi.apply).mockRejectedValue(new TypeError("Failed to fetch"));
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(
+      "Не удалось сохранить изменения. Проверьте соединение и повторите."));
+  });
+
+  it("замечания: текст для агента прежний; «Убрать из окна» убирает файл и отчёт", async () => {
+    const writeText = clipboard();
+    await стадияСпецификации(SPEC("Order API"));
+    await положитьФайл(specReport({ warnings: ["openapi.yaml: у спецификации не указано происхождение"] }), "openapi.yaml", SPEC("x"));
+    await userEvent.click(await screen.findByRole("button", { name: "Скопировать замечания для агента" }, WAIT));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).toBe(
+      "ArchMap проверил файлы archmap-docs и нашёл замечания. Исправь пакет и сообщи, какие файлы изменились:\n" +
+      "- openapi.yaml: у спецификации не указано происхождение");
+    expect(screen.getByRole("button", { name: "Скопировано" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Убрать из окна" }));
+    expect(screen.queryByRole("button", { name: "openapi.yaml" })).toBeNull();
+    expect(окно().querySelector(".apl")).toBeNull();
+  });
+
+  it("без спецификации «Отмена» закрывает окно", async () => {
+    const onClose = vi.fn();
+    await стадияСпецификации("", { onClose });
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+});

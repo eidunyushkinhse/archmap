@@ -11,8 +11,9 @@
 // нет, и окно снова большое; вложенного окна и пересоздания нет.
 //
 // Состояние пакета, превью и применения — хуки docsImport: у схемы useDocsAgent в режиме
-// «doc» (пакет ОБНОВЛЯЕТ открытую схему), отчёт — DocsAgentPlan того же окна 6в. Стадия
-// монтируется заново при каждом входе: пакет прошлого захода в окно не возвращается.
+// «doc» (пакет ОБНОВЛЯЕТ открытую схему), отчёт — DocsAgentPlan того же окна 6в; у
+// спецификации useSpecAgent и отчёт SpecAgentPlan на тех же классах. Стадия монтируется
+// заново при каждом входе: пакет прошлого захода в окно не возвращается.
 //
 // Компоненты объявлены на верхнем уровне модуля: объявленный внутри другого ремаунтится
 // каждый рендер (ловушка проекта).
@@ -22,8 +23,10 @@ import type { DocsFilesApi } from "../docsImport/useDocsFiles";
 import { MAX_FILES } from "../docsImport/useDocsFiles";
 import { useFileDrop } from "../docsImport/useFileDrop";
 import { useDocsAgent } from "../docsImport/useDocsAgent";
+import { useSpecAgent } from "../docsImport/useSpecAgent";
 import AgentFiles from "../docsImport/AgentFiles";
 import DocsAgentPlan from "../docsImport/DocsAgentPlan";
+import SpecAgentPlan from "../docsImport/SpecAgentPlan";
 import PromptCopyButton from "../docsImport/PromptCopyButton";
 import MermaidRenderer from "../MermaidRenderer";
 import { CloseIcon } from "../../ui/icons";
@@ -144,6 +147,42 @@ export function FlowchartAgentStage({ nodeId, nodeName, docName, copy, onClose, 
       canApply={agent.willWrite && !agent.applying}
       applying={agent.applying}
       onApply={() => agent.apply(false)}
+      onCancel={onCancel}
+    />
+  );
+}
+
+/** Стадия агента у спецификации: спецификация у объекта одна, перезапись всегда. */
+export function SpecAgentStage({ nodeId, nodeName, notice, copy, onClose, onCancel, onApplied }: {
+  nodeId: string;
+  nodeName: string;
+  /** Конфликт с другой сессией от страницы. */
+  notice?: string | null;
+  copy: (variant: PromptVariant) => Promise<void>;
+  onClose: () => void;
+  /** «Отмена»: к чтению; спецификации у объекта нет — окно закрывается. */
+  onCancel: () => void;
+  /** Спецификация записана: окно перечитывает её и возвращается к чтению. */
+  onApplied: () => void;
+}) {
+  const agent = useSpecAgent(nodeId, onApplied);
+  return (
+    <AgentStageWindow
+      objectName={nodeName}
+      title="OpenAPI"
+      notice={notice}
+      onClose={onClose}
+      copy={copy}
+      pkg={agent.pkg}
+      // Снятие файла — как в прежней панели: отчёт прячется производно, без уборки.
+      onRemove={agent.pkg.removeFile}
+      zoneText="Перетащите сюда файл спецификации от агента"
+      autofill="spec-agent-paste"
+      report={<SpecAgentPlan agent={agent} />}
+      applyError={agent.applyError}
+      canApply={agent.willWrite && !agent.applying}
+      applying={agent.applying}
+      onApply={agent.apply}
       onCancel={onCancel}
     />
   );

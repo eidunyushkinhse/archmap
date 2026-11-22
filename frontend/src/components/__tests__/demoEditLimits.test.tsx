@@ -51,7 +51,6 @@ vi.mock("../inspector/FlowchartDoc", () => ({
   ),
 }));
 vi.mock("../OpenApiViewer", () => ({ default: () => <div data-testid="swagger" /> }));
-vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div /> }));
 vi.mock("../processes/ProcessCanvas", () => ({ default: () => <div data-testid="process-canvas" /> }));
 vi.mock("../processes/ProcessRail", () => ({
   default: ({ onCreate, onDuplicate }: { onCreate: (name: string) => void; onDuplicate: (id: string) => void }) => (

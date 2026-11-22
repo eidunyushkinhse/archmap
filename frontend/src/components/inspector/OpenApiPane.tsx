@@ -5,22 +5,22 @@
 //   • «Вручную» — YAML-редактор с превью, подвал на всю ширину окна: «Сохранить»,
 //     «Отмена»; отказ — строкой над кнопками. Правило черновика прежнее: невалидная
 //     спека сохраняется, превью держит последнюю корректную версию до исправления;
-//   • «Через ИИ-агента» — шаги с промптом слева, панель пакета справа
-//     (SpecAgentPanel); после «Применить» окно перечитывает спеку.
+//   • «Через ИИ-агента» — малое окно семьи окон агента (DocAgentStage): задание агенту,
+//     ответы агента и отчёт, подвал «Применить», «Отмена»; после «Применить» окно
+//     перечитывает спеку и возвращается к чтению.
 // Пишет спеку страница (onCommitOpenapi → PATCH узла под CAS): окно только ждёт
 // ответа, чтобы показать в просмотре то, что действительно сохранено.
-// Шапка и чтение — новый язык (редизайн, фаза 7а): имя объекта, «OpenAPI», справа
-// «Изменить» или «Показать код»; стадия «Вручную» — тоже (фаза 7б), в её шапке только
-// имя объекта, название и крестик. Тело, подвал и кнопку шапки стадии «Через ИИ-агента»
-// прежнего вида держит legacy-root.
+// Все стадии на новом языке: шапка и чтение (редизайн, фаза 7а) — имя объекта, «OpenAPI»,
+// справа «Изменить» или «Показать код»; «Вручную» (фаза 7б) — в шапке только имя объекта,
+// название и крестик; «Через ИИ-агента» (фаза 7в).
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { PromptVariant } from "../../types";
 import { nodesApi } from "../../api/nodes";
 import { docsImportApi } from "../../api/docsImport";
 import OpenApiDoc from "./OpenApiDoc";
-import SpecAgentPanel from "../docsImport/SpecAgentPanel";
-import { CodeToggle, DocAgentSteps, DocHead, EditMenu, LegacyActions } from "./docChrome";
+import { SpecAgentStage } from "./DocAgentStage";
+import { CodeToggle, DocHead, EditMenu } from "./docChrome";
 import { limitMessage } from "../demo/demoLimits";
 import type { LimitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
@@ -147,25 +147,33 @@ export default function OpenApiPane({
     toView();
   }
 
+  // «Через ИИ-агента» — своё малое окно целиком: шапка, тело и подвал стадии. «Отмена»
+  // возвращает к чтению, а если спецификации ещё нет — закрывает окно.
+  if (stage === "agent" && isArchitect) {
+    return (
+      <SpecAgentStage
+        nodeId={nodeId}
+        nodeName={nodeName}
+        notice={notice}
+        copy={copyPrompt}
+        onClose={onRequestClose ?? onClose}
+        onCancel={leave}
+        onApplied={() => void afterAgent()}
+      />
+    );
+  }
+
   // ── шапка ──
   // В правке в шапке только имя объекта, название и крестик: кнопки правки — в подвале.
   const editing = stage === "manual" && isArchitect;
   let actions: ReactNode = null;
-  if (stage === "agent" && isArchitect) {
-    actions = hasSpec ? (
-      <LegacyActions>
-        <button type="button" className="doc-back" onClick={toView}>← К спецификации</button>
-      </LegacyActions>
-    ) : null;
-  } else if (stage === "view" && isArchitect) {
+  if (stage === "view" && isArchitect) {
     actions = <EditMenu label="Изменить" onManual={() => setStage("manual")} onAgent={() => setStage("agent")} />;
   } else if (!isArchitect && hasSpec) {
     actions = <CodeToggle shown={showCode} onToggle={() => setShowCode((s) => !s)} />;
   }
 
   // ── тело и подвал ──
-  // Стадия агента — прежнего вида: тело и подвал в legacy-root.
-  const legacy = isArchitect && stage === "agent";
   let body: ReactNode;
   let foot: ReactNode = null;
   if (editing) {
@@ -190,18 +198,6 @@ export default function OpenApiPane({
         <button type="button" className="ds-btn" onClick={leave}>Отмена</button>
       </div>
     );
-  } else if (stage === "agent" && isArchitect) {
-    body = (
-      <div className="doc-agent">
-        <div className="doc-agentleft">
-          <DocAgentSteps service={nodeName} copy={copyPrompt} />
-        </div>
-        <div className="doc-agentright">
-          <SpecAgentPanel nodeId={nodeId} onApplied={() => void afterAgent()} />
-        </div>
-      </div>
-    );
-    foot = <div className="doc-foot legacy-root">Спецификация не изменится, пока вы не нажмёте «Применить»</div>;
   } else {
     body = (
       <OpenApiDoc
@@ -222,7 +218,7 @@ export default function OpenApiPane({
         actions={actions}
         onClose={onRequestClose ?? onClose}
       />
-      <div className={"doc-body" + (legacy ? " legacy-root" : "")}>{body}</div>
+      <div className="doc-body">{body}</div>
       {foot}
     </>
   );

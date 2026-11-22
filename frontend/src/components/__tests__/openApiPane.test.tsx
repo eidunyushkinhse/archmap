@@ -1,7 +1,7 @@
 // Окно спеки (OpenApiPane) — тот же порядок, что у схемы логики (вьюер v2):
 // просмотр Swagger без кода → «Изменить ▾» → «Вручную» (YAML с превью, «Сохранить» /
-// «Отмена» в подвале) или «Через ИИ-агента» (шаги и панель пакета в том же окне).
-// Редактор настоящий (OpenApiDoc), замоканы Swagger UI, панель пакета и сеть.
+// «Отмена» в подвале) или «Через ИИ-агента» (малое окно стадии в том же окне).
+// Редактор и стадия агента настоящие (OpenApiDoc, DocAgentStage), замоканы Swagger UI и сеть.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,12 +16,7 @@ vi.mock("../OpenApiViewer", () => ({
   ),
 }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { get: vi.fn() } }));
-vi.mock("../../api/docsImport", () => ({ docsImportApi: { prompt: vi.fn() } }));
-vi.mock("../docsImport/SpecAgentPanel", () => ({
-  default: ({ onApplied }: { onApplied: () => void }) => (
-    <div data-testid="spec-panel"><button onClick={onApplied}>применить-пакет</button></div>
-  ),
-}));
+vi.mock("../../api/docsImport", () => ({ docsImportApi: { prompt: vi.fn(), preview: vi.fn(), apply: vi.fn() } }));
 
 const spec = (title: string) => `openapi: 3.0.3\ninfo:\n  title: ${title}\n  version: 1.0.0\npaths: {}\n`;
 
@@ -161,31 +156,51 @@ describe("OpenApiPane · «Вручную»", () => {
 describe("OpenApiPane · «Через ИИ-агента»", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("шаги с промптом спеки, после «Применить» окно перечитывает спеку", async () => {
+  it("задание спецификации, после «Применить» окно перечитывает спеку", async () => {
     vi.mocked(docsImportApi.prompt).mockResolvedValue({ prompt: "промпт" });
     vi.mocked(nodesApi.get).mockResolvedValue({ id: "n1", openapi_spec: spec("От агента") } as Node);
+    const report = {
+      logic: [], errors: [], warnings: [], conflicts: [], applied: false,
+      specs: [{
+        node_path: "Каталог", source: "openapi.yaml", origin: "found" as const, action: "create" as const,
+        valid_yaml: true, looks_openapi: true, oas_version: "3.0.3",
+      }],
+      created_docs: 0, filled_docs: 0, updated_docs: 0, specs_written: 0, data_refs_total: 0, channel_refs_total: 0,
+    };
+    vi.mocked(docsImportApi.preview).mockResolvedValue(report);
+    vi.mocked(docsImportApi.apply).mockResolvedValue({ ...report, applied: true, specs_written: 1 });
     Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn(() => Promise.resolve()) }, configurable: true });
     const onApplied = vi.fn();
     render(<OpenApiPane {...props} openapi="" isArchitect initialStage="agent" onApplied={onApplied} onCommitOpenapi={vi.fn()} />);
 
-    expect(screen.getByText(/Запустите агента с этим промптом в репозитории «Каталог»/)).toBeInTheDocument();
-    // Спеки ещё нет — возвращаться не к чему.
+    // Шапка: имя объекта и «OpenAPI»; кнопки «← К спецификации» нет.
+    expect(document.querySelector(".doc-agentwin .ds-win-head")).toHaveTextContent(/^КаталогOpenAPI$/);
     expect(screen.queryByRole("button", { name: "← К спецификации" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));
+    await userEvent.click(screen.getByRole("button", { name: "Скопировать задание" }));
     await waitFor(() => expect(docsImportApi.prompt).toHaveBeenCalled());
     expect(vi.mocked(docsImportApi.prompt).mock.calls[0][0]).toMatchObject({ nodeId: "n1", include: "api" });
 
-    await userEvent.click(screen.getByText("применить-пакет"));
+    const input = document.querySelector("input[type=file]") as HTMLInputElement;
+    await userEvent.upload(input, new File([spec("От агента")], "openapi.yaml"));
+    expect(await screen.findByText("Спецификаций: 1 (новых 1)", {}, { timeout: 3000 })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
     await waitFor(() => expect(screen.getByTestId("swagger")).toHaveTextContent("От агента"));
     expect(onApplied).toHaveBeenCalledOnce();
   });
 
-  it("со спекой — «← К спецификации» возвращает к просмотру", async () => {
+  it("со спекой — «Отмена» возвращает к просмотру", async () => {
     render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect onCommitOpenapi={vi.fn()} />);
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
-    expect(screen.getByTestId("spec-panel")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "← К спецификации" }));
+    expect(screen.getByText("Перетащите сюда файл спецификации от агента")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(screen.getByTestId("swagger")).toHaveTextContent("Витрина");
+  });
+
+  it("без спеки — «Отмена» закрывает окно", async () => {
+    const onClose = vi.fn();
+    render(<OpenApiPane {...props} onClose={onClose} openapi="" isArchitect initialStage="agent" onCommitOpenapi={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

@@ -6,8 +6,8 @@
 // Написаны на прежнем окне и зелёные на нём.
 //
 // Окно настоящее (DocOverlay, FlowchartDocs, FlowchartView, FlowchartDoc, OpenApiPane,
-// OpenApiDoc, настоящий Modal: test-setup открывает <dialog> атрибутом open). Замоканы сеть,
-// mermaid, Swagger UI и панели пакета агента.
+// OpenApiDoc, стадии агента, настоящий Modal: test-setup открывает <dialog> атрибутом open).
+// Замоканы сеть, mermaid и Swagger UI.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +32,6 @@ vi.mock("../OpenApiViewer", () => ({
     <div data-testid="swagger">{spec.info?.title ?? "без заголовка"}</div>
   ),
 }));
-vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div data-testid="spec-panel" /> }));
 
 const doc = (over: Partial<NodeDoc> = {}): NodeDoc => ({
   id: "d1", node_id: "n1", name: "Создание заказа", kind: "operation", operation: "POST /orders",
@@ -191,10 +190,11 @@ describe("окно спецификации", () => {
     expect(codeField()).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
-    expect(screen.getByTestId("spec-panel")).toBeInTheDocument();
-    expect(screen.getByText("Спецификация не изменится, пока вы не нажмёте «Применить»")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "← К спецификации" }));
+    expect(screen.getByText("Перетащите сюда файл спецификации от агента")).toBeInTheDocument();
+    // Примечание подвала убрано (редизайн, фаза 7в).
+    expect(screen.queryByText("Спецификация не изменится, пока вы не нажмёте «Применить»")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(screen.getByTestId("swagger")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByTestId("spec-panel")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Перетащите сюда файл спецификации от агента")).toBeNull());
   });
 });

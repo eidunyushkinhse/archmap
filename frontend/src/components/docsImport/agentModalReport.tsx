@@ -1,46 +1,12 @@
-// Компоненты отчёта превью/применения BYOA-модалок (DocsAgentModal /
-// SpecAgentPanel) и панели импорта: строки плана (ItemList), списки замечаний
-// (NoteList), заметка гварда «вход не изменился» (UnchangedInputNote) и вопрос об
+// Компоненты отчёта превью/применения окон дозаливки от агента и панели импорта: списки
+// замечаний (NoteList), заметка гварда «вход не изменился» (UnchangedInputNote) и вопрос об
 // устаревших файлах после копирования замечаний (StaleFilesConfirm).
-// Файл экспортирует ТОЛЬКО компоненты (требование react-refresh); бейдж-стиль,
-// текст заметки и сам гвард — в agentModalShared.ts.
-import type { CSSProperties, ReactNode } from "react";
-import { badge, UNCHANGED_INPUT_NOTE } from "./agentModalShared";
+// Файл экспортирует ТОЛЬКО компоненты (требование react-refresh); текст заметки и сам
+// гвард — в agentModalShared.ts.
+import type { CSSProperties } from "react";
+import { UNCHANGED_INPUT_NOTE } from "./agentModalShared";
 import "../../ui/ds.css";
 import "./agentParts.css";
-
-// Строки превью: текст + бейдж действия + советующий статус + опциональный
-// доп. элемент справа (например, селект вида схемы в режиме «по одной»).
-export function ItemList({ title, rows }: {
-  title: string;
-  rows: { key: string; text: string; badge: string; bad: string | null; ok: boolean; extra?: ReactNode }[];
-}) {
-  const shown = rows.slice(0, 8);
-  return (
-    <div style={{ marginTop: 8, fontSize: 12.5 }}>
-      <div style={{ fontWeight: 600, color: "#334155" }}>{title}</div>
-      {shown.map((r) => (
-        <div key={r.key} style={{ marginTop: 3, display: "flex", alignItems: "baseline", gap: 6 }}>
-          <span style={{ color: "#475569", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {r.text}
-          </span>
-          <span style={badge}>{r.badge}</span>
-          {r.extra}
-          {r.bad !== null ? (
-            <span style={{ color: "#b45309", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.bad}>
-              ⚠ {r.bad}
-            </span>
-          ) : r.ok ? (
-            <span style={{ color: "#15803d" }}>✓</span>
-          ) : null}
-        </div>
-      ))}
-      {rows.length > shown.length && (
-        <div style={{ marginTop: 2, color: "#94a3b8" }}>и ещё {rows.length - shown.length}</div>
-      )}
-    </div>
-  );
-}
 
 // Заметка гварда: вход тот же, что в прошлый заход. Стоит НАД сводкой, тем же
 // amber, что «Исчезли:» и «Пометок данных было …» — это один класс сообщений

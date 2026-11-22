@@ -8,8 +8,7 @@
 // за роли и слова, а не за классы.
 //
 // Окно настоящее (DocOverlay, FlowchartDocs, FlowchartDoc, OpenApiPane, OpenApiDoc, Modal:
-// test-setup открывает <dialog> атрибутом open). Замоканы сеть, mermaid, Swagger UI и панели
-// пакета агента.
+// test-setup открывает <dialog> атрибутом open). Замоканы сеть, mermaid и Swagger UI.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,7 +34,6 @@ vi.mock("../OpenApiViewer", () => ({
     <div data-testid="swagger">{spec.info?.title ?? "без заголовка"}</div>
   ),
 }));
-vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div data-testid="spec-panel" /> }));
 
 const doc = (over: Partial<NodeDoc> = {}): NodeDoc => ({
   id: "d1", node_id: "n1", name: "Создание заказа", kind: "operation", operation: "POST /orders",
