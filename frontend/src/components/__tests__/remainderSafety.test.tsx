@@ -274,7 +274,9 @@ describe("переходы, список и итог", () => {
     стенд();
     await userEvent.click(screen.getByRole("button", { name: "Все вопросы" }));
     expect(строкиСписка()).toHaveLength(5);
-    expect(within(строкиСписка()[3]!).getByText(/нет связей с остальной схемой/)).toBeInTheDocument();
+    // Строка называет вопрос короткой темой, полный вопрос — в подсказке (фаза 8б).
+    expect(within(строкиСписка()[3]!).getByText("2 объекта без связей"))
+      .toHaveAttribute("title", expect.stringMatching(/нет связей с остальной схемой/));
     await userEvent.click(screen.getByRole("button", { name: "К вопросу" }));
     expect(номер()).toBe("1 из 5");
     await кВопросу(3);

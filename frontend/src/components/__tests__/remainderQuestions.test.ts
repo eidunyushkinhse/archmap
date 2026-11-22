@@ -350,6 +350,48 @@ describe("тексты жестов (§4.3–4.5)", () => {
   });
 });
 
+describe("короткая тема для списка «Все вопросы» (фаза 8б)", () => {
+  it("спор содержимого: объект и запись по семье", () => {
+    const тема = (family: FamilyConflictOut["family"], key: string) =>
+      buildQuestions({ family_conflicts: [семья({ family, key })], remainder: остаток() })[0]!.topic;
+    expect(тема("doc", "Опрос")).toBe("server, схема логики «Опрос»");
+    expect(тема("table", "order_items")).toBe("server, таблица «order_items»");
+    expect(тема("channel", "orders.events")).toBe("server, канал «orders.events»");
+    expect(тема("config", "MAX_ITEMS")).toBe("server, параметр «MAX_ITEMS»");
+    expect(тема("spec", "openapi")).toBe("server, спецификация OpenAPI");
+  });
+
+  it("спор поля: объект и поле строчными", () => {
+    const тема = (field: FieldDisputeOut["field"]) =>
+      buildQuestions({ family_conflicts: [], remainder: остаток({ field_conflicts: [поле({ field })] }) })[0]!.topic;
+    const поля: FieldDisputeOut["field"][] = ["description", "technology", "role", "shape", "status", "element"];
+    expect(поля.map(тема)).toEqual([
+      "server, описание", "server, технология", "server, роль", "server, форма", "server, статус",
+      "server, элемент архитектуры",
+    ]);
+  });
+
+  it("связь, группа и похожие имена", () => {
+    const qs = buildQuestions({
+      family_conflicts: [],
+      remainder: остаток({
+        container_edges: [связь(), связь({ container_element: "system", end: "source" })],
+        isolated_groups: [группа({ node_paths: ["Плагин"] }), группа({ node_paths: ["А", "Б"] }), группа()],
+        fuzzy_pairs: [пара()],
+      }),
+    });
+    expect(qs.map((q) => q.topic)).toEqual([
+      "Связь «Датасорс → Zabbix»", "Связь «Датасорс → Zabbix»",
+      "1 объект без связей", "2 объекта без связей", "4 объекта без связей",
+      "«Пользователь Zabbix» и «Пользователь»",
+    ]);
+    expect(buildQuestions({
+      family_conflicts: [],
+      remainder: остаток({ isolated_groups: [группа({ node_paths: ["А", "Б", "В", "Г", "Д"] })] }),
+    })[0]!.topic).toBe("5 объектов без связей");
+  });
+});
+
 describe("состояние ответа и подпись в списке", () => {
   const qs = всё();
   const [content, field_, edge, group, pair] = qs;

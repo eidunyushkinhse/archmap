@@ -159,7 +159,8 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
                   onClick={() => go(i)}
                 >
                   <span className="rq-ql-n">{i + 1}</span>
-                  <span className="rq-ql-q" title={x.title}>{x.title}</span>
+                  {/* Короткая тема строкой, полный вопрос — в подсказке (фаза 8б). */}
+                  <span className="rq-ql-q" title={x.title}>{x.topic}</span>
                   <span className={"rq-ql-a" + (ответ === null ? " rq-ql-a--none" : "")}>
                     {ответ ?? defaultLabel(x)}
                   </span>

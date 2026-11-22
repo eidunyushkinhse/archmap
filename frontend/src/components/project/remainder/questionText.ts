@@ -1,5 +1,5 @@
-// Слова разбора остатка: заголовки вопросов, «почему возник вопрос» и сноски
-// «Если не отвечать, то …» (§4 ТЗ «Остаток слияния — разбор вопросами» + раздел
+// Слова разбора остатка: заголовки вопросов, короткие темы для списка «Все вопросы»,
+// «почему возник вопрос» и сноски «Если не отвечать, то …» (§4 ТЗ «Остаток слияния — разбор вопросами» + раздел
 // «Тексты архитектора» задания Ф2; союз «то» не опускается — правка Ф2г). Отдельный модуль от questions.ts: там сборка списка и
 // подсчёты, здесь — только текст, формы по родам и склонения. Тексты ФИНАЛЬНЫЕ:
 // правятся вместе с ТЗ, а не по вкусу.
@@ -49,20 +49,21 @@ export function humanValue(field: string, value: string): string {
 
 // Формы по родам для спора содержимого (§4.1). what — что разное у объекта-владельца
 // (ключ записи в кавычках; у спецификации ключа нет: она у объекта одна), diff — первая
-// половина «почему».
+// половина «почему», topic — предмет спора в теме списка «Все вопросы» (фаза 8б).
 interface FamilyForms {
-  what: (key: string) => string; all: string; one: string; adj: string; diff: string;
+  what: (key: string) => string; topic: (key: string) => string;
+  all: string; one: string; adj: string; diff: string;
 }
 const FAMILY: Record<FamilyConflictOut["family"], FamilyForms> = {
-  doc: { what: (k) => `схемы логики «${k}»`, all: "схемы",
+  doc: { what: (k) => `схемы логики «${k}»`, topic: (k) => `схема логики «${k}»`, all: "схемы",
     one: "какую", adj: "правильной", diff: "Схемы разные" },
-  spec: { what: () => "спецификации OpenAPI", all: "спецификации",
+  spec: { what: () => "спецификации OpenAPI", topic: () => "спецификация OpenAPI", all: "спецификации",
     one: "какую", adj: "правильной", diff: "Содержимое разное" },
-  table: { what: (k) => `таблицы «${k}»`, all: "таблицы",
+  table: { what: (k) => `таблицы «${k}»`, topic: (k) => `таблица «${k}»`, all: "таблицы",
     one: "какую", adj: "правильной", diff: "Содержимое разное" },
-  channel: { what: (k) => `описания канала «${k}»`, all: "описания",
+  channel: { what: (k) => `описания канала «${k}»`, topic: (k) => `канал «${k}»`, all: "описания",
     one: "какое", adj: "правильным", diff: "Содержимое разное" },
-  config: { what: (k) => `значения параметра «${k}»`, all: "значения",
+  config: { what: (k) => `значения параметра «${k}»`, topic: (k) => `параметр «${k}»`, all: "значения",
     one: "какое", adj: "правильным", diff: "Содержимое разное" },
 };
 
@@ -113,11 +114,14 @@ export const familyDefaultIndex = (c: FamilyConflictOut): number =>
 // самый частый случай, и множественное число в нём звучит как «их много».
 const rest = (n: number, one: string, many: string): string => (n === 2 ? one : many);
 
-export function familyTexts(c: FamilyConflictOut): { title: string; why: string; ifLeft: string } {
+export function familyTexts(c: FamilyConflictOut): {
+  title: string; topic: string; why: string; ifLeft: string;
+} {
   const f = FAMILY[c.family];
   const i = familyDefaultIndex(c);
   const winner = c.candidates[i];
   return {
+    topic: `${lastSegment(c.node_path)}, ${f.topic(c.key)}`,
     // Владелец записи назван (Р фазы 8а): ключ один у многих объектов, «Создание заказа»
     // или «openapi» сами по себе объект не называют.
     title: `У объекта «${lastSegment(c.node_path)}» ${familyWhere(c)} разные ${f.what(c.key)}. `
@@ -132,22 +136,27 @@ export function familyTexts(c: FamilyConflictOut): { title: string; why: string;
 }
 
 // Формы по полям (§4.2 + «Тексты архитектора»). Поле вне карты — запасная форма
-// ТЗ: «{поле в нижнем регистре} заполнено».
-interface FieldForms { what: string; q: string; adj: string }
+// ТЗ: «{поле в нижнем регистре} заполнено»; name — поле в теме списка (фаза 8б).
+interface FieldForms { name: string; what: string; q: string; adj: string }
 const FIELD: Record<string, FieldForms> = {
-  description: { what: "описание заполнено", q: "Какое", adj: "правильным" },
-  technology: { what: "технология указана", q: "Какую", adj: "правильной" },
-  role: { what: "роль указана", q: "Какую", adj: "правильной" },
-  shape: { what: "форма указана", q: "Какую", adj: "правильной" },
-  status: { what: "статус указан", q: "Какой", adj: "правильным" },
-  element: { what: "элемент архитектуры указан", q: "Какой", adj: "правильным" },
+  description: { name: "описание", what: "описание заполнено", q: "Какое", adj: "правильным" },
+  technology: { name: "технология", what: "технология указана", q: "Какую", adj: "правильной" },
+  role: { name: "роль", what: "роль указана", q: "Какую", adj: "правильной" },
+  shape: { name: "форма", what: "форма указана", q: "Какую", adj: "правильной" },
+  status: { name: "статус", what: "статус указан", q: "Какой", adj: "правильным" },
+  element: { name: "элемент архитектуры", what: "элемент архитектуры указан", q: "Какой", adj: "правильным" },
 };
 
-export function fieldTexts(d: FieldDisputeOut): { title: string; why: string; ifLeft: string } {
-  const f = FIELD[d.field] ?? { what: `${d.field.toLowerCase()} заполнено`, q: "Какое", adj: "правильным" };
+export function fieldTexts(d: FieldDisputeOut): {
+  title: string; topic: string; why: string; ifLeft: string;
+} {
+  const f = FIELD[d.field] ?? {
+    name: d.field.toLowerCase(), what: `${d.field.toLowerCase()} заполнено`, q: "Какое", adj: "правильным",
+  };
   const winner = d.candidates[d.default];
   const value = winner ? humanValue(d.field, winner.value) : "";
   return {
+    topic: `${lastSegment(d.node_path)}, ${f.name}`,
     title: `У объекта «${lastSegment(d.node_path)}» ${f.what} по-разному `
       + `${sourcesPhrase(d.candidates.length)}. ${f.q} считаем ${f.adj}?`,
     // Правило мерджа названо прямо и верно для любого поля и любого числа файлов (фаза
@@ -187,7 +196,7 @@ export const keepEdgeLabel = (e: ContainerEdgeOut): string =>
   `Оставить на ${endIsSystem(e) ? "системе" : "контейнере"}`;
 
 export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
-  title: string; context: string; why: string; ifLeft: string;
+  title: string; topic: string; context: string; why: string; ifLeft: string;
 } {
   const начало = lastSegment(e.from_path);
   const конец = lastSegment(e.to_path);
@@ -202,8 +211,10 @@ export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
   // «его рекомендации» — только после «создания проекта» (решение владельца 2026-11-01):
   // в догрузке слова «проекта» перед сноской нет, и «его» было бы не к чему отнести.
   const куда = mode === "into" ? "рекомендации проекта" : "его рекомендации";
+  const topic = `Связь ${пара}`;
   if (endIsSystem(e)) {
     return {
+      topic,
       title: e.end === "target"
         ? `Связь ${пара} приходит в систему «${e.container_path}». `
           + `С каким объектом внутри системы «${короткое}» связан объект «${начало}»?`
@@ -218,6 +229,7 @@ export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
     };
   }
   return {
+    topic,
     title: e.end === "target"
       ? `Связь ${пара} приходит в контейнер «${e.container_path}». `
         + `С каким компонентом контейнера «${короткое}» связан объект «${начало}»?`
@@ -232,11 +244,12 @@ export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
 }
 
 export function groupTexts(g: IsolatedGroupOut): {
-  title: string; context: string; why: string; ifLeft: string;
+  title: string; topic: string; context: string; why: string; ifLeft: string;
 } {
   const n = g.node_paths.length;
   const имена = g.node_paths.slice(0, 3).map((p) => `«${lastSegment(p)}»`).join(", ");
   return {
+    topic: `${n} ${plural(n, ["объект", "объекта", "объектов"])} без связей`,
     // «У 1 объекта» / «У 4 объектов»: родительный падеж после «У» (Т5).
     title: `У ${n} ${plural(n, ["объекта", "объектов", "объектов"])} нет связей`
       + " с остальной схемой. Проведёте связь?",
@@ -248,11 +261,12 @@ export function groupTexts(g: IsolatedGroupOut): {
 }
 
 export function pairTexts(p: FuzzyPairOut, mode: QuestionMode = "create"): {
-  title: string; context: string; why: string; ifLeft: string;
+  title: string; topic: string; context: string; why: string; ifLeft: string;
 } {
   // В догрузке вопрос повторится при следующей догрузке, а не «импорте» (фаза 8а).
   const следующий = mode === "into" ? "следующей догрузке" : "следующем импорте";
   return {
+    topic: `«${lastSegment(p.a_path)}» и «${lastSegment(p.b_path)}»`,
     title: `«${lastSegment(p.a_path)}» и «${lastSegment(p.b_path)}» — похожие имена`
       + " из разных файлов. Это один объект или разные?",
     // Строка контекста — фрагмент со строчной, как «внутри 2 объектов, считая вложенные».

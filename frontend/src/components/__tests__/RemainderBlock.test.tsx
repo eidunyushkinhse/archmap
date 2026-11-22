@@ -263,8 +263,12 @@ describe("список всех вопросов (§3, фаза 8а)", () => {
     ]);
     for (const a of ответы) expect(a).toHaveClass("rq-ql-a--none");
     expect(screen.queryByText("—")).toBeNull();
-    // Заголовок строки — в одну строку с многоточием, полный текст в подсказке.
-    expect(строки()[0]!.querySelector(".rq-ql-q")).toHaveAttribute("title", ВОПРОСЫ[0]!.title);
+    // Строка называет короткую тему, полный вопрос — в подсказке (фаза 8б).
+    expect(строки().map((r) => r.querySelector(".rq-ql-q")!.textContent)).toEqual([
+      "server, схема логики «Опрос»", "server, описание", "Связь «Датасорс → Zabbix»",
+      "2 объекта без связей", "«Пользователь Zabbix» и «Пользователь»",
+    ]);
+    строки().forEach((r, i) => expect(r.querySelector(".rq-ql-q")).toHaveAttribute("title", ВОПРОСЫ[i]!.title));
     // Текущий вопрос выделен.
     expect(строки()[0]).toHaveClass("rq-ql-r--on");
   });
