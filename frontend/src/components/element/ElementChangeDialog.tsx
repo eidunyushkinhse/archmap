@@ -1,10 +1,11 @@
 // Окно последствий смены элемента архитектуры или переноса узла (Р18): одно на шесть
-// видов, рендерит ElementChangePreview сервера. Секции «Площадки» (было → стало чипами,
-// пояснение под таблицей) и «Документация» появляются, только если им есть что
-// показать. Главная кнопка слева, «Отмена» справа; «Отмена» ничего не меняет.
-import type { CSSProperties } from "react";
+// видов, рендерит ElementChangePreview сервера. Блоки «Площадки» (строки «Сейчас» и
+// «Станет», пояснение под ними) и «Документация» появляются, только если им есть что
+// показать. Строка площадок: имя объекта и его площадки обычным текстом через запятую.
+// Главная кнопка первой, «Отмена» за ней; «Отмена» ничего не меняет.
 import type { ElementChangePreview, PlacementRowOut } from "../../types";
 import ConfirmDialog from "../../ui/ConfirmDialog";
+import "../../ui/ds.css";
 import { consequenceTexts, placementsMove } from "./elementChange";
 
 interface Props {
@@ -17,17 +18,19 @@ interface Props {
   onCancel: () => void;
 }
 
-function Rows({ rows, label }: { rows: PlacementRowOut[]; label: string }) {
+// Группа строк под тихой подписью («Сейчас» или «Станет»).
+function Rows({ caption, rows, label }: { caption: string; rows: PlacementRowOut[]; label: string }) {
   return (
-    <div role="list" aria-label={label} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {rows.map((row) => (
-        <div key={row.node_id} role="listitem" style={rowStyle}>
-          <span style={rowName}>{row.name}</span>
-          <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-            {row.sites.map((site) => <span key={site} style={chip}>{site}</span>)}
-          </span>
-        </div>
-      ))}
+    <div className="ds-confirm-group">
+      <div className="ds-confirm-cap">{caption}</div>
+      <div role="list" aria-label={label} className="ds-confirm-rows">
+        {rows.map((row) => (
+          <div key={row.node_id} role="listitem" className="ds-confirm-row">
+            <span className="ds-confirm-row-name" title={row.name}>{row.name}</span>
+            <span className="ds-confirm-row-value">{row.sites.join(", ")}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -44,41 +47,20 @@ export default function ElementChangeDialog({ preview, nodeName, targetName, onC
       onCancel={onCancel}
     >
       {placementsMove(preview) && (
-        <section>
-          <div style={sectionLabel}>Площадки</div>
-          <Rows rows={preview.before} label="Площадки до" />
-          {/* Пустой системе (Р39) площадки отдать некому: строки «после» нет, стрелки тоже. */}
-          {preview.after.length > 0 && (
-            <>
-              <div style={arrow} aria-hidden>↓</div>
-              <Rows rows={preview.after} label="Площадки после" />
-            </>
-          )}
-          <p style={note}>{t.placementNote}</p>
+        <section className="ds-win-block">
+          <h3 className="ds-win-block-title">Площадки</h3>
+          <Rows caption="Сейчас" rows={preview.before} label="Площадки до" />
+          {/* Пустой системе (Р39) площадки отдать некому: строк «после» и подписи «Станет» нет. */}
+          {preview.after.length > 0 && <Rows caption="Станет" rows={preview.after} label="Площадки после" />}
+          <p className="ds-confirm-note">{t.placementNote}</p>
         </section>
       )}
       {t.docs && (
-        <section>
-          <div style={sectionLabel}>Документация</div>
-          <p style={note}>{t.docs}</p>
+        <section className="ds-win-block">
+          <h3 className="ds-win-block-title">Документация</h3>
+          <p className="ds-confirm-note">{t.docs}</p>
         </section>
       )}
     </ConfirmDialog>
   );
 }
-
-const sectionLabel: CSSProperties = {
-  fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
-  color: "#94a3b8", margin: "12px 0 6px",
-};
-const rowStyle: CSSProperties = { display: "flex", alignItems: "baseline", gap: 10 };
-const rowName: CSSProperties = {
-  width: 120, flexShrink: 0, fontSize: 13, fontWeight: 600, color: "#1e293b",
-  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-};
-const chip: CSSProperties = {
-  fontSize: 12, padding: "2px 8px", borderRadius: 999, background: "#eef2ff",
-  color: "#3730a3", border: "1px solid #c7d2fe",
-};
-const arrow: CSSProperties = { color: "#94a3b8", fontSize: 14, margin: "4px 0 4px 130px" };
-const note: CSSProperties = { margin: "8px 0 0", fontSize: 13, color: "#475569", lineHeight: 1.5 };
