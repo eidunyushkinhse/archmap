@@ -441,3 +441,62 @@ describe("схема логики, «Вручную»: подвал и поля 
     expect(document.querySelectorAll(".doc-fields > label")).toHaveLength(2);
   });
 });
+
+// Новый язык стадии «Вручную» у спецификации (редизайн, фаза 7б): в шапке только имя
+// объекта, название и крестик; подвал «Сохранить», «Отмена» без примечания; отказ над
+// кнопками; при ошибке над превью строка предупреждения без времени.
+describe("спецификация, «Вручную»: подвал и строка над превью на новом языке", () => {
+  function openSpec(commit: (v: string) => Promise<boolean> = vi.fn(() => Promise.resolve(true))) {
+    render(
+      <DocOverlay mode="openapi" nodeId="n1" nodeName="Order API" openapi={spec("Старая")} isArchitect
+        onCommitOpenapi={commit} onDocEvent={vi.fn()} onClose={vi.fn()} />,
+    );
+  }
+  const foot = () => document.querySelector(".doc-editfoot") as HTMLElement;
+  const ЖДАТЬ = { timeout: 3000 };
+
+  it("шапка без кнопок правки; подвал «Сохранить», «Отмена» без примечания", async () => {
+    openSpec();
+    await toManual();
+    const head = document.querySelector(".doc-head") as HTMLElement;
+    expect(within(head).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Закрыть"]);
+    expect(foot()).toHaveClass("ds-win-foot");
+    expect(foot()).toHaveTextContent(/^СохранитьОтмена$/);
+    expect(within(foot()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Сохранить", "Отмена"]);
+    expect(button("Сохранить")).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(screen.queryByText(/черновик/)).toBeNull();
+    expect(document.querySelector(".doc-root .legacy-root")).toBeNull();
+  });
+
+  it("предел демо-стенда — строкой над кнопками подвала", async () => {
+    openSpec(() => Promise.reject(limit()));
+    await toManual();
+    setCode(spec("Новая"));
+    await userEvent.click(button("Сохранить"));
+    const предел = await screen.findByRole("alert");
+    expect(предел).toHaveClass("ds-danger", "ds-win-err");
+    expect(предел.parentElement).toBe(foot());
+    expect(предел.nextElementSibling).toBe(button("Сохранить"));
+  });
+
+  it("ошибка после удачной правки: «Показан последний текст без ошибок» без времени, строкой ds-warn", async () => {
+    openSpec();
+    await toManual();
+    setCode(spec("Новая"));
+    await waitFor(() => expect(screen.getByTestId("swagger")).toHaveTextContent("Новая"), ЖДАТЬ);
+    setCode("openapi: [\n  broken");
+    const строка = await screen.findByText(/^Показан последний текст без ошибок/, undefined, ЖДАТЬ);
+    expect(строка.textContent).toBe("Показан последний текст без ошибок");
+    expect(строка).toHaveClass("ds-warn");
+    expect(screen.getByTestId("swagger")).toHaveTextContent("Новая");
+  });
+
+  it("ошибки без удачного текста: «В спецификации ошибка, превью недоступно»", async () => {
+    render(
+      <DocOverlay mode="openapi" nodeId="n1" nodeName="Order API" openapi="" isArchitect initialStage="manual"
+        onCommitOpenapi={vi.fn()} onDocEvent={vi.fn()} onClose={vi.fn()} />,
+    );
+    setCode("openapi: [\n  broken");
+    expect(await screen.findByText("В спецификации ошибка, превью недоступно", undefined, ЖДАТЬ)).toHaveClass("ds-warn");
+  });
+});

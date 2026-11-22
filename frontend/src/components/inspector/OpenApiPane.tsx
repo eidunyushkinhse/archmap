@@ -2,16 +2,17 @@
 // (вьюер v2, docs/tasks/doc-viewer-v2.md):
 //   • просмотр — Swagger-рендер без кода; архитектору «Изменить ▾» (Вручную |
 //     Через ИИ-агента), наблюдателю «Показать код»;
-//   • «Вручную» — YAML-редактор с превью, «Отмена» и «Сохранить» в шапке. Правило
-//     черновика прежнее: невалидная спека сохраняется, превью держит последнюю
-//     корректную версию до исправления;
+//   • «Вручную» — YAML-редактор с превью, подвал на всю ширину окна: «Сохранить»,
+//     «Отмена»; отказ — строкой над кнопками. Правило черновика прежнее: невалидная
+//     спека сохраняется, превью держит последнюю корректную версию до исправления;
 //   • «Через ИИ-агента» — шаги с промптом слева, панель пакета справа
 //     (SpecAgentPanel); после «Применить» окно перечитывает спеку.
 // Пишет спеку страница (onCommitOpenapi → PATCH узла под CAS): окно только ждёт
 // ответа, чтобы показать в просмотре то, что действительно сохранено.
 // Шапка и чтение — новый язык (редизайн, фаза 7а): имя объекта, «OpenAPI», справа
-// «Изменить» или «Показать код»; тело и подвал стадий правки прежнего вида держит
-// legacy-root.
+// «Изменить» или «Показать код»; стадия «Вручную» — тоже (фаза 7б), в её шапке только
+// имя объекта, название и крестик. Тело, подвал и кнопку шапки стадии «Через ИИ-агента»
+// прежнего вида держит legacy-root.
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { PromptVariant } from "../../types";
@@ -25,6 +26,7 @@ import type { LimitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
 import { copyText } from "../../lib/copyText";
 import "../../ui/ds.css";
+import "./docOverlay.css";
 
 export type DocStage = "view" | "manual" | "agent";
 
@@ -71,7 +73,7 @@ export default function OpenApiPane({
   }
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // Демо-стенд: сохранение упёрлось в предел — красная плашка в подвале, черновик цел.
+  // Демо-стенд: сохранение упёрлось в предел — строкой над кнопками подвала, черновик цел.
   const [limit, setLimit] = useState<LimitMessage | null>(null);
   const [showCode, setShowCode] = useState(false); // наблюдатель: «Показать код»
 
@@ -146,35 +148,27 @@ export default function OpenApiPane({
   }
 
   // ── шапка ──
+  // В правке в шапке только имя объекта, название и крестик: кнопки правки — в подвале.
+  const editing = stage === "manual" && isArchitect;
   let actions: ReactNode = null;
-  if (stage === "manual" && isArchitect) {
-    actions = (
-      <LegacyActions>
-        {/* Главная кнопка слева, «Отмена» справа: правило окон. */}
-        <button type="button" className="doc-btn doc-btn--primary" onClick={() => void save()} disabled={saving}>
-          Сохранить
-        </button>
-        <button type="button" className="doc-btn doc-btn--ghost" onClick={leave}>Отмена</button>
-      </LegacyActions>
-    );
-  } else if (stage === "agent" && isArchitect) {
+  if (stage === "agent" && isArchitect) {
     actions = hasSpec ? (
       <LegacyActions>
         <button type="button" className="doc-back" onClick={toView}>← К спецификации</button>
       </LegacyActions>
     ) : null;
-  } else if (isArchitect) {
+  } else if (stage === "view" && isArchitect) {
     actions = <EditMenu label="Изменить" onManual={() => setStage("manual")} onAgent={() => setStage("agent")} />;
-  } else if (hasSpec) {
+  } else if (!isArchitect && hasSpec) {
     actions = <CodeToggle shown={showCode} onToggle={() => setShowCode((s) => !s)} />;
   }
 
   // ── тело и подвал ──
-  // Стадии правки — прежнего вида: тело и подвал в legacy-root.
-  const legacy = isArchitect && stage !== "view";
+  // Стадия агента — прежнего вида: тело и подвал в legacy-root.
+  const legacy = isArchitect && stage === "agent";
   let body: ReactNode;
-  let foot: string | null = null;
-  if (stage === "manual" && isArchitect) {
+  let foot: ReactNode = null;
+  if (editing) {
     body = (
       <OpenApiDoc
         key={`edit:${rev}`}
@@ -184,7 +178,18 @@ export default function OpenApiPane({
         onDraft={setDraft}
       />
     );
-    foot = "Спецификацию с ошибкой можно сохранить как черновик. Превью обновится, когда ошибка будет исправлена.";
+    // Подвал на всю ширину окна: «Сохранить», «Отмена»; отказ по пределу демо-стенда —
+    // строкой над кнопками. Спецификацию с ошибкой по-прежнему можно сохранить: превью
+    // держит последний текст без ошибок и говорит об этом строкой над собой.
+    foot = (
+      <div className="ds-win-foot doc-editfoot">
+        {limit && <p className="ds-danger ds-win-err" role="alert"><LimitText message={limit} /></p>}
+        <button type="button" className="ds-btn ds-btn--primary" onClick={() => void save()} disabled={saving}>
+          Сохранить
+        </button>
+        <button type="button" className="ds-btn" onClick={leave}>Отмена</button>
+      </div>
+    );
   } else if (stage === "agent" && isArchitect) {
     body = (
       <div className="doc-agent">
@@ -196,7 +201,7 @@ export default function OpenApiPane({
         </div>
       </div>
     );
-    foot = "Спецификация не изменится, пока вы не нажмёте «Применить»";
+    foot = <div className="doc-foot legacy-root">Спецификация не изменится, пока вы не нажмёте «Применить»</div>;
   } else {
     body = (
       <OpenApiDoc
@@ -218,11 +223,7 @@ export default function OpenApiPane({
         onClose={onRequestClose ?? onClose}
       />
       <div className={"doc-body" + (legacy ? " legacy-root" : "")}>{body}</div>
-      {limit && stage === "manual" ? (
-        <div className="doc-foot doc-foot--bar legacy-root">
-          <div className="doc-limit" role="alert"><LimitText message={limit} /></div>
-        </div>
-      ) : foot && <div className="doc-foot legacy-root">{foot}</div>}
+      {foot}
     </>
   );
 }

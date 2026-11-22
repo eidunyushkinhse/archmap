@@ -6,13 +6,14 @@
 // фоне, без карточки; колонка кода — новый язык (фаза 7б), превью при правке — прежнего
 // вида.
 // Ввод валидируется с дебаунсом 500ms (swagger-ui тяжёлый — на каждый символ
-// не перерисовываем); при ошибке превью держит последнюю корректную версию с
-// amber-баннером, статус-строка ведёт кареткой на строку ошибки.
+// не перерисовываем); при ошибке превью держит последнюю корректную версию со строкой
+// предупреждения над собой, строка состояния ведёт кареткой на строку ошибки.
 import { useCallback, useEffect, useRef, useState } from "react";
 import OpenApiViewer from "../OpenApiViewer";
-import { NOT_OPENAPI_MESSAGE, nowHHMM, parseOpenApiText } from "./docValidate";
+import { NOT_OPENAPI_MESSAGE, parseOpenApiText } from "./docValidate";
 import type { SpecStatus } from "./docValidate";
 import { DocEditorColumn, StatusError } from "./docShared";
+import "../../ui/ds.css";
 import "./docOverlay.css";
 
 interface Props {
@@ -26,8 +27,8 @@ interface Props {
 
 interface OasState {
   status: SpecStatus;
-  // Последняя корректная версия спеки; time null — «из БД», времени правки нет
-  lastGood: { spec: object; time: string | null } | null;
+  // Последняя корректная версия спеки: её держит превью, пока в тексте ошибка.
+  lastGood: { spec: object } | null;
 }
 
 export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: Props) {
@@ -35,7 +36,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
   // Первое открытие: сохранённое значение парсится сразу, без дебаунса
   const [st, setSt] = useState<OasState>(() => {
     const s = parseOpenApiText(initial);
-    return { status: s, lastGood: s.kind === "ok" ? { spec: s.spec, time: null } : null };
+    return { status: s, lastGood: s.kind === "ok" ? { spec: s.spec } : null };
   });
   // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
   // правки: как только в поле что-то меняется, статус снова про разбор спеки.
@@ -46,7 +47,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
     const s = parseOpenApiText(text);
     setSt((prev) => ({
       status: s,
-      lastGood: s.kind === "ok" ? { spec: s.spec, time: nowHHMM() } : prev.lastGood,
+      lastGood: s.kind === "ok" ? { spec: s.spec } : prev.lastGood,
     }));
   }, []);
 
@@ -81,14 +82,13 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
     <StatusError text={NOT_OPENAPI_MESSAGE} />
   ) : null;
 
-  // Превью: валидная спека — карточка Swagger UI; ошибка — lastGood с баннером
-  // (или «превью недоступно», если корректной версии не было); пусто — заглушка.
+  // Превью: валидная спека — Swagger UI; ошибка — lastGood со строкой предупреждения
+  // над ним (или «превью недоступно», если корректной версии не было); пусто — заглушка.
+  // Время последнего удачного разбора в строке не пишем: оно ничего не решает.
   const broken = status.kind === "yaml-error" || status.kind === "not-openapi";
   let banner: string | null = null;
   if (broken) {
-    banner = lastGood
-      ? "Показан последний текст без ошибок" + (lastGood.time ? ` · ${lastGood.time}` : "")
-      : "В спецификации ошибка, превью недоступно";
+    banner = lastGood ? "Показан последний текст без ошибок" : "В спецификации ошибка, превью недоступно";
   }
 
   const column = (isArchitect || showCode) && (
@@ -112,15 +112,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: 
     <>
       {column}
       <div className={"doc-pv" + (isArchitect ? "" : " doc-pv--read")}>
-        {banner && (
-          <div className="doc-banner">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-              <path d="M8 2.2 14.6 13H1.4Z" strokeLinejoin="round" />
-              <path d="M8 6.5v3M8 11.6h.01" strokeLinecap="round" />
-            </svg>
-            {banner}
-          </div>
-        )}
+        {banner && <p className="ds-warn doc-pvwarn" role="status">{banner}</p>}
         <div className="doc-pvscroll">
           {status.kind === "empty" && !lastGood ? (
             <div className="doc-pvcenter"><span className="doc-pvempty">Нет спецификации</span></div>

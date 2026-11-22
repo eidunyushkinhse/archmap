@@ -185,7 +185,8 @@ describe("окно спецификации", () => {
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     expect(codeField()).not.toHaveAttribute("readonly");
-    expect(screen.getByText(/Спецификацию с ошибкой можно сохранить как черновик/)).toBeInTheDocument();
+    // Примечание подвала убрано (редизайн, фаза 7б).
+    expect(screen.queryByText(/Спецификацию с ошибкой можно сохранить как черновик/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(codeField()).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));

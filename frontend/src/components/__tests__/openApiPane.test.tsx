@@ -1,6 +1,6 @@
 // Окно спеки (OpenApiPane) — тот же порядок, что у схемы логики (вьюер v2):
-// просмотр Swagger без кода → «Изменить ▾» → «Вручную» (YAML с превью, «Отмена» /
-// «Сохранить») или «Через ИИ-агента» (шаги и панель пакета в том же окне).
+// просмотр Swagger без кода → «Изменить ▾» → «Вручную» (YAML с превью, «Сохранить» /
+// «Отмена» в подвале) или «Через ИИ-агента» (шаги и панель пакета в том же окне).
 // Редактор настоящий (OpenApiDoc), замоканы Swagger UI, панель пакета и сеть.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -94,12 +94,12 @@ describe("OpenApiPane · чтение на новом языке", () => {
     expect(field()).toBeNull();
   });
 
-  it("«Вручную»: прежняя сцена превью, тело и подвал прежнего вида", async () => {
+  it("«Вручную»: тело и подвал на новом языке (фаза 7б)", async () => {
     render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect onCommitOpenapi={vi.fn()} />);
     await открытьВручную();
-    expect(document.querySelector(".doc-pv")).not.toHaveClass("doc-pv--read");
-    expect(document.querySelector(".doc-body")).toHaveClass("legacy-root");
-    expect(document.querySelector(".doc-foot")).toHaveClass("legacy-root");
+    expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
+    expect(document.querySelector(".legacy-root")).toBeNull();
+    expect(document.querySelector(".doc-editfoot")).toHaveClass("ds-win-foot");
   });
 });
 
@@ -121,7 +121,8 @@ describe("OpenApiPane · «Вручную»", () => {
     const onCommitOpenapi = vi.fn(() => Promise.resolve(true));
     render(<OpenApiPane {...props} openapi={spec("Старая")} isArchitect onCommitOpenapi={onCommitOpenapi} />);
     await открытьВручную();
-    expect(screen.getByText(/Спецификацию с ошибкой можно сохранить как черновик/)).toBeInTheDocument();
+    // Примечание подвала убрано (редизайн, фаза 7б): правило черновика прежнее.
+    expect(screen.queryByText(/Спецификацию с ошибкой можно сохранить как черновик/)).toBeNull();
     fireEvent.change(field()!, { target: { value: "openapi: [\n  broken" } });
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     expect(onCommitOpenapi).toHaveBeenCalledWith("openapi: [\n  broken");
