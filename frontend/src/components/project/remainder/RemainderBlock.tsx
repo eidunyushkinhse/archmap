@@ -77,8 +77,9 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
 
   if (questions.length === 0 || q === undefined) return null;
 
-  const шаг2 = (q.kind === "group" && stage2[q.id] === true)
-    || (q.kind === "pair" && (stage2[q.id] === true || answers[q.id]?.kind === "merge"));
+  // Второй шаг открыт, только пока его открыл человек: ответ сам по себе его не держит
+  // (фаза 8б), иначе после «Объединить» вопрос навсегда становился бы шагом имени.
+  const шаг2 = (q.kind === "group" || q.kind === "pair") && stage2[q.id] === true;
   const title = !шаг2 ? q.title : q.kind === "pair" ? MERGE_TITLE : NEW_EDGE_TITLE;
   // Черновик формы связей: нет своего — строка на каждый объект группы (П4).
   const edgeDraft: EdgesDraft = edgeDrafts[q.id]

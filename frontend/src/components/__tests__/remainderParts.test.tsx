@@ -278,11 +278,24 @@ function MergeStepStand({ onApply }: { onApply: (name: string) => void }) {
 }
 
 describe("MergeNameStep (§4.5, шаг 2)", () => {
-  it("подписывает варианты источником и числом связей, без «·»", () => {
+  it("подписывает имена только источником, у «Своё имя» подписи нет; без «·» (фаза 8б)", () => {
     render(<MergeStepStand onApply={vi.fn()} />);
-    expect(screen.getByText("Из файла zabbix.yaml, 2 связи")).toBeInTheDocument();
-    expect(screen.getByText("Из проекта, 1 связь")).toBeInTheDocument();
+    expect(screen.getByText("Из файла zabbix.yaml")).toBeInTheDocument();
+    expect(screen.getByText("Из проекта")).toBeInTheDocument();
+    // Сумму связей называет строка контекста над шагом, в вариантах числа связей нет.
+    expect(document.body.textContent).not.toMatch(/связ/);
+    expect(document.body.textContent).not.toContain("ни одно из двух не годится");
+    expect(screen.getByRole("button", { name: "Своё имя" })).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("·");
+  });
+
+  it("«Назад к вопросу» есть всегда и ничего не отдаёт", async () => {
+    const onApply = vi.fn();
+    const onBack = vi.fn();
+    render(<MergeNameStep pair={пара} draft={mergeDraftFor(пара, "Пользователь")} onDraft={vi.fn()} onApply={onApply} onBack={onBack} />);
+    await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
+    expect(onBack).toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
   });
 
   it("кнопки нового языка: «Объединить» первой, «Назад к вопросу» за ней; поле ds-input", async () => {

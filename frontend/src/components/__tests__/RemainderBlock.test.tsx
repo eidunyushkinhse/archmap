@@ -347,12 +347,15 @@ describe("итог (§8, фаза 8а)", () => {
   });
 });
 
-describe("двухшаговые вопросы (§4.6)", () => {
-  it("4.4: форма строкой на объект → «Провести связи» → карточка «изменить»", async () => {
+describe("двухшаговые вопросы (§4.6, фаза 8б)", () => {
+  const провести = () => screen.getAllByRole("button", { name: /^Провести связь/ })[0]!;
+  const одинОбъект = () => screen.getByRole("button", { name: /^Один объект/ });
+
+  it("4.4: форма строкой на объект → «Провести связь» → ответ виден на первом шаге", async () => {
     let состояние: { answers: Answers; resolutions: Resolutions } = { answers: {}, resolutions: {} };
     render(<Stand onState={(s) => { состояние = s; }} />);
     await кВопросу(3);
-    await userEvent.click(screen.getAllByRole("button", { name: /^Провести связь/ })[0]!);
+    await userEvent.click(провести());
     // Второй шаг: свой заголовок, «почему» и сноска не повторяются.
     expect(screen.getByText("Связи объектов с остальной схемой")).toBeInTheDocument();
     expect(screen.getByText(/строку можно оставить пустой/)).toBeInTheDocument();
@@ -362,8 +365,13 @@ describe("двухшаговые вопросы (§4.6)", () => {
     await userEvent.click(screen.getByRole("option", { name: /server/ }));
     await userEvent.type(screen.getByLabelText("Технология связи от «Плагин»"), "SQL");
     await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
-    expect(screen.getByText("изменить")).toBeInTheDocument();
-    expect(screen.getByText(/Плагин → server/)).toBeInTheDocument();
+    // Первый шаг: оба варианта, «Провести связь» выбран, подписью — проведённая связь.
+    expect(заголовок().textContent).toContain("нет связей с остальной схемой");
+    expect(screen.queryByText("изменить")).toBeNull();
+    expect(провести()).toHaveAttribute("aria-pressed", "true");
+    expect(провести()).toHaveTextContent("Плагин → server");
+    expect(провести()).not.toHaveTextContent("указать, с чем связан");
+    expect(screen.getByRole("button", { name: /^Оставить как есть/ })).toHaveAttribute("aria-pressed", "false");
     expect(состояние.answers["group|Плагин"]).toEqual({
       kind: "new_edges",
       edges: [{ fromPath: "Плагин", toPath: "Zabbix / server", label: "", tech: "SQL" }],
@@ -373,37 +381,78 @@ describe("двухшаговые вопросы (§4.6)", () => {
     expect(строки()[3]!.querySelector(".rq-ql-a")?.textContent).toBe("Связей: 1");
   });
 
+  it("4.4: проведённые связи — первые три строки и «и ещё N»", async () => {
+    const пять = buildQuestions({
+      family_conflicts: [], remainder: остаток({
+        field_conflicts: [], container_edges: [], fuzzy_pairs: [],
+        isolated_groups: [{ id: "group|Г", node_paths: ["Г / А", "Г / Б", "Г / В", "Г / Д", "Г / Е"] }],
+        node_paths: ["Zabbix", "Г / А", "Г / Б", "Г / В", "Г / Д", "Г / Е"],
+        node_has_children: [false, false, false, false, false, false],
+        node_elements: ["container", "container", "container", "container", "container", "container"],
+      }),
+    });
+    render(<Stand questions={пять} />);
+    await userEvent.click(провести());
+    for (let i = 0; i < 5; i++) {
+      await userEvent.type(screen.getAllByRole("combobox")[i]!, "zabbix");
+      await userEvent.click(screen.getByRole("option", { name: "Zabbix" }));
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Провести связи" }));
+    const строкиПодписи = [...провести().querySelectorAll(".rq-opt-line")].map((e) => e.textContent);
+    expect(строкиПодписи).toEqual(["А → Zabbix", "Б → Zabbix", "В → Zabbix", "и ещё 2"]);
+  });
+
   it("4.4: «Назад к вопросу» не стирает уже проведённые связи", async () => {
     let состояние: { answers: Answers; resolutions: Resolutions } = { answers: {}, resolutions: {} };
     render(<Stand onState={(s) => { состояние = s; }} />);
     await кВопросу(3);
-    await userEvent.click(screen.getAllByRole("button", { name: /^Провести связь/ })[0]!);
+    await userEvent.click(провести());
     await userEvent.type(screen.getAllByRole("combobox")[0]!, "server");
     await userEvent.click(screen.getByRole("option", { name: /server/ }));
     await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
-    // Возвращаемся в форму и уходим из неё без «Провести связь».
-    await userEvent.click(screen.getByText("изменить"));
+    // Возвращаемся в форму выбранным вариантом и уходим из неё без «Провести связь».
+    await userEvent.click(провести());
     expect(screen.getAllByRole("combobox")[0]!).toHaveValue("Zabbix / server");
     expect(screen.getAllByRole("combobox")[1]!).toHaveValue(""); // вторая строка пуста
     await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
     expect(состояние.answers["group|Плагин"]).toMatchObject({ kind: "new_edges" });
-    expect(screen.getByText("изменить")).toBeInTheDocument();
+    expect(провести()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("4.5: «Один объект» → имя → «Объединить» → снова шаг 2 с выбранным", async () => {
+  it("4.5: «Один объект» → имя → «Объединить» → первый шаг с ответом", async () => {
     let состояние: { answers: Answers; resolutions: Resolutions } = { answers: {}, resolutions: {} };
     render(<Stand onState={(s) => { состояние = s; }} />);
     await кВопросу(4);
-    await userEvent.click(screen.getByRole("button", { name: /^Один объект/ }));
+    expect(одинОбъект()).toHaveTextContent("связи обоих (3) перейдут на объединённый");
+    await userEvent.click(одинОбъект());
     expect(screen.getByText("Как назвать объединённый объект?")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Пользователь", { selector: "b" }));
     await userEvent.click(screen.getByRole("button", { name: "Объединить" }));
     expect(состояние.answers["pair|Пользователь Zabbix|Пользователь"]).toEqual({ kind: "merge", name: "Пользователь" });
-    // Ответ виден и правится: шаг 2 остаётся на экране с выбранным именем,
-    // возвращаться уже некуда — «Назад к вопросу» нет.
-    expect(screen.getByText("Как назвать объединённый объект?")).toBeInTheDocument();
+    // «Объединить» возвращает к вопросу: ответ виден выбранным вариантом с именем.
+    expect(заголовок().textContent).toContain("похожие имена");
+    expect(screen.queryByText("Как назвать объединённый объект?")).toBeNull();
+    expect(одинОбъект()).toHaveAttribute("aria-pressed", "true");
+    expect(одинОбъект()).toHaveTextContent("под именем «Пользователь»");
+    expect(screen.getByRole("button", { name: /^Разные объекты/ })).toHaveAttribute("aria-pressed", "false");
+    // Шаг имени открывается снова на выбранном имени; «Назад к вопросу» ответа не меняет.
+    await userEvent.click(одинОбъект());
     expect(screen.getByRole("button", { name: /Пользователь.*Из архива plugin.zip/ })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByRole("button", { name: "Назад к вопросу" })).toBeNull();
+    await userEvent.click(screen.getByText("Своё имя", { selector: "b" }));
+    await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
+    expect(состояние.answers["pair|Пользователь Zabbix|Пользователь"]).toEqual({ kind: "merge", name: "Пользователь" });
+    expect(одинОбъект()).toHaveTextContent("под именем «Пользователь»");
+  });
+
+  it("4.5: без ответа «Назад к вопросу» на шаге имени возвращает к двум вариантам", async () => {
+    let состояние: { answers: Answers; resolutions: Resolutions } = { answers: {}, resolutions: {} };
+    render(<Stand onState={(s) => { состояние = s; }} />);
+    await кВопросу(4);
+    await userEvent.click(одинОбъект());
+    await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
+    expect(состояние.answers["pair|Пользователь Zabbix|Пользователь"]).toBeUndefined();
+    expect(одинОбъект()).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /^Разные объекты/ })).toBeInTheDocument();
   });
 });
 

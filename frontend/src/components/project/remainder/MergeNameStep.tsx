@@ -1,10 +1,11 @@
 // Второй шаг вопроса о похожих именах (§4.5 ТЗ): как назвать склеенный объект.
 // Три варианта — имя A, имя B, своё имя; связи обоих перейдут на склеенный, а
-// второе имя перестанет использоваться. Ответ перезаписывается только кнопкой
-// «Объединить»: черновик сам по себе ничего не решает. Кнопки и поле на новом языке
+// второе имя перестанет использоваться (это говорит строка контекста над шагом). Ответ
+// перезаписывается только кнопкой «Объединить», и она же возвращает к первому шагу, где
+// ответ виден выбранным вариантом; черновик сам по себе ничего не решает. «Назад к
+// вопросу» есть всегда и ответа не меняет (фаза 8б). Кнопки и поле на новом языке
 // (ds-btn, ds-input): «Объединить» первой, «Назад к вопросу» за ней.
 import type { FuzzyPairOut } from "../../../types";
-import { plural } from "../../../ui/plural";
 import type { MergeDraft } from "./drafts";
 import { lastSegment } from "./questionText";
 import Option from "./Option";
@@ -16,12 +17,10 @@ interface Props {
   draft: MergeDraft;
   onDraft: (next: MergeDraft) => void;
   onApply: (name: string) => void;
-  /** Нет колбэка — возвращаться некуда: ответ уже дан, шаг 2 и есть вопрос. */
-  onBack?: () => void;
+  onBack: () => void;
 }
 
 export default function MergeNameStep({ pair, draft, onDraft, onApply, onBack }: Props) {
-  const edges = (n: number) => `${n} ${plural(n, ["связь", "связи", "связей"])}`;
   const a = lastSegment(pair.a_path);
   const b = lastSegment(pair.b_path);
   const own = draft.own.trim();
@@ -30,21 +29,21 @@ export default function MergeNameStep({ pair, draft, onDraft, onApply, onBack }:
   return (
     <>
       <div className="rq-opts">
+        {/* Под именем только источник: сумму связей уже назвала строка контекста. */}
         <Option
           main={<b>{a}</b>}
-          sub={`${pair.a_source}, ${edges(pair.a_edges)}`}
+          sub={pair.a_source}
           selected={draft.pick === "a"}
           onClick={() => onDraft({ ...draft, pick: "a" })}
         />
         <Option
           main={<b>{b}</b>}
-          sub={`${pair.b_source}, ${edges(pair.b_edges)}`}
+          sub={pair.b_source}
           selected={draft.pick === "b"}
           onClick={() => onDraft({ ...draft, pick: "b" })}
         />
         <Option
           main={<b>Своё имя</b>}
-          sub={draft.pick === "own" ? undefined : "ни одно из двух не годится"}
           selected={draft.pick === "own"}
           onClick={() => onDraft({ ...draft, pick: "own" })}
         />
@@ -73,11 +72,9 @@ export default function MergeNameStep({ pair, draft, onDraft, onApply, onBack }:
         >
           Объединить
         </button>
-        {onBack !== undefined && (
-          <button type="button" className="ds-btn" onClick={onBack}>
-            Назад к вопросу
-          </button>
-        )}
+        <button type="button" className="ds-btn" onClick={onBack}>
+          Назад к вопросу
+        </button>
       </div>
     </>
   );
