@@ -164,7 +164,7 @@ describe("EditProjectDialog", () => {
   it("описание обрезается по краям; Enter в описании переносит строку и не сохраняет", async () => {
     vi.mocked(projectsApi.update).mockResolvedValue(project);
     render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
-    const описание = screen.getByPlaceholderText(/^коротко о проекте$/i);
+    const описание = screen.getByPlaceholderText("коротко о проекте");
     await userEvent.type(описание, "  первая{Enter}вторая  ");
     expect(projectsApi.update).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
@@ -184,5 +184,35 @@ describe("EditProjectDialog", () => {
     await userEvent.clear(screen.getByDisplayValue("Ярмарка"));
     await userEvent.keyboard("{Enter}");
     expect(projectsApi.update).not.toHaveBeenCalled();
+  });
+
+  // Вид (редизайн, фаза 9г): каркас окна нового языка, строки «подпись — значение».
+  it("вид: заголовок h2, строки «Название» и «Описание», кнопки подвала нового языка", () => {
+    render(<EditProjectDialog project={{ ...project, description: "Старое" }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Редактировать проект" })).toHaveClass("ds-win-title");
+    const name = screen.getByLabelText("Название");
+    expect(name).toHaveValue("Ярмарка");
+    expect(name).toHaveAttribute("data-autofocus");
+    expect(name.closest(".ds-prop")).not.toBeNull();
+    expect(screen.getByLabelText("Описание")).toHaveValue("Старое");
+    expect(screen.queryByText(/необязательно/)).not.toBeInTheDocument();
+    const [save, cancel] = screen.getAllByRole("button").filter((b) => b.textContent !== "");
+    expect([save.textContent, cancel.textContent]).toEqual(["Сохранить", "Отмена"]);
+    expect(save.className).toBe("ds-btn ds-btn--primary");
+    expect(cancel.className).toBe("ds-btn");
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-win-close");
+  });
+
+  it("вид: запертая «Сохранить» без своей прозрачности, отказ строкой подвала", async () => {
+    vi.mocked(projectsApi.update).mockRejectedValue(new Error("Имя занято"));
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const name = screen.getByLabelText("Название");
+    await userEvent.clear(name);
+    const save = screen.getByRole("button", { name: "Сохранить" });
+    expect(save).toBeDisabled();
+    expect(save).not.toHaveAttribute("style");
+    await userEvent.type(name, "Плёнка");
+    await userEvent.click(save);
+    expect(await screen.findByText("Имя занято")).toHaveClass("ds-danger", "ds-win-err");
   });
 });
