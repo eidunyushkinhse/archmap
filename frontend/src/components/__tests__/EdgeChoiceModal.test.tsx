@@ -5,7 +5,7 @@
 //
 // Страховочные тесты фазы 9б редизайна: зелёные на прежнем виде окна. Modal настоящий
 // (test-setup открывает <dialog> атрибутом open).
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import EdgeChoiceModal from "../EdgeChoiceModal";
@@ -69,5 +69,19 @@ describe("EdgeChoiceModal — выбор, добавление, закрытие
   it("шапка называет пару концов", () => {
     setup();
     expect(screen.getByText("Пользователь → Заказы")).toBeInTheDocument();
+  });
+
+  // Вид фазы 9б: строки списка без склейки точкой. Слева описание (под ним конец),
+  // справа тихо технология; без описания слева технология, справа пусто.
+  it("слева описание, справа технология; без описания слева технология", () => {
+    setup();
+    const rows = within(screen.getByRole("list")).getAllByRole("button");
+    expect(rows.map((r) => r.textContent)).toEqual(["читает → Каталог HTTP", "Kafka → Корзина", "связь → Оплата"]);
+    expect(within(rows[0]).getByText("читает")).toHaveClass("ds-row-name");
+    expect(within(rows[0]).getByText("HTTP")).toHaveClass("ds-row-quiet");
+    expect(within(rows[1]).getByText("Kafka")).toHaveClass("ds-row-name");
+    expect(rows[1].querySelector(".ds-row-quiet")).toBeNull();
+    expect(within(rows[2]).getByText("→ Оплата")).toHaveClass("ds-row-sub");
+    expect(document.querySelector("dialog")!.textContent).not.toContain(" · ");
   });
 });

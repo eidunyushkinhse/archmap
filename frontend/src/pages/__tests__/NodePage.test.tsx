@@ -335,8 +335,8 @@ describe("NodePage", () => {
       const modal = screen.getByTestId("modal");
       expect(modal).toHaveTextContent("Выберите связь");
       expect(within(modal).getByText("Пользователь → Сервис оплаты")).toBeInTheDocument();
-      const choices = within(modal).getAllByRole("button");
-      expect(choices.map((b) => b.textContent)).toEqual(["пользуется→ Каталог", "пользуется→ Корзина", "пользуется→ Оплата"]);
+      const choices = within(within(modal).getByRole("list")).getAllByRole("button");
+      expect(choices.map((b) => b.textContent)).toEqual(["пользуется → Каталог", "пользуется → Корзина", "пользуется → Оплата"]);
       await userEvent.click(within(modal).getByRole("button", { name: "пользуется → Корзина" }));
       expect(screen.getByTestId("edge-edit")).toHaveAttribute("data-edge-id", "u2");
     });

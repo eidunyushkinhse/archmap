@@ -1089,3 +1089,23 @@ button.ds-sub:hover {
   display: block;
   font-size: var(--fs-caption);
 }
+/* Строка списка в две строчки: имя и под ним тихая вторая строчка (настоящий конец
+   связи в «Выберите связь»). Столбец забирает ширину строки с нулевой основы: длинное
+   имя переносится внутри него, а тихий текст справа (ds-row-quiet) остаётся на первой
+   строчке, а не уходит отдельной строкой вниз. */
+.ds-row-text {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ds-row-sub {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+/* «Добавить» под списком в теле окна: по ширине текста, а не во всю строку тела. */
+.ds-win-body > .ds-add {
+  align-self: flex-start;
+}

@@ -191,7 +191,8 @@ describe("DeploymentPage", () => {
     const modal = screen.getByTestId("modal");
     expect(modal).toHaveTextContent("Выберите связь");
     expect(modal).toHaveTextContent("A → B");
-    await userEvent.click(within(modal).getByRole("button", { name: "пишет · Kafka" }));
+    // Технология справа от описания, без склейки точкой.
+    await userEvent.click(within(modal).getByRole("button", { name: "пишет Kafka" }));
     expect(screen.queryByTestId("modal")).toBeNull();
     expect(props().linkedHighlight).toEqual({ kind: "edge", id: "deploy:e2@s1@s1" });
   });
