@@ -253,8 +253,8 @@ describe("догрузка архива: порядок блоков (фаза 8
     // Перечни — под вопросами: «Найдено в проекте» и «Появятся» после массовых ответов.
     expect(within(порядок[4]!).getByText(/Найдено в проекте: 1 объект/)).toBeInTheDocument();
     expect(within(порядок[4]!).getByText("Появятся:")).toBeInTheDocument();
-    // Массовые ответы — кнопками нового языка, подпись прежняя.
-    expect(within(порядок[3]!).getByText("Ответить на все такие вопросы сразу:")).toBeInTheDocument();
+    // Массовые ответы — кнопками нового языка, подпись о расхождениях с проектом (фаза 8б).
+    expect(within(порядок[3]!).getByText("Ответить на все расхождения с проектом сразу:")).toBeInTheDocument();
     for (const b of within(порядок[3]!).getAllByRole("button")) expect(b).toHaveClass("ds-btn");
   });
 });

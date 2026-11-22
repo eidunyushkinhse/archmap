@@ -181,8 +181,9 @@ describe("догрузка архива · превью и споры", () => {
     expect(моё).toHaveTextContent("по умолчанию");
     expect(изАрхива).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    // По умолчанию вариант проекта остаётся в проекте, архивный отбрасывается (фаза 8б).
     expect(screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent).toContain(
-      "в проект попадёт вариант «Из проекта»");
+      "Если не отвечать, то в проекте останется прежний вариант, а вариант из архива будет отброшен.");
 
     // Файлы уехали в превью в том порядке, в каком их видит пользователь.
     const [id, files] = vi.mocked(projectsApi.importIntoPreview).mock.calls[0];

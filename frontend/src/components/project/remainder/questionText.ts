@@ -68,13 +68,26 @@ const FAMILY: Record<FamilyConflictOut["family"], FamilyForms> = {
 };
 
 /**
+ * Спор с живым проектом (догрузка, фаза 8б): число архивных кандидатов, если среди
+ * кандидатов есть проект (current); null — проекта нет, спорят файлы. От этого зависят
+ * слова спора: «в проекте и в архиве» вместо «в двух файлах» и судьба отброшенного.
+ */
+function archivesVsProject(candidates: { current: boolean }[]): number | null {
+  if (!candidates.some((k) => k.current)) return null;
+  return candidates.filter((k) => !k.current).length;
+}
+
+/** «в проекте и в архиве» / «в проекте и в архивах» по числу архивных кандидатов. */
+const projectAndArchives = (archives: number): string =>
+  archives > 1 ? "в проекте и в архивах" : "в проекте и в архиве";
+
+/**
  * Где разошлись записи: «в разных файлах», а в догрузке, где один кандидат — живой проект,
  * «в проекте и в архиве» («в архивах», когда архивных кандидатов несколько).
  */
 function familyWhere(c: FamilyConflictOut): string {
-  if (!c.candidates.some((k) => k.current)) return "в разных файлах";
-  return c.candidates.filter((k) => !k.current).length > 1
-    ? "в проекте и в архивах" : "в проекте и в архиве";
+  const archives = archivesVsProject(c.candidates);
+  return archives === null ? "в разных файлах" : projectAndArchives(archives);
 }
 
 // Номер строки в начале текста ошибки: «Строка 84: у объекта два родителя».
@@ -120,6 +133,7 @@ export function familyTexts(c: FamilyConflictOut): {
   const f = FAMILY[c.family];
   const i = familyDefaultIndex(c);
   const winner = c.candidates[i];
+  const archives = archivesVsProject(c.candidates);
   return {
     topic: `${lastSegment(c.node_path)}, ${f.topic(c.key)}`,
     // Владелец записи назван (Р фазы 8а): ключ один у многих объектов, «Создание заказа»
@@ -130,8 +144,12 @@ export function familyTexts(c: FamilyConflictOut): {
       + `Непонятно, ${f.one} считать ${f.adj}.`,
     ifLeft: winner === undefined
       ? `Если не отвечать, то будут добавлены все ${f.all}, и при добавлении им будут назначены номера.`
-      : `Если не отвечать, то в проект попадёт вариант «${winner.source_label}», `
-        + `а ${rest(c.candidates.length, "второй будет отброшен", "остальные будут отброшены")}.`,
+      // В догрузке по умолчанию остаётся вариант проекта: он не «попадает» в проект, а остаётся.
+      : winner.current && archives !== null
+        ? "Если не отвечать, то в проекте останется прежний вариант, а "
+          + `${archives > 1 ? "варианты из архивов будут отброшены" : "вариант из архива будет отброшен"}.`
+        : `Если не отвечать, то в проект попадёт вариант «${winner.source_label}», `
+          + `а ${rest(c.candidates.length, "второй будет отброшен", "остальные будут отброшены")}.`,
   };
 }
 
@@ -155,16 +173,26 @@ export function fieldTexts(d: FieldDisputeOut): {
   };
   const winner = d.candidates[d.default];
   const value = winner ? humanValue(d.field, winner.value) : "";
+  const archives = archivesVsProject(d.candidates);
   return {
     topic: `${lastSegment(d.node_path)}, ${f.name}`,
     title: `У объекта «${lastSegment(d.node_path)}» ${f.what} по-разному `
-      + `${sourcesPhrase(d.candidates.length)}. ${f.q} считаем ${f.adj}?`,
+      + `${archives === null ? sourcesPhrase(d.candidates.length) : projectAndArchives(archives)}.`
+      + ` ${f.q} считаем ${f.adj}?`,
     // Правило мерджа названо прямо и верно для любого поля и любого числа файлов (фаза
-    // 8а): раньше пояснение говорило «описание» про технологию и «в обоих» при трёх.
-    why: "ArchMap обычно берёт значение из того файла, где объект описан подробнее."
-      + " Здесь файлы описывают его одинаково подробно.",
-    ifLeft: `Если не отвечать, то в проект попадёт значение «${value}» (${lowerFirst(winner?.source_label ?? "")}), `
-      + `а ${rest(d.candidates.length, "второе будет отброшено", "остальные будут отброшены")}.`,
+    // 8а): раньше пояснение говорило «описание» про технологию и «в обоих» при трёх. В
+    // догрузке спорят проект и архив (фаза 8б): живой проект входит в слияние первым входом
+    // по тому же правилу (backend/app/import_merge.py, _decide).
+    why: archives === null
+      ? "ArchMap обычно берёт значение из того файла, где объект описан подробнее."
+        + " Здесь файлы описывают его одинаково подробно."
+      : "ArchMap обычно берёт значение оттуда, где объект описан подробнее."
+        + ` Здесь ${archives > 1 ? "проект и архивы" : "проект и архив"} описывают его одинаково подробно.`,
+    ifLeft: winner?.current === true && archives !== null
+      ? `Если не отвечать, то в проекте останется значение «${value}», а `
+        + `${archives > 1 ? "значения из архивов будут отброшены" : "значение из архива будет отброшено"}.`
+      : `Если не отвечать, то в проект попадёт значение «${value}» (${lowerFirst(winner?.source_label ?? "")}), `
+        + `а ${rest(d.candidates.length, "второе будет отброшено", "остальные будут отброшены")}.`,
   };
 }
 
@@ -265,10 +293,12 @@ export function pairTexts(p: FuzzyPairOut, mode: QuestionMode = "create"): {
 } {
   // В догрузке вопрос повторится при следующей догрузке, а не «импорте» (фаза 8а).
   const следующий = mode === "into" ? "следующей догрузке" : "следующем импорте";
+  // Одно из имён — живой проект (догрузка): спорят не файлы, а проект и архив (фаза 8б).
+  const где = p.a_current || p.b_current ? "в проекте и в архиве" : "из разных файлов";
   return {
     topic: `«${lastSegment(p.a_path)}» и «${lastSegment(p.b_path)}»`,
     title: `«${lastSegment(p.a_path)}» и «${lastSegment(p.b_path)}» — похожие имена`
-      + " из разных файлов. Это один объект или разные?",
+      + ` ${где}. Это один объект или разные?`,
     // Строка контекста — фрагмент со строчной, как «внутри 2 объектов, считая вложенные».
     context: `${lowerFirst(p.a_source)} и ${lowerFirst(p.b_source)}, оба ${p.where}`,
     why: "Имена похожи, но не совпадают, поэтому ArchMap не объединяет их сам."
