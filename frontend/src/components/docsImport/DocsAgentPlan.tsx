@@ -2,7 +2,8 @@
 // языке (редизайн, фаза 6в): те же строки и слова, что в прежнем отчёте (DocsAgentReport),
 // на токенах нового языка. Схемы плана — строками «имя, вид, что будет»: значения каждой
 // колонки начинаются с одного x (общая сетка на все строки), адрес объекта — подписью над
-// его строками, а не в каждой строке. Состояние — useDocsAgent.
+// его строками, а не в каждой строке. Вид отчёта общий с окнами фактов и списка операций
+// (agentParts.css: apl-*), своё — операция и вид схемы. Состояние — useDocsAgent.
 import { Fragment } from "react";
 import type { KeyboardEvent } from "react";
 import type { NodeDocKind } from "../../types";
@@ -41,35 +42,35 @@ export default function DocsAgentPlan({ agent }: { agent: DocsAgent }) {
   const { report, checking, mmdBroken, willWrite, remarks } = agent;
   const idle = !checking;
   return (
-    <div className="dap">
-      {checking && <p className="dap-line dap-quiet">Проверяем файлы</p>}
+    <div className="apl">
+      {checking && <p className="apl-line apl-quiet">Проверяем файлы</p>}
       {/* Вход тот же, что в прошлый заход: замечание повторится, и чинить надо разговор
           с агентом. Над сводкой. */}
       {agent.repeatedInput && <UnchangedInputNote ds />}
       {/* Ампутация пометок не должна быть молчаливой: пропавшие между попытками — НАД
           сводкой. */}
       {idle && agent.shrank.map((line) => (
-        <p key={line} className="ds-warn dap-line">
+        <p key={line} className="ds-warn apl-line">
           {line} Проверьте, не удалил ли агент пометки вместо того, чтобы исправить их
         </p>
       ))}
       {/* Непарсящиеся схемы — строкой НАД сводкой: в пакете на три десятка схем пометка в
           строке теряется. Применение не блокируем: битая схема всё ещё текст. */}
-      {idle && agent.mmdPending && <p className="dap-line dap-quiet">Проверяем схемы</p>}
+      {idle && agent.mmdPending && <p className="apl-line apl-quiet">Проверяем схемы</p>}
       {idle && report !== null && mmdBroken > 0 && (
-        <p className="ds-warn dap-line">
+        <p className="ds-warn apl-line">
           {mmdBroken} из {report.logic.length} схем не читаются как Mermaid. Исправьте эти файлы и
           загрузите их снова.
         </p>
       )}
       {idle && report !== null && report.applied && (
-        <p className="dap-summary is-ok">
+        <p className="apl-summary is-ok">
           Применено: схем создано {report.created_docs}, неописанных схем заполнено{" "}
           {report.filled_docs}, перезаписано {report.updated_docs}.
         </p>
       )}
       {idle && report !== null && !report.applied && report.errors.length === 0 && (
-        <p className={"dap-summary" + (willWrite ? " is-ok" : "")}>{summaryLine(report.logic)}</p>
+        <p className={"apl-summary" + (willWrite ? " is-ok" : "")}>{summaryLine(report.logic)}</p>
       )}
       {idle && report !== null && report.errors.length > 0 && (
         <NoteList ds danger title="Файлы не применить:" items={report.errors} />
@@ -82,7 +83,7 @@ export default function DocsAgentPlan({ agent }: { agent: DocsAgent }) {
         <NoteList ds title="Проверьте:" items={report.warnings} />
       )}
       {idle && remarks.length > 0 && (
-        <button type="button" className="ds-btn dap-remarks" onClick={agent.copyRemarks}>
+        <button type="button" className="ds-btn apl-remarks" onClick={agent.copyRemarks}>
           {agent.remarksCopied ? "Скопировано" : "Скопировать замечания для агента"}
         </button>
       )}
@@ -102,19 +103,19 @@ function endOnEnter(e: KeyboardEvent<HTMLTextAreaElement>) {
 function PlanRows({ agent, rows }: { agent: DocsAgent; rows: DocsPlanRow[] }) {
   const shown = rows.slice(0, SHOWN_ROWS);
   return (
-    <div className="dap-plan">
-      <p className="dap-plan-title">Схемы логики:</p>
-      <div className="dap-rows">
+    <div className="apl-plan">
+      <p className="apl-plan-title">Схемы логики:</p>
+      <div className="apl-rows">
         {shown.map((l, i) => {
           const err = agent.mmdErrs?.[i] ?? null;
           const name = agent.nameOf(l.source, l.name);
           return (
             <Fragment key={`${l.node_path}#${l.name}`}>
               {(i === 0 || shown[i - 1].node_path !== l.node_path) && (
-                <p className="dap-path">{l.node_path}</p>
+                <p className="apl-path">{l.node_path}</p>
               )}
-              <div className="dap-row">
-                <div className="dap-name">
+              <div className="apl-row">
+                <div className="apl-name">
                   {/* Поле растёт по тексту: длинное имя переносится, строка не ломается. */}
                   <span className="ds-grow" data-value={name}>
                     <textarea
@@ -130,7 +131,7 @@ function PlanRows({ agent, rows }: { agent: DocsAgent; rows: DocsPlanRow[] }) {
                   </span>
                   {l.operation && <span className="ds-mono dap-op">{l.operation}</span>}
                   {err !== null && (
-                    <span className="dap-bad" title={err}>mermaid: {err.split("\n")[0]}</span>
+                    <span className="apl-bad" title={err}>mermaid: {err.split("\n")[0]}</span>
                   )}
                 </div>
                 <span className="dap-kind">
@@ -144,7 +145,7 @@ function PlanRows({ agent, rows }: { agent: DocsAgent; rows: DocsPlanRow[] }) {
                   </select>
                   <span className="ds-value-chev" aria-hidden="true"><ChevronDownIcon /></span>
                 </span>
-                <span className={"dap-act" + (l.action === "overwrite" ? " is-warn" : "")}>
+                <span className={"apl-act" + (l.action === "overwrite" ? " is-warn" : "")}>
                   {ACTION_LABEL[l.action] ?? l.action}
                 </span>
               </div>
@@ -152,7 +153,7 @@ function PlanRows({ agent, rows }: { agent: DocsAgent; rows: DocsPlanRow[] }) {
           );
         })}
       </div>
-      {rows.length > shown.length && <p className="dap-more">и ещё {rows.length - shown.length}</p>}
+      {rows.length > shown.length && <p className="apl-more">и ещё {rows.length - shown.length}</p>}
     </div>
   );
 }

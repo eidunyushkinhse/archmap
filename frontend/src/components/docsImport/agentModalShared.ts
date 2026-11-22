@@ -131,7 +131,6 @@ export const radioRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#334155",
   cursor: "pointer", userSelect: "none",
 };
-export const leftNote: CSSProperties = { margin: "10px 0 0", fontSize: 11.5, color: "#94a3b8", lineHeight: 1.5 };
 export const chipsRow: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 8 };
 export const chip: CSSProperties = {
   display: "inline-flex", alignItems: "center", border: "1px solid #e2e8f0",

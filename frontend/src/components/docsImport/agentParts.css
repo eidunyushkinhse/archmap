@@ -67,6 +67,101 @@
   margin: 0;
 }
 
+/* ── Отчёт превью окон дозаливки от агента (схемы логики, факты, список операций) ──
+   Строки 13px, итог 600, предупреждения цветом предупреждения. Строки плана — общей
+   сеткой на все строки: имя, значение второй колонки и «что будет» в каждой строке
+   начинаются с одного x; путь объекта — подписью над его строками. */
+.apl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+}
+.apl:empty {
+  display: none;
+}
+.apl .ds-warn.apl-line,
+.apl-line {
+  margin: 0;
+}
+.apl-quiet {
+  color: var(--c-fg-muted);
+}
+.apl-summary {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-fg-muted);
+}
+.apl-summary.is-ok {
+  color: var(--c-ok);
+}
+.apl-remarks {
+  align-self: flex-start;
+}
+.apl-plan {
+  min-width: 0;
+}
+.apl-plan-title {
+  margin: 0 0 2px;
+  font-weight: 500;
+  color: var(--c-fg);
+}
+.apl-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  column-gap: var(--space-4);
+  row-gap: 2px;
+  align-items: start;
+}
+.apl-row {
+  display: contents;
+}
+.apl-path {
+  grid-column: 1 / -1;
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+.apl-path:first-child {
+  margin-top: 0;
+}
+.apl-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* Текст ячейки на шаге строк с полем (поля в строке имеют поля 3px сверху и снизу). */
+.apl-cell {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+.apl-detail {
+  padding: 3px 0;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.apl-bad {
+  overflow: hidden;
+  color: var(--c-warn);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.apl-act {
+  padding: 3px 0;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.apl-act.is-warn {
+  color: var(--c-warn);
+}
+.apl-more {
+  margin: 2px 0 0;
+  color: var(--c-fg-muted);
+}
+
 /* Вопрос после копирования замечаний: строка и две текстовые кнопки под ней. */
 .asf {
   display: flex;

@@ -38,7 +38,7 @@ function open() {
 
 // Пакет вставляется текстом: файловый ввод в jsdom тестировать нечем, а путь тот же.
 async function вставить(текст: string) {
-  await userEvent.click(screen.getByText("+ вставить из буфера"));
+  await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
   const area = screen.getByPlaceholderText("вставьте содержимое файла");
   await userEvent.clear(area);
   await userEvent.type(area, текст);
@@ -55,7 +55,10 @@ describe("DataAgentModal", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     await waitFor(() => expect(dataImportApi.preview).toHaveBeenCalled());
     expect(vi.mocked(dataImportApi.preview).mock.calls[0][0].overwrite).toBe(false);
-    expect(screen.getByText(/Хранилище.*orders.*колонок 3/)).toBeInTheDocument();
+    // Строка записи: путь объекта подписью над строками, имя, число тихим цветом.
+    expect(await screen.findByText("orders")).toBeInTheDocument();
+    expect(screen.getByText("Хранилище")).toBeInTheDocument();
+    expect(screen.getByText("колонок 3")).toBeInTheDocument();
   });
 
   it("пакет с ошибками применить нельзя", async () => {
@@ -96,8 +99,10 @@ describe("DataAgentModal", () => {
     );
     open();
     expect(screen.getByText("Описать структуру с помощью ИИ-агента")).toBeInTheDocument();
-    // Куда уедет файл без указания объекта, сказано на виду; синтаксис адреса — за «?».
-    expect(screen.getByText(/Таблицы без указания объекта попадут к «Хранилище»/)).toBeInTheDocument();
+    // Куда уедет файл без указания объекта и синтаксис адреса — за «?» у «Ответов агента»
+    // (вступление окна ушло с экрана, редизайн, фаза 6г).
+    await userEvent.click(screen.getByRole("button", { name: "Как ArchMap разбирает файлы" }));
+    expect(screen.getByText(/Таблицы из файла без такой строки попадут к объекту «Хранилище»/)).toBeInTheDocument();
     await вставить("tables:");
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     await waitFor(() => expect(screen.getByText(/Таблиц: 1/)).toBeInTheDocument());

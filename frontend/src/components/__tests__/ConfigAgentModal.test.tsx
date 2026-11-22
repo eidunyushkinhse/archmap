@@ -34,7 +34,7 @@ function open() {
 }
 
 async function вставить(текст: string) {
-  await userEvent.click(screen.getByText("+ вставить из буфера"));
+  await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
   const area = screen.getByPlaceholderText("вставьте содержимое файла");
   await userEvent.clear(area);
   await userEvent.type(area, текст);
@@ -49,10 +49,10 @@ describe("ConfigAgentModal", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ shouldAdvanceTime: true }); });
   afterEach(() => vi.useRealTimers());
 
-  it("заголовок и подзаголовок своего окна", () => {
+  it("заголовок своего окна; механики адреса за «?» нет — владелец однозначен", () => {
     open();
     expect(screen.getByText("Описать конфигурацию с помощью ИИ-агента")).toBeInTheDocument();
-    expect(screen.getByText(/в репозитории\. Агент/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Как ArchMap разбирает файлы" })).toBeNull();
   });
 
   it("превью: строка параметра, по умолчанию НЕ перезаписывает", async () => {
@@ -62,7 +62,10 @@ describe("ConfigAgentModal", () => {
     await waitFor(() => expect(configImportApi.preview).toHaveBeenCalled());
     expect(vi.mocked(configImportApi.preview).mock.calls[0][0].overwrite).toBe(false);
     expect(vi.mocked(configImportApi.preview).mock.calls[0][0].nodeId).toBe("svc1");
-    expect(screen.getByText("«Сервис заказов» · ORDER_TTL · int · обяз.")).toBeInTheDocument();
+    // Строка записи: путь над строками, имя, тип и обязательность тихим цветом без «·».
+    expect(await screen.findByText("ORDER_TTL")).toBeInTheDocument();
+    expect(screen.getByText("Сервис заказов")).toBeInTheDocument();
+    expect(screen.getByText("int, обяз.")).toBeInTheDocument();
     expect(screen.getByText(/Параметров: 1 \(новых 1\)/)).toBeInTheDocument();
   });
 

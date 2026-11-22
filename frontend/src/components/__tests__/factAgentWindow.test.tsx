@@ -6,15 +6,18 @@
 // замечания уходят агенту словами семьи, «?» объясняет адрес объекта.
 //
 // Где окно рисуется по-разному (кнопка задания, снятие файла), вид спрятан в помощники ниже:
-// сетка написана на прежнем окне, после перевода на новый язык меняются только помощники.
-// Modal настоящий (test-setup открывает <dialog> атрибутом open).
-import { render, screen, waitFor } from "@testing-library/react";
+// сетка написана на прежнем окне, после перевода на новый язык поменялись только помощники.
+// Тесты нового вида — в конце файла: вступления нет, «?» у «Ответов агента» и Escape при
+// открытой панели, галочка вместе с файлами, строка записи без «·», футер и отказ
+// применения. Modal настоящий (test-setup открывает <dialog> атрибутом open).
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DataAgentModal from "../docsImport/DataAgentModal";
 import ChannelsAgentModal from "../docsImport/ChannelsAgentModal";
 import ConfigAgentModal from "../docsImport/ConfigAgentModal";
 import { channelsImportApi, configImportApi, dataImportApi } from "../../api/docsImport";
+import { ApiError } from "../../api/client";
 import type { ChannelsImportReport, ConfigImportReport, DataImportReport } from "../../types";
 
 vi.mock("../../api/docsImport", () => ({
@@ -38,6 +41,11 @@ interface Family {
   remarks: [string, string];
   /** Механика адреса за «?»: текст про объект окна; null — «?» у окна нет. */
   help: RegExp | null;
+  /** Путь объекта записи и число тихим цветом в строке плана. */
+  path: string;
+  detail: string;
+  /** Вступление прежнего окна: на новом языке его нет. */
+  intro: RegExp;
 }
 
 const base = { scanner: [], errors: [] as string[], warnings: [] as string[], applied: false };
@@ -56,6 +64,9 @@ const FAMILIES: Family[] = [
     summary: /Таблиц: 1 \(новых/,
     remarks: ["ArchMap проверил файлы структуры", "Записи чини по замечаниям, а не удаляй из пакета"],
     help: /Таблицы из файла без такой строки попадут к объекту «БД заказов»/,
+    path: "Ярмарка / БД заказов",
+    detail: "колонок 3",
+    intro: /Агент прочитает миграции/,
   },
   {
     name: "каналы брокера",
@@ -70,6 +81,9 @@ const FAMILIES: Family[] = [
     summary: /Каналов: 1 \(новых/,
     remarks: ["ArchMap проверил файлы каналов", "Каналы и поля чини по замечаниям, а не удаляй из пакета"],
     help: /Каналы из файла без такой строки попадут к объекту «Kafka»/,
+    path: "Ярмарка / Kafka",
+    detail: "полей 2",
+    intro: /Каналы брокера описаны в коде/,
   },
   {
     name: "конфигурация",
@@ -84,15 +98,18 @@ const FAMILIES: Family[] = [
     summary: /Параметров: 1 \(новых/,
     remarks: ["ArchMap проверил файлы конфигурации", "Параметры чини по замечаниям, а не удаляй из пакета"],
     help: null,
+    path: "Ярмарка / Order API",
+    detail: "int, обяз.",
+    intro: /Агент найдёт в коде/,
   },
 ];
 
 // ── помощники вида ───────────────────────────────────────────────────────────
-const кнопкаЗадания = () => screen.getByRole("button", { name: "Скопировать промпт" });
+const кнопкаЗадания = () => screen.getByRole("button", { name: "Скопировать задание" });
 const fileInput = () => document.querySelector("dialog input[type=file]") as HTMLInputElement;
 const применить = () => screen.getByRole("button", { name: "Применить" });
 const галочка = () => screen.getByLabelText(/Заменять уже описанное/);
-const убрать = (_name: string) => screen.getByTitle("Убрать файл");
+const убрать = (name: string) => screen.getByRole("button", { name: `Убрать ${name}` });
 
 async function положить(f: Family, name = "facts.yaml", text = "tables:\n") {
   await userEvent.upload(fileInput(), new File([text], name));
@@ -207,5 +224,81 @@ describe.each(FAMILIES)("окно фактов · $name", (f) => {
     expect(screen.queryByText(f.help)).toBeNull();
     await userEvent.click(btn!);
     expect(screen.getByText(f.help)).toBeInTheDocument();
+  });
+
+  // ── вид нового языка ──────────────────────────────────────────────────────
+  it("вступления нет; «?» — у заголовка «Ответы агента»", () => {
+    open();
+    expect(screen.queryByText(f.intro)).toBeNull();
+    expect(screen.getByText("Перетащите сюда файлы от агента")).toBeInTheDocument();
+    const btn = screen.queryByRole("button", { name: "Как ArchMap разбирает файлы" });
+    if (f.help === null) return;
+    expect(btn!.closest(".ds-win-block-head")).toHaveTextContent("Ответы агента");
+  });
+
+  it("Escape при открытом «?» закрывает только его, следующий — окно", async () => {
+    if (f.help === null) return;
+    open();
+    await userEvent.click(screen.getByRole("button", { name: "Как ArchMap разбирает файлы" }));
+    expect(screen.getByText(f.help)).toBeInTheDocument();
+    // Браузер закрывает <dialog> по Escape событием cancel, если keydown не погашен.
+    const dialog = document.querySelector("dialog")!;
+    const notPrevented = fireEvent.keyDown(window, { key: "Escape" });
+    if (notPrevented) fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(notPrevented).toBe(false);
+    expect(screen.queryByText(f.help)).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("галочка появляется вместе с файлами; пояснение — в подсказке", async () => {
+    open();
+    expect(screen.queryByLabelText(/Заменять уже описанное/)).toBeNull();
+    await положить(f);
+    expect(галочка().closest("label")).toHaveAttribute("title", expect.stringContaining("новые"));
+    expect(галочка().closest(".ds-win-foot")).toBeNull();
+  });
+
+  it("строка записи: путь над строками, имя, число тихим цветом, без «·»", async () => {
+    open();
+    await положить(f);
+    await screen.findByText(f.summary, {}, WAIT);
+    const plan = document.querySelector(".apl-plan") as HTMLElement;
+    expect(within(plan).getByText(f.path)).toHaveClass("apl-path");
+    expect(within(plan).getByText(f.record)).toBeInTheDocument();
+    expect(within(plan).getByText(f.detail)).toHaveClass("apl-detail");
+    expect(within(plan).getByText("новая")).toHaveClass("apl-act");
+    expect(plan.textContent).not.toContain("·");
+  });
+
+  it("футер: «Применить», «Отмена»; «Отмена» закрывает окно", async () => {
+    open();
+    const foot = document.querySelector(".ds-win-foot") as HTMLElement;
+    expect(within(foot).getAllByRole("button").map((b) => b.textContent)).toEqual(["Применить", "Отмена"]);
+    await userEvent.click(within(foot).getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("отказ применения: строка над кнопками, окно открыто", async () => {
+    vi.mocked(f.api.apply).mockRejectedValueOnce(new ApiError(409, "Проект не помещается в демо"));
+    open();
+    await положить(f);
+    await screen.findByText(f.summary, {}, WAIT);
+    await userEvent.click(применить());
+    const foot = document.querySelector(".ds-win-foot") as HTMLElement;
+    expect(await within(foot).findByRole("alert")).toHaveTextContent("Не сохранилось. Проект не помещается в демо");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(применить()).toBeEnabled();
+  });
+
+  it("кнопка задания не главная, «Скопировано» без галочки", async () => {
+    open();
+    expect(кнопкаЗадания()).not.toHaveClass("ds-btn--primary");
+    await userEvent.click(кнопкаЗадания());
+    expect(await screen.findByRole("button", { name: "Скопировано" })).toBeInTheDocument();
   });
 });

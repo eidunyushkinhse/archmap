@@ -83,8 +83,8 @@ const кейсы: Кейс[] = [
   },
   {
     окно: "структура БД (DataAgentModal)",
-    подпись: "Скопировать промпт",
-    скопировано: "Скопировано ✓",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
       render(<DataAgentModal nodeId="db1" nodeName="Хранилище" onClose={vi.fn()} onApplied={vi.fn()} />);
       await Promise.resolve();
@@ -94,8 +94,8 @@ const кейсы: Кейс[] = [
   },
   {
     окно: "каналы брокера (ChannelsAgentModal)",
-    подпись: "Скопировать промпт",
-    скопировано: "Скопировано ✓",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
       render(<ChannelsAgentModal nodeId="b1" nodeName="Кафка" onClose={vi.fn()} onApplied={vi.fn()} />);
       await Promise.resolve();

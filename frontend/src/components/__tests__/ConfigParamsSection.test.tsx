@@ -239,11 +239,10 @@ describe("ConfigParamsSection", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByText("Через ИИ-агента"));
 
-    // Окно называет объект в подзаголовке: к нему уедут параметры без адреса в файле.
+    // Открывается окно конфигурации. Вступления у окна больше нет (редизайн, фаза 6г):
+    // задание и ответы агента, механика — в подсказках.
     expect(await screen.findByText("Описать конфигурацию с помощью ИИ-агента")).toBeInTheDocument();
-    // И честно предупреждает, что значения в ArchMap не едут, — ДО запуска агента на
-    // репозиторий с .env, а не после.
-    expect(screen.getByText(/найдёт в коде параметры конфигурации/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Скопировать задание" })).toBeInTheDocument();
   });
 });
 

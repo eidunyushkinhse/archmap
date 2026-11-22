@@ -32,6 +32,8 @@ interface Props {
   width?: number;
   /** Размер значка «?» (по умолчанию 15 — рядом с полем; у заголовков крупнее). */
   iconSize?: number;
+  /** Вид нового языка (окна редизайна): кнопка и панель на токенах ui/tokens.css. */
+  ds?: boolean;
 }
 
 // Кнопка в момент открытия: панель живёт fixed-слоем и считает своё место от неё.
@@ -40,7 +42,7 @@ type Anchor = { top: number; bottom: number; left: number };
 // Зазор от кнопки и от края экрана.
 const GAP = 6;
 
-export default function InfoPopover({ label, children, width = 420, iconSize }: Props) {
+export default function InfoPopover({ label, children, width = 420, iconSize, ds = false }: Props) {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const wrapRef = useRef<HTMLSpanElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -84,6 +86,10 @@ export default function InfoPopover({ label, children, width = 420, iconSize }: 
       if (e.key !== "Escape") return;
       // Поповер закрывается первым и НЕ даёт Escape уехать выше (в модалку или
       // на снятие выделения холста): открытый слой всегда старше своего фона.
+      // preventDefault обязателен внутри окна: нативный <dialog> закрывается по
+      // непогашенному Escape событием cancel, и всплытие тут ни при чём — без него
+      // Escape закрывал и поповер, и окно (ui/Modal).
+      e.preventDefault();
       e.stopPropagation();
       close();
     };
@@ -118,7 +124,7 @@ export default function InfoPopover({ label, children, width = 420, iconSize }: 
       <button
         type="button"
         ref={btnRef}
-        className="ipop-btn"
+        className={"ipop-btn" + (ds ? " ipop-btn--ds" : "")}
         onClick={toggle}
         aria-label={label}
         title={label}
@@ -128,7 +134,7 @@ export default function InfoPopover({ label, children, width = 420, iconSize }: 
       </button>
       {anchor && (
         <div
-          className="ipop-panel"
+          className={"ipop-panel" + (ds ? " ipop-panel--ds" : "")}
           ref={panelRef}
           role="dialog"
           aria-label={label}

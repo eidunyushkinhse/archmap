@@ -40,6 +40,24 @@ describe("InfoPopover", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("Escape панели погашен: окно под ней (нативный <dialog>) не закрывается", () => {
+    // Нативный <dialog> закрывается по непогашенному Escape событием cancel; всплытие
+    // тут ни при чём, поэтому одного stopPropagation мало.
+    отрисовать();
+    открыть();
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(false);
+    // Панель закрыта — следующий Escape уже не её.
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+  });
+
+  it("вид нового языка по пропу ds", () => {
+    render(<InfoPopover ds label="Как ArchMap разбирает файлы"><p>Пояснение</p></InfoPopover>);
+    const btn = screen.getByRole("button", { name: "Как ArchMap разбирает файлы" });
+    expect(btn).toHaveClass("ipop-btn--ds");
+    fireEvent.click(btn);
+    expect(screen.getByRole("dialog")).toHaveClass("ipop-panel--ds");
+  });
+
   it("клик вне закрывает панель, клик внутри — нет", () => {
     отрисовать();
     открыть();

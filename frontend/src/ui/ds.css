@@ -425,6 +425,12 @@ button.ds-sub:hover {
   line-height: var(--lh-ui);
   color: var(--c-fg);
 }
+/* Заголовок блока со знаком «?» справа (InfoPopover): механика блока — за знаком. */
+.ds-win-block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
 /* Фокус полей окна — кольцом нового языка, сильнее общего правила окон (ui/modal.css). */
 .app-modal .ds-win .ds-input:focus {
   outline: none;

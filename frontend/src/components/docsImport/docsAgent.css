@@ -1,8 +1,9 @@
 /* Окно «Описать схемы логики с помощью ИИ-агента» (DocsAgentModal, DocsAgentPlan): одна
    колонка на общем каркасе окна (ui/ds.css: ds-win, блоки ds-win-block, строки ds-prop).
-   Зона файлов и выбор языка — общие части окон ввоза (importParts.css). Здесь только своё:
-   место окна, галочка «Заменять уже описанное» и отчёт превью. Значения — только токены
-   ui/tokens.css. */
+   Зона файлов и выбор языка — общие части окон ввоза (importParts.css), отчёт превью —
+   общий вид окон дозаливки от агента (agentParts.css: apl-*). Здесь только своё: место
+   окна, галочка «Заменять уже описанное», операция и вид схемы в строке плана. Значения —
+   только токены ui/tokens.css. */
 
 /* Окно прижато к верху (8vh, DocsAgentModal): не выше экрана без этого отступа и 24px
    снизу, прокручивается только тело. */
@@ -19,82 +20,10 @@
   margin-top: var(--space-1);
 }
 
-/* ── Отчёт превью: строки 13px, итог 600, предупреждения цветом предупреждения ── */
-.dap {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-  margin-top: var(--space-1);
-}
-.dap:empty {
-  display: none;
-}
-.dap .ds-warn.dap-line,
-.dap-line {
-  margin: 0;
-}
-.dap-quiet {
-  color: var(--c-fg-muted);
-}
-.dap-summary {
-  margin: 0;
-  font-weight: 600;
-  color: var(--c-fg-muted);
-}
-.dap-summary.is-ok {
-  color: var(--c-ok);
-}
-.dap-remarks {
-  align-self: flex-start;
-}
-
-/* Строки плана: общая сетка на все строки, поэтому имя, вид и «что будет» в каждой
-   строке начинаются с одного x. Текст имени и вида стоит на x своей колонки (у полей 6px
-   слева и такой же отрицательный отступ), у «что будет» тот же отступ сверху. */
-.dap-plan {
-  min-width: 0;
-}
-.dap-plan-title {
-  margin: 0 0 2px;
-  font-weight: 500;
-  color: var(--c-fg);
-}
-.dap-rows {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content max-content;
-  column-gap: var(--space-4);
-  row-gap: 2px;
-  align-items: start;
-}
-.dap-row {
-  display: contents;
-}
-/* Адрес объекта — подписью над его строками. */
-.dap-path {
-  grid-column: 1 / -1;
-  margin: var(--space-2) 0 0;
-  font-size: var(--fs-caption);
-  line-height: var(--lh-ui);
-  color: var(--c-fg-muted);
-  overflow-wrap: anywhere;
-}
-.dap-path:first-child {
-  margin-top: 0;
-}
-.dap-name {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
+/* Строка плана: текст имени и вида стоит на x своей колонки (у полей 6px слева и такой же
+   отрицательный отступ), у «что будет» тот же отступ сверху (apl-act). */
 .dap-op {
   line-height: var(--lh-ui);
-}
-.dap-bad {
-  overflow: hidden;
-  color: var(--c-warn);
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 /* Вид схемы: тихий select на вид значения-кнопки (ds-value-btn), шеврон при наведении. */
 .dap-kind {
@@ -131,16 +60,4 @@
 .dap-kind:hover .ds-value-chev,
 .dap-kind:focus-within .ds-value-chev {
   opacity: 1;
-}
-.dap-act {
-  padding: 3px 0;
-  color: var(--c-fg-muted);
-  white-space: nowrap;
-}
-.dap-act.is-warn {
-  color: var(--c-warn);
-}
-.dap-more {
-  margin: 2px 0 0;
-  color: var(--c-fg-muted);
 }

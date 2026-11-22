@@ -41,7 +41,7 @@ function open() {
 
 // Пакет вставляется текстом: файловый ввод в jsdom тестировать нечем, а путь тот же.
 async function вставить(текст: string) {
-  await userEvent.click(screen.getByText("+ вставить из буфера"));
+  await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
   const area = screen.getByPlaceholderText("вставьте содержимое файла");
   await userEvent.clear(area);
   await userEvent.type(area, текст);
@@ -58,20 +58,23 @@ describe("ChannelsAgentModal", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     await waitFor(() => expect(channelsImportApi.preview).toHaveBeenCalled());
     expect(vi.mocked(channelsImportApi.preview).mock.calls[0][0].overwrite).toBe(false);
-    expect(screen.getByText(/Шина.*orders\.created.*полей 3/)).toBeInTheDocument();
+    // Строка записи: путь объекта подписью над строками, имя, число тихим цветом.
+    expect(await screen.findByText("orders.created")).toBeInTheDocument();
+    expect(screen.getByText("Шина")).toBeInTheDocument();
+    expect(screen.getByText("полей 3")).toBeInTheDocument();
   });
 
-  it("окно честно говорит, где запускать агента", async () => {
-    // Главное отличие от «Структуры»: репозитория-владельца у брокера нет. Пользователь,
-    // прогнавший агента один раз «где-то», получит четверть каналов и решит, что фича
-    // не работает, — поэтому правило стоит в подзаголовке, до кнопки промпта.
+  it("«?» говорит, что файлы разных репозиториев складываются", async () => {
+    // Главное отличие от «Структуры»: репозитория-владельца у брокера нет, и файлы разных
+    // репозиториев складываются. Вступление окна с этим правилом ушло с экрана (редизайн,
+    // фаза 6г): механика — за «?» у «Ответов агента», вместе с адресом объекта.
     open();
     expect(screen.getByText("Описать каналы с помощью ИИ-агента")).toBeInTheDocument();
-    expect(screen.getByText(/в каждом таком репозитории и загрузите сюда все файлы/)).toBeInTheDocument();
     // Адресация названа точно, но за «?»: к объекту окна уедет файл БЕЗ «# archmap-node:».
     expect(screen.queryByText(/archmap-node/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Как ArchMap разбирает файлы" }));
     expect(screen.getByText(/без такой строки попадут к объекту «Шина»/)).toBeInTheDocument();
+    expect(screen.getByText(/Файлы из разных репозиториев складываются/)).toBeInTheDocument();
   });
 
   it("пакет с ошибками применить нельзя", async () => {

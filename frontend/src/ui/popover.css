@@ -55,3 +55,33 @@
 .ipop-panel strong {
   color: #0f172a;
 }
+
+/* Вид нового языка (проп ds, окна редизайна): тихий значок у заголовка блока и панель на
+   токенах ui/tokens.css — кегль, интерлиньяж и цвет окна, без трекинга прежних метрик. */
+.ipop-btn--ds {
+  color: var(--c-fg-faint);
+}
+.ipop-btn--ds:hover,
+.ipop-btn--ds[aria-expanded="true"] {
+  color: var(--c-accent);
+  background: var(--c-hover);
+}
+.ipop-btn--ds:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+}
+.ipop-panel.ipop-panel--ds {
+  border-color: var(--c-line);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.ipop-panel--ds p {
+  margin: 0 0 var(--space-2);
+}
+.ipop-panel--ds p:last-child {
+  margin-bottom: 0;
+}

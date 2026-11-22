@@ -252,7 +252,7 @@ describe("Схемы логики с агентом: вид нового язы�
   it("строка плана: адрес объекта над строками, операция под именем, без «·»", async () => {
     renderWindow();
     await положитьФайл();
-    const plan = screen.getByText("Схемы логики:").closest(".dap-plan") as HTMLElement;
+    const plan = screen.getByText("Схемы логики:").closest(".apl-plan") as HTMLElement;
     expect(within(plan).getByText("Ярмарка / Заказы")).toBeInTheDocument();
     expect(within(plan).getByText("POST /orders")).toBeInTheDocument();
     expect(within(plan).getByText("новая")).toBeInTheDocument();
