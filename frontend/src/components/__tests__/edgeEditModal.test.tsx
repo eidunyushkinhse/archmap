@@ -30,19 +30,22 @@ function renderModal() {
   return { onClose, onChanged };
 }
 
+// «Удалить связь» в подвале открывает вопрос, «Удалить» в вопросе подтверждает.
+const ask = () => screen.getByRole("button", { name: "Удалить связь" });
 const del = () => screen.getByRole("button", { name: "Удалить" });
 
 // Окно сначала грузит связь, список связей и имена концов, потом показывает форму. Форма —
 // другой <dialog>, чем окно «Загрузка», и открывается он эффектом Modal уже после того,
 // как текст формы появился в DOM; закрытый диалог прячет свои роли. Поэтому ждём дешёвый
-// признак — диалог с заголовком формы открыт, — а роли ищем уже синхронно. Прежде тесты
-// ждали findByRole: каждый опрос строит дерево доступности, и под нагрузкой (полный
-// прогон в хуке) первый тест файла не укладывался в секунду ожидания по умолчанию. Запас
-// ожидания — на холодный старт, а не на расчёт ролей.
+// признак — диалог с кнопкой формы «Готово» открыт (заголовок «Связь» есть и у окна
+// «Загрузка»), — а роли ищем уже синхронно. Прежде тесты ждали findByRole: каждый опрос
+// строит дерево доступности, и под нагрузкой (полный прогон в хуке) первый тест файла не
+// укладывался в секунду ожидания по умолчанию. Запас ожидания — на холодный старт, а не
+// на расчёт ролей.
 async function openModal() {
   const handlers = renderModal();
   await waitFor(
-    () => expect(screen.getByText("Редактирование связи").closest("dialog")?.open).toBe(true),
+    () => expect(screen.getByText("Готово").closest("dialog")?.open).toBe(true),
     { timeout: 5000 },
   );
   return handlers;
@@ -57,16 +60,16 @@ beforeEach(() => {
 });
 
 describe("EdgeEditModal: удаление связи", () => {
-  it("кнопка «Удалить» есть в модалке страницы", async () => {
+  it("кнопка «Удалить связь» есть в модалке страницы", async () => {
     await openModal();
 
-    expect(screen.getByRole("button", { name: "Удалить" })).toBeTruthy();
+    expect(ask()).toBeTruthy();
   });
 
   it("первый клик только спрашивает — связь не трогаем", async () => {
     await openModal();
 
-    await userEvent.click(del());
+    await userEvent.click(ask());
 
     expect(edgesApi.delete).not.toHaveBeenCalled();
     expect(screen.getByText(/Удалить связь\?/)).toBeTruthy();
@@ -75,8 +78,8 @@ describe("EdgeEditModal: удаление связи", () => {
   it("подтверждение удаляет, обновляет страницу и закрывает", async () => {
     const { onClose, onChanged } = await openModal();
 
-    await userEvent.click(del());
-    await userEvent.click(del()); // тот же ярлык — уже в подтверждении
+    await userEvent.click(ask());
+    await userEvent.click(del()); // уже в подтверждении
 
     await waitFor(() => expect(edgesApi.delete).toHaveBeenCalledWith("e1"));
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
@@ -85,7 +88,7 @@ describe("EdgeEditModal: удаление связи", () => {
 
   it("«Отмена» возвращает к правке, связь цела", async () => {
     await openModal();
-    await userEvent.click(del());
+    await userEvent.click(ask());
 
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
 
@@ -97,7 +100,7 @@ describe("EdgeEditModal: удаление связи", () => {
     vi.mocked(edgesApi.delete).mockRejectedValue(new Error("Связь занята"));
     const { onClose } = await openModal();
 
-    await userEvent.click(del());
+    await userEvent.click(ask());
     await userEvent.click(del());
 
     expect(await screen.findByText("Связь занята")).toBeTruthy();
@@ -261,7 +264,7 @@ describe("EdgeEditModal: подтверждение по Enter", () => {
   it("Enter в поле технологии — как «Готово»: коммит и закрытие", async () => {
     vi.mocked(edgesApi.update).mockResolvedValue({ ...EDGE, technology: "gRPC", version: 2 } as never);
     const { onClose, onChanged } = await openModal();
-    const tech = screen.getByPlaceholderText("например, REST или Kafka");
+    const tech = screen.getByPlaceholderText("не указана");
 
     await userEvent.clear(tech);
     await userEvent.type(tech, "gRPC{Enter}");
@@ -273,9 +276,9 @@ describe("EdgeEditModal: подтверждение по Enter", () => {
 
   it("пока окно спрашивает об удалении, Enter молчит", async () => {
     const { onClose } = await openModal();
-    await userEvent.click(del());
+    await userEvent.click(ask());
 
-    await userEvent.type(screen.getByPlaceholderText("например, REST или Kafka"), "{Enter}");
+    await userEvent.type(screen.getByPlaceholderText("не указана"), "{Enter}");
 
     expect(edgesApi.update).not.toHaveBeenCalled();
     expect(edgesApi.delete).not.toHaveBeenCalled();

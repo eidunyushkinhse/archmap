@@ -57,12 +57,5 @@ export const secondaryBtn: CSSProperties = {
   border: "1px solid #e2e8f0",
 };
 
-// Сплошная красная кнопка удаления в окнах прежнего вида (EdgeEditModal)
-export const dangerBtn: CSSProperties = {
-  ...btnBase,
-  background: "#dc2626",
-  color: "#fff",
-};
-
 // Текст ошибки под полями окна прежнего вида (окна проекта, пользователей, площадок, версий).
 export const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };

@@ -5,20 +5,19 @@
 //
 // Правка коммитится по уходу с поля и по выбору конца и ложится в Undo/Redo через
 // onEdgeSaved. Вся механика правки (черновики, CAS-коммит, 409, проверки концов) — в
-// общем хуке useEdgeEdit: его же переиспользует окно связи на странице объекта
-// (EdgeEditModal, прежний язык).
+// общем хуке useEdgeEdit; значения «Откуда», «Куда», «Описание» и «Технология» — общие
+// с окном «Связь» на странице объекта (EdgeEditModal) части inspector/EdgeFields.
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import type { BrokerChannel, DeletionSnapshot, Edge, EdgeUpdate, LevelEdge, Node } from "../../types";
 import { treeNesting } from "../../types";
 import { brokerChannelsApi, edgesApi, nodesApi } from "../../api/nodes";
 import { ShapeGlyph } from "../nodeTree.shared";
-import NodeSearchPicker from "../NodeSearchPicker";
 import { Prop } from "../nodePage/PropRows";
 import { revertOnEscape } from "../nodePage/revertOnEscape";
 import { noAutofill } from "../../ui/noAutofill";
 import PanelHead from "./PanelHead";
 import { useEdgeEdit } from "./useEdgeEdit";
+import { EdgeLabelField, EdgeTechField, EndValue } from "./EdgeFields";
 import "../../ui/ds.css";
 import "./panel.css";
 
@@ -129,22 +128,13 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
         {(isArchitect || labelText) && (
           <Prop term="Описание">
             {isArchitect ? (
-              // Многострочное описание (лимит модели — 256): переносы автора уважает и
-              // плашка на схеме (wrapLabel по \n). Поле растёт по тексту.
-              <span className="ds-grow" data-value={labelText}>
-                <textarea
-                  {...noAutofill("edge-label")}
-                  className="ds-grow-input"
-                  rows={1}
-                  aria-label="Описание"
-                  maxLength={256}
-                  value={labelText}
-                  onChange={(e) => setLabelText(e.target.value)}
-                  onBlur={() => void commit({ label: labelText })}
-                  onKeyDown={revertOnEscape(labelText !== saved.label, () => setLabelText(saved.label))}
-                  placeholder="не указано"
-                />
-              </span>
+              <EdgeLabelField
+                value={labelText}
+                saved={saved.label}
+                onChange={setLabelText}
+                onCommit={() => void commit({ label: labelText })}
+                autofill="edge-label"
+              />
             ) : (
               <span className="ip-pre">{labelText}</span>
             )}
@@ -175,15 +165,12 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
         {(isArchitect || technology) && (
           <Prop term="Технология">
             {isArchitect ? (
-              <input
-                {...noAutofill("edge-tech")}
-                className="ds-field"
-                aria-label="Технология"
+              <EdgeTechField
                 value={technology}
-                onChange={(e) => setTechnology(e.target.value)}
-                onBlur={() => void commit({ technology })}
-                onKeyDown={revertOnEscape(technology !== saved.technology, () => setTechnology(saved.technology))}
-                placeholder="не указана"
+                saved={saved.technology}
+                onChange={setTechnology}
+                onCommit={() => void commit({ technology })}
+                autofill="edge-tech"
               />
             ) : (
               technology
@@ -198,50 +185,6 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
         <button type="button" className="ip-delete" onClick={() => { void handleDelete(); }} disabled={deleting}>
           {deleting ? "Удаляем" : "Удалить связь"}
         </button>
-      )}
-    </>
-  );
-}
-
-// Значение «Откуда» / «Куда»: значок формы конца висит слева от имени (имя начинается с
-// того же x, что и остальные значения). У редактора значение — кнопка: по клику под
-// строкой открывается прежний поиск объекта по всему проекту (NodeSearchPicker), выбор
-// записывает конец и закрывает поиск; Escape и клик мимо закрывают без записи.
-function EndValue({ label, glyph, onPick, term }: {
-  label: string;
-  glyph: ReactNode;
-  onPick?: (id: string, label?: string) => void;
-  term: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const name = <span className="ip-end">{glyph && <span className="ip-end-glyph">{glyph}</span>}<span>{label}</span></span>;
-  if (!onPick) return name;
-  return (
-    <>
-      <button
-        type="button"
-        className="ds-value-btn"
-        aria-label={`${term}: ${label}`}
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        {name}
-      </button>
-      {open && (
-        <>
-          <div className="ds-backdrop" onClick={() => setOpen(false)} />
-          <div
-            className="ip-pop"
-            role="group"
-            aria-label={term}
-            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } }}
-          >
-            <NodeSearchPicker
-              value=""
-              onChange={(id, lbl) => { if (!id) return; setOpen(false); onPick(id, lbl); }}
-            />
-          </div>
-        </>
       )}
     </>
   );
