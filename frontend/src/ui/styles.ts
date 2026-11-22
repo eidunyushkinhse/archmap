@@ -10,7 +10,7 @@ import type { CSSProperties } from "react";
  * стилями псевдоклассы недоступны) — он накрывает все инпуты/кнопки внутри .app-modal.
  */
 
-// Подпись поля формы (FixVersionDialog, диалоги проектов, пользователей и токенов)
+// Подпись поля формы (FixVersionDialog, диалоги пользователей и токенов)
 export const labelStyle: CSSProperties = {
   display: "block",
   fontSize: 13,
@@ -57,5 +57,5 @@ export const secondaryBtn: CSSProperties = {
   border: "1px solid #e2e8f0",
 };
 
-// Текст ошибки под полями окна прежнего вида (окна проекта, пользователей, площадок, версий).
+// Текст ошибки под полями окна прежнего вида (окна пользователей и токенов, площадок, версий).
 export const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };
