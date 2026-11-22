@@ -11,7 +11,11 @@
 // Место — под полем, если снизу хватает места, иначе над ним; высота не больше 320px и
 // свободного места до края экрана без 12px, ширина не меньше поля и 320px. Пока список
 // открыт, он СЛЕДУЕТ за полем: прокрутка тела окна и смена размера окна браузера
-// пересчитывают его место (а не закрывают его).
+// пересчитывают его место. Поле ушло из видимой части прокручиваемого предка (тела окна)
+// целиком — список закрывается: иначе он висел бы поверх шапки или подвала окна.
+//
+// Щелчок по полю открывает список и тогда, когда поле уже в фокусе (после Escape или
+// выбора соседа): «выбрал, передумал, щёлкнул, чтобы сменить».
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentOut } from "../../../types";
 import { lastSegment, nestedTag } from "./questionText";
@@ -34,6 +38,14 @@ const GAP = 4;
 const EDGE = 12;
 const MAX_H = 320;
 const MIN_W = 320;
+
+/** Ближайший прокручиваемый предок (тело окна); null — прокручивается только экран. */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  for (let e = el?.parentElement ?? null; e !== null; e = e.parentElement) {
+    if (/(auto|scroll|overlay)/.test(getComputedStyle(e).overflowY)) return e;
+  }
+  return null;
+}
 
 export default function ObjectCombobox({ items, value, onChange, label }: Props) {
   const listId = useId();
@@ -91,13 +103,28 @@ export default function ObjectCombobox({ items, value, onChange, label }: Props)
 
   // Список следует за полем: прокрутка тела окна (capture — до window она не всплывает)
   // и смена размера окна браузера. Прокрутка самого списка место не меняет, а пересчёт
-  // на ней безвреден.
+  // на ней безвреден. Поле целиком ушло из видимой части прокручиваемого предка —
+  // список закрывается; пока поле видно хотя бы краем, он следует за ним.
   useEffect(() => {
     if (!open) return;
-    window.addEventListener("scroll", place, true);
+    const onScroll = () => {
+      const inp = inputRef.current;
+      const box = scrollParent(wrapRef.current);
+      if (inp !== null && box !== null) {
+        const r = inp.getBoundingClientRect();
+        const b = box.getBoundingClientRect();
+        if (r.bottom <= b.top || r.top >= b.bottom) {
+          setOpen(false);
+          setQuery(null);
+          return;
+        }
+      }
+      place();
+    };
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", place);
     return () => {
-      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", place);
     };
   }, [open, place]);
@@ -174,6 +201,9 @@ export default function ObjectCombobox({ items, value, onChange, label }: Props)
         value={query ?? value ?? ""}
         onChange={(e) => { setQuery(e.target.value); setActive(0); setOpen(true); }}
         onFocus={() => setOpen(true)}
+        // Поле уже в фокусе (после Escape или выбора) — focus не придёт, открывает щелчок.
+        // Открытый список щелчок не трогает.
+        onClick={() => setOpen(true)}
         onKeyDown={onKeyDown}
       />
       {value !== null && query === null && (

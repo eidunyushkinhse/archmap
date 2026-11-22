@@ -3,7 +3,7 @@
 //
 // Что закрепляем: кап списка и фильтр (в крупной системе путей сотни, а решение
 // принимается по первым строкам); форма новой связи не отдаёт ответ, пока нет
-// обоих концов, и сама переходит на конец после выбора начала; «Склеить» со
+// обоих концов, и сама переходит на конец после выбора начала; «Объединить» со
 // своим именем отдаёт именно его; Escape закрывает ВЬЮЕР и не уходит выше — под
 // ним нативный <dialog> окна, который иначе закрылся бы заодно.
 import { useState } from "react";
@@ -402,6 +402,51 @@ describe("ObjectCombobox: список поверх окна (фаза 8б)", ()
     fireEvent.scroll(document.body);
     expect(с.список().style.top).toBe("94px");
     fireEvent.scroll(с.список());
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("поле ушло из видимой части тела окна — список закрывается; видно краем — следует за полем", async () => {
+    // Тело окна — прокручиваемый предок поля: видимая часть от 100 до 400.
+    const тело = document.createElement("div");
+    тело.style.overflowY = "auto";
+    тело.getBoundingClientRect = () => ({
+      top: 100, bottom: 400, left: 0, right: 600, width: 600, height: 300, x: 0, y: 100, toJSON: () => ({}),
+    }) as DOMRect;
+    document.body.appendChild(тело);
+    render(<ObjectCombobox items={дерево(5)} value={null} onChange={vi.fn()} label="Сосед" />, { container: тело });
+    const поле = screen.getByRole("combobox");
+    const верх = { top: 150 };
+    поле.getBoundingClientRect = () => ({
+      top: верх.top, bottom: верх.top + 30, left: 40, right: 240, width: 200, height: 30,
+      x: 40, y: верх.top, toJSON: () => ({}),
+    }) as DOMRect;
+    await userEvent.click(поле);
+    // Поле наполовину ушло под верхний край тела — список на месте и следует за полем.
+    верх.top = 85;
+    fireEvent.scroll(тело);
+    expect(screen.getByRole("listbox").style.top).toBe("119px");
+    // Поле целиком над краем тела — список закрыт.
+    верх.top = 60;
+    fireEvent.scroll(тело);
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("щелчок по полю в фокусе открывает список: после Escape и после выбора; открытый не закрывает", async () => {
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(с.поле).toHaveFocus();
+    await userEvent.click(с.поле);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    // Щелчок по полю при открытом списке его не закрывает.
+    await userEvent.click(с.поле);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    // Выбрал, передумал, щёлкнул по полю — список снова открыт.
+    await userEvent.click(within(с.список()).getByRole("option", { name: /Компонент 3$/ }));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(с.поле).toHaveFocus();
+    await userEvent.click(с.поле);
     expect(screen.getByRole("listbox")).toBeInTheDocument();
   });
 
