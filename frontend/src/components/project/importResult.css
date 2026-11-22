@@ -244,32 +244,35 @@
   color: var(--c-fg-muted);
 }
 
-/* Шаг имени и форма связей: поля ds-input, кнопки ds-btn, подписи полей 12px тихим. */
-.imp-res .rq-flbl {
-  font-size: var(--fs-caption);
-  font-weight: 400;
-  line-height: var(--lh-ui);
-  color: var(--c-fg-muted);
-}
+/* Шаг имени и форма связей: поля ds-input, кнопки ds-btn. */
 .imp-res .rq-acts {
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
-.imp-res .rq-erow {
-  border-color: var(--c-line);
-  border-radius: var(--radius-lg);
-  background: var(--c-bg-subtle);
-}
-/* Объект группы — плашка той же высоты, что поле ds-input рядом. */
-.imp-res .rq-eend--fixed {
-  height: 30px;
-  padding: 0 8px;
-  border-color: var(--c-line);
-  border-radius: var(--radius);
-  background: var(--c-bg-subtle);
+/* Объект группы в форме связей — текст строки: имя основным цветом, префикс пути тихим. */
+.imp-res .rq-eobj {
   font-size: var(--fs-ui);
-  line-height: 28px;
+  line-height: 30px;
   color: var(--c-fg);
+}
+.imp-res .rq-eobj-pre {
+  color: var(--c-fg-muted);
+}
+/* Соединитель: волосяная линия и наконечник, переключатель — тихая кнопка-значок 24px на
+   фоне окна (линия под ней не просвечивает). */
+.imp-res .rq-econn-line {
+  background: var(--c-line-strong);
+}
+.imp-res .rq-econn-head {
+  color: var(--c-fg-faint);
+}
+.imp-res .rq-econn-btn {
+  width: 24px;
+  height: 24px;
+  background: var(--c-bg);
+}
+.imp-res .rq-econn-btn:hover:not(:disabled) {
+  background: var(--c-hover);
 }
 .imp-res .rq-cbo-list {
   border-color: var(--c-line);

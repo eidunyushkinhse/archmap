@@ -125,16 +125,50 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
 
   it("строка на каждый объект группы: видно, у кого связей нет", () => {
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
-    // Левые поля — сами объекты группы, они не редактируются.
+    // Слева — сами объекты группы, они не редактируются.
     expect(screen.getByText("Плагин")).toBeInTheDocument();
     expect(screen.getByText("Датасорс")).toBeInTheDocument();
     expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(поле()).toHaveAttribute("placeholder", "Имя объекта");
-    expect(screen.getAllByLabelText(/^Описание связи/)).toHaveLength(2);
-    expect(screen.getAllByLabelText(/^Технология связи/)).toHaveLength(2);
+    // Поля описания и технологии — только у строки с выбранным соседом (фаза 8б).
+    expect(screen.queryAllByLabelText(/^Описание связи/)).toHaveLength(0);
+    expect(screen.queryAllByLabelText(/^Технология связи/)).toHaveLength(0);
     // Типа канала в форме нет вовсе — его задают в «Процессах».
     expect(screen.queryByText("Синхронный")).toBeNull();
     expect(screen.queryByText("Асинхронный")).toBeNull();
+  });
+
+  it("объект слева — текст: имя отдельно от тихого префикса, полный путь в подсказке (фаза 8б)", () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    const имя = screen.getByText("Датасорс");
+    expect(имя).toHaveClass("rq-eobj-name");
+    const объект = имя.closest(".rq-eobj")!;
+    expect(объект).toHaveAttribute("title", "Плагин / Датасорс");
+    expect(объект.querySelector(".rq-eobj-pre")?.textContent).toBe("Плагин /");
+    // Ни поля, ни кнопки: объект строки не выбирается.
+    expect(объект.closest("input, button")).toBeNull();
+    expect(объект.querySelector("input, button")).toBeNull();
+    // У объекта без префикса — одно имя.
+    expect(screen.getByText("Плагин").closest(".rq-eobj")?.querySelector(".rq-eobj-pre")).toBeNull();
+  });
+
+  it("поля связи появляются с выбором соседа; очищенный сосед их прячет, тексты остаются (фаза 8б)", async () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
+    const описание = screen.getByLabelText("Описание связи от «Плагин»");
+    expect(описание).toHaveAttribute("placeholder", "Что ходит по связи");
+    expect(screen.getByLabelText("Технология связи от «Плагин»")).toHaveAttribute("placeholder", "Технология, например HTTP");
+    // Вторая строка формы — только у первой строки, у второй соседа нет.
+    expect(screen.getAllByLabelText(/^Описание связи/)).toHaveLength(1);
+    await userEvent.type(описание, "метрики");
+    await userEvent.type(screen.getByLabelText("Технология связи от «Плагин»"), "HTTP");
+    await userEvent.click(screen.getByLabelText("Очистить выбор"));
+    expect(screen.queryAllByLabelText(/^Описание связи/)).toHaveLength(0);
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 2/ }));
+    expect(screen.getByLabelText("Описание связи от «Плагин»")).toHaveValue("метрики");
+    expect(screen.getByLabelText("Технология связи от «Плагин»")).toHaveValue("HTTP");
   });
 
   it("поле само фильтрует список под собой, свой объект в нём не предлагается", async () => {
@@ -228,17 +262,22 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     });
   });
 
-  it("кнопки и поля нового языка: «Провести связь» первой, подписи полей на месте", () => {
+  it("кнопки и поля нового языка: «Провести связь» первой, подписей над полями нет", async () => {
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
     const провести = screen.getByRole("button", { name: /^Провести связ/ });
     const назад = screen.getByRole("button", { name: "Назад к вопросу" });
     expect(провести).toHaveClass("ds-btn", "ds-btn--primary");
     expect(назад).toHaveClass("ds-btn");
     expect(провести.compareDocumentPosition(назад) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
     for (const поле of screen.getAllByLabelText(/^(Описание|Технология) связи/)) expect(поле).toHaveClass("ds-input");
     for (const поле of screen.getAllByRole("combobox")) expect(поле).toHaveClass("ds-input");
-    expect(screen.getAllByText("Описание")).toHaveLength(2);
-    expect(screen.getAllByText("Технология")).toHaveLength(2);
+    // Подписи «Описание» и «Технология» над полями убраны: поле называет плейсхолдер.
+    expect(screen.queryByText("Описание")).toBeNull();
+    expect(screen.queryByText("Технология")).toBeNull();
+    // Переключатель направления — тихая кнопка-значок.
+    expect(screen.getAllByRole("button", { name: "Поменять направление" })[0]).toHaveClass("ds-icon-btn");
   });
 
   it("«Назад к вопросу» ничего не отдаёт", async () => {

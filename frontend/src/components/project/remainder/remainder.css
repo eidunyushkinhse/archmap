@@ -105,38 +105,33 @@
 .rq-empty { font-size: 12.5px; color: #94a3b8; margin-top: 9px; }
 
 /* ── форма проведения связей: строка на объект группы (§5.4, П4) ── */
-.rq-erow {
-  margin-top: 9px; padding: 9px 10px 10px;
-  border: 1px solid #eef2f7; border-radius: 10px; background: #fbfdff;
-}
+/* Фаза 8б: без карточек. На объект одна строка высотой поля, между объектами 8px; поля
+   «что ходит по связи» и «технология» второй строкой на 4px ниже, только у строки с
+   выбранным соседом. Форма живёт только в окнах ввоза: цвета на токенах — importResult.css. */
+.rq-eform { margin-top: 8px; }
 .rq-erow + .rq-erow { margin-top: 8px; }
 /* Ряд 1: [объект группы] [соединитель] [комбобокс] — сетка, а не flex с
    процентами: колонки равны при любой ширине правой панели окна. */
-.rq-epair { display: grid; grid-template-columns: 1fr 74px 1fr; align-items: center; }
-/* Левое поле — сам объект группы: он не выбирается, поэтому это не кнопка, а
-   плашка той же геометрии, что поле рядом. */
-.rq-eend--fixed {
-  min-width: 0; border: 1px solid #e2e8f0; border-radius: 9px; background: #f8fafc;
-  padding: 9px 11px; font-size: 13.5px; line-height: 1.35; color: #0f172a;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.rq-epair {
+  display: grid; grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr);
+  align-items: center; min-height: 30px;
 }
+/* Объект группы — обычный текст: он не выбирается и не правится. Имя не сжимается (до
+   ширины колонки), префикс пути сжимается первым и обрезается многоточием. */
+.rq-eobj { display: flex; column-gap: 0.25em; min-width: 0; white-space: nowrap; }
+.rq-eobj-pre { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rq-eobj-name { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
-/* Соединитель: линия от поля к полю, наконечник у цели, переключатель посередине. */
-.rq-econn { position: relative; display: flex; align-items: center; height: 22px; padding: 0 5px; }
-.rq-econn-line { flex: 1; height: 1.5px; background: #cbd5e1; }
-.rq-econn-head { flex: none; color: #64748b; }
-.rq-econn-btn {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 22px; height: 22px; border-radius: 50%; border: 1px solid #e2e8f0;
-  background: #fff; color: #64748b; display: grid; place-items: center; padding: 0;
-}
-.rq-econn-btn:hover { color: #1d4ed8; border-color: #cbd5e1; background: #f8fafc; }
+/* Соединитель: линия от объекта к полю, наконечник у цели, переключатель посередине. */
+.rq-econn { position: relative; display: flex; align-items: center; height: 30px; padding: 0 6px; }
+.rq-econn-line { flex: 1; height: 1px; }
+.rq-econn-head { flex: none; }
+/* Два класса: сильнее position: relative у ds-icon-btn при любом порядке подключения CSS. */
+.rq-econn > .rq-econn-btn { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 
 /* ── поля формы и шаг имени (§5.4) ────────────────────────────── */
-/* Поля — ds-input, кнопки — ds-btn (фаза 8а); здесь сетка и места. */
-.rq-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 9px; }
-.rq-frow > div { min-width: 0; }
-.rq-flbl { font-size: 12px; color: #64748b; margin-bottom: 2px; }
+/* Поля — ds-input, кнопки — ds-btn (фаза 8а); здесь сетка и места. Два поля поровну. */
+.rq-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .rq-own { margin-top: 8px; }
 /* Кнопки шага имени и формы связей: главная первой, «Назад к вопросу» за ней. */
 .rq-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }

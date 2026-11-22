@@ -10,17 +10,21 @@
 // Типа канала здесь нет вовсе: синхронность связи — предмет «Процессов», а не
 // разбора остатка (бэк без поля channel ставит дефолт движка).
 //
-// Поля и кнопки на новом языке (ds-input, ds-btn; фаза 8а): «Провести связь» первой,
-// «Назад к вопросу» за ней. Раскладка строк прежняя.
+// Раскладка (фаза 8б редизайна): на объект одна строка высотой поля, без карточки. Объект
+// слева — обычный текст: имя видно всегда, префикс пути тихим цветом и обрезается только
+// он, полный путь в подсказке. Поля «что ходит по связи» и «технология» появляются второй
+// строкой, только когда сосед выбран; очищенный сосед прячет их, а введённое остаётся в
+// черновике и вернётся при новом выборе. Кнопки на новом языке: «Провести связь» первой,
+// «Назад к вопросу» за ней.
 import type { ComponentOut } from "../../../types";
 import type { NewEdgesAnswer } from "./questions";
 import type { EdgesDraft } from "./drafts";
 import { answerFromDraft } from "./drafts";
 import { SwapIcon } from "../../../ui/icons";
 import ObjectCombobox from "./ObjectCombobox";
-import { PathLabel } from "./Option";
 import { noAutofill } from "../../../ui/noAutofill";
 import "../../../ui/ds.css";
+import "./remainder.css";
 
 interface Props {
   /** Всё слитое дерево: сосед выбирается по нему. */
@@ -39,61 +43,57 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
 
   return (
     <>
-      {draft.map((row, i) => (
-        <div key={row.nodePath} className="rq-erow">
-          <div className="rq-epair">
-            <div className="rq-eend--fixed" title={row.nodePath}>
-              <PathLabel path={row.nodePath} />
-            </div>
-            {/* Соединитель: линия от поля к полю, наконечник у ЦЕЛИ связи,
-                переключатель посередине. Направление видно, не читая подписей. */}
-            <div className="rq-econn">
-              {row.reversed && <Head dir="left" />}
-              <span className="rq-econn-line" />
-              {!row.reversed && <Head dir="right" />}
-              <button
-                type="button"
-                className="rq-econn-btn"
-                title="Поменять направление"
-                aria-label="Поменять направление"
-                onClick={() => правка(i, { reversed: !row.reversed })}
-              >
-                <SwapIcon size={12} />
-              </button>
-            </div>
-            <ObjectCombobox
-              items={nodes.filter((n) => n.path !== row.nodePath)}
-              value={row.toPath}
-              label={`С чем связан объект «${lastName(row.nodePath)}»`}
-              onChange={(path) => правка(i, { toPath: path })}
-            />
-          </div>
-          <div className="rq-frow">
-            <div>
-              <div className="rq-flbl">Описание</div>
-              <input
-                {...noAutofill("new-edge-form-1")}
-                className="ds-input"
-                value={row.label}
-                aria-label={`Описание связи от «${row.nodePath}»`}
-                placeholder="что ходит по связи"
-                onChange={(e) => правка(i, { label: e.target.value })}
+      <div className="rq-eform">
+        {draft.map((row, i) => (
+          <div key={row.nodePath} className="rq-erow">
+            <div className="rq-epair">
+              <ObjectName path={row.nodePath} />
+              {/* Соединитель: линия от объекта к полю, наконечник у ЦЕЛИ связи,
+                  переключатель посередине. Направление видно, не читая подписей. */}
+              <div className="rq-econn">
+                {row.reversed && <Head dir="left" />}
+                <span className="rq-econn-line" />
+                {!row.reversed && <Head dir="right" />}
+                <button
+                  type="button"
+                  className="ds-icon-btn rq-econn-btn"
+                  title="Поменять направление"
+                  aria-label="Поменять направление"
+                  onClick={() => правка(i, { reversed: !row.reversed })}
+                >
+                  <SwapIcon size={12} />
+                </button>
+              </div>
+              <ObjectCombobox
+                items={nodes.filter((n) => n.path !== row.nodePath)}
+                value={row.toPath}
+                label={`С чем связан объект «${lastName(row.nodePath)}»`}
+                onChange={(path) => правка(i, { toPath: path })}
               />
             </div>
-            <div>
-              <div className="rq-flbl">Технология</div>
-              <input
-                {...noAutofill("new-edge-form-2")}
-                className="ds-input"
-                value={row.tech}
-                aria-label={`Технология связи от «${row.nodePath}»`}
-                placeholder="например, HTTP или gRPC"
-                onChange={(e) => правка(i, { tech: e.target.value })}
-              />
-            </div>
+            {row.toPath !== null && (
+              <div className="rq-frow">
+                <input
+                  {...noAutofill("new-edge-form-1")}
+                  className="ds-input"
+                  value={row.label}
+                  aria-label={`Описание связи от «${row.nodePath}»`}
+                  placeholder="Что ходит по связи"
+                  onChange={(e) => правка(i, { label: e.target.value })}
+                />
+                <input
+                  {...noAutofill("new-edge-form-2")}
+                  className="ds-input"
+                  value={row.tech}
+                  aria-label={`Технология связи от «${row.nodePath}»`}
+                  placeholder="Технология, например HTTP"
+                  onChange={(e) => правка(i, { tech: e.target.value })}
+                />
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
       <div className="rq-acts">
         <button
           type="button"
@@ -112,6 +112,22 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
 }
 
 const lastName = (path: string): string => path.split(" / ").pop() ?? path;
+
+/**
+ * Объект группы слева: обычный текст, не поле. Имя (последний сегмент) видно всегда, префикс
+ * пути тихим цветом обрезается многоточием первым; полный путь — в подсказке.
+ */
+function ObjectName({ path }: { path: string }) {
+  const name = lastName(path);
+  // Пробел после « /» даёт зазор flex-строки (.rq-eobj): хвостовой пробел элемента схлопнулся бы.
+  const prefix = path.slice(0, path.length - name.length).trimEnd();
+  return (
+    <div className="rq-eobj" title={path}>
+      {prefix !== "" && <span className="rq-eobj-pre">{prefix}</span>}
+      <span className="rq-eobj-name">{name}</span>
+    </div>
+  );
+}
 
 // Наконечник соединителя. Живёт здесь, а не в ui/icons: это часть линии между
 // полями, а не иконка хрома, и её сторона зависит от направления связи.
