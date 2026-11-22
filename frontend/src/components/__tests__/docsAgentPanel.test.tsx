@@ -91,6 +91,22 @@ describe("DocsAgentPanel · окно одной схемы", () => {
     expect(names.indexOf("Добавить ещё")).toBe(main + 1);
   });
 
+  it("панель рисуется прежним видом: кнопки над зоной, длинный текст зоны, галочка до файлов", () => {
+    // Окно одной схемы и окно спецификации остаются прежнего вида до своей фазы
+    // редизайна: новый вид собирает только окно «Описать схемы логики…».
+    const { unmount } = render(<DocsAgentPanel nodeId="n1" mode={{ kind: "batch" }} onApplied={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Загрузить файлы" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ вставить из буфера" })).toHaveAttribute("title", "Добавить схему вставкой текста");
+    expect(screen.getByText(/Перетащите сюда файлы схем, которые создал агент, или нажмите/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Заменять уже описанное")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+    unmount();
+
+    render(<DocsAgentPanel nodeId="n1" mode={{ kind: "doc", docName: "GET /orders" }} onApplied={vi.fn()} />);
+    expect(screen.getByText(/Перетащите сюда файл схемы, который подготовил агент/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Заменять уже описанное")).toBeNull();
+  });
+
   it("файл совпадает со схемой: применять нечего", async () => {
     vi.mocked(docsImportApi.preview).mockResolvedValue(report("unchanged"));
     render(<DocsAgentPanel nodeId="n1" mode={{ kind: "doc", docName: "GET /orders" }} onApplied={vi.fn()} />);
