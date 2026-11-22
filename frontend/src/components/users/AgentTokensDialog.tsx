@@ -92,7 +92,11 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
 
   async function submit() {
     if (!canIssue) return;
-    const days = LIFETIMES.find((l) => l.value === lifetime)?.days ?? 90;
+    // «Бессрочно» — найденный вариант с days: null (токен без срока); запасные 90 дней —
+    // только если вариант не найден. `?.days ?? 90` путало эти случаи и выпускало
+    // «бессрочный» токен на 90 дней.
+    const picked = LIFETIMES.find((l) => l.value === lifetime);
+    const days: Lifetime = picked === undefined ? 90 : picked.days;
     await issue.run(async () => {
       setIssued(await tokensApi.create({
         name: shownName.trim(),

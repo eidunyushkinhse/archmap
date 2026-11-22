@@ -234,6 +234,18 @@ describe("AgentTokensDialog", () => {
     });
   });
 
+  it("срок «Бессрочно» уходит как null: токен без срока, а не на 90 дней", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    vi.mocked(tokensApi.create).mockResolvedValue({ token: token(), secret: SECRET });
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    await userEvent.selectOptions(await screen.findByLabelText("Срок действия"), "none");
+    await userEvent.click(screen.getByRole("button", { name: "Выпустить токен" }));
+    expect(tokensApi.create).toHaveBeenCalledTimes(1);
+    expect(tokensApi.create).toHaveBeenCalledWith({
+      name: "Агент", read_only: false, ci_only: false, lifetime_days: null,
+    });
+  });
+
   it("поля: id, автофокус названия, предел длины; варианты срока и доступа", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     const onClose = vi.fn();
