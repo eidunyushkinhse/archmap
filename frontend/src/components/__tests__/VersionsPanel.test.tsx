@@ -588,3 +588,152 @@ describe("VersionsPanel: ячейка «было → стало»", () => {
     expect(container.ownerDocument.querySelectorAll("s.vp-was")).toHaveLength(1);
   });
 });
+
+// ── Страховка механики перед переводом окна на новый язык (редизайн, фаза 9ж) ────────
+// Зелёные на коде до перевода и не зависят от вида: тела запросов строкой JSON (порядок
+// и состав аргументов — часть контракта), запертые кнопки и подсказки, состояния записи,
+// переходы между экранами с сохранением сравнения, срез всего проекта.
+
+// Аргументы последнего вызова строкой JSON.
+function argsOf(fn: (...args: never[]) => unknown): string {
+  const calls = vi.mocked(fn).mock.calls;
+  return JSON.stringify(calls[calls.length - 1]);
+}
+
+describe("VersionsPanel: страховка механики", () => {
+  const preview: RestorePreview = { pending: false, deleted_nodes: 0, has_processes: false };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(versionsApi.list).mockResolvedValue(list(three, { changed: true, items: [item()] }));
+    vi.mocked(versionsApi.diff).mockResolvedValue(diff([item()], 1, 2));
+    vi.mocked(versionsApi.item).mockResolvedValue({
+      item: item(),
+      changes: { text: "flowchart TD", lines: null, columns: null, rows: null },
+      before: absent,
+      after: absent,
+    });
+  });
+
+  it("тела запросов фиксации, отката и удаления строкой JSON", async () => {
+    vi.mocked(versionsApi.create).mockResolvedValue(version(4));
+    vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview);
+    vi.mocked(versionsApi.restore).mockResolvedValue({ created: [4], deleted_nodes: 0, remarks: [] });
+    vi.mocked(versionsApi.remove).mockResolvedValue(undefined);
+    renderPanel({ canDelete: true });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Зафиксировать версию" }));
+    await userEvent.type(screen.getByRole("textbox"), "  orders 2.4  ");
+    await userEvent.click(screen.getByRole("button", { name: "Зафиксировать" }));
+    expect(argsOf(versionsApi.create)).toBe(JSON.stringify(["n1", "orders 2.4"]));
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+
+    await userEvent.click(await screen.findByRole("button", { name: /^v2/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Восстановить эту версию" }));
+    expect(argsOf(versionsApi.restorePreview)).toBe(JSON.stringify(["n1", 2]));
+    await userEvent.click(await screen.findByRole("button", { name: "Восстановить" }));
+    expect(argsOf(versionsApi.restore)).toBe(JSON.stringify(["n1", 2]));
+    await waitFor(() => expect(screen.queryByText("Восстановить версию 2?")).toBeNull());
+
+    await userEvent.click(await screen.findByRole("button", { name: /^v1/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Удалить версию" }));
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    expect(argsOf(versionsApi.remove)).toBe(JSON.stringify(["n1", 1]));
+    expect(versionsApi.create).toHaveBeenCalledTimes(1);
+    expect(versionsApi.restore).toHaveBeenCalledTimes(1);
+    expect(versionsApi.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("срез всего проекта: чтение и записи идут с nodeId = null", async () => {
+    vi.mocked(versionsApi.create).mockResolvedValue(version(4));
+    renderPanel({ nodeId: null, title: "Ярмарка" });
+    await userEvent.click(await screen.findByRole("button", { name: /^v3/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Схема логики/ }));
+    expect(argsOf(versionsApi.list)).toBe(JSON.stringify([null]));
+    expect(argsOf(versionsApi.diff)).toBe(JSON.stringify([null, 3, "prev"]));
+    expect(argsOf(versionsApi.item)).toBe(JSON.stringify([null, 3, "doc:d1", "prev"]));
+    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Назад" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Зафиксировать версию" }));
+    await userEvent.type(screen.getByRole("textbox"), "ORD-430{Enter}");
+    expect(argsOf(versionsApi.create)).toBe(JSON.stringify([null, "ORD-430"]));
+  });
+
+  it("запертое «Восстановить эту версию» — с подсказкой, отпертое — без неё", async () => {
+    vi.mocked(versionsApi.list).mockResolvedValue(list(three));
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /^v3/ }));
+    const off = await screen.findByRole("button", { name: "Восстановить эту версию" });
+    expect(off).toBeDisabled();
+    expect(off).toHaveAttribute("title", "Изменений с этой версии нет, восстанавливать нечего");
+    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^v2/ }));
+    const on = await screen.findByRole("button", { name: "Восстановить эту версию" });
+    expect(on).toBeEnabled();
+    expect(on).not.toHaveAttribute("title");
+  });
+
+  it("подготовка отката: «Готовим», aria-busy, кнопка заперта до ответа", async () => {
+    vi.mocked(versionsApi.restorePreview).mockReturnValue(new Promise<RestorePreview>(() => {}));
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /^v2/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Восстановить эту версию" }));
+    const busy = screen.getByRole("button", { name: "Готовим" });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText("Восстановить версию 2?")).toBeNull();
+  });
+
+  it("переходы: список → версия → элемент → назад → назад, сравнение сохраняется", async () => {
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /^v3/ }));
+    // Предвыбор: сравнение с предыдущей.
+    const select = screen.getByRole("combobox", { name: "С чем сравнивать" });
+    expect(select).toHaveValue("prev");
+    expect(argsOf(versionsApi.diff)).toBe(JSON.stringify(["n1", 3, "prev"]));
+
+    await userEvent.selectOptions(select, "live");
+    expect(argsOf(versionsApi.diff)).toBe(JSON.stringify(["n1", 3, "live"]));
+    await userEvent.click(await screen.findByRole("button", { name: /^Схема логики/ }));
+    expect(argsOf(versionsApi.item)).toBe(JSON.stringify(["n1", 3, "doc:d1", "live"]));
+    expect(screen.queryByRole("combobox")).toBeNull();
+    // Предвыбрана вкладка «Изменения».
+    const tabs = within(screen.getByRole("group", { name: "Что показать" })).getAllByRole("button");
+    expect(tabs.map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    expect(await screen.findByRole("combobox", { name: "С чем сравнивать" })).toHaveValue("live");
+    expect(argsOf(versionsApi.diff)).toBe(JSON.stringify(["n1", 3, "live"]));
+
+    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    expect(await screen.findByRole("button", { name: /^v1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Назад" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Зафиксировать версию" })).toBeEnabled();
+  });
+
+  it("окно фиксации: поле с автофокусом, «Отмена» закрывает без запроса, при записи «Фиксируем»", async () => {
+    vi.mocked(versionsApi.create).mockReturnValue(new Promise<VersionOut>(() => {}));
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: "Зафиксировать версию" }));
+    const field = screen.getByRole("textbox");
+    expect(field).toHaveAttribute("id", "version-comment");
+    expect(field).toHaveAttribute("data-autofocus");
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(versionsApi.create).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Зафиксировать версию" }));
+    await userEvent.type(screen.getByRole("textbox"), "x");
+    await userEvent.click(screen.getByRole("button", { name: "Зафиксировать" }));
+    expect(screen.getByRole("button", { name: "Фиксируем" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled();
+  });
+
+  it("читатель без права удаления: на экране версии кнопок нет", async () => {
+    renderPanel({ canEdit: false, canDelete: false });
+    await userEvent.click(await screen.findByRole("button", { name: /^v2/ }));
+    await screen.findByRole("button", { name: /^Схема логики/ });
+    expect(screen.queryByRole("button", { name: "Восстановить эту версию" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Удалить версию" })).toBeNull();
+  });
+});
