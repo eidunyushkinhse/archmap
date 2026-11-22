@@ -32,7 +32,7 @@ export default function ErDiagramModal({ chart, title, onClose }: Props) {
       setError(s.kind === "error" ? s.message : null);
       if (s.kind !== "ok") return;
       pinSvgSize(pzRef.current);
-      // Вписываем ОДИН раз: дальше пан/зум пользователя не сбрасываем.
+      // Вид для чтения ставим ОДИН раз: дальше пан/зум пользователя не сбрасываем.
       if (!fittedRef.current) {
         fittedRef.current = true;
         fitInitial();

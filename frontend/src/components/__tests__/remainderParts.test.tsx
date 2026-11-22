@@ -335,15 +335,17 @@ describe("DocViewer (§5.5, Р8)", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("колёсико над сценой зумит, а окно под ним не прокручивает (П9)", () => {
+  it("колёсико над сценой прокручивает, Ctrl с колёсиком зумит; окно под ним не прокручивается (П9)", () => {
     вьюер();
     const сцена = document.querySelector(".doc-pvstage");
     expect(сцена).not.toBeNull();
     expect(screen.getByText("100%")).toBeInTheDocument();
     // fireEvent возвращает false, когда обработчик погасил дефолт: окно под
-    // вьюером не прокручивается (хук вешает wheel с passive:false).
-    const дефолтЖив = fireEvent.wheel(сцена as Element, { deltaY: -100 });
-    expect(дефолтЖив).toBe(false);
+    // вьюером не прокручивается (хук вешает wheel с passive:false). Колёсико без
+    // Ctrl масштаб не меняет (редизайн, фаза 7а: колесо прокручивает схему).
+    expect(fireEvent.wheel(сцена as Element, { deltaY: -100 })).toBe(false);
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(fireEvent.wheel(сцена as Element, { deltaY: -100, ctrlKey: true })).toBe(false);
     expect(screen.getByText("115%")).toBeInTheDocument();
     // Кнопки пилюли — те же, что у превью доков.
     expect(screen.getByLabelText("Уменьшить")).toBeInTheDocument();

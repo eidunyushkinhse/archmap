@@ -5,7 +5,7 @@
 // «Сохранить» в шапке.
 // Превью перерисовывается по вводу с дебаунсом; при ошибке держит последний
 // удачный svg (при правке) или показывает заглушку с текстом ошибки (в просмотре
-// код не меняется, держать нечего). Пан/зум — usePanZoom.
+// код не меняется, держать нечего). Пан/зум и вид для чтения — usePanZoom.
 import { useCallback, useEffect, useRef, useState } from "react";
 import MermaidRenderer from "../MermaidRenderer";
 import type { MmdStatus } from "../MermaidRenderer";
@@ -105,8 +105,9 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
       setStatus(s);
       if (s.kind === "ok") {
         pinSvgSize(pzRef.current);
-        // Первый удачный рендер вписываем (не раздувая мелкие диаграммы сверх 100%);
-        // дальше пан/зум пользователя не сбрасываем — превью живёт при печати.
+        // Первый удачный рендер ставит вид для чтения (usePanZoom.readingView: текст не
+        // мельче 0,9, верх схемы у поля); дальше пан/зум пользователя не сбрасываем —
+        // превью живёт при печати.
         if (!fittedRef.current) {
           fittedRef.current = true;
           fitInitial();
@@ -116,17 +117,16 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
     [fitInitial],
   );
 
-  // «Показать/Скрыть код» наблюдателя меняет ширину превью — вписываем заново
-  // (кадром позже, после релейаута), иначе диаграмма уезжает под колонку.
-  const { fit } = pz;
+  // «Показать/Скрыть код» наблюдателя меняет ширину превью — ставим вид для чтения
+  // заново (кадром позже, после релейаута), иначе диаграмма уезжает под колонку.
   const prevShowCode = useRef(showCode);
   useEffect(() => {
     if (prevShowCode.current === showCode) return;
     prevShowCode.current = showCode;
     if (!fittedRef.current) return;
-    const raf = requestAnimationFrame(() => fit());
+    const raf = requestAnimationFrame(() => fitInitial());
     return () => cancelAnimationFrame(raf);
-  }, [showCode, fit]);
+  }, [showCode, fitInitial]);
 
   // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
   // правки: как только в поле что-то меняется, статус снова про разбор схемы.
