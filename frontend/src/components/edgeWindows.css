@@ -139,9 +139,10 @@
 }
 
 /* Дерево кандидатов: рамка, своя прокрутка (колесо у края не прокручивает окно под ним),
-   высота по содержимому, не больше min(260px, 40vh). */
+   высота по содержимому, не больше min(260px, 40vh) вместе с рамкой и полями. */
 .clp-tree {
   flex: none;
+  box-sizing: border-box;
   max-height: min(260px, 40vh);
   overflow-y: auto;
   overscroll-behavior: contain;
