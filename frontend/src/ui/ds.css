@@ -1,7 +1,8 @@
 /* Общие примитивы нового языка (редизайн, направление А «Документ»): шапка экрана,
    аватар, раздел, подгруппа,
-   строка списка, тихая кнопка «Добавить», вторичная кнопка, вкладки-текст, меню,
-   предупреждение, тихая таблица, поле в виде текста. Значения — только токены
+   строка списка, тихая кнопка «Добавить», вторичная кнопка, каркас окна с блоками,
+   вкладки-текст, меню, предупреждение, тихая таблица, строки «подпись — значение»,
+   поле в виде текста. Значения — только токены
    ui/tokens.css. Класс ставит переведённый экран (корень с .ds); стили импортирует
    каждый модуль, который ставит класс (как ui/smallButton.css): стили чужого ленивого
    чанка на странице могут быть не загружены. */
@@ -401,6 +402,29 @@ button.ds-sub:hover {
   gap: var(--space-2);
   padding: 0 var(--win-pad) var(--win-pad);
 }
+/* Отказ над кнопками футера: строка на всю ширину футера, кнопки ниже. */
+.ds-win-err {
+  flex: 1 0 100%;
+  margin: 0;
+}
+/* Блок тела окна («Задание агенту», «Ответы агента»): заголовок 13px/600, между блоками
+   24px (12px отступа и 12px шага тела). */
+.ds-win-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ds-win-block + .ds-win-block {
+  margin-top: var(--space-3);
+}
+.ds-win-block-title {
+  margin: 0;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
 /* Фокус полей окна — кольцом нового языка, сильнее общего правила окон (ui/modal.css). */
 .app-modal .ds-win .ds-input:focus {
   outline: none;
@@ -647,6 +671,44 @@ button.ds-sub:hover {
 /* Пустое значение («не указана», «не задан»). */
 .ds-empty {
   color: var(--c-fg-faint);
+}
+
+/* ── Строки «подпись — значение» окна ─────────────────────────────────────
+   Того же вида, что строки свойств на странице объекта (nodePage/propRows.css): тихая
+   подпись фиксированной ширины, текст значения с одного x (у ds-value-btn и поля
+   GrowField поля 3px 6px и такой же отрицательный отступ), шаг строк 30px, базовые линии
+   подписи и значения совпадают. Окна «Обновить из кода» и «Новый проект». */
+.ds-props {
+  margin: 0;
+}
+.ds-prop {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  column-gap: var(--space-4);
+  align-items: baseline;
+  min-height: 30px;
+  padding: 2px 0;
+  box-sizing: border-box;
+}
+.ds-prop-term,
+.ds-prop-value {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.ds-prop-term {
+  padding: 3px 0;
+  color: var(--c-fg-muted);
+}
+.ds-prop-term label {
+  cursor: default;
+}
+.ds-prop-value {
+  min-width: 0;
+  color: var(--c-fg);
+}
+.ds-prop:hover .ds-value-chev {
+  opacity: 1;
 }
 
 /* ── Поле, растущее по тексту (ui/GrowField) ─────────────────────────────

@@ -6,14 +6,15 @@
 // Вид — новый язык (редизайн, фаза 6а): одна колонка в порядке действий. «Задание
 // агенту» (язык описаний и подсказки строками «подпись — значение», кнопка копирования)
 // → «Ответы агента» (зона файлов, галочки «что обновлять», план) → «Применить». Каркас
-// окна общий (ui/ds.css, ds-win). Состояние ввоза — useSyncImport, зона файлов —
-// SyncFiles, план — SyncPlan.
+// окна, блоки и строки общие (ui/ds.css: ds-win, ds-win-block, ds-prop), выбор языка и
+// зона файлов — общие части окон ввоза с «Новым проектом» (LangChoice, FileZone).
+// Состояние ввоза — useSyncImport, зона файлов этого окна — SyncFiles, план — SyncPlan.
 import { useEffect, useId, useState } from "react";
 import type { PromptVariant } from "../../types";
 import { projectsApi } from "../../api/projects";
 import { useSyncImport } from "./useSyncImport";
 import PromptCopyButton from "./PromptCopyButton";
-import SyncLangChoice from "./SyncLangChoice";
+import LangChoice from "./LangChoice";
 import SyncFiles from "./SyncFiles";
 import SyncPlan from "./SyncPlan";
 import Modal from "../../ui/Modal";
@@ -79,18 +80,18 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
         </div>
 
         <div className="ds-win-body">
-          <section className="sync-block">
-            <h3 className="sync-block-title">Задание агенту</h3>
-            <dl className="sync-props">
-              <div className="sync-prop">
-                <dt className="sync-term" id={`${uid}-lang`}>Язык описаний</dt>
-                <dd className="sync-value">
-                  <SyncLangChoice value={lang} onChange={setLang} labelId={`${uid}-lang`} />
+          <section className="ds-win-block">
+            <h3 className="ds-win-block-title">Задание агенту</h3>
+            <dl className="ds-props">
+              <div className="ds-prop">
+                <dt className="ds-prop-term" id={`${uid}-lang`}>Язык описаний</dt>
+                <dd className="ds-prop-value">
+                  <LangChoice value={lang} onChange={setLang} labelId={`${uid}-lang`} />
                 </dd>
               </div>
-              <div className="sync-prop">
-                <dt className="sync-term"><label htmlFor={`${uid}-hints`}>Подсказки агенту</label></dt>
-                <dd className="sync-value">
+              <div className="ds-prop">
+                <dt className="ds-prop-term"><label htmlFor={`${uid}-hints`}>Подсказки агенту</label></dt>
+                <dd className="ds-prop-value">
                   <GrowField
                     {...noAutofill("sync-repo-hints")}
                     id={`${uid}-hints`}
@@ -112,15 +113,15 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             />
           </section>
 
-          <section className="sync-block">
-            <h3 className="sync-block-title">Ответы агента</h3>
+          <section className="ds-win-block">
+            <h3 className="ds-win-block-title">Ответы агента</h3>
             <SyncFiles pkg={imp.pkg} over={imp.drop.over} dropError={imp.drop.error} />
             {imp.pkg.files.length > 0 && <SyncPlan imp={imp} />}
           </section>
         </div>
 
         <div className="ds-win-foot">
-          {imp.applyError && <p className="ds-danger sync-err" role="alert">{imp.applyError}</p>}
+          {imp.applyError && <p className="ds-danger ds-win-err" role="alert">{imp.applyError}</p>}
           <button
             type="button"
             className="ds-btn ds-btn--primary"

@@ -1,6 +1,7 @@
-// «Язык описаний» в окне «Обновить из кода»: значение-кнопка и меню из двух пунктов,
-// выбранный с галочкой. Меню — обычный блок внутри окна (вложенный <dialog> нельзя), но
-// position: fixed с координатами от кнопки, как панель выбора объекта в импорте процессов
+// «Язык описаний» в окнах задания агенту нового языка («Обновить из кода», «Новый проект»
+// в режиме «ИИ-агент»): значение-кнопка и меню из двух пунктов, выбранный с галочкой.
+// Меню — обычный блок внутри окна (вложенный <dialog> нельзя), но position: fixed с
+// координатами от кнопки, как панель выбора объекта в импорте процессов
 // (processes/NodeChoice): прокрутка тела окна его не обрезает. Escape меню гасит само
 // (preventDefault и stopPropagation на keydown): иначе нативный cancel закрыл бы всё
 // окно. Закрытие любым путём возвращает фокус на значение.
@@ -8,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import { CheckIcon, ChevronDownIcon } from "../../ui/icons";
 import "../../ui/ds.css";
-import "./syncRepo.css";
+import "./importParts.css";
 
 type Lang = "ru" | "en";
 const LANGS: readonly Lang[] = ["ru", "en"];
@@ -25,7 +26,7 @@ function place(btn: HTMLElement): CSSProperties {
     : { left, bottom: window.innerHeight - r.top + 2 };
 }
 
-export default function SyncLangChoice({ value, onChange, labelId }: {
+export default function LangChoice({ value, onChange, labelId }: {
   value: Lang;
   onChange: (lang: Lang) => void;
   // id подписи строки: кнопка читается как «Язык описаний Русский».
@@ -90,7 +91,7 @@ export default function SyncLangChoice({ value, onChange, labelId }: {
   }
 
   return (
-    <span className="sync-lang" onKeyDown={onKey}>
+    <span className="lc" onKeyDown={onKey}>
       <button
         ref={btnRef}
         id={`${labelId}-value`}
@@ -107,8 +108,8 @@ export default function SyncLangChoice({ value, onChange, labelId }: {
       {open && (
         <>
           {/* Клик мимо: закрыть, не уводя фокус (preventDefault), и вернуть его на кнопку. */}
-          <div className="sync-lang-backdrop" onMouseDown={(e) => { e.preventDefault(); close(); }} />
-          <ul ref={menuRef} className="ds-menu sync-lang-menu" role="menu" style={pos}>
+          <div className="lc-backdrop" onMouseDown={(e) => { e.preventDefault(); close(); }} />
+          <ul ref={menuRef} className="ds-menu lc-menu" role="menu" style={pos}>
             {LANGS.map((lang) => (
               <li key={lang} role="none">
                 <button
@@ -118,8 +119,8 @@ export default function SyncLangChoice({ value, onChange, labelId }: {
                   className="ds-menu-item"
                   onClick={() => pick(lang)}
                 >
-                  <span className="sync-lang-label">{LANG_LABEL[lang]}</span>
-                  {lang === value && <span className="sync-lang-check"><CheckIcon /></span>}
+                  <span className="lc-label">{LANG_LABEL[lang]}</span>
+                  {lang === value && <span className="lc-check"><CheckIcon /></span>}
                 </button>
               </li>
             ))}
