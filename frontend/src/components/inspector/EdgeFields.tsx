@@ -8,7 +8,7 @@
 // Escape, который значение обработало само (закрыть поиск конца, вернуть записанный текст
 // в поле с правкой), гасится и по умолчанию: в окне (нативный <dialog>) иначе браузер
 // закрыл бы всё окно. В панели действия по умолчанию у клавиши нет.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import NodeSearchPicker from "../NodeSearchPicker";
 import { revertOnEscape } from "../nodePage/revertOnEscape";
@@ -21,6 +21,12 @@ import "./panel.css";
 // строкой открывается поиск объекта по всему проекту (NodeSearchPicker), выбор
 // записывает конец и закрывает поиск; Escape и клик мимо закрывают без записи. Поиск
 // встаёт под строкой во всю её ширину: строка места вызова — его опора (position).
+// Как бы поиск ни закрылся, фокус возвращается на кнопку значения: иначе он падал бы
+// на body, и клавиатура теряла место в окне или панели.
+//
+// Enter в поиске принадлежит поиску. Выбора строки по Enter у NodeSearchPicker нет, так
+// что клавиша ничего не делает: гасится по умолчанию, и окно (ui/Modal.onSubmit
+// пропускает погашенную клавишу) не принимает её за «Готово».
 export function EndValue({ label, glyph, onPick, term }: {
   label: string;
   glyph: ReactNode;
@@ -28,11 +34,17 @@ export function EndValue({ label, glyph, onPick, term }: {
   term: string;
 }) {
   const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const close = () => {
+    setOpen(false);
+    button.current?.focus();
+  };
   const name = <span className="ip-end">{glyph && <span className="ip-end-glyph">{glyph}</span>}<span>{label}</span></span>;
   if (!onPick) return name;
   return (
     <>
       <button
+        ref={button}
         type="button"
         className="ds-value-btn"
         aria-label={`${term}: ${label}`}
@@ -43,21 +55,25 @@ export function EndValue({ label, glyph, onPick, term }: {
       </button>
       {open && (
         <>
-          <div className="ds-backdrop" onClick={() => setOpen(false)} />
+          <div className="ds-backdrop" onClick={close} />
           <div
             className="ip-pop"
             role="group"
             aria-label={term}
             onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                if (e.target instanceof HTMLInputElement) e.preventDefault();
+                return;
+              }
               if (e.key !== "Escape") return;
               e.preventDefault();
               e.stopPropagation();
-              setOpen(false);
+              close();
             }}
           >
             <NodeSearchPicker
               value=""
-              onChange={(id, lbl) => { if (!id) return; setOpen(false); onPick(id, lbl); }}
+              onChange={(id, lbl) => { if (!id) return; close(); onPick(id, lbl); }}
             />
           </div>
         </>

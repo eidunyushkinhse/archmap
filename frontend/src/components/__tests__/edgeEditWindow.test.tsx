@@ -10,10 +10,13 @@ import EdgeEditModal from "../EdgeEditModal";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import type { Node } from "../../types";
 
-// Поиск конца: заглушка с кнопкой выбора (сам поиск покрыт своими тестами).
+// Поиск конца: заглушка с полем и кнопкой выбора (сам поиск покрыт своими тестами).
 vi.mock("../NodeSearchPicker", () => ({
   default: ({ onChange }: { onChange: (id: string, label?: string) => void }) => (
-    <button type="button" onClick={() => onChange("n3", "Payments")}>выбрать Payments</button>
+    <>
+      <input aria-label="Поиск по имени" />
+      <button type="button" onClick={() => onChange("n3", "Payments")}>выбрать Payments</button>
+    </>
   ),
 }));
 vi.mock("../../api/nodes", () => ({
@@ -153,11 +156,52 @@ describe("окно «Связь»: конец связи", () => {
 
   it("щелчок мимо поиска закрывает его без записи", async () => {
     await openForm();
-    await userEvent.click(screen.getByRole("button", { name: "Откуда: Order API" }));
+    const value = screen.getByRole("button", { name: "Откуда: Order API" });
+    await userEvent.click(value);
 
     await userEvent.click(document.querySelector("dialog .ds-backdrop") as HTMLElement);
 
     expect(screen.queryByRole("group", { name: "Откуда" })).toBeNull();
+    expect(edgesApi.update).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(value);
+  });
+
+  it("Escape в поиске возвращает фокус на значение строки", async () => {
+    await openForm();
+    const value = screen.getByRole("button", { name: "Куда: Kafka" });
+    await userEvent.click(value);
+    const search = screen.getByRole("textbox", { name: "Поиск по имени" });
+    search.focus();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("group", { name: "Куда" })).toBeNull();
+    expect(document.activeElement).toBe(value);
+  });
+
+  it("выбор в поиске возвращает фокус на значение строки", async () => {
+    vi.mocked(edgesApi.update).mockResolvedValue({ ...EDGE, target_id: "n3", version: 2 } as never);
+    await openForm();
+    const value = screen.getByRole("button", { name: "Куда: Kafka" });
+    await userEvent.click(value);
+
+    await userEvent.click(screen.getByRole("button", { name: "выбрать Payments" }));
+
+    expect(document.activeElement).toBe(value);
+    await waitFor(() => expect(edgesApi.update).toHaveBeenCalledOnce());
+  });
+
+  it("Enter в поиске принадлежит поиску: окно не отправляется и не закрывается", async () => {
+    const { onClose, onChanged } = await openForm();
+    await userEvent.click(screen.getByRole("button", { name: "Откуда: Order API" }));
+    const search = screen.getByRole("textbox", { name: "Поиск по имени" });
+
+    await userEvent.type(search, "Pay{Enter}");
+
+    expect(screen.getByRole("group", { name: "Откуда" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveProperty("open", true);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
     expect(edgesApi.update).not.toHaveBeenCalled();
   });
 });

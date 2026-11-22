@@ -13,10 +13,13 @@ import EdgeInspector from "../inspector/EdgeInspector";
 import { brokerChannelsApi, edgesApi, nodesApi } from "../../api/nodes";
 import type { BrokerChannel, LevelEdge, Node } from "../../types";
 
-// Поиск конца: заглушка с кнопкой выбора (сам поиск покрыт своими тестами).
+// Поиск конца: заглушка с полем и кнопкой выбора (сам поиск покрыт своими тестами).
 vi.mock("../NodeSearchPicker", () => ({
   default: ({ onChange }: { onChange: (id: string, label?: string) => void }) => (
-    <button type="button" onClick={() => onChange("n3", "Payments")}>выбрать Payments</button>
+    <>
+      <input aria-label="Поиск по имени" />
+      <button type="button" onClick={() => onChange("n3", "Payments")}>выбрать Payments</button>
+    </>
   ),
 }));
 vi.mock("../../api/nodes", () => ({
@@ -249,6 +252,18 @@ describe("EdgeInspector: панель связи", () => {
     expect(screen.queryByRole("button", { name: "выбрать Payments" })).toBeNull();
     expect(onWindowKey).not.toHaveBeenCalled();
     expect(edgesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("Escape в поиске конца возвращает фокус на значение строки", async () => {
+    setup();
+    const value = screen.getByRole("button", { name: "Куда: Kafka" });
+    await userEvent.click(value);
+    screen.getByRole("textbox", { name: "Поиск по имени" }).focus();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("group", { name: "Куда" })).toBeNull();
+    expect(document.activeElement).toBe(value);
   });
 
   it("Escape в описании с правкой возвращает записанное и дальше не уходит", async () => {
