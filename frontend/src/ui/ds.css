@@ -347,6 +347,12 @@ button.ds-sub:hover {
   outline: 2px solid var(--c-accent);
   outline-offset: -2px;
 }
+/* Нажатый тумблер (aria-pressed, «Подписи связей» в тулбаре «Развёртывания»): подложка и
+   значок основным цветом, как под мышью. Состояние видно и без наведения. */
+.ds-icon-btn[aria-pressed="true"] {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
 .ds-icon-btn:disabled {
   color: var(--c-fg-faint);
   cursor: default;

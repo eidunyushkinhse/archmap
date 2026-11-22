@@ -219,13 +219,27 @@ describe("DeploymentPage", () => {
     expect(treeProps().currentNodeId).toBe("c2");
   });
 
-  it("селекта уровня нет — путь текстом, «Весь проект» ведёт в корень", async () => {
+  it("селекта уровня нет — путь крошками без глифов, «Весь проект» ведёт в корень", async () => {
     const { onNavigateLevel } = await setup(true, graph(), "c2");
     expect(screen.queryByRole("combobox")).toBeNull();
     const nav = screen.getByRole("navigation", { name: "Уровень" });
-    await waitFor(() => expect(nav).toHaveTextContent("Весь проект›Витрина › Каталог"));
+    await waitFor(() => expect(within(nav).getByRole("button", { name: "Витрина" })).toBeInTheDocument());
+    // Между звеньями — значок-шеврон, а не глиф «›»; текущий уровень не нажимается.
+    expect(nav).toHaveTextContent("Весь проектВитринаКаталог");
+    expect(nav.textContent).not.toContain("›");
+    expect(within(nav).queryByRole("button", { name: "Каталог" })).toBeNull();
+    expect(within(nav).getByText("Каталог")).toHaveAttribute("title", "Каталог");
     await userEvent.click(screen.getByRole("button", { name: "Весь проект" }));
     expect(onNavigateLevel).toHaveBeenCalledWith(null);
+  });
+
+  it("звено-предок пути ведёт на свой уровень; полное имя — в подсказке", async () => {
+    const { onNavigateLevel } = await setup(true, graph(), "c2");
+    const nav = screen.getByRole("navigation", { name: "Уровень" });
+    const crumb = await within(nav).findByRole("button", { name: "Витрина" });
+    expect(crumb).toHaveAttribute("title", "Витрина");
+    await userEvent.click(crumb);
+    expect(onNavigateLevel).toHaveBeenCalledWith("c1");
   });
 
   it("на корне путь — «Весь проект» без ссылки", async () => {
