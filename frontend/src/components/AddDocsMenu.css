@@ -1,41 +1,16 @@
 /* Универсальное меню «+ Добавить» (разделы страницы объекта) и «Изменить»/«Описать»
-   окна схемы/спеки. Триггер разделов страницы — общий примитив ds-add (ui/ds.css),
-   здесь — залитый триггер окна и выпадающий список. Свой файл: компонент общий для
-   страницы и окна документации. */
+   окна схемы/спецификации. Триггеры — общие примитивы ui/ds.css (ds-add у разделов,
+   ds-btn у окна), список окна — ds-menu; здесь — место списка и прежний вид списка
+   разделов. Свой файл: компонент общий для страницы и окна документации. */
 .adm-wrap {
   position: relative;
   display: inline-block;
 }
 
-/* Залитый триггер действия (шапка окна схемы/спеки, «Описать» у заглушки) —
-   тон кнопки .btn.primary прототипа вьюера. */
-.adm-btn--primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-  padding: 7px 13px;
-  border: 1px solid #2563eb;
-  background: #2563eb;
-  color: #fff;
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-.adm-btn--primary:hover {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
-}
-
+/* Шеврон кнопки меню окна («Изменить ▾», «Описать ▾»): цвет подписи кнопки. */
 .adm-chev {
   display: inline-flex;
-  transition: transform 0.12s;
-}
-.adm-chev--open {
-  transform: rotate(180deg);
+  margin-right: -2px;
 }
 
 .adm-backdrop {
@@ -55,6 +30,13 @@
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   z-index: 31;
+}
+/* Список окна (ds-menu): под кнопкой, ширина по самому длинному пункту. */
+.adm-dsmenu {
+  top: calc(100% + 4px);
+  left: 0;
+  width: max-content;
+  max-width: 360px;
 }
 .adm-menu--right {
   left: auto;

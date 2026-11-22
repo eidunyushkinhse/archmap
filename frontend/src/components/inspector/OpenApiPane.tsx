@@ -9,6 +9,9 @@
 //     (SpecAgentPanel); после «Применить» окно перечитывает спеку.
 // Пишет спеку страница (onCommitOpenapi → PATCH узла под CAS): окно только ждёт
 // ответа, чтобы показать в просмотре то, что действительно сохранено.
+// Шапка и чтение — новый язык (редизайн, фаза 7а): имя объекта, «OpenAPI», справа
+// «Изменить» или «Показать код»; тело и подвал стадий правки прежнего вида держит
+// legacy-root.
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { PromptVariant } from "../../types";
@@ -16,11 +19,12 @@ import { nodesApi } from "../../api/nodes";
 import { docsImportApi } from "../../api/docsImport";
 import OpenApiDoc from "./OpenApiDoc";
 import SpecAgentPanel from "../docsImport/SpecAgentPanel";
-import { ApiGlyph, DocAgentSteps, DocHead, EditMenu } from "./docChrome";
+import { CodeToggle, DocAgentSteps, DocHead, EditMenu, LegacyActions } from "./docChrome";
 import { limitMessage } from "../demo/demoLimits";
 import type { LimitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
 import { copyText } from "../../lib/copyText";
+import "../../ui/ds.css";
 
 export type DocStage = "view" | "manual" | "agent";
 
@@ -32,7 +36,7 @@ interface Props {
   // Записать спеку. true — сохранено; false — нет (конфликт версий: страница уже
   // подтянула свежее и показывает notice).
   onCommitOpenapi: (value: string) => Promise<boolean>;
-  // Конфликт конкурентных сессий от страницы — плашкой в шапке.
+  // Конфликт конкурентных сессий от страницы — строкой под шапкой.
   notice?: string | null;
   onClose: () => void;
   // Крестик шапки: окно само решит, спросить ли «Закрыть без сохранения?».
@@ -43,11 +47,6 @@ interface Props {
   initialStage?: DocStage;
   // Пакет агента записан — страница освежает мету узла.
   onApplied?: () => void;
-}
-
-// «3.0.3» → «3.0» для тега «OAS 3.0 · YAML»
-function shortVersion(v: string): string {
-  return v.split(".").slice(0, 2).join(".");
 }
 
 export default function OpenApiPane({
@@ -75,8 +74,6 @@ export default function OpenApiPane({
   // Демо-стенд: сохранение упёрлось в предел — красная плашка в подвале, черновик цел.
   const [limit, setLimit] = useState<LimitMessage | null>(null);
   const [showCode, setShowCode] = useState(false); // наблюдатель: «Показать код»
-  // Версия OAS из последнего валидного парса (шлёт OpenApiDoc) — для тега шапки.
-  const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
 
   const hasSpec = spec.trim() !== "";
   // Несохранённая правка «Вручную» — окну нужна только при закрытии (реф).
@@ -152,30 +149,29 @@ export default function OpenApiPane({
   let actions: ReactNode = null;
   if (stage === "manual" && isArchitect) {
     actions = (
-      <>
+      <LegacyActions>
         {/* Главная кнопка слева, «Отмена» справа: правило окон. */}
         <button type="button" className="doc-btn doc-btn--primary" onClick={() => void save()} disabled={saving}>
           Сохранить
         </button>
         <button type="button" className="doc-btn doc-btn--ghost" onClick={leave}>Отмена</button>
-      </>
+      </LegacyActions>
     );
   } else if (stage === "agent" && isArchitect) {
-    actions = hasSpec ? <button type="button" className="doc-back" onClick={toView}>← К спецификации</button> : null;
+    actions = hasSpec ? (
+      <LegacyActions>
+        <button type="button" className="doc-back" onClick={toView}>← К спецификации</button>
+      </LegacyActions>
+    ) : null;
   } else if (isArchitect) {
     actions = <EditMenu label="Изменить" onManual={() => setStage("manual")} onAgent={() => setStage("agent")} />;
   } else if (hasSpec) {
-    actions = (
-      <button type="button" className="doc-codebtn" onClick={() => setShowCode((s) => !s)}>
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-          <path d="M5.5 5 2.5 8l3 3M10.5 5l3 3-3 3" />
-        </svg>
-        {showCode ? "Скрыть код" : "Показать код"}
-      </button>
-    );
+    actions = <CodeToggle shown={showCode} onToggle={() => setShowCode((s) => !s)} />;
   }
 
   // ── тело и подвал ──
+  // Стадии правки — прежнего вида: тело и подвал в legacy-root.
+  const legacy = isArchitect && stage !== "view";
   let body: ReactNode;
   let foot: string | null = null;
   if (stage === "manual" && isArchitect) {
@@ -186,7 +182,6 @@ export default function OpenApiPane({
         isArchitect
         showCode
         onDraft={setDraft}
-        onVersion={setOasVersion}
       />
     );
     foot = "Спецификацию с ошибкой можно сохранить как черновик. Превью обновится, когда ошибка будет исправлена.";
@@ -209,7 +204,6 @@ export default function OpenApiPane({
         initial={spec}
         isArchitect={false}
         showCode={showCode}
-        onVersion={setOasVersion}
       />
     );
   }
@@ -217,20 +211,18 @@ export default function OpenApiPane({
   return (
     <>
       <DocHead
-        glyph={<ApiGlyph />}
-        title={<>{nodeName} <span>· OpenAPI</span></>}
-        tag={oasVersion ? `OAS ${shortVersion(oasVersion)} · YAML` : "OpenAPI · YAML"}
-        tagOas
+        objectName={nodeName}
+        title="OpenAPI"
         notice={notice}
         actions={actions}
         onClose={onRequestClose ?? onClose}
       />
-      <div className="doc-body">{body}</div>
+      <div className={"doc-body" + (legacy ? " legacy-root" : "")}>{body}</div>
       {limit && stage === "manual" ? (
-        <div className="doc-foot doc-foot--bar">
+        <div className="doc-foot doc-foot--bar legacy-root">
           <div className="doc-limit" role="alert"><LimitText message={limit} /></div>
         </div>
-      ) : foot && <div className="doc-foot">{foot}</div>}
+      ) : foot && <div className="doc-foot legacy-root">{foot}</div>}
     </>
   );
 }

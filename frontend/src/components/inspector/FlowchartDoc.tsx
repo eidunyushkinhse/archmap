@@ -162,9 +162,7 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
     <StatusOk />
   );
 
-  return (
-    <>
-      {(isArchitect || showCode) && (
+  const column = (isArchitect || showCode) && (
         <DocEditorColumn
           width={440}
           title="Код · mermaid flowchart"
@@ -190,8 +188,15 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
           onFileError={setFileError}
           prepareFile={unfenceMermaid}
         />
-      )}
-      <div className="doc-pv">
+  );
+
+  return (
+    <>
+      {/* Колонка кода читателя — прежнего вида (legacy-root), её переделывает следующая
+          фаза; при правке прежний вид держит тело окна. В чтении сцена на новом языке:
+          ровный фон, пилюля масштаба на токенах (doc-pv--read). */}
+      {column && (isArchitect ? column : <div className="legacy-root doc-legacy">{column}</div>)}
+      <div className={"doc-pv" + (isArchitect ? "" : " doc-pv--read")}>
         <div
           ref={stageRef}
           className={"doc-pvstage" + (pz.dragging ? " doc-pvstage--drag" : "")}

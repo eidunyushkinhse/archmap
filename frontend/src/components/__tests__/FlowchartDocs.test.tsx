@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import FlowchartDocs from "../inspector/FlowchartDocs";
 import { nodeDocsApi } from "../../api/nodes";
 import { docsImportApi } from "../../api/docsImport";
+import { dataRefsApi } from "../../api/dataRefs";
 import { ApiError } from "../../api/client";
 import type { NodeDoc } from "../../types";
 
@@ -99,7 +100,7 @@ describe("FlowchartDocs · просмотр", () => {
     expect(screen.getByTestId("doc-editor")).toHaveAttribute("data-edit", "false");
   });
 
-  it("строка «Используется в процессах» только про эту схему; клик ведёт в процесс", async () => {
+  it("подвал «В процессах» только про эту схему; клик ведёт в процесс", async () => {
     vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1"), doc("d2")]);
     vi.mocked(nodeDocsApi.usage).mockResolvedValue([
       { doc_id: "d1", process_id: "p1", process_name: "Оформление заказа", steps: 2 },
@@ -110,6 +111,137 @@ describe("FlowchartDocs · просмотр", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Оформление заказа" }));
     expect(onOpenProcess).toHaveBeenCalledWith("p1");
     expect(screen.queryByText("Возврат")).toBeNull();
+    expect(document.querySelector(".doc-readfoot")).toHaveTextContent(/^В процессах: Оформление заказа$/);
+  });
+
+  it("без обработчика перехода названия процессов обычным текстом", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1")]);
+    vi.mocked(nodeDocsApi.usage).mockResolvedValue([
+      { doc_id: "d1", process_id: "p1", process_name: "Оформление заказа", steps: 2 },
+      { doc_id: "d1", process_id: "p2", process_name: "Возврат", steps: 1 },
+    ]);
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    expect(await screen.findByText("Оформление заказа")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Оформление заказа" })).toBeNull();
+    expect(document.querySelector(".doc-readfoot")).toHaveTextContent(/^В процессах: Оформление заказа, Возврат$/);
+  });
+});
+
+// Шапка окна (редизайн, фаза 7а): имя объекта, название, в чтении хвост (эндпоинт
+// операции или «воркер»); пилюль вида и формата и точки между частями нет.
+describe("FlowchartDocs · шапка", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodeDocsApi.usage).mockResolvedValue([]);
+  });
+  const шапка = () => document.querySelector(".doc-head") as HTMLElement;
+
+  it("операция: имя объекта, название схемы и эндпоинт моноширинным; без пилюли «Операция»", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1", { name: "Создание заказа", operation: "POST /orders" })]);
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    expect(await screen.findByRole("heading", { name: "Создание заказа" })).toHaveAttribute("title", "Создание заказа");
+    expect(screen.getByText("Заказы")).toHaveClass("doc-headobj");
+    expect(screen.getByText("POST /orders")).toHaveClass("doc-headtail--mono");
+    expect(шапка()).toHaveTextContent(/^ЗаказыСоздание заказаPOST \/ordersИзменить$/);
+    expect(шапка().textContent).not.toMatch(/Операция|·/);
+    // «Изменить» — вторичная кнопка, не залитая.
+    expect(screen.getByRole("button", { name: "Изменить" })).toHaveClass("ds-btn");
+    expect(screen.getByRole("button", { name: "Изменить" })).not.toHaveClass("ds-btn--primary");
+  });
+
+  it("воркер: тихое слово «воркер»", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1", { name: "Автоотмена", kind: "worker" })]);
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    await screen.findByRole("heading", { name: "Автоотмена" });
+    expect(screen.getByText("воркер")).toHaveClass("doc-headtail");
+    expect(screen.getByText("воркер")).not.toHaveClass("doc-headtail--mono");
+    expect(шапка().textContent).not.toMatch(/Воркер/);
+  });
+
+  it("операция без эндпоинта — без хвоста; в правке хвоста нет", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1", { operation: "GET /orders" }), doc("d2")]);
+    const { unmount } = render(<FlowchartDocs {...props} isArchitect initialDocId="d2" />);
+    await screen.findByRole("heading", { name: "Схема d2" });
+    expect(document.querySelector(".doc-headtail")).toBeNull();
+    unmount();
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    await открытьВручную();
+    expect(document.querySelector(".doc-headtail")).toBeNull();
+    expect(screen.getByLabelText("Эндпоинт")).toHaveValue("GET /orders");
+  });
+
+  it("новая схема: «Новая схема»; схема не найдена: «Логика»", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([]);
+    const { unmount } = render(<FlowchartDocs {...props} isArchitect createNew />);
+    expect(await screen.findByRole("heading", { name: "Новая схема" })).toBeInTheDocument();
+    unmount();
+    render(<FlowchartDocs {...props} isArchitect initialDocId="нет" />);
+    expect(await screen.findByText("Схема не найдена")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Логика" })).toBeInTheDocument();
+  });
+
+  it("читателю «Показать код» — вторичная кнопка без значка", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1")]);
+    render(<FlowchartDocs {...props} isArchitect={false} initialDocId="d1" />);
+    const код = await screen.findByRole("button", { name: "Показать код" });
+    expect(код).toHaveClass("ds-btn");
+    expect(код.querySelector("svg")).toBeNull();
+  });
+
+  it("конфликт — строкой предупреждения под шапкой", async () => {
+    vi.mocked(nodeDocsApi.list).mockRejectedValue(new Error("сеть"));
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    const строка = await screen.findByText("Не удалось загрузить схемы");
+    expect(строка).toHaveClass("ds-warn");
+    expect(шапка().nextElementSibling).toBe(строка);
+  });
+});
+
+// Подвал чтения: разрешённые обращения не показываются (они написаны в узлах схемы),
+// неразрешённые — одной строкой предупреждения; пусто — подвала нет.
+describe("FlowchartDocs · подвал чтения", () => {
+  const СХЕМА = 'graph TD\n  A["Сохранить<br>пишет: ordrs"]';
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodeDocsApi.usage).mockResolvedValue([]);
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1", { content: СХЕМА })]);
+  });
+
+  it("только неразрешённые обращения, строкой ds-warn с заглавной буквы", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      { ref: "MAX_ITEMS", mode: "config", status: "ok", target: "Конфигурация · MAX_ITEMS" },
+      { ref: "ordrs", mode: "write", status: "unknown_table", target: null },
+      { ref: "orders.evnts", mode: "publish", status: "unknown_channel", target: null },
+    ]);
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    const строка = await screen.findByText(/^Пишет ordrs:/);
+    expect(строка).toHaveClass("ds-warn");
+    expect(строка).toHaveTextContent(
+      /^Пишет ordrs: таблица не найдена; публикует orders\.evnts: канал не найден у брокеров проекта$/,
+    );
+    expect(document.querySelector(".doc-readfoot")?.textContent).not.toMatch(/MAX_ITEMS|✓|Обращения/);
+  });
+
+  it("все обращения разрешились, процессов нет — подвала нет", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      { ref: "orders", mode: "write", status: "ok", target: "БД заказов · orders" },
+    ]);
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    await screen.findByTestId("doc-editor");
+    await waitFor(() => expect(dataRefsApi.preview).toHaveBeenCalled());
+    expect(document.querySelector(".doc-readfoot")).toBeNull();
+  });
+
+  it("все разрешились, процесс есть — в подвале только «В процессах»", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      { ref: "orders", mode: "write", status: "ok", target: "БД заказов · orders" },
+    ]);
+    vi.mocked(nodeDocsApi.usage).mockResolvedValue([
+      { doc_id: "d1", process_id: "p1", process_name: "Оформление заказа", steps: 1 },
+    ]);
+    render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
+    await waitFor(() => expect(document.querySelector(".doc-readfoot")).toHaveTextContent(/^В процессах: Оформление заказа$/));
+    expect(document.querySelector(".doc-readfoot .ds-warn")).toBeNull();
   });
 });
 
@@ -276,9 +408,13 @@ describe("FlowchartDocs · неописанная схема", () => {
     vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1", { content: "", operation: "GET /orders" })]);
     render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
     expect(await screen.findByText("Эта операция ещё не описана")).toBeInTheDocument();
-    expect(screen.getByText("Она попала в список операций сервиса, но схемы логики у неё пока нет.")).toBeInTheDocument();
+    // Второе предложение карточки убрано (редизайн, фаза 7а).
+    expect(screen.queryByText(/попала в список операций/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
+    // «Описать» — главная кнопка с тем же меню.
+    expect(screen.getByRole("button", { name: "Описать" })).toHaveClass("ds-btn", "ds-btn--primary");
     await userEvent.click(screen.getByRole("button", { name: "Описать" }));
+    expect(screen.getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["Вручную", "Через ИИ-агента"]);
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     expect(screen.getByLabelText("Эндпоинт")).toHaveValue("GET /orders");
   });
@@ -287,6 +423,7 @@ describe("FlowchartDocs · неописанная схема", () => {
     vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1", { content: "", kind: "worker" })]);
     render(<FlowchartDocs {...props} isArchitect={false} initialDocId="d1" />);
     expect(await screen.findByText("Этот воркер ещё не описан")).toBeInTheDocument();
+    expect(screen.queryByText(/попал в список операций/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
   });
 });

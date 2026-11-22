@@ -41,11 +41,16 @@ async function открытьВручную() {
 describe("OpenApiPane · просмотр", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("Swagger без кода; тег с версией OAS; архитектору «Изменить» с двумя способами", async () => {
+  it("Swagger без кода; шапка без пилюли формата; архитектору «Изменить» с двумя способами", async () => {
     render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect onCommitOpenapi={vi.fn()} />);
     expect(screen.getByTestId("swagger")).toHaveTextContent("Витрина");
     expect(field()).toBeNull();
-    expect(screen.getByText("OAS 3.0 · YAML")).toBeInTheDocument();
+    // Шапка: имя объекта, «OpenAPI», «Изменить», крестик; «OAS 3.0 · YAML» пишет сама
+    // спецификация (редизайн, фаза 7а).
+    const шапка = document.querySelector(".doc-head") as HTMLElement;
+    expect(шапка).toHaveTextContent(/^КаталогOpenAPIИзменить$/);
+    expect(screen.getByRole("heading", { name: "OpenAPI" })).toBeInTheDocument();
+    expect(screen.queryByText(/OAS|YAML/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
     expect(screen.getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["Вручную", "Через ИИ-агента"]);
   });
@@ -58,9 +63,11 @@ describe("OpenApiPane · просмотр", () => {
     expect(field()).toHaveAttribute("readonly");
   });
 
-  it("конфликт от страницы — плашкой в шапке", () => {
+  it("конфликт от страницы — строкой предупреждения под шапкой", () => {
     render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect notice="Спецификацию только что изменили в другом окне" onCommitOpenapi={vi.fn()} />);
-    expect(screen.getByText("Спецификацию только что изменили в другом окне")).toBeInTheDocument();
+    const строка = screen.getByText("Спецификацию только что изменили в другом окне");
+    expect(строка).toHaveClass("ds-warn");
+    expect(document.querySelector(".doc-head")?.nextElementSibling).toBe(строка);
   });
 });
 

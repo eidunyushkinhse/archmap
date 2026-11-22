@@ -1,9 +1,9 @@
 // Окно схемы логики (режим «Логика» DocOverlay): ОДНА схема узла (node_docs),
 // выбранная на странице кликом. Стадии окна (прототип вьюера v2,
 // docs/tasks/doc-viewer-v2.md):
-//   • просмотр — рендер без кода, строка «Используется в процессах / Обращения»;
-//     архитектору в шапке «Изменить ▾» (Вручную | Через ИИ-агента), у неописанной
-//     схемы вместо рендера карточка с «Описать ▾»;
+//   • чтение — рендер без кода, подвал «В процессах» и неразрешённые обращения;
+//     архитектору в шапке «Изменить ▾» (Вручную | Через ИИ-агента), читателю «Показать
+//     код», у неописанной схемы вместо рендера карточка с «Описать ▾»;
 //   • «Вручную» — поля схемы (имя, вид, эндпоинт) и код с живым превью; «Отмена» и
 //     «Сохранить» в шапке, «Удалить схему» в подвале. Сохранение ЯВНОЕ: одно
 //     «Сохранить» — один PATCH под CAS и одно событие edit;
@@ -13,6 +13,9 @@
 // создаётся только по «Сохранить»: «Отмена» закрывает окно, ничего не оставив.
 // Мутации репортятся наверх событием NodeDocEvent: страница освежает мету узла,
 // процесс перечитывает шаги (истории на страницах нет).
+// Каркас, шапка и чтение — на новом языке (редизайн, фаза 7а); тело и подвал стадий
+// «Вручную» и «Через ИИ-агента» прежнего вида держит legacy-root (их переделывает
+// следующая фаза).
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { NodeDoc, NodeDocKind, NodeDocUpdate, NodeDocUsage, PromptVariant } from "../../types";
@@ -25,10 +28,12 @@ import { LimitText } from "../demo/DemoLimitToast";
 import FlowchartDoc from "./FlowchartDoc";
 import FlowchartView, { StubCard } from "./FlowchartView";
 import DocsAgentPanel from "../docsImport/DocsAgentPanel";
-import { DocAgentSteps, DocHead, EditMenu, FlowGlyph, TwoStepDeleteButton } from "./docChrome";
+import { CodeToggle, DocAgentSteps, DocHead, EditMenu, LegacyActions, TwoStepDeleteButton } from "./docChrome";
+import type { DocHeadTail } from "./docChrome";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyText } from "../../lib/copyText";
 import { DOC_KIND_LABEL, DOC_KIND_ORDER } from "../nodeTerms";
+import "../../ui/ds.css";
 
 // Событие мутации дока для истории/меты. before/after — полные доки: undo/redo
 // делаются компенсациями PATCH/POST/DELETE без base_version (паттерн U24).
@@ -260,47 +265,47 @@ export default function FlowchartDocs({
   }
 
   const described = active !== null && active.content.trim() !== "";
-  const shownKind = stage === "manual" && form ? form.kind : active?.kind;
 
   // ── шапка ──
-  const title = active ? (
-    <><span>{nodeName} · </span>{active.name}</>
-  ) : creating ? (
-    <><span>{nodeName} · </span>Новая схема</>
-  ) : (
-    <>{nodeName} <span>· Логика</span></>
-  );
+  // Название: имя схемы, у несохранённой «Новая схема», пока схем нет или схема не
+  // найдена — «Логика». Хвост только в чтении: в стадиях правки вид и эндпоинт в полях.
+  const title = active ? active.name : creating ? "Новая схема" : "Логика";
+  let tail: DocHeadTail | null = null;
+  if (stage === "view" && active) {
+    if (active.kind === "worker") tail = { text: "воркер", mono: false };
+    else if (active.operation) tail = { text: active.operation, mono: true };
+  }
   let actions: ReactNode = null;
   if (docs !== null && stage === "manual" && form && isArchitect) {
     actions = (
-      <>
+      <LegacyActions>
         {/* Главная кнопка слева, «Отмена» справа: правило окон. */}
         <button type="button" className="doc-btn doc-btn--primary" onClick={() => void save()} disabled={saving}>
           Сохранить
         </button>
         <button type="button" className="doc-btn doc-btn--ghost" onClick={cancel}>Отмена</button>
-      </>
+      </LegacyActions>
     );
   } else if (stage === "agent" && active) {
-    actions = <button type="button" className="doc-back" onClick={toView}>← К схеме</button>;
+    actions = (
+      <LegacyActions>
+        <button type="button" className="doc-back" onClick={toView}>← К схеме</button>
+      </LegacyActions>
+    );
   } else if (stage === "view" && described && isArchitect) {
     actions = <EditMenu label="Изменить" onManual={enterManual} onAgent={enterAgent} />;
   } else if (stage === "view" && described && !isArchitect) {
-    actions = (
-      <button type="button" className="doc-codebtn" onClick={() => setShowCode((s) => !s)}>
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-          <path d="M5.5 5 2.5 8l3 3M10.5 5l3 3-3 3" />
-        </svg>
-        {showCode ? "Скрыть код" : "Показать код"}
-      </button>
-    );
+    actions = <CodeToggle shown={showCode} onToggle={() => setShowCode((s) => !s)} />;
   }
 
   // ── тело ──
+  // legacy — стадии правки: тело и подвал прежнего вида.
   let body: ReactNode;
+  let legacy = false;
   if (docs === null) {
-    body = <div className="doc-pvnote" style={{ margin: "auto" }}>Загрузка</div>;
+    body = <div className="doc-readnote">Загрузка</div>;
   } else if (stage === "manual" && form && isArchitect) {
+    legacy = true;
     body = (
       <div className="doc-flowwrap">
         <div className="doc-fields">
@@ -336,6 +341,7 @@ export default function FlowchartDocs({
       </div>
     );
   } else if (stage === "agent" && active && isArchitect) {
+    legacy = true;
     body = (
       <div className="doc-agent">
         <div className="doc-agentleft">
@@ -360,18 +366,14 @@ export default function FlowchartDocs({
   } else if (active) {
     body = <StubCard kind={active.kind} canEdit={isArchitect} onManual={enterManual} onAgent={enterAgent} />;
   } else {
-    body = (
-      <div className="doc-pv">
-        <div className="doc-pvcenter"><span className="doc-pvempty">Схема не найдена</span></div>
-      </div>
-    );
+    body = <div className="doc-readnote">Схема не найдена</div>;
   }
 
   // ── подвал ──
   let foot: ReactNode = null;
   if (docs !== null && stage === "manual" && form && isArchitect) {
     foot = (
-      <div className="doc-foot doc-foot--bar">
+      <div className="doc-foot doc-foot--bar legacy-root">
         {active && <TwoStepDeleteButton key={active.id} label="Удалить схему" onConfirm={() => void remove()} />}
         {limit
           ? <div className="doc-limit" role="alert"><LimitText message={limit} /></div>
@@ -379,20 +381,20 @@ export default function FlowchartDocs({
       </div>
     );
   } else if (stage === "agent" && active && isArchitect) {
-    foot = <div className="doc-foot">Схема не изменится, пока вы не нажмёте «Применить»</div>;
+    foot = <div className="doc-foot legacy-root">Схема не изменится, пока вы не нажмёте «Применить»</div>;
   }
 
   return (
     <>
       <DocHead
-        glyph={<FlowGlyph />}
+        objectName={nodeName}
         title={title}
-        tag={shownKind ? DOC_KIND_LABEL[shownKind] : "mermaid · flowchart"}
+        tail={tail}
+        notice={notice}
         actions={actions}
         onClose={onRequestClose ?? onClose}
       />
-      {notice && <div className="doc-banner">{notice}</div>}
-      <div className="doc-body">{body}</div>
+      <div className={"doc-body" + (legacy ? " legacy-root" : "")}>{body}</div>
       {foot}
     </>
   );

@@ -1,15 +1,18 @@
 // Оверлей тяжёлой документации узла (Логика / OpenAPI) — тонкий shell: модалка и
-// выбор режима. Оба режима устроены одинаково (вьюер v2): просмотр → «Изменить»
+// выбор режима. Оба режима устроены одинаково (вьюер v2): чтение → «Изменить»
 // → «Вручную» / «Через ИИ-агента», всё в одном окне.
 //   • «Логика» — FlowchartDocs: окно ОДНОЙ схемы, свой фетч, CRUD и CAS, мутации
 //     репортятся onDocEvent для меты;
 //   • OpenAPI — OpenApiPane: спеку пишет страница (onCommitOpenapi → PATCH узла).
-import { useCallback, useRef, useState } from "react";
+// Каркас на новом языке (редизайн, фаза 7а): корень — область .ds, окно во весь экран без
+// полей по 32 px (ширина до 1120 px), шапка в одну строку (docChrome.DocHead).
+import { useCallback, useEffect, useRef, useState } from "react";
 import Modal from "../../ui/Modal";
 import FlowchartDocs from "./FlowchartDocs";
 import type { NodeDocEvent } from "./FlowchartDocs";
 import OpenApiPane from "./OpenApiPane";
 import type { DocStage } from "./OpenApiPane";
+import "../../ui/ds.css";
 import "./docOverlay.css";
 
 interface Props {
@@ -31,12 +34,12 @@ interface Props {
   // Открыть окно на конкретной схеме (клик по строке в секции «Логика», шаг процесса)
   initialDocId?: string;
   // Уведомление о конфликте конкурентных сессий (409 CAS при записи спеки со
-  // страницы): сохранение не применилось — показываем прямо в шапке, панель за
-  // модалкой пользователь не видит. У схем логики свой баннер в FlowchartDocs.
+  // страницы): сохранение не применилось — показываем строкой под шапкой, панель за
+  // модалкой пользователь не видит. У схем логики своя строка в FlowchartDocs.
   notice?: string | null;
   // Пакет агента применён (в историю не кладётся) — страница освежает мету узла.
   onApplied?: () => void;
-  // Переход в процесс из строки «Используется в процессах» просмотра схемы.
+  // Переход в процесс из строки «В процессах» под схемой.
   onOpenProcess?: (processId: string) => void;
 }
 
@@ -59,25 +62,10 @@ export default function DocOverlay({
   }, [confirmClose, onClose]);
 
   return (
-    <Modal onClose={requestClose} closeButton={false} boxStyle={{ padding: 0, borderRadius: 14 }}>
-      <div className="doc-root">
+    <Modal onClose={requestClose} closeButton={false} boxStyle={{ padding: 0 }}>
+      <div className="ds doc-root">
         {/* Вопрос — слоем внутри окна, а не вложенным <dialog> (ловушка Modal). */}
-        {confirmClose && (
-          <div className="doc-confirm-layer">
-            <div className="doc-confirm" role="alertdialog" aria-label="Закрыть без сохранения?">
-              <div className="doc-confirm-title">Закрыть без сохранения?</div>
-              <p>Несохранённые правки пропадут.</p>
-              <div className="doc-confirm-actions">
-                <button type="button" className="doc-codebtn" onClick={() => setConfirmClose(false)} data-autofocus>
-                  Вернуться к правке
-                </button>
-                <button type="button" className="doc-codebtn doc-codebtn--danger" onClick={onClose}>
-                  Закрыть
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {confirmClose && <ConfirmClose onBack={() => setConfirmClose(false)} onClose={onClose} />}
         {mode === "flowchart" ? (
           <FlowchartDocs
             nodeId={nodeId}
@@ -109,5 +97,29 @@ export default function DocOverlay({
         )}
       </div>
     </Modal>
+  );
+}
+
+// «Закрыть без сохранения?»: главная кнопка «Вернуться к правке» первой и в фокусе (вопрос
+// появляется поверх уже открытого окна, поэтому data-autofocus окна до него не доходит),
+// «Закрыть» за ней цветом опасного действия.
+function ConfirmClose({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
+  const backRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { backRef.current?.focus(); }, []);
+  return (
+    <div className="doc-confirm-layer">
+      <div className="doc-confirm" role="alertdialog" aria-label="Закрыть без сохранения?">
+        <h2 className="ds-win-title">Закрыть без сохранения?</h2>
+        <p>Несохранённые правки пропадут.</p>
+        <div className="doc-confirm-actions">
+          <button type="button" ref={backRef} className="ds-btn ds-btn--primary" onClick={onBack}>
+            Вернуться к правке
+          </button>
+          <button type="button" className="ds-btn doc-confirm-close" onClick={onClose}>
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
