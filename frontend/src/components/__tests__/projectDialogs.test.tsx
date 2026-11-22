@@ -203,6 +203,14 @@ describe("EditProjectDialog", () => {
     expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-win-close");
   });
 
+  it("вид: у стёртого названия подсказка внутри поля, как в окне «Новый проект»", async () => {
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const name = screen.getByLabelText("Название");
+    expect(name).toHaveAttribute("placeholder", "например: Платёжная платформа");
+    await userEvent.clear(name);
+    expect(screen.getByPlaceholderText("например: Платёжная платформа")).toBe(name);
+  });
+
   it("вид: запертая «Сохранить» без своей прозрачности, отказ строкой подвала", async () => {
     vi.mocked(projectsApi.update).mockRejectedValue(new Error("Имя занято"));
     render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);

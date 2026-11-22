@@ -72,6 +72,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
                   onValue={setName}
                   onCommit={setName}
                   onKeyDown={onNameKey}
+                  placeholder="например: Платёжная платформа"
                 />
               </dd>
             </div>
