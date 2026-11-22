@@ -121,6 +121,9 @@ export interface ImportInto {
   applying: boolean;
   applyError: string | null;
   canApply: boolean;
+  /** Архивы успешно проверены, но ничего не добавляют и ни о чём не спорят (условие, по
+   *  которому гаснет «Применить»): окно говорит об этом одной тихой строкой. */
+  nothingNew: boolean;
   /** Отчёт применения: показывается В ОКНЕ до «Готово». */
   result: IntoApplyOut | null;
   /** «Готово»: тост родителю строкой тронутого. */
@@ -237,8 +240,12 @@ export function useImportInto(
   }
 
   // Применять нечего, когда архив ничего не добавляет и ни о чём не спорит (типовой
-  // случай: догрузили архив ЭТОГО же проекта) — кнопка гаснет, а дифф это объясняет.
-  const canApply = !!fresh?.ok && !applying && excess === null && brings(fresh, questions.length);
+  // случай: догрузили архив ЭТОГО же проекта): кнопка гаснет, а окно говорит «нет ничего
+  // нового» вместо статуса «Готово к импорту» и строки «Нового: 0 объектов, 0 связей».
+  const checked = fresh?.ok === true && excess === null;
+  const brought = checked && brings(fresh, questions.length);
+  const canApply = brought && !applying;
+  const nothingNew = checked && !brought;
 
   function finish() {
     if (result) onApplied(applySummary(result));
@@ -254,6 +261,6 @@ export function useImportInto(
     onResolve: (id, choice) => setResolutions((cur) => ({ ...cur, [id]: choice })),
     withMine,
     resolveAll,
-    apply, applying, applyError, canApply, result, finish,
+    apply, applying, applyError, canApply, nothingNew, result, finish,
   };
 }

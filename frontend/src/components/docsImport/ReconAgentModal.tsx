@@ -35,9 +35,6 @@ import "./reconAgent.css";
 interface Props {
   // Объект, из окна которого открыт список: к нему уедет перечень без строки node.
   nodeId: string;
-  // Имя объекта окна. Текст окна его больше не называет (вступление ушло в фазе 6г);
-  // проп остаётся у вызова со страницы объекта.
-  nodeName: string;
   onClose: () => void;
   // Заглушки созданы — родитель перечитывает объект (раздел «Логика»).
   onApplied: () => void;
@@ -67,7 +64,7 @@ export default function ReconAgentModal({ nodeId, onClose, onApplied }: Props) {
           <section className="ds-win-block">
             <div className="ds-win-block-head">
               <h3 className="ds-win-block-title">Задание агенту</h3>
-              <InfoPopover ds label="Зачем нужен список" width={380}>
+              <InfoPopover label="Зачем нужен список" width={380}>
                 <p>
                   Схемы логики бывают двух видов: операции (работают по запросу) и воркеры
                   (работают сами, в фоне или по расписанию). Чтобы агент описал каждую,

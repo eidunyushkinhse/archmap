@@ -108,13 +108,22 @@ function IntoInputs({ into }: { into: ImportInto }) {
           {/* Та же строка статуса, что в окне создания (§1.2): отказ разбора архива — её
               красное состояние со ВСЕМИ ошибками. Виновника-ссылки здесь нет: архивы не
               открываются, их читают; имя архива — в начале текста ошибки. */}
-          <StatusLine
-            state={statusState(fresh.ok, questions.length + fresh.remainder.unfixable.length)}
-            errors={fresh.ok ? undefined : (
-              fresh.errors.length > 0 ? fresh.errors : ["Не удалось прочитать архив"]
-            ).map((e) => ({ chipLabel: null, chipIndex: null, ...splitErrorLine(e) }))}
-          />
-          {ok && <IntoDiff preview={fresh} />}
+          {/* Архив без нового (типовой случай: архив этого же проекта): вместо статуса
+              «Готово к импорту» при погашенной «Применить» и строки «Нового: 0 объектов,
+              0 связей» одна тихая строка. */}
+          {into.nothingNew ? (
+            <p className="ii-line ii-quiet">
+              {into.files.length > 1 ? "В архивах нет ничего нового" : "В архиве нет ничего нового"}
+            </p>
+          ) : (
+            <StatusLine
+              state={statusState(fresh.ok, questions.length + fresh.remainder.unfixable.length)}
+              errors={fresh.ok ? undefined : (
+                fresh.errors.length > 0 ? fresh.errors : ["Не удалось прочитать архив"]
+              ).map((e) => ({ chipLabel: null, chipIndex: null, ...splitErrorLine(e) }))}
+            />
+          )}
+          {ok && <IntoDiff preview={fresh} nothingNew={into.nothingNew} />}
           {ok && questions.length > 0 && (
             <RemainderBlock
               questions={questions}

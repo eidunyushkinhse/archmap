@@ -85,8 +85,8 @@ vi.mock("../../components/EdgeEditModal", () => ({
 // Окно «Список операций от агента»: маркер вместо настоящего окна — здесь проверяется вход в
 // него из меню «+ Добавить», а само окно покрыто своим тестом (ReconAgentModal.test).
 vi.mock("../../components/docsImport/ReconAgentModal", () => ({
-  default: ({ nodeName }: { nodeName: string }) => (
-    <div data-testid="recon-modal" data-node-name={nodeName} />
+  default: ({ nodeId }: { nodeId: string }) => (
+    <div data-testid="recon-modal" data-node-id={nodeId} />
   ),
 }));
 
@@ -1228,7 +1228,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
     // «Добавить» на странице несколько (Логика, OpenAPI, Конфигурация) — берём раздел «Логика».
     await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Составить список операций" }));
-    expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-name", "Сервис оплаты");
+    expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-id", "n1");
   });
 
   it("читателю видно состояние схем, но разведка ему не предлагается", async () => {

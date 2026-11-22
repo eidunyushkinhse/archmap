@@ -669,7 +669,6 @@ function NodePageInner({
       {reconAgent && (
         <ReconAgentModal
           nodeId={node.id}
-          nodeName={node.name}
           onClose={() => setReconAgent(false)}
           // Заглушки — те же схемы логики: свежий узел целиком, и секция «Логика»
           // показывает их сразу.

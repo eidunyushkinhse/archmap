@@ -41,7 +41,7 @@ const ЧЕТЫРЕ = [
 const onClose = vi.fn();
 const onApplied = vi.fn();
 function open() {
-  render(<ReconAgentModal nodeId="n1" nodeName="Order API" onClose={onClose} onApplied={onApplied} />);
+  render(<ReconAgentModal nodeId="n1" onClose={onClose} onApplied={onApplied} />);
 }
 
 // ── помощники вида ───────────────────────────────────────────────────────────

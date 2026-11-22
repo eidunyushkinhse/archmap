@@ -32,7 +32,7 @@ const item = (over: Partial<ReconItem> = {}): ReconItem => ({
 function open() {
   const onApplied = vi.fn();
   const onClose = vi.fn();
-  render(<ReconAgentModal nodeId="n1" nodeName="backend" onClose={onClose} onApplied={onApplied} />);
+  render(<ReconAgentModal nodeId="n1" onClose={onClose} onApplied={onApplied} />);
   return { onApplied, onClose };
 }
 

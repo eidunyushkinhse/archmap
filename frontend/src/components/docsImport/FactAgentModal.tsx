@@ -94,7 +94,7 @@ export default function FactAgentModal<R extends FactReport>({
             <div className="ds-win-block-head">
               <h3 className="ds-win-block-title">Ответы агента</h3>
               {kind.help && (
-                <InfoPopover ds label="Как ArchMap разбирает файлы" width={380}>
+                <InfoPopover label="Как ArchMap разбирает файлы" width={380}>
                   {kind.help(nodeName)}
                 </InfoPopover>
               )}

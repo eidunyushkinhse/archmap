@@ -1,4 +1,6 @@
-/* ⓘ-поповер (ui/InfoPopover.tsx): кнопка-знак вопроса и панель пояснения. */
+/* ⓘ-поповер (ui/InfoPopover.tsx): кнопка-знак вопроса и панель пояснения. Вид нового
+   языка (редизайн): тихий значок у заголовка блока и панель на токенах ui/tokens.css —
+   кегль, интерлиньяж и цвет окна, без трекинга прежних метрик. */
 
 .ipop-wrap {
   display: inline-flex;
@@ -14,18 +16,22 @@
   padding: 0;
   border: none;
   background: none;
-  color: #94a3b8;
+  color: var(--c-fg-faint);
   cursor: pointer;
   border-radius: 50%;
 }
 .ipop-btn:hover,
 .ipop-btn[aria-expanded="true"] {
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--c-accent);
+  background: var(--c-hover);
+}
+.ipop-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
 }
 
-/* Панель — fixed по координатам кнопки: правая панель редактора со своим
-   overflowY обрезала бы абсолютный слой (см. комментарий в InfoPopover). */
+/* Панель — fixed по координатам кнопки: правая панель редактора со своим overflowY
+   обрезала бы абсолютный слой (см. комментарий в InfoPopover). */
 .ipop-panel {
   position: fixed;
   z-index: 60;
@@ -34,54 +40,26 @@
   box-sizing: border-box;
   overflow-y: auto;
   background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
   box-shadow: 0 8px 28px rgba(15, 23, 42, 0.16);
   padding: 12px 14px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: #334155;
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
   text-align: left;
   white-space: normal;
 }
 
 .ipop-panel p {
-  margin: 0 0 9px;
+  margin: 0 0 var(--space-2);
 }
 .ipop-panel p:last-child {
   margin-bottom: 0;
 }
 .ipop-panel b,
 .ipop-panel strong {
-  color: #0f172a;
-}
-
-/* Вид нового языка (проп ds, окна редизайна): тихий значок у заголовка блока и панель на
-   токенах ui/tokens.css — кегль, интерлиньяж и цвет окна, без трекинга прежних метрик. */
-.ipop-btn--ds {
-  color: var(--c-fg-faint);
-}
-.ipop-btn--ds:hover,
-.ipop-btn--ds[aria-expanded="true"] {
-  color: var(--c-accent);
-  background: var(--c-hover);
-}
-.ipop-btn--ds:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 0;
-}
-.ipop-panel.ipop-panel--ds {
-  border-color: var(--c-line);
-  border-radius: var(--radius-lg);
-  font-family: var(--font-ui);
-  font-size: var(--fs-ui);
-  line-height: var(--lh-ui);
-  letter-spacing: 0;
   color: var(--c-fg);
-}
-.ipop-panel--ds p {
-  margin: 0 0 var(--space-2);
-}
-.ipop-panel--ds p:last-child {
-  margin-bottom: 0;
 }

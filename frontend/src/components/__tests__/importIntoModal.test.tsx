@@ -383,21 +383,24 @@ describe("основание склейки и источника новых (Ф
   // же объект» — не показывалось вовсе: превью говорило только про новое.
   it("найденные в проекте названы с основанием каждой находки", async () => {
     vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
-      nodes_matched: 5,
+      nodes_matched: 6,
       matched_nodes: [
         { path: "Ярмарка / orders", basis: "code" },
         { path: "Ярмарка / Каталог-БД", basis: "dependency" },
         { path: "Ярмарка", basis: "name" },
+        { path: "Ярмарка / Заказы / БД заказов", basis: "name" },
       ],
     }));
     await открыть(zip("b.zip"));
 
-    expect(await screen.findByText(/Найдено в проекте: 5 объектов/)).toBeInTheDocument();
+    expect(await screen.findByText(/Найдено в проекте: 6 объектов/)).toBeInTheDocument();
     // Строка: путь, затем тихим цветом основание (как строка плана «Обновить из кода»).
     const строка = (путь: string) => screen.getByText(путь).closest("li");
     expect(строка("Ярмарка / orders")).toHaveTextContent(/^Ярмарка \/ orders: по коду$/);
     expect(строка("Ярмарка / Каталог-БД")).toHaveTextContent(/^Ярмарка \/ Каталог-БД: по имени зависимости$/);
-    expect(строка("Ярмарка")).toHaveTextContent(/^Ярмарка: по имени на верхнем уровне$/);
+    // Основание коротко: путь уже в строке, хвост «внутри «…»» его повторял (хвост 6г).
+    expect(строка("Ярмарка")).toHaveTextContent(/^Ярмарка: по имени$/);
+    expect(строка("Ярмарка / Заказы / БД заказов")).toHaveTextContent(/^Ярмарка \/ Заказы \/ БД заказов: по имени$/);
     expect(screen.getByText(": по коду")).toHaveClass("ii-quiet");
     // Перечень обрезан капом — остаток назван счётчиком, а не съеден молча.
     expect(screen.getByText("и ещё 2")).toBeInTheDocument();

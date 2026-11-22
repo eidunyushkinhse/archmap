@@ -84,16 +84,37 @@ describe("догрузка архива: превью и применение", 
     expect(применить()).toBeDisabled();
   });
 
-  it("архив этого же проекта: нового нет, применять нечего", async () => {
-    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
-      nodes_new: 0, new_nodes: [], edges_new: 0,
-      families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
-      nodes_matched: 2, matched_nodes: [{ path: "Ярмарка", basis: "name" }, { path: "Ярмарка / Заказы", basis: "code" }],
-    }));
+  // Архив этого же проекта: превью успешно, но ничего не добавляет. Вместо зелёного
+  // «Готово к импорту» при погашенной «Применить» и строки «Нового: 0 объектов, 0 связей» —
+  // одна тихая строка (хвост фазы 6г); перечень найденного остаётся.
+  const безНового = (): IntoPreviewOut => превью({
+    nodes_new: 0, new_nodes: [], edges_new: 0,
+    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
+    nodes_matched: 2, matched_nodes: [{ path: "Ярмарка", basis: "name" }, { path: "Ярмарка / Заказы", basis: "code" }],
+  });
+
+  it("архив этого же проекта: тихая строка «нет ничего нового», применять нечего", async () => {
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(безНового());
     await открыть(zip("yarm.zip"));
-    expect(await screen.findByText(строкаНового("0 объектов", "0 связей"), {}, WAIT)).toBeInTheDocument();
+    expect(await screen.findByText("В архиве нет ничего нового", {}, WAIT)).toHaveClass("ii-quiet");
+    expect(screen.queryByText("Готово к импорту")).toBeNull();
+    expect(screen.queryByText(/Нового:/)).toBeNull();
     expect(screen.getByText(/Найдено в проекте: 2 объекта/)).toBeInTheDocument();
     expect(применить()).toBeDisabled();
+  });
+
+  it("два архива без нового: «В архивах нет ничего нового»", async () => {
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(безНового());
+    await открыть(zip("yarm.zip"), zip("yarm-2.zip"));
+    expect(await screen.findByText("В архивах нет ничего нового", {}, WAIT)).toBeInTheDocument();
+    expect(применить()).toBeDisabled();
+  });
+
+  it("архив с новым: статус и строка «Нового» на месте, тихой строки нет", async () => {
+    await открыть(zip("grafana.zip"));
+    expect(await screen.findByText(строкаНового("2 объекта", "1 связь"), {}, WAIT)).toBeInTheDocument();
+    expect(screen.getByText("Готово к импорту")).toBeInTheDocument();
+    expect(screen.queryByText(/нет ничего нового/)).toBeNull();
   });
 
   it("отказ применения виден, окно открыто, повтор возможен", async () => {

@@ -1,11 +1,12 @@
 // Дифф превью и отчёт применения окна «Догрузить архив» на новом языке (редизайн, фаза 6г).
 // Слова прежние; склейки частей через «·» нет: части строки идут через запятую, основание
-// находки и пометка «без источника» тихим цветом после пути (как строка плана «Обновить из
-// кода»). Состояние — useImportInto, окно — ImportIntoModal.
+// находки (коротко, без повтора пути) и пометка «без источника» тихим цветом после пути.
+// Состояние — useImportInto, окно — ImportIntoModal.
 import { useState } from "react";
 import type { IntoApplyOut, IntoPreviewOut } from "../../types";
 import { plural } from "../../ui/plural";
 import { anchorKind, basisLabel } from "../anchor/anchorText";
+import type { MergeBasis } from "../anchor/anchorText";
 import { FactLines, ReportTail } from "./ImportReportParts";
 import { familyLine } from "./useImportInto";
 import "../../ui/ds.css";
@@ -16,15 +17,22 @@ const PATHS_SHOWN = 8;
 
 const objects = (n: number) => `${n} ${plural(n, ["объект", "объекта", "объектов"])}`;
 
-// Дифф превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов.
-export function IntoDiff({ preview }: { preview: IntoPreviewOut }) {
+// Основание находки коротко: путь уже стоит в строке, поэтому у «по имени» нет хвоста
+// «внутри «…»» (он повторял путь). Остальные основания — прежними словами.
+const shortBasis = (basis: MergeBasis): string => (basis === "name" ? "по имени" : basisLabel(basis));
+
+// Дифф превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов. Архив без
+// нового (nothingNew) строки «Нового: …» не получает: окно говорит об этом само.
+export function IntoDiff({ preview, nothingNew }: { preview: IntoPreviewOut; nothingNew: boolean }) {
   const families = familyLine(preview.families);
   return (
     <div className="ii-diff">
-      <p className="ii-new">
-        Нового: {objects(preview.nodes_new)}, {preview.edges_new}{" "}
-        {plural(preview.edges_new, ["связь", "связи", "связей"])}
-      </p>
+      {!nothingNew && (
+        <p className="ii-new">
+          Нового: {objects(preview.nodes_new)}, {preview.edges_new}{" "}
+          {plural(preview.edges_new, ["связь", "связи", "связей"])}
+        </p>
+      )}
       {families && <p className="ii-line ii-quiet">Добавится: {families}</p>}
       {/* Догрузка сопоставляет узлы ИСТОЧНИКОМ, и самое спорное её решение («это тот же
           объект») названо вслух, вместе с основанием каждой находки. */}
@@ -32,7 +40,7 @@ export function IntoDiff({ preview }: { preview: IntoPreviewOut }) {
         <PathList
           title={`Найдено в проекте: ${objects(preview.nodes_matched)}`}
           total={preview.nodes_matched}
-          rows={preview.matched_nodes.map((m) => ({ path: m.path, note: `: ${basisLabel(m.basis, m.path)}` }))}
+          rows={preview.matched_nodes.map((m) => ({ path: m.path, note: `: ${shortBasis(m.basis)}` }))}
         />
       )}
       {preview.new_nodes.length > 0 && (
