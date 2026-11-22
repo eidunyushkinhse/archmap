@@ -1,4 +1,4 @@
-// Общие НЕ-компонентные части BYOA-модалок (DocsAgentModal — схемы логики,
+// Общие НЕ-компонентные части BYOA-окон (DocsAgentPanel — схемы логики,
 // SpecAgentPanel — OpenAPI-спека): бейджи действий превью, подсчёт действий и
 // inline-стили двухколоночного макета (чипы файлов, редактор, подвал). Стили
 // переиспользуются как есть — окна визуально едины. Компоненты отчёта
@@ -121,11 +121,6 @@ export const rightCol: CSSProperties = { flex: 1, minWidth: 0, display: "flex", 
 export const radioRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#334155",
   cursor: "pointer", userSelect: "none",
-};
-export const hintsArea: CSSProperties = {
-  width: "100%", height: 74, boxSizing: "border-box", resize: "vertical", marginBottom: 8,
-  padding: "8px 10px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13,
-  color: "#0f172a", fontFamily: "inherit",
 };
 export const leftNote: CSSProperties = { margin: "10px 0 0", fontSize: 11.5, color: "#94a3b8", lineHeight: 1.5 };
 export const chipsRow: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 8 };

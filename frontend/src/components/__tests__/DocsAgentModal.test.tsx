@@ -41,14 +41,14 @@ function open() {
   const onApplied = vi.fn();
   const onClose = vi.fn();
   render(
-    <DocsAgentModal nodeId="n1" nodeName="orders" onClose={onClose} onApplied={onApplied} />,
+    <DocsAgentModal nodeId="n1" onClose={onClose} onApplied={onApplied} />,
   );
   return { onApplied, onClose };
 }
 
 // Пакет вставляется текстом: файловый ввод в jsdom тестировать нечем, а путь тот же.
 async function вставить(текст: string) {
-  await userEvent.click(screen.getByText("+ вставить из буфера"));
+  await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
   await печатать(текст);
 }
 
@@ -141,7 +141,7 @@ describe("DocsAgentModal · дифф пометок между попыткам�
 
     // Убрали последний файл — дальше грузят ДРУГОЙ пакет, и старые числа дали бы
     // ложную ампутацию.
-    await userEvent.click(screen.getByTitle("Убрать файл"));
+    await userEvent.click(screen.getByRole("button", { name: "Убрать вставка-1" }));
     await вставить("graph LR");
     await попытка(
       report({ warnings: ["новый пакет"], data_refs_total: 1, channel_refs_total: 0 }),
@@ -218,19 +218,19 @@ describe("DocsAgentModal · режим «по одной»", () => {
     vi.mocked(docsImportApi.prompt).mockResolvedValue({ prompt: "промпт" });
     const writeText = vi.fn((_text: string) => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    render(<DocsAgentModal nodeId="n1" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()} />);
+    render(<DocsAgentModal nodeId="n1" onClose={vi.fn()} onApplied={vi.fn()} />);
 
-    await userEvent.click(screen.getByRole("tab", { name: "По одной схеме" }));
+    await userEvent.click(screen.getByRole("button", { name: "По одной схеме" }));
     await userEvent.type(screen.getByPlaceholderText(/воркер или эндпоинт/), "POST /orders");
 
-    await userEvent.click(screen.getByText("Скопировать промпт"));
+    await userEvent.click(screen.getByText("Скопировать задание"));
     await waitFor(() => expect(docsImportApi.prompt).toHaveBeenCalled());
     expect(vi.mocked(docsImportApi.prompt).mock.calls[0][0].target).toBe("POST /orders");
   });
 
   it("окно открывается пакетом и с пустым полем", async () => {
-    render(<DocsAgentModal nodeId="n1" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()} />);
-    expect(screen.getByRole("tab", { name: "Пакетом" })).toHaveAttribute("aria-selected", "true");
+    render(<DocsAgentModal nodeId="n1" onClose={vi.fn()} onApplied={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Пакетом" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText("Что описать")).toBeNull();
   });
 });

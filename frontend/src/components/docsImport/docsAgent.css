@@ -1,0 +1,166 @@
+/* Окно «Описать схемы логики с помощью ИИ-агента» (DocsAgentModal, DocsAgentPlan): одна
+   колонка на общем каркасе окна (ui/ds.css: ds-win, блоки ds-win-block, строки ds-prop).
+   Зона файлов и выбор языка — общие части окон ввоза (importParts.css). Здесь только своё:
+   место окна, галочка «Заменять уже описанное» и отчёт превью. Значения — только токены
+   ui/tokens.css. */
+
+/* Окно прижато к верху (8vh, DocsAgentModal): не выше экрана без этого отступа и 24px
+   снизу, прокручивается только тело. */
+.ds-win.dap-win {
+  max-height: calc(92vh - 24px);
+}
+.dap-modes {
+  align-self: flex-start;
+}
+
+/* «Заменять уже описанное»: флажок и текст на одной базовой линии, подсказка — в title. */
+.dap-check {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  margin-top: var(--space-1);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.dap-check input {
+  flex: none;
+  margin: 0;
+}
+/* Фокус флажка — кольцом языка только с клавиатуры (общее правило окон ui/modal.css
+   рисует светлую рамку и после щелчка мышью). */
+.app-modal .ds-win .dap-check input:focus {
+  box-shadow: none;
+}
+.app-modal .ds-win .dap-check input:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+
+/* ── Отчёт превью: строки 13px, итог 600, предупреждения цветом предупреждения ── */
+.dap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+}
+.dap:empty {
+  display: none;
+}
+.dap .ds-warn.dap-line,
+.dap-line {
+  margin: 0;
+}
+.dap-quiet {
+  color: var(--c-fg-muted);
+}
+.dap-summary {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-fg-muted);
+}
+.dap-summary.is-ok {
+  color: var(--c-ok);
+}
+.dap-remarks {
+  align-self: flex-start;
+}
+
+/* Строки плана: общая сетка на все строки, поэтому имя, вид и «что будет» в каждой
+   строке начинаются с одного x. Текст имени и вида стоит на x своей колонки (у полей 6px
+   слева и такой же отрицательный отступ), у «что будет» тот же отступ сверху. */
+.dap-plan {
+  min-width: 0;
+}
+.dap-plan-title {
+  margin: 0 0 2px;
+  font-weight: 500;
+  color: var(--c-fg);
+}
+.dap-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  column-gap: var(--space-4);
+  row-gap: 2px;
+  align-items: start;
+}
+.dap-row {
+  display: contents;
+}
+/* Адрес объекта — подписью над его строками. */
+.dap-path {
+  grid-column: 1 / -1;
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+.dap-path:first-child {
+  margin-top: 0;
+}
+.dap-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dap-op {
+  line-height: var(--lh-ui);
+}
+.dap-bad {
+  overflow: hidden;
+  color: var(--c-warn);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Вид схемы: тихий select на вид значения-кнопки (ds-value-btn), шеврон при наведении. */
+.dap-kind {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: -6px;
+}
+.dap-kind select {
+  appearance: none;
+  margin: 0;
+  padding: 3px 22px 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.dap-kind select:hover {
+  background: var(--c-hover);
+}
+.app-modal .ds-win .dap-kind select:focus {
+  outline: none;
+  border-color: transparent;
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.dap-kind .ds-value-chev {
+  position: absolute;
+  right: 4px;
+  pointer-events: none;
+}
+.dap-kind:hover .ds-value-chev,
+.dap-kind:focus-within .ds-value-chev {
+  opacity: 1;
+}
+.dap-act {
+  padding: 3px 0;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.dap-act.is-warn {
+  color: var(--c-warn);
+}
+.dap-more {
+  margin: 2px 0 0;
+  color: var(--c-fg-muted);
+}

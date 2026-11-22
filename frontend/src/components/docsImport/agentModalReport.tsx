@@ -6,6 +6,7 @@
 // текст заметки и сам гвард — в agentModalShared.ts.
 import type { CSSProperties, ReactNode } from "react";
 import { badge, UNCHANGED_INPUT_NOTE } from "./agentModalShared";
+import "../../ui/ds.css";
 import "./agentParts.css";
 
 // Строки превью: текст + бейдж действия + советующий статус + опциональный
@@ -43,8 +44,10 @@ export function ItemList({ title, rows }: {
 
 // Заметка гварда: вход тот же, что в прошлый заход. Стоит НАД сводкой, тем же
 // amber, что «Исчезли:» и «Пометок данных было …» — это один класс сообщений
-// «посмотрите на пакет, прежде чем применять».
-export function UnchangedInputNote() {
+// «посмотрите на пакет, прежде чем применять». ds — вид нового языка (окно «Описать
+// схемы логики…», редизайн, фаза 6в): строка цветом предупреждения.
+export function UnchangedInputNote({ ds = false }: { ds?: boolean }) {
+  if (ds) return <p className="ds-warn anl-line">{UNCHANGED_INPUT_NOTE}</p>;
   return <div style={amberLine}>{UNCHANGED_INPUT_NOTE}</div>;
 }
 
@@ -56,12 +59,27 @@ export function UnchangedInputNote() {
 //
 // text/clearLabel — для мульти-файлового импорта, где замечания копируются пофайлово
 // и устаревает ОДИН файл, а не весь вход (Ф6). Дефолты — прежние тексты дозаливок.
-export function StaleFilesConfirm({ onKeep, onClear, text, clearLabel }: {
+// ds — вид нового языка: вопрос строкой и две текстовые кнопки, без плашки.
+export function StaleFilesConfirm({ onKeep, onClear, text, clearLabel, ds = false }: {
   onKeep: () => void;
   onClear: () => void;
   text?: string;
   clearLabel?: string;
+  ds?: boolean;
 }) {
+  if (ds) {
+    return (
+      <div className="asf">
+        <p className="asf-text">
+          {text ?? "Агент пришлёт исправленные файлы, и те, что сейчас в окне, станут не нужны. Оставить их?"}
+        </p>
+        <div className="asf-acts">
+          <button type="button" className="ds-add" onClick={onKeep}>Оставить</button>
+          <button type="button" className="ds-add" onClick={onClear}>{clearLabel ?? "Убрать из окна"}</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={confirmBox}>
       <span style={{ color: "#475569" }}>
@@ -78,12 +96,18 @@ export function StaleFilesConfirm({ onKeep, onClear, text, clearLabel }: {
 }
 
 // Список замечаний (конфликты файлов / предупреждения превью). ds — вид нового языка
-// для окна «Обновить из кода» (редизайн, фаза 6а; классы agentParts.css): окна прежнего
-// вида его не передают и рисуют список как раньше.
-export function NoteList({ title, items, ds = false }: { title: string; items: string[]; ds?: boolean }) {
+// для окон «Обновить из кода» и «Описать схемы логики…» (редизайн, фазы 6а и 6в; классы
+// agentParts.css): окна прежнего вида его не передают и рисуют список как раньше.
+// danger — заголовок цветом ошибки («Файлы не применить:»), только у вида нового языка.
+export function NoteList({ title, items, ds = false, danger = false }: {
+  title: string;
+  items: string[];
+  ds?: boolean;
+  danger?: boolean;
+}) {
   if (ds) {
     return (
-      <div className="anl">
+      <div className={"anl" + (danger ? " is-danger" : "")}>
         <p className="anl-title">{title}</p>
         {items.slice(0, 6).map((s, i) => <p key={i} className="anl-item">{s}</p>)}
         {items.length > 6 && <p className="anl-item">и ещё {items.length - 6}</p>}

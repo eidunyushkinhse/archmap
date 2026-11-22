@@ -657,7 +657,6 @@ function NodePageInner({
       {docsAgent && (
         <DocsAgentModal
           nodeId={node.id}
-          nodeName={node.name}
           onClose={() => setDocsAgent(false)}
           // Дозаливка изменила мету доков узла — свежий узел целиком (секция «Логика»).
           onApplied={refreshNode}

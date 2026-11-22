@@ -59,10 +59,10 @@ interface Кейс {
 const кейсы: Кейс[] = [
   {
     окно: "логика (DocsAgentModal)",
-    подпись: "Скопировать промпт",
-    скопировано: "Скопировано ✓",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
-      render(<DocsAgentModal nodeId="n1" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()} />);
+      render(<DocsAgentModal nodeId="n1" onClose={vi.fn()} onApplied={vi.fn()} />);
       await Promise.resolve();
     },
     вариант: () => vi.mocked(docsImportApi.prompt).mock.calls.at(-1)?.[0]?.variant,

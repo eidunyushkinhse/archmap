@@ -7,8 +7,11 @@
 // с очищенным адресом и пустым пакетом; смена режима не теряет файлы, язык и подсказки.
 //
 // Где окно рисуется по-разному (вкладка режима, выбор языка, кнопка задания), вид спрятан в
-// помощники ниже. Modal настоящий (test-setup открывает <dialog> атрибутом open).
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+// помощники ниже: сетка написана на прежнем окне, после перевода на новый язык поменялись
+// только помощники. Тесты нового вида — в конце файла: Escape при открытом меню языка,
+// «Отмена», пояснение режима в подсказке вкладки, галочка только вместе с файлами.
+// Modal настоящий (test-setup открывает <dialog> атрибутом open).
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DocsAgentModal from "../docsImport/DocsAgentModal";
@@ -38,18 +41,19 @@ const report = (over: Partial<DocsImportReport> = {}): DocsImportReport => ({
 function renderWindow() {
   const onClose = vi.fn();
   const onApplied = vi.fn();
-  render(<DocsAgentModal nodeId="n1" nodeName="Заказы" onClose={onClose} onApplied={onApplied} />);
+  render(<DocsAgentModal nodeId="n1" onClose={onClose} onApplied={onApplied} />);
   return { onClose, onApplied };
 }
 
 // ── помощники вида ───────────────────────────────────────────────────────────
-const режим = (name: "Пакетом" | "По одной схеме") => screen.getByRole("tab", { name });
-const кнопкаЗадания = () => screen.getByRole("button", { name: "Скопировать промпт" });
+const режим = (name: "Пакетом" | "По одной схеме") => screen.getByRole("button", { name });
+const кнопкаЗадания = () => screen.getByRole("button", { name: "Скопировать задание" });
 async function выбратьЯзык(name: "Английский") {
-  await userEvent.click(screen.getByLabelText(name));
+  await userEvent.click(screen.getByRole("button", { name: /^Язык подписей/ }));
+  await userEvent.click(screen.getByRole("menuitemradio", { name }));
 }
 const языкВыбран = (name: "Русский" | "Английский") =>
-  expect(screen.getByLabelText(name)).toBeChecked();
+  expect(screen.getByRole("button", { name: `Язык подписей ${name}` })).toBeInTheDocument();
 
 const полеАдреса = () => screen.queryByPlaceholderText(/воркер или эндпоинт/) as HTMLTextAreaElement | null;
 const полеПодсказок = () => screen.getByPlaceholderText(/billing/) as HTMLTextAreaElement;
@@ -197,5 +201,98 @@ describe("Схемы логики с агентом: по одной схеме"
     expect(screen.queryByText(/Схем: 1/)).toBeNull();
     // Режим остался «по одной»: готовим следующую схему.
     expect(button("Добавить ещё")).not.toBeNull();
+  });
+});
+
+describe("Схемы логики с агентом: вид нового языка", () => {
+  it("пояснение режима — в подсказке вкладки, вступления и серой строки нет", () => {
+    renderWindow();
+    expect(режим("Пакетом")).toHaveAttribute(
+      "title",
+      "Агент отдаст пакет со всеми схемами объекта за один заход. Используйте этот режим в репозиториях микросервисов",
+    );
+    expect(режим("По одной схеме")).toHaveAttribute(
+      "title",
+      "Агент отдаст схему одного воркера или эндпоинта за один заход. Используйте этот режим в репозиториях крупных монолитов",
+    );
+    expect(режим("Пакетом")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText(/Используйте этот режим/)).toBeNull();
+    expect(screen.queryByText(/ИИ-агент опишет по коду/)).toBeNull();
+    expect(screen.queryByText(/опционально/)).toBeNull();
+  });
+
+  it("зона файлов одной строкой по режиму; галочка появляется вместе с файлами", async () => {
+    renderWindow();
+    expect(screen.getByText("Перетащите сюда файлы схем от агента")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Заменять уже описанное/)).toBeNull();
+    await userEvent.click(режим("По одной схеме"));
+    expect(screen.getByText("Перетащите сюда файл схемы от агента")).toBeInTheDocument();
+    await положитьФайл();
+    const box = screen.getByLabelText(/Заменять уже описанное/);
+    expect(box).not.toBeChecked();
+    expect(box.closest("label")).toHaveAttribute("title", expect.stringContaining("новая по умолчанию пропускается"));
+    // Галочка в теле под отчётом, а не в футере.
+    expect(box.closest(".ds-win-foot")).toBeNull();
+  });
+
+  it("вставка текстом открывает поле; файл с диска открывается по клику на имя", async () => {
+    renderWindow();
+    await положитьФайл();
+    expect(screen.queryByLabelText("Текст a.mmd")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "a.mmd" }));
+    expect(screen.getByLabelText("Текст a.mmd")).toHaveValue("%% archmap-name: Приём заказа\ngraph TD\n  A-->B\n");
+    await userEvent.click(screen.getByRole("button", { name: "a.mmd" }));
+    expect(screen.queryByLabelText("Текст a.mmd")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
+    expect(screen.getByLabelText("Текст вставка-1")).toHaveValue("");
+  });
+
+  it("строка плана: адрес объекта над строками, операция под именем, без «·»", async () => {
+    renderWindow();
+    await положитьФайл();
+    const plan = screen.getByText("Схемы логики:").closest(".dap-plan") as HTMLElement;
+    expect(within(plan).getByText("Ярмарка / Заказы")).toBeInTheDocument();
+    expect(within(plan).getByText("POST /orders")).toBeInTheDocument();
+    expect(within(plan).getByText("новая")).toBeInTheDocument();
+    expect(plan.textContent).not.toContain("·");
+  });
+
+  it("«Отмена» закрывает окно, футер: главная кнопка первой", async () => {
+    const { onClose } = renderWindow();
+    const foot = document.querySelector(".ds-win-foot") as HTMLElement;
+    expect(within(foot).getAllByRole("button").map((b) => b.textContent)).toEqual(["Применить", "Отмена"]);
+    await userEvent.click(режим("По одной схеме"));
+    expect(within(foot).getAllByRole("button").map((b) => b.textContent)).toEqual(["Добавить", "Добавить ещё", "Отмена"]);
+    await userEvent.click(within(foot).getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("Escape при открытом меню языка закрывает только меню, следующий — окно", async () => {
+    const { onClose } = renderWindow();
+    const value = screen.getByRole("button", { name: "Язык подписей Русский" });
+    await userEvent.click(value);
+    const item = screen.getByRole("menuitemradio", { name: "Русский" });
+    expect(item).toHaveFocus();
+
+    // Браузер закрывает <dialog> по Escape событием cancel, если keydown не погашен.
+    const dialog = document.querySelector("dialog")!;
+    const notPrevented = fireEvent.keyDown(item, { key: "Escape" });
+    if (notPrevented) fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(notPrevented).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(value).toHaveFocus();
+
+    expect(fireEvent.keyDown(value, { key: "Escape" })).toBe(true);
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("кнопка задания: «Скопировать задание», не главная, «Скопировано» без галочки", async () => {
+    renderWindow();
+    expect(кнопкаЗадания()).not.toHaveClass("ds-btn--primary");
+    await userEvent.click(кнопкаЗадания());
+    expect(await screen.findByRole("button", { name: "Скопировано" })).toBeInTheDocument();
   });
 });
