@@ -1,8 +1,8 @@
 /* Остатки прежней правой панели редактора (Вариант A · «Тихий бар»): саму панель
-   редизайн перевёл на новый язык (inspector/panel.css, фаза 4а). Здесь живёт то, чем
-   пользуются другие места прежнего языка: переключатель «Вид схемы» (SchemaViewFilter),
-   строки и поля окна связи на странице объекта (EdgeEditModal, MetaRow, EdgeEndRow) и
-   чипы вида схемы (TransferDocsModal). Палитра — slate + синий #2563eb. */
+   редизайн перевёл на новый язык (inspector/panel.css, фаза 4а), окно связи на странице
+   объекта — тоже (фаза 9в). Здесь живёт то, чем пользуются другие места прежнего языка:
+   переключатель «Вид схемы» (SchemaViewFilter) и чипы вида схемы (TransferDocsModal).
+   Палитра — slate + синий #2563eb. */
 
 /* ── Переключатель «Вид схемы» (тихий бар) ── */
 .insp-eyebrow {
@@ -74,86 +74,7 @@
   white-space: nowrap;
 }
 
-/* Поля ввода (архитектор) */
-.insp-field {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 13.5px;
-  color: #1e293b;
-  background: #fff;
-  outline: none;
-  font-family: inherit;
-  transition: border-color 0.12s, box-shadow 0.12s;
-}
-.insp-field:hover {
-  border-color: #c4cdd8;
-}
-.insp-field:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
-}
-.insp-fieldarea {
-  resize: vertical;
-  min-height: 54px;
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-/* textarea внутри меты «терм → значение» (описание связи): без нижнего поля блока */
-.insp-value .insp-fieldarea {
-  margin-bottom: 0;
-}
-/* Список меты «терм → значение» */
-.insp-meta {
-  margin: 0;
-  border-top: 1px solid #eef0f2;
-}
-.insp-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 9px 0;
-  border-bottom: 1px solid #f3f4f6;
-}
-.insp-row--top {
-  align-items: flex-start;
-}
-.insp-term {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 104px;
-  flex: none;
-  color: #64748b;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.insp-row--top .insp-term {
-  padding-top: 6px;
-}
-.insp-term-ico {
-  display: flex;
-  color: #94a3b8;
-}
-.insp-value {
-  margin: 0;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13.5px;
-  color: #1e293b;
-}
-.insp-value .insp-field {
-  width: auto;
-  flex: 1;
-  /* без min-width:0 флекс-поле не ужимается ниже интринсик-ширины инпута (~20 симв.) и
-     вылезает за ячейку вправо под бегунок — поэтому ровняем правый край с полем имени */
-  min-width: 0;
-}
+/* ── Чипы вида схемы (TransferDocsModal) ── */
 .insp-doc-chip {
   display: inline-flex;
   align-items: center;
