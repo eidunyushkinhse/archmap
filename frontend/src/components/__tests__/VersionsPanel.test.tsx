@@ -162,7 +162,7 @@ describe("VersionsPanel: список", () => {
     expect(await screen.findByText("orders 2.3")).toBeInTheDocument();
   });
 
-  it("Escape закрывает панель", async () => {
+  it("Escape закрывает окно", async () => {
     vi.mocked(versionsApi.list).mockResolvedValue(list(three));
     const { onClose } = renderPanel();
     await screen.findByText("orders 2.3");
@@ -178,7 +178,7 @@ describe("VersionsPanel: версия и элемент", () => {
     vi.mocked(versionsApi.list).mockResolvedValue(list(three));
   });
 
-  it("версия: дельта с предыдущей, смена селекта перезапрашивает с текущим состоянием", async () => {
+  it("версия: дельта с предыдущей, смена сравнения перезапрашивает с текущим состоянием", async () => {
     vi.mocked(versionsApi.diff).mockImplementation(async (_n, num, base) => (base === "prev"
       ? diff([
         item(),
@@ -246,7 +246,7 @@ describe("VersionsPanel: версия и элемент", () => {
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["с начала", "с текущим состоянием"]);
   });
 
-  it("элемент: три сегмента одним запросом — построчная дельта, таблица, текст", async () => {
+  it("элемент: три вкладки одним запросом — построчная дельта, таблица, текст", async () => {
     vi.mocked(versionsApi.diff).mockResolvedValue(diff([item()], 2, 3));
     const detail: VersionItemDetail = {
       item: item(),
@@ -312,7 +312,7 @@ describe("VersionsPanel: версия и элемент", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Версия 3" })).toBeInTheDocument();
   });
 
-  it("элемент «с текущим состоянием»: «Было · vN / Стало · сейчас», пустая сторона, метки строк", async () => {
+  it("элемент «с текущим состоянием»: «Было в vN» и «Стало сейчас», пустая сторона, метки строк", async () => {
     vi.mocked(versionsApi.diff).mockResolvedValue(diff([item({ status: "added", category: "config", item_id: "config:n1", name: "1 параметр", summary: "+1" })], 3, null));
     vi.mocked(versionsApi.item).mockResolvedValue({
       item: item(),
@@ -568,7 +568,7 @@ describe("VersionsPanel: откат", () => {
     expect(restoreLead("Заказы", v, preview({ deleted_nodes: 5 }))).toContain("после v2: 5 объектов.");
   });
 
-  it("после отката зовёт onRestored — страница под панелью перечитывает документацию", async () => {
+  it("после отката зовёт onRestored — страница под окном перечитывает документацию", async () => {
     vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview({ pending: false }));
     vi.mocked(versionsApi.restore).mockResolvedValue({ created: [4], deleted_nodes: 0, remarks: [] });
     const onRestored = vi.fn();
@@ -625,7 +625,7 @@ describe("VersionsPanel: откат", () => {
     expect(screen.getByRole("button", { name: "Восстановить" })).toBeEnabled();
   });
 
-  it("«что сделает откат» не загрузилось — причина в панели и «Повторить»", async () => {
+  it("«что сделает откат» не загрузилось — причина в окне и «Повторить»", async () => {
     vi.mocked(versionsApi.restorePreview)
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValue(preview());
