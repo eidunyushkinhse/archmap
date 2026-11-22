@@ -257,3 +257,93 @@ describe("ResetPasswordDialog", () => {
     expect(adminApi.resetPassword).not.toHaveBeenCalled();
   });
 });
+
+// Вид (редизайн, фаза 9д): каркас окна нового языка, строки «подпись — поле в рамке»,
+// подвал «главная первой, вторая за ней», запертая кнопка без своей прозрачности.
+describe("вид окон пользователя и пароля", () => {
+  // Кнопки подвала с текстом по порядку (у крестика окна текста нет).
+  const footButtons = () => screen.getAllByRole("button").filter((b) => b.textContent !== "");
+  // Инлайн-стилей в окне нет; исключение — общий значок шеврона списка (ui/icons).
+  const noInline = () => expect([...document.querySelectorAll(".ds-win [style]")].filter((e) => e.tagName !== "svg")).toHaveLength(0);
+
+  it("«Новый пользователь»: строки Логин, Роль, Администратор, Временный пароль; подвал", () => {
+    render(<NewUserDialog onClose={vi.fn()} onCreated={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Новый пользователь" })).toHaveClass("ds-win-title");
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-win-close");
+    const rows = [...document.querySelectorAll(".ds-prop")];
+    expect(rows.map((r) => r.querySelector("dt")?.textContent)).toEqual(["Логин", "Роль", "Администратор", "Временный пароль"]);
+    expect(screen.getByLabelText("Логин")).toHaveClass("ds-input");
+    expect(screen.getByLabelText("Временный пароль")).toHaveClass("ds-input");
+    expect(screen.getByLabelText("Роль").closest(".ds-select")).not.toBeNull();
+    // Флажок в колонке значений, его подпись — подпись строки.
+    const admin = screen.getByLabelText("Администратор");
+    expect(admin).toHaveAttribute("type", "checkbox");
+    expect(admin.closest("dd")).not.toBeNull();
+    expect(admin.closest(".ds-check")).not.toBeNull();
+    expect(screen.getByText(/Передайте пароль человеку сами/)).toHaveClass("ud-hint");
+    const [create, cancel] = footButtons();
+    expect([create.textContent, cancel.textContent]).toEqual(["Создать", "Отмена"]);
+    expect(create.className).toBe("ds-btn ds-btn--primary");
+    expect(cancel.className).toBe("ds-btn");
+    expect(create).toBeDisabled();
+    expect(create).not.toHaveAttribute("style");
+    noInline();
+  });
+
+  it("«Новый пользователь»: отказ бэка строкой подвала", async () => {
+    vi.mocked(adminApi.create).mockRejectedValue(new Error("Пользователь с таким логином уже есть"));
+    render(<NewUserDialog onClose={vi.fn()} onCreated={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("Логин"), "ivan");
+    await userEvent.type(screen.getByLabelText("Временный пароль"), "temp-pass-1");
+    await userEvent.click(screen.getByRole("button", { name: "Создать" }));
+    expect(await screen.findByText("Пользователь с таким логином уже есть")).toHaveClass("ds-danger", "ds-win-err");
+  });
+
+  it("«Сбросить пароль»: пояснение первым абзацем, строка «Новый пароль», подсказка, подвал", () => {
+    render(<ResetPasswordDialog user={ivan} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Сбросить пароль" })).toHaveClass("ds-win-title");
+    const body = document.querySelector(".ds-win-body");
+    expect(body?.firstElementChild).toHaveTextContent(/^Новый пароль для «ivan»/);
+    expect(body?.firstElementChild).toHaveClass("ud-lead");
+    expect(screen.getByLabelText("Новый пароль")).toHaveClass("ds-input");
+    expect(screen.getByLabelText("Новый пароль").closest(".ds-prop")).not.toBeNull();
+    expect(screen.getByText("Не короче 8 символов")).toHaveClass("ud-hint");
+    const [reset, cancel] = footButtons();
+    expect([reset.textContent, cancel.textContent]).toEqual(["Сбросить", "Отмена"]);
+    expect(reset.className).toBe("ds-btn ds-btn--primary");
+    expect(cancel.className).toBe("ds-btn");
+    expect(reset).not.toHaveAttribute("style");
+    noInline();
+  });
+
+  it("«Сменить пароль»: три строки с полями в рамке, подсказка, несовпадение красным, подвал", async () => {
+    render(<ChangePasswordDialog onClose={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Сменить пароль" })).toHaveClass("ds-win-title");
+    const rows = [...document.querySelectorAll(".ds-prop")];
+    expect(rows.map((r) => r.querySelector("dt")?.textContent)).toEqual(["Текущий пароль", "Новый пароль", "Повторите новый пароль"]);
+    for (const f of document.querySelectorAll("input")) expect(f).toHaveClass("ds-input");
+    expect(screen.getByText("Не короче 8 символов")).toHaveClass("ud-hint");
+    await userEvent.type(screen.getByLabelText("Новый пароль"), "new-password-1");
+    await userEvent.type(screen.getByLabelText("Повторите новый пароль"), "new-password-2");
+    expect(screen.getByText("Пароли не совпадают")).toHaveClass("ds-danger");
+    const [change, cancel] = footButtons();
+    expect([change.textContent, cancel.textContent]).toEqual(["Сменить", "Отмена"]);
+    expect(change.className).toBe("ds-btn ds-btn--primary");
+    expect(change).toBeDisabled();
+    expect(change).not.toHaveAttribute("style");
+    noInline();
+  });
+
+  it("«Пароль изменён»: каркас окна, пояснение абзацем, «Готово» главной кнопкой", async () => {
+    vi.mocked(changePassword).mockResolvedValue(undefined);
+    render(<ChangePasswordDialog onClose={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("Текущий пароль"), "old-password");
+    await userEvent.type(screen.getByLabelText("Новый пароль"), "new-password-1");
+    await userEvent.type(screen.getByLabelText("Повторите новый пароль"), "new-password-1");
+    await userEvent.click(screen.getByRole("button", { name: "Сменить" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Пароль изменён" })).toHaveClass("ds-win-title");
+    expect(screen.getByText("Остальные активные сессии завершены.")).toHaveClass("ud-lead");
+    expect(screen.getByRole("button", { name: "Готово" }).className).toBe("ds-btn ds-btn--primary");
+    noInline();
+  });
+});
