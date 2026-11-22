@@ -217,6 +217,26 @@ describe("VersionsPanel: версия и элемент", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Версии" })).toBeInTheDocument();
   });
 
+  it("экран версии: подвал «Восстановить эту версию» и «Удалить версию», шевроны значками", async () => {
+    vi.mocked(versionsApi.diff).mockResolvedValue(diff([item()], 1, 2));
+    renderPanel({ canDelete: true });
+    await userEvent.click(await screen.findByRole("button", { name: /^v2/ }));
+    const row = await screen.findByRole("button", { name: /^Схема логики/ });
+    // Шеврон строки и «Назад» — значки, а не глифы «›» и «←».
+    expect(row.querySelector("svg")).not.toBeNull();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).not.toHaveTextContent("›");
+    expect(dialog).not.toHaveTextContent("←");
+    expect(screen.getByRole("button", { name: "Назад" }).querySelector("svg")).not.toBeNull();
+    // Подвал: восстановление вторичной кнопкой первым, удаление тихой красной кнопкой-текстом.
+    const restore = screen.getByRole("button", { name: "Восстановить эту версию" });
+    const remove = screen.getByRole("button", { name: "Удалить версию" });
+    expect(restore.className).toBe("ds-btn");
+    expect(remove.className).toBe("ds-text-danger vp-delete");
+    expect(restore.parentElement).toBe(remove.parentElement);
+    expect(restore.compareDocumentPosition(remove) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("первая версия: сравнение «с начала», пустая дельта — фраза о первой версии", async () => {
     vi.mocked(versionsApi.diff).mockResolvedValue(diff([], null, 1));
     renderPanel();

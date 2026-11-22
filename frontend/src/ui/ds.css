@@ -1145,3 +1145,32 @@ button.ds-sub:hover {
   white-space: nowrap;
   border: 0;
 }
+
+/* ── Тихая красная кнопка-текст («Удалить версию» в подвале окна версий) ─────
+   Правила те же, что у «Удалить» окна «Доступ к проекту» (project/projectAccess.css,
+   .pa-del): текст цвета опасности без рамки и фона, подложка при наведении, поля и
+   отрицательный отступ как у .ds-add. Положение в строке задаёт место вызова. */
+.ds-text-danger {
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-danger);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-text-danger:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-text-danger:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.ds-text-danger:disabled {
+  color: var(--c-fg-faint);
+  cursor: default;
+}

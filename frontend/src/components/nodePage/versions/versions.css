@@ -41,8 +41,8 @@
   text-overflow: ellipsis;
 }
 
-/* Абзацы тела без своих полей: шаг задаёт тело окна. */
-.ds-win-body > .vp-flat {
+/* Абзацы тела без своих полей: шаг задают тело окна и блок. */
+.ds-win .vp-flat {
   margin: 0;
 }
 
@@ -136,134 +136,102 @@
   color: var(--c-fg-muted);
 }
 
-/* Прежний вид тела экранов версии и элемента до их перевода. */
+/* Прежний вид тела экрана элемента до его перевода. */
 .vp-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 6px 0;
 }
-.vp-pending {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #eef2f6;
-  font-size: 13px;
-  color: #475569;
-}
-.vp-pending-text {
-  flex: 1;
-  min-width: 0;
-}
-.vp-sel {
-  padding: 4px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  background: #fff;
-  color: #475569;
-  font: inherit;
-  font-size: 12.5px;
-}
-.vp-spacer {
-  flex: 1;
-}
-.vp-body > .vp-about {
-  padding: 10px 16px;
-}
-
-/* Строка элемента дельты: категория, путь и имя, статус словами, стрелка. */
-.vp-irow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 16px;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-.vp-irow:hover {
-  background: #f8fafc;
-}
-.vp-irow-cat {
-  flex: none;
-  width: 108px;
-  color: #64748b;
-  font-size: 12px;
-}
-.vp-irow-nm {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
-.vp-irow-path {
-  color: #94a3b8;
-}
-.vp-irow-st {
-  color: #64748b;
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-.vp-irow-st--add {
-  color: #166534;
-}
-.vp-irow-st--del {
-  color: #dc2626;
-}
-.vp-irow-ch {
-  color: #94a3b8;
-}
-
-.vp-irow:focus-visible,
-.vp-seg button:focus-visible,
-.vp-link:focus-visible,
-.vp-link-danger:focus-visible {
+.vp-seg button:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: -2px;
 }
 
-/* ── Низ экрана версии ── тихие кнопки: «Восстановить эту версию» слева (редактор),
-   «Удалить версию» справа (владелец). */
-.vp-foot {
+/* Заголовок блока «Что изменилось» и сразу за ним в той же строке список сравнения. */
+.vp-block-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.vp-base {
   flex: none;
-  padding: 10px 16px;
-  border-top: 1px solid #e2e8f0;
 }
-.vp-link-danger {
-  padding: 5px 8px;
-  border: none;
-  border-radius: 6px;
+.vp-base select {
+  width: auto;
+}
+
+/* Строки элементов дельты: одна сетка на весь список (subgrid), поэтому колонка
+   категории одной ширины во всех строках, а слова статуса стоят у правого края. Строка —
+   кнопка 30px, подложка при наведении выходит на 8px за колонку текста, как у строк
+   версий. Путь и имя забирают остальное и обрезаются многоточием. */
+.vp-irows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
+  column-gap: var(--space-3);
+  margin: 0 -8px;
+}
+.vp-irow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius);
   background: none;
-  color: #dc2626;
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  cursor: pointer;
 }
-.vp-link-danger:hover {
-  background: #fef2f2;
+.vp-irow:hover {
+  background: var(--c-hover);
 }
-.vp-link {
-  padding: 5px 8px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: #1d4ed8;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
+.vp-irow:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
 }
-.vp-link:hover:not(:disabled) {
-  background: #eff6ff;
+.vp-irow-cat {
+  color: var(--c-fg-muted);
+  white-space: nowrap;
 }
-.vp-link:disabled {
-  color: #94a3b8;
+.vp-irow-nm {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vp-irow-path {
+  color: var(--c-fg-muted);
+}
+/* Слово статуса: «новая» и её формы — цветом добавления, «удалена» — опасности,
+   «изменена» — тихим (правило выбора — VersionScreen.ItemRow). */
+.vp-irow-st {
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.vp-irow-st--add {
+  color: var(--c-ok);
+}
+.vp-irow-st--del {
+  color: var(--c-danger);
+}
+.vp-irow-ch {
+  display: inline-flex;
+  color: var(--c-fg-faint);
+}
+
+/* Подвал экрана версии: «Удалить версию» у правого края (текст кнопки — у края колонки,
+   поле кнопки уходит в поле окна, как у .ds-add). */
+.ds-win-foot .vp-delete {
+  margin-left: auto;
+  margin-right: -6px;
 }
 
 /* ── Экран элемента ── сегменты «Изменения · Было · Стало» и одно представление. */
