@@ -1,15 +1,14 @@
 import { useState } from "react";
-import type { CSSProperties } from "react";
 import type { Project } from "../../types";
 import { projectsApi } from "../../api/projects";
-import DialogTitle from "../../ui/DialogTitle";
-import Modal from "../../ui/Modal";
-import { dangerBtn, errText, input, primaryBtn, secondaryBtn } from "../../ui/styles";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 import { noAutofill } from "../../ui/noAutofill";
 import { useBusyAction } from "../../ui/useBusyAction";
+import "../../ui/ds.css";
 
-/** Подтверждения управления проектом: архив (обратимо), восстановление, удаление
- * навсегда (необратимо, с вводом имени). Каждый при успехе зовёт onDone(). */
+/** Подтверждения управления проектом на общем ConfirmDialog: архив (обратимо, синяя
+ * кнопка), возврат из архива, удаление навсегда (необратимо, красная кнопка, отперта
+ * только после ввода имени проекта). Каждый при успехе зовёт onDone(). */
 
 interface BaseProps {
   project: Project;
@@ -17,41 +16,37 @@ interface BaseProps {
   onDone: () => void;
 }
 
-const row: CSSProperties = { display: "flex", gap: 8, marginTop: 8 };
-// Нейтральная тёмная кнопка для обратимого архивирования (не красная).
-const darkBtn: CSSProperties = { ...primaryBtn, background: "#334155" };
-
 export function ArchiveDialog({ project, onClose, onDone }: BaseProps) {
   const { busy, error, run } = useBusyAction("Ошибка");
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 440, padding: 24 }}>
-      <DialogTitle lead="Схема сохранится, и проект можно вернуть из архива в любой момент.">
-        Отправить «{project.name}» в архив?
-      </DialogTitle>
-      {error && <p style={errText}>{error}</p>}
-      <div style={row}>
-        <button style={darkBtn} disabled={busy} onClick={() => run(() => projectsApi.archive(project.id).then(onDone))}>
-          {busy ? "Архивируем" : "В архив"}
-        </button>
-        <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
-      </div>
-    </Modal>
+    <ConfirmDialog
+      tone="neutral"
+      title={`Отправить «${project.name}» в архив?`}
+      lead="Схема сохранится, и проект можно вернуть из архива в любой момент."
+      error={error}
+      confirmLabel="В архив"
+      busyLabel="Архивируем"
+      busy={busy}
+      onConfirm={() => void run(() => projectsApi.archive(project.id).then(onDone))}
+      onCancel={onClose}
+    />
   );
 }
 
 export function RestoreDialog({ project, onClose, onDone }: BaseProps) {
   const { busy, error, run } = useBusyAction("Ошибка");
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 440, padding: 24 }}>
-      <DialogTitle lead="Проект снова появится среди активных.">Вернуть «{project.name}» из архива?</DialogTitle>
-      {error && <p style={errText}>{error}</p>}
-      <div style={row}>
-        <button style={primaryBtn} disabled={busy} onClick={() => run(() => projectsApi.restore(project.id).then(onDone))}>
-          {busy ? "Возвращаем" : "Вернуть"}
-        </button>
-        <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
-      </div>
-    </Modal>
+    <ConfirmDialog
+      tone="neutral"
+      title={`Вернуть «${project.name}» из архива?`}
+      lead="Проект снова появится среди активных."
+      error={error}
+      confirmLabel="Вернуть"
+      busyLabel="Возвращаем"
+      busy={busy}
+      onConfirm={() => void run(() => projectsApi.restore(project.id).then(onDone))}
+      onCancel={onClose}
+    />
   );
 }
 
@@ -64,32 +59,29 @@ export function DeleteForeverDialog({ project, onClose, onDone }: BaseProps) {
     if (unlocked) void run(() => projectsApi.remove(project.id, confirmName).then(onDone));
   };
   return (
-    <Modal onClose={onClose} onSubmit={remove} boxStyle={{ width: 460, padding: 24 }}>
-      <DialogTitle lead={<>
+    <ConfirmDialog
+      title={`Удалить «${project.name}» навсегда?`}
+      lead={<>
         Схема со всеми объектами, связями и процессами будет удалена безвозвратно.
         Это действие нельзя отменить. Для подтверждения введите имя проекта.
-      </>}>
-        Удалить «{project.name}» навсегда?
-      </DialogTitle>
+      </>}
+      error={error}
+      confirmLabel="Удалить навсегда"
+      busyLabel="Удаляем"
+      busy={busy}
+      confirmDisabled={!unlocked}
+      onConfirm={remove}
+      onSubmit={remove}
+      onCancel={onClose}
+    >
       <input
         {...noAutofill("project-dialogs-1")}
         data-autofocus
-        style={input}
+        className="ds-input"
         value={confirmName}
         onChange={(e) => setConfirmName(e.target.value)}
         placeholder={project.name}
       />
-      {error && <p style={errText}>{error}</p>}
-      <div style={row}>
-        <button
-          style={{ ...dangerBtn, opacity: unlocked ? 1 : 0.5 }}
-          disabled={!unlocked}
-          onClick={remove}
-        >
-          {busy ? "Удаляем" : "Удалить навсегда"}
-        </button>
-        <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
-      </div>
-    </Modal>
+    </ConfirmDialog>
   );
 }

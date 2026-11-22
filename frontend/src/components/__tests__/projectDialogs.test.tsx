@@ -96,6 +96,45 @@ describe("DeleteForeverDialog", () => {
   });
 });
 
+// Вид (редизайн, фаза 9а): три окна — общее подтверждение на каркасе окна нового языка.
+describe("окна проекта: вид подтверждения", () => {
+  it("архив: заголовок h2, пояснение, синяя главная кнопка первой", () => {
+    render(<ArchiveDialog project={project} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Отправить «Ярмарка» в архив?" })).toBeInTheDocument();
+    expect(screen.getByText("Схема сохранится, и проект можно вернуть из архива в любой момент.")).toHaveClass("ds-confirm-lead");
+    const [main, cancel] = screen.getAllByRole("button");
+    expect([main.textContent, cancel.textContent]).toEqual(["В архив", "Отмена"]);
+    expect(main.className).toBe("ds-btn ds-btn--primary");
+    expect(cancel.className).toBe("ds-btn");
+  });
+
+  it("возврат из архива: синяя главная кнопка, «Возвращаем» на время записи", async () => {
+    vi.mocked(projectsApi.restore).mockReturnValue(new Promise(() => {}));
+    render(<RestoreDialog project={project} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Вернуть «Ярмарка» из архива?" })).toBeInTheDocument();
+    expect(screen.getByText("Проект снова появится среди активных.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Вернуть" }).className).toBe("ds-btn ds-btn--primary");
+    await userEvent.click(screen.getByRole("button", { name: "Вернуть" }));
+    expect(screen.getByRole("button", { name: "Возвращаем" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled();
+  });
+
+  it("удаление навсегда: красная кнопка заперта без своей прозрачности, поле нового вида", async () => {
+    render(<DeleteForeverDialog project={project} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Удалить «Ярмарка» навсегда?" })).toBeInTheDocument();
+    const del = screen.getByRole("button", { name: "Удалить навсегда" });
+    expect(del.className).toBe("ds-btn ds-btn--danger");
+    expect(del).toBeDisabled();
+    expect(del).not.toHaveAttribute("style");
+    const field = screen.getByPlaceholderText("Ярмарка");
+    expect(field).toHaveClass("ds-input");
+    expect(field).toHaveAttribute("data-autofocus");
+    expect(screen.getByRole("button", { name: "Отмена" })).toBeEnabled();
+    await userEvent.type(field, "Ярмарка");
+    expect(del).toBeEnabled();
+  });
+});
+
 describe("EditProjectDialog", () => {
   it("поля предзаполнены; успех уносит обрезанные значения, зовёт onSaved и держит кнопку занятой", async () => {
     vi.mocked(projectsApi.update).mockResolvedValue(project);
