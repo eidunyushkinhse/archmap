@@ -66,19 +66,3 @@ export const dangerBtn: CSSProperties = {
 
 // Текст ошибки под полями окна (подтверждения, окна пользователей).
 export const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };
-
-// Контейнер списка (связи/имена) внутри подтверждений удаления (ConfirmDialog).
-export const confirmListBox: CSSProperties = {
-  background: "#f8fafc",
-  border: "1px solid #e2e8f0",
-  borderRadius: 10,
-  padding: "10px 12px",
-  marginBottom: 4,
-};
-export const confirmList: CSSProperties = {
-  margin: 0,
-  paddingLeft: 18,
-  color: "#475569",
-  fontSize: 14,
-  lineHeight: 1.6,
-};

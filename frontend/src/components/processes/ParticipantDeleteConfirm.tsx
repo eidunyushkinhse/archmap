@@ -1,11 +1,11 @@
 import ConfirmDialog from "../../ui/ConfirmDialog";
-import { confirmListBox, confirmList } from "../../ui/styles";
+import "../../ui/ds.css";
 
 /**
  * Подтверждение удаления участника со схемы процесса. Презентационная карточка
  * (без Modal, variant="card"): рендерится в оверлее редактора, как остальные его
  * подтверждения — вкладывать второй <dialog> в модалку редактора нельзя. Вид — общий
- * базовый ConfirmDialog (заголовок, плашка-предупреждение, список, кнопки «Убрать» /
+ * базовый ConfirmDialog (заголовок, пояснение, перечень шагов, кнопки «Убрать» и
  * «Отмена», Р7 ревизии текстов). Объект со схемы НЕ удаляется, поэтому вопрос —
  * «Убрать из процесса»; в списке — сообщения процесса, проведённые через этого
  * участника: они уйдут вместе с ним.
@@ -40,15 +40,12 @@ export default function ParticipantDeleteConfirm({ name, links, deleting, error,
       onCancel={onCancel}
     >
       {links.length > 0 && (
-        <div style={confirmListBox}>
-          <ul style={confirmList}>
-            {links.map((l) => (
-              <li key={l.id} style={{ marginBottom: 4 }}>
-                «{l.label}» {l.dir} {l.other}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul className="ds-confirm-list">
+          {links.map((l) => {
+            const text = `«${l.label}» ${l.dir} ${l.other}`;
+            return <li key={l.id} title={text}>{text}</li>;
+          })}
+        </ul>
       )}
     </ConfirmDialog>
   );

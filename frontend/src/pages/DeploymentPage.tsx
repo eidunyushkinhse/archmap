@@ -506,7 +506,6 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             busy={placingMode.busy}
             onConfirm={() => { void placingMode.confirmPlace(); }}
             onCancel={placingMode.cancelConfirm}
-            scroll
           >
             <PlacementConflictList items={placingMode.confirm.conflicts} />
           </ConfirmDialog>

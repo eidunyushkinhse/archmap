@@ -2,7 +2,7 @@
 // Ключевое — задокументированный узел БЕЗ связей и детей больше не уезжает молча:
 // прежде «терять нечего» считалось только по связям и детям, и база с таблицами
 // удалялась вообще без вопроса.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
@@ -60,6 +60,31 @@ describe("NodeDeleteConfirm", () => {
     await waitFor(() => expect(nodesApi.delete).toHaveBeenCalledWith("n1"));
     // В историю уходит ТОТ ЖЕ снимок, что показали: вернётся ровно показанное.
     expect(onDeleted).toHaveBeenCalledWith("n1", snap);
+  });
+
+  it("перечень связей: строка с подсказкой; связь без подписи и технологии — без кавычек", async () => {
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([
+      { id: "e1", label: "Оформление заказов", technology: "REST", direction: "incoming", other_node_id: "g", other_node_name: "API Gateway", inner_node_id: "n1", inner_node_name: "orders-db" },
+      { id: "e2", label: null, technology: "Kafka", direction: "outgoing", other_node_id: "k", other_node_name: "Kafka", inner_node_id: "n1", inner_node_name: "orders-db" },
+      { id: "e3", label: null, technology: null, direction: "outgoing", other_node_id: "b", other_node_name: "БД заказов", inner_node_id: "n1", inner_node_name: "orders-db" },
+      { id: "e4", label: "", technology: "", direction: "incoming", other_node_id: "w", other_node_name: "Витрина", inner_node_id: "n1", inner_node_name: "orders-db" },
+    ] as Awaited<ReturnType<typeof nodesApi.getEdges>>);
+    vi.mocked(nodesApi.deletionSnapshot).mockResolvedValue(snapshot({ node_docs: [{ id: "d1" }] } as Partial<DeletionSnapshot>));
+
+    render(<NodeDeleteConfirm node={node()} onCancel={() => {}} onDeleted={vi.fn()} />);
+
+    const list = await screen.findByRole("list");
+    expect(list).toHaveClass("ds-confirm-list");
+    const rows = within(list).getAllByRole("listitem").map((li) => [li.textContent, li.getAttribute("title")]);
+    expect(rows).toEqual([
+      ["«Оформление заказов» от API Gateway", "«Оформление заказов» от API Gateway"],
+      ["«Kafka» к Kafka", "«Kafka» к Kafka"],
+      ["связь к БД заказов", "связь к БД заказов"],
+      ["связь от Витрина", "связь от Витрина"],
+    ]);
+    expect(screen.getByText("Его связи будут удалены вместе с ним:")).toHaveClass("ds-confirm-lead");
+    expect(screen.getByText("Вместе с ним удалится документация: 1 схема логики.")).toHaveClass("ds-confirm-note");
+    expect(nodesApi.delete).not.toHaveBeenCalled();
   });
 
   it("узел без связей, детей и документации удаляется без подтверждения", async () => {

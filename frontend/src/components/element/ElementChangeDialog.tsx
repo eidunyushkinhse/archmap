@@ -37,7 +37,6 @@ export default function ElementChangeDialog({ preview, nodeName, targetName, onC
   return (
     <ConfirmDialog
       tone="neutral"
-      scroll
       title={t.title}
       lead={t.lead}
       confirmLabel={t.confirm}
