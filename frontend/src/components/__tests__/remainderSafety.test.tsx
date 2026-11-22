@@ -193,6 +193,65 @@ describe("ответы уезжают прежним протоколом", () =
   });
 });
 
+// Фаза 8б: двухшаговый вопрос после ответа остаётся вопросом. Ответ меняется на вариант по
+// умолчанию первым же шагом, и тогда в применение не едет ни склейка, ни связи; черновик
+// формы связей при этом не стирается.
+describe("ответ двухшагового вопроса меняется на вариант по умолчанию (фаза 8б)", () => {
+  // Новое требование: на коде фазы 8а после «Объединить» вопрос навсегда становится шагом
+  // имени, и варианта «Разные объекты» нет.
+  it.fails("похожие имена: после «Объединить» «Разные объекты» даёт diff, склейка не едет", async () => {
+    const s = стенд();
+    await кВопросу(4);
+    await userEvent.click(screen.getByRole("button", { name: /^Один объект/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Объединить" }));
+    expect(s.current.answers[пара.id]).toEqual({ kind: "merge", name: "Пользователь Zabbix" });
+    await userEvent.click(screen.getByRole("button", { name: /^Разные объекты/ }));
+    expect(s.current.answers[пара.id]).toEqual({ kind: "diff" });
+    expect(toDecisions(ВОПРОСЫ, s.current.answers)).toBeNull();
+  });
+
+  // Новое требование: на коде фазы 8а после «Провести связь» вопрос показывает одну карточку
+  // «изменить», и варианта «Оставить как есть» нет.
+  it.fails("группа: после «Провести связь» «Оставить как есть» даёт keep, связи не едут, черновик цел", async () => {
+    const s = стенд();
+    await кВопросу(3);
+    await userEvent.click(screen.getAllByRole("button", { name: /^Провести связь/ })[0]!);
+    await userEvent.type(screen.getAllByRole("combobox")[0]!, "server");
+    await userEvent.click(screen.getByRole("option", { name: /server/ }));
+    await userEvent.type(screen.getByLabelText("Описание связи от «Плагин»"), "метрики");
+    await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
+    expect(s.current.answers[группа.id]).toMatchObject({ kind: "new_edges" });
+    await userEvent.click(screen.getByRole("button", { name: /^Оставить как есть/ }));
+    expect(s.current.answers[группа.id]).toEqual({ kind: "keep" });
+    expect(toDecisions(ВОПРОСЫ, s.current.answers)).toBeNull();
+    // Форма открывается снова с прежним черновиком, ответ остаётся keep.
+    await userEvent.click(screen.getAllByRole("button", { name: /^Провести связь/ })[0]!);
+    expect(screen.getAllByRole("combobox")[0]!).toHaveValue("Zabbix / server");
+    expect(screen.getByLabelText("Описание связи от «Плагин»")).toHaveValue("метрики");
+    expect(s.current.answers[группа.id]).toEqual({ kind: "keep" });
+  });
+
+  it("группа: черновик формы переживает «Назад к вопросу», «Оставить как есть» и «Назад / Дальше»", async () => {
+    const s = стенд();
+    await кВопросу(3);
+    await userEvent.click(screen.getAllByRole("button", { name: /^Провести связь/ })[0]!);
+    await userEvent.type(screen.getAllByRole("combobox")[0]!, "server");
+    await userEvent.click(screen.getByRole("option", { name: /server/ }));
+    await userEvent.type(screen.getByLabelText("Описание связи от «Плагин»"), "метрики");
+    await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
+    expect(s.current.answers[группа.id]).toBeUndefined();
+    await userEvent.click(screen.getByRole("button", { name: /^Оставить как есть/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Дальше →" }));
+    await userEvent.click(screen.getByRole("button", { name: "← Назад" }));
+    expect(номер()).toBe("4 из 5");
+    await userEvent.click(screen.getAllByRole("button", { name: /^Провести связь/ })[0]!);
+    expect(screen.getAllByRole("combobox")[0]!).toHaveValue("Zabbix / server");
+    expect(screen.getByLabelText("Описание связи от «Плагин»")).toHaveValue("метрики");
+    expect(s.current.answers[группа.id]).toEqual({ kind: "keep" });
+    expect(toDecisions(ВОПРОСЫ, s.current.answers)).toBeNull();
+  });
+});
+
 describe("переходы, список и итог", () => {
   it("«Назад» и «Дальше» ходят по вопросам, ответ при этом не теряется", async () => {
     const s = стенд();
