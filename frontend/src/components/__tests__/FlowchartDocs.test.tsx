@@ -142,6 +142,12 @@ describe("FlowchartDocs · шапка", () => {
     expect(await screen.findByRole("heading", { name: "Создание заказа" })).toHaveAttribute("title", "Создание заказа");
     expect(screen.getByText("Заказы")).toHaveClass("doc-headobj");
     expect(screen.getByText("POST /orders")).toHaveClass("doc-headtail--mono");
+    // Сжатие длинных имён держит разметка: название с хвостом — одной группой после имени
+    // объекта (первым сжимается имя объекта, внутри группы — хвост, название последним).
+    const группа = screen.getByRole("heading", { name: "Создание заказа" }).parentElement;
+    expect(группа).toHaveClass("doc-headmain");
+    expect(группа).toContainElement(screen.getByText("POST /orders"));
+    expect(группа?.previousElementSibling).toHaveClass("doc-headobj");
     expect(шапка()).toHaveTextContent(/^ЗаказыСоздание заказаPOST \/ordersИзменить$/);
     expect(шапка().textContent).not.toMatch(/Операция|·/);
     // «Изменить» — вторичная кнопка, не залитая.

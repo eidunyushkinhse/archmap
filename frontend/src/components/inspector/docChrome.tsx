@@ -39,12 +39,14 @@ export function DocHead({ objectName, title, tail, notice, actions, onClose }: {
       <div className="doc-head">
         <div className="doc-headname">
           <span className="doc-headobj" title={objectName}>{objectName}</span>
-          <h2 className="ds-win-title doc-headtitle" title={title}>{title}</h2>
-          {tail && (
-            <span className={"doc-headtail" + (tail.mono ? " doc-headtail--mono" : "")} title={tail.text}>
-              {tail.text}
-            </span>
-          )}
+          <span className="doc-headmain">
+            <h2 className="ds-win-title doc-headtitle" title={title}>{title}</h2>
+            {tail && (
+              <span className={"doc-headtail" + (tail.mono ? " doc-headtail--mono" : "")} title={tail.text}>
+                {tail.text}
+              </span>
+            )}
+          </span>
         </div>
         <div className="doc-headacts">
           {actions}
