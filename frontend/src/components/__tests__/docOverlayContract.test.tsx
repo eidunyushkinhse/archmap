@@ -67,7 +67,7 @@ function setCode(text: string) {
   fireEvent.change(codeField()!, { target: { value: text } });
 }
 
-// Сохранение явное — кнопкой в шапке окна.
+// Сохранение явное — кнопкой в подвале окна.
 async function save() {
   await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 }
@@ -184,8 +184,8 @@ describe("окно схемы логики: контракты, пережива
   });
 });
 
-// Каркас нового языка (редизайн, фаза 7а): корень — область .ds, сцена чтения ровная,
-// стадии правки прежнего вида держит legacy-root (тело, подвал, кнопки шапки).
+// Каркас нового языка (редизайн, фаза 7а): корень — область .ds, сцена чтения ровная.
+// Стадия «Вручную» — тоже новый язык (фаза 7б): тело и подвал без legacy-root.
 describe("окно схемы логики: каркас нового языка", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -202,14 +202,13 @@ describe("окно схемы логики: каркас нового языка
     expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-icon-btn");
   });
 
-  it("«Вручную»: тело, подвал и кнопки шапки прежнего вида; превью на прежней сцене", async () => {
+  it("«Вручную»: тело и подвал на новом языке, «Сохранить» в подвале", async () => {
     render(<DocOverlay {...base} isArchitect initialDocId="d1" onDocEvent={vi.fn()} />);
     await openEditor();
-    expect(document.querySelector(".doc-body")).toHaveClass("legacy-root");
-    expect(document.querySelector(".doc-foot")).toHaveClass("legacy-root");
-    expect(screen.getByRole("button", { name: "Сохранить" }).closest(".legacy-root")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Сохранить" })).toHaveClass("doc-btn", "doc-btn--primary");
-    expect(document.querySelector(".doc-pv")).not.toHaveClass("doc-pv--read");
+    expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
+    expect(document.querySelector(".doc-root .legacy-root")).toBeNull();
+    expect(screen.getByRole("button", { name: "Сохранить" })).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(screen.getByRole("button", { name: "Сохранить" }).closest(".doc-editfoot")).not.toBeNull();
     // Хвоста названия в правке нет: вид и эндпоинт в полях.
     expect(document.querySelector(".doc-headtail")).toBeNull();
   });

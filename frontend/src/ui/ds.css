@@ -1,8 +1,8 @@
 /* Общие примитивы нового языка (редизайн, направление А «Документ»): шапка экрана,
    аватар, раздел, подгруппа,
    строка списка, тихая кнопка «Добавить», вторичная кнопка, каркас окна с блоками,
-   вкладки-текст, меню, предупреждение, тихая таблица, строки «подпись — значение»,
-   поле в виде текста. Значения — только токены
+   поле ввода и список выбора формы, вкладки-текст, меню, предупреждение, тихая таблица,
+   строки «подпись — значение», поле в виде текста. Значения — только токены
    ui/tokens.css. Класс ставит переведённый экран (корень с .ds); стили импортирует
    каждый модуль, который ставит класс (как ui/smallButton.css): стили чужого ленивого
    чанка на странице могут быть не загружены. */
@@ -487,6 +487,44 @@ button.ds-sub:hover {
   outline: none;
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
+
+/* ── Список выбора формы: того же вида и высоты, что .ds-input ───────────────
+   Обёртка .ds-select несёт шеврон (ChevronDownIcon) поверх правого края списка, у самого
+   списка системной стрелки нет. Высота, рамка, кегль и поля те же, что у .ds-input,
+   поэтому текст списка и соседнего поля стоит на одной базовой линии. */
+.ds-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ds-select select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  padding: 0 28px 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font: inherit;
+  font-size: var(--fs-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.ds-select select:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
+.ds-select svg {
+  position: absolute;
+  right: 9px;
+  color: var(--c-fg-muted);
+  pointer-events: none;
 }
 
 /* ── Вкладки-текст: активная с подчёркиванием, без подложки-сегмента ─────── */

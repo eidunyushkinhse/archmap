@@ -340,3 +340,104 @@ describe("спецификация, «Вручную»", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// Новый язык стадии «Вручную» у схемы логики (редизайн, фаза 7б): в шапке только имя
+// объекта, название и крестик; подвал одной строкой «Сохранить», «Отмена», справа
+// «Удалить схему»; отказ — строкой над кнопками; поля в одну строку на примитивах языка.
+describe("схема логики, «Вручную»: подвал и поля на новом языке", () => {
+  const foot = () => document.querySelector(".doc-editfoot") as HTMLElement;
+  const head = () => document.querySelector(".doc-head") as HTMLElement;
+
+  it("в шапке кнопок правки нет; подвал: «Сохранить», «Отмена», справа «Удалить схему»", async () => {
+    openFlow();
+    await toManual();
+    expect(within(head()).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Закрыть"]);
+    expect(head()).toHaveTextContent(/^Order APIСоздание заказа$/);
+    expect(foot()).toHaveClass("ds-win-foot");
+    expect(within(foot()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Сохранить", "Отмена", "Удалить схему"]);
+    expect(button("Сохранить")).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(button("Отмена")).toHaveClass("ds-btn");
+    expect(button("Отмена")).not.toHaveClass("ds-btn--primary");
+    // Удаление — тихая кнопка-текст, не кнопка с рамкой.
+    expect(button("Удалить схему")).toHaveClass("doc-delbtn");
+    expect(button("Удалить схему")).not.toHaveClass("ds-btn");
+    expect(screen.queryByText("Превью обновляется сразу")).toBeNull();
+    // Прежнего вида в стадии нет.
+    expect(document.querySelector(".doc-root .legacy-root")).toBeNull();
+  });
+
+  it("у новой схемы в подвале только «Сохранить» и «Отмена»", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([]);
+    openFlow({ createNew: true });
+    await waitFor(() => expect(codeField()).not.toBeNull());
+    expect(within(foot()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Сохранить", "Отмена"]);
+  });
+
+  it("отказ сохранения — строкой над кнопками подвала, не под шапкой", async () => {
+    vi.mocked(nodeDocsApi.update).mockRejectedValue("сбой");
+    openFlow();
+    await toManual();
+    setCode("graph TD\n  моё");
+    await userEvent.click(button("Сохранить"));
+    const отказ = await screen.findByText("Схема не сохранена");
+    expect(отказ).toHaveClass("ds-danger", "ds-win-err");
+    expect(отказ.parentElement).toBe(foot());
+    expect(отказ.nextElementSibling).toBe(button("Сохранить"));
+    expect(document.querySelector(".doc-notice")).toBeNull();
+  });
+
+  it("занятое имя и предел демо — там же, над кнопками", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc(), doc({ id: "d2", name: "Получение заказа" })]);
+    vi.mocked(nodeDocsApi.update).mockRejectedValue(limit());
+    openFlow();
+    await toManual();
+    const имя = screen.getByLabelText("Имя схемы");
+    await userEvent.clear(имя);
+    await userEvent.type(имя, "Получение заказа");
+    await userEvent.click(button("Сохранить"));
+    expect(screen.getByText("У объекта уже есть схема с таким именем").parentElement).toBe(foot());
+    await userEvent.clear(имя);
+    await userEvent.type(имя, "Создание заказа 2");
+    await userEvent.click(button("Сохранить"));
+    const предел = await screen.findByRole("alert");
+    expect(предел).toHaveTextContent(`Не сохранилось. ${VOLUME}`);
+    expect(предел).toHaveClass("ds-danger", "ds-win-err");
+    expect(предел.parentElement).toBe(foot());
+    // Одна строка отказа: прежняя ушла.
+    expect(screen.queryByText("У объекта уже есть схема с таким именем")).toBeNull();
+  });
+
+  it("отказ удаления — над кнопками подвала", async () => {
+    vi.mocked(nodeDocsApi.delete).mockRejectedValue("сбой");
+    openFlow();
+    await toManual();
+    await userEvent.click(button("Удалить схему"));
+    await userEvent.click(button("Удалить схему?"));
+    expect((await screen.findByText("Схема не удалена")).parentElement).toBe(foot());
+  });
+
+  it("поля: подпись над полем, поля на примитивах языка, подсказки у «Вид» и «Эндпоинт»", async () => {
+    openFlow();
+    await toManual();
+    const имя = screen.getByLabelText("Имя схемы");
+    const вид = screen.getByLabelText("Вид");
+    const эндпоинт = screen.getByLabelText("Эндпоинт");
+    expect(имя).toHaveClass("ds-input");
+    expect(эндпоинт).toHaveClass("ds-input");
+    expect(вид.tagName).toBe("SELECT");
+    expect(вид.parentElement).toHaveClass("ds-select");
+    expect([...document.querySelectorAll(".doc-field-label")].map((e) => e.textContent)).toEqual(["Имя схемы", "Вид", "Эндпоинт"]);
+    expect(вид.closest("label")).toHaveAttribute("title", "Обработчик операции или сценарий клиента / фоновый воркер");
+    expect(эндпоинт.closest("label")).toHaveAttribute("title", "Эндпоинт из спецификации объекта, который описывает эта схема");
+  });
+
+  it("у воркера поля «Эндпоинт» нет, имя занимает строку", async () => {
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc({ name: "Автоотмена", kind: "worker", operation: null })]);
+    openFlow();
+    await toManual();
+    expect(screen.queryByLabelText("Эндпоинт")).toBeNull();
+    expect(screen.getByLabelText("Вид")).toHaveValue("worker");
+    expect(screen.getByLabelText("Имя схемы").closest("label")).toHaveClass("doc-field--grow");
+    expect(document.querySelectorAll(".doc-fields > label")).toHaveLength(2);
+  });
+});

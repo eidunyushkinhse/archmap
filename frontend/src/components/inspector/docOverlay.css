@@ -81,13 +81,13 @@
   align-items: center;
   gap: var(--space-2);
 }
-/* Обёртка частей прежнего вида (кнопки стадий правки, колонка кода читателя): своей
-   коробки нет, метрики текста legacy-root наследуются через неё. */
+/* Обёртка части прежнего вида (кнопка шапки стадии агента): своей коробки нет, метрики
+   текста legacy-root наследуются через неё. */
 .doc-legacy {
   display: contents;
 }
 
-/* Конфликт или отказ: строка предупреждения под шапкой (ds-warn). */
+/* Строка предупреждения под шапкой (ds-warn) для чтения: конфликт, схемы не загрузились. */
 .ds-warn.doc-notice {
   flex: none;
   margin: 0;
@@ -154,37 +154,42 @@
 }
 .doc-back:hover { color: #1e293b; }
 
-/* Поля схемы в «Вручную»: имя, вид, эндпоинт */
+/* Поля схемы в «Вручную» (новый язык, фаза 7б): имя, вид, эндпоинт в одну строку с
+   полями 24 px по бокам, как у шапки; под строкой одна линия. Подпись над полем 12 px
+   тихим цветом; поля одной высоты (ds-input и ds-select), поэтому базовые линии текста
+   совпадают. Имя и эндпоинт делят ширину, у воркера имя занимает и место эндпоинта. */
 .doc-fields {
   flex: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #eef0f2;
-  background: #fbfcfd;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--c-line);
 }
 .doc-field {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #64748b;
-}
-.doc-field input,
-.doc-field select {
-  font: inherit;
-  font-size: 13px;
-  font-weight: 400;
-  color: #0f172a;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  padding: 5px 8px;
-  background: #fff;
+  gap: var(--space-1);
   min-width: 0;
 }
-.doc-field--grow { flex: 1; min-width: 180px; }
+.doc-field--grow {
+  flex: 1;
+  min-width: 180px;
+}
+.doc-field-label {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Фокус полей — кольцом нового языка: общее правило окон (ui/modal.css) сильнее
+   правила примитива. */
+.app-modal .doc-root .ds-input:focus,
+.app-modal .doc-root .ds-select select:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
 
 /* ── чтение схемы логики (новый язык) ─────────────────────────────────────
    Подвал: «В процессах» и неразрешённые обращения строкой предупреждения. Разрешённые
@@ -316,26 +321,45 @@
   padding: 1px 6px;
 }
 
-/* Подвал «Вручную»: «Удалить схему» слева, подсказка рядом */
+/* Подвал стадии «Вручную» (новый язык, фаза 7б): на всю ширину окна под волосяной
+   линией, одна строка — «Сохранить», «Отмена», справа «Удалить схему». Отказ — строкой
+   над кнопками (ds-win-err). Поля окна свои: --win-pad каркаса окон (ds-win) у этого
+   окна не задан. */
 .doc-foot--bar {
   display: flex;
   align-items: center;
   gap: 12px;
 }
+.ds-win-foot.doc-editfoot {
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--c-line);
+}
+/* «Удалить схему»: тихая кнопка-текст цветом опасного действия, без рамки, у правого
+   края подвала. Вторая ступень («Удалить схему?») держит подложку. */
 .doc-delbtn {
   flex: none;
+  height: 30px;
+  margin: 0 -8px 0 auto;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #b91c1c;
-  background: #fff;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 6px 12px;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--c-danger);
+  white-space: nowrap;
   cursor: pointer;
 }
 .doc-delbtn:hover,
-.doc-delbtn--armed { background: #fef2f2; border-color: #fca5a5; }
+.doc-delbtn--armed {
+  background: color-mix(in srgb, var(--c-danger) 8%, var(--c-bg));
+}
+.doc-delbtn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
 
 .doc-foot {
   flex: none;

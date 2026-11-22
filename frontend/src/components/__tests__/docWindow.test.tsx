@@ -117,7 +117,7 @@ describe("окно схемы логики: чтение", () => {
 });
 
 describe("окно схемы логики: стадии правки на месте", () => {
-  it("«Вручную»: поля, код, превью, «Удалить схему» и подпись подвала; «Отмена» — к чтению", async () => {
+  it("«Вручную»: поля, код, превью, «Удалить схему»; «Отмена» — к чтению", async () => {
     openFlow();
     await userEvent.click(await screen.findByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
@@ -128,7 +128,8 @@ describe("окно схемы логики: стадии правки на ме�
     expect(codeField()).not.toHaveAttribute("readonly");
     expect(screen.getByTestId("mmd")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить схему" })).toBeInTheDocument();
-    expect(screen.getByText("Превью обновляется сразу")).toBeInTheDocument();
+    // Подпись подвала «Превью обновляется сразу» убрана (редизайн, фаза 7б).
+    expect(screen.queryByText("Превью обновляется сразу")).toBeNull();
     // Главная кнопка первой, «Отмена» за ней.
     const save = screen.getByRole("button", { name: "Сохранить" });
     const back = screen.getByRole("button", { name: "Отмена" });
