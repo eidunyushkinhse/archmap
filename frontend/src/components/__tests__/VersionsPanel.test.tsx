@@ -280,8 +280,10 @@ describe("VersionsPanel: версия и элемент", () => {
     expect(screen.getByText("Схема логики", { selector: ".vp-title-sub" })).toBeInTheDocument();
 
     const segs = within(screen.getByRole("group", { name: "Что показать" })).getAllByRole("button");
-    expect(segs.map((b) => b.textContent)).toEqual(["Изменения", "Было · v2", "Стало · v3"]);
+    expect(segs.map((b) => b.textContent)).toEqual(["Изменения", "Было в v2", "Стало в v3"]);
     expect(segs[0]).toHaveAttribute("aria-pressed", "true");
+    // Вкладки нового языка: выбранная — is-active.
+    expect(segs.map((b) => b.className)).toEqual(["ds-tab is-active", "ds-tab", "ds-tab"]);
 
     // Изменения — построчная дельта: строки с классами по метке и знаком слева.
     // (Пробелы значимы — читаем textContent, а не нормализующий поиск по тексту.)
@@ -338,12 +340,45 @@ describe("VersionsPanel: версия и элемент", () => {
     expect(versionsApi.item).toHaveBeenCalledWith("n1", 3, "config:n1", "live");
 
     const segs = within(screen.getByRole("group", { name: "Что показать" })).getAllByRole("button");
-    expect(segs.map((b) => b.textContent)).toEqual(["Изменения", "Было · v3", "Стало · сейчас"]);
+    expect(segs.map((b) => b.textContent)).toEqual(["Изменения", "Было в v3", "Стало сейчас"]);
     expect(await screen.findByText("+")).toHaveClass("vp-tag--add");
     expect(screen.getByText("порядок")).toHaveClass("vp-tag--mod");
 
     await userEvent.click(segs[1]);
     expect(screen.getByText("На этой стороне элемента нет")).toBeInTheDocument();
+  });
+});
+
+describe("VersionsPanel: заголовок элемента и подписи вкладок", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(versionsApi.list).mockResolvedValue(list(three));
+    vi.mocked(versionsApi.item).mockResolvedValue({ item: item(), changes: absent, before: absent, after: absent });
+  });
+
+  it("OpenAPI у первой версии: заголовок — категория, уточнение — путь объекта, вкладка «Было» без номера", async () => {
+    vi.mocked(versionsApi.diff).mockResolvedValue(diff([
+      item({ item_id: "spec:n1", category: "spec", node_path: "Заказы / Order API", name: "OpenAPI", status: "added" }),
+    ], null, 1));
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /^v1/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /^OpenAPI/ }));
+    expect(screen.getByRole("heading", { level: 2, name: "OpenAPI" })).toBeInTheDocument();
+    expect(screen.getByText("Заказы / Order API", { selector: ".vp-title-sub" })).toBeInTheDocument();
+    const tabs = within(screen.getByRole("group", { name: "Что показать" })).getAllByRole("button");
+    expect(tabs.map((b) => b.textContent)).toEqual(["Изменения", "Было", "Стало в v1"]);
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("·");
+  });
+
+  it("OpenAPI у корня среза: уточнения нет", async () => {
+    vi.mocked(versionsApi.diff).mockResolvedValue(diff([
+      item({ item_id: "spec:n1", category: "spec", node_path: "", name: "OpenAPI" }),
+    ], 2, 3));
+    const { container } = renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /^v3/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /^OpenAPI/ }));
+    expect(screen.getByRole("heading", { level: 2, name: "OpenAPI" })).toBeInTheDocument();
+    expect(container.ownerDocument.querySelector(".vp-title-sub")).toBeNull();
   });
 });
 

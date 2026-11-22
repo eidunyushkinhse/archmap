@@ -136,18 +136,6 @@
   color: var(--c-fg-muted);
 }
 
-/* Прежний вид тела экрана элемента до его перевода. */
-.vp-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 6px 0;
-}
-.vp-seg button:focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: -2px;
-}
-
 /* Заголовок блока «Что изменилось» и сразу за ним в той же строке список сравнения. */
 .vp-block-head {
   display: flex;
@@ -234,146 +222,106 @@
   margin-right: -6px;
 }
 
-/* ── Экран элемента ── сегменты «Изменения · Было · Стало» и одно представление. */
-.vp-seg {
-  display: inline-flex;
-  flex: none;
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-}
-.vp-seg button {
-  padding: 6px 12px;
-  border: none;
-  background: none;
-  color: #64748b;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.vp-seg button + button {
-  border-left: 1px solid #eef2f6;
-}
-.vp-seg button.is-active {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-.vp-item {
-  padding: 12px 16px;
+/* ── Экран элемента ── вкладки ds-tabs над одним представлением. */
+.vp-tabs {
+  align-self: flex-start;
 }
 
-/* Построчная дельта текста: строки на общей ширине (vp-diff-in), чтобы подсветка
-   длинной строки при прокрутке вбок не обрывалась у края окна. */
+/* Построчная дельта текста: моноширинный блок в рамке со своей прокруткой вбок. Строки
+   на общей ширине (vp-diff-in), чтобы подсветка длинной строки при прокрутке вбок не
+   обрывалась у края блока. Добавленные и удалённые строки — мягким фоном цвета
+   добавления и опасности, текст основным цветом; заголовок куска — тихим. */
 .vp-diff {
   overflow-x: auto;
-  padding: 4px 0;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding: var(--space-2) 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1.75;
+  letter-spacing: 0;
+  color: var(--c-fg);
 }
 .vp-diff-in {
   display: inline-block;
   min-width: 100%;
 }
 .vp-l {
-  padding: 1px 10px;
+  padding: 0 var(--space-3);
   white-space: pre;
 }
 .vp-l--add {
-  background: #dcfce7;
-  color: #14532d;
+  background: color-mix(in srgb, var(--c-ok) 12%, transparent);
 }
 .vp-l--del {
-  background: #fee2e2;
-  color: #7f1d1d;
-}
-.vp-l--ctx {
-  color: #64748b;
+  background: color-mix(in srgb, var(--c-danger) 10%, transparent);
 }
 .vp-l--hunk {
-  background: #eff6ff;
-  color: #1d4ed8;
+  color: var(--c-fg-muted);
 }
 
-/* Полный текст на стороне (схема, спека). */
+/* Полный текст на стороне (схема, спецификация): блок кода того же вида, что в окне
+   экспорта (exportModal.css, .ex-code) — моноширинный 12px с интерлиньяжем 1,75, основной
+   цвет на фоне окна, строки не переносятся; в рамке, как построчная дельта, чтобы вкладки
+   не прыгали. */
 .vp-code {
   margin: 0;
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   overflow-x: auto;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1.75;
+  letter-spacing: 0;
+  color: var(--c-fg);
+  white-space: pre;
 }
 
-/* Таблица: свойства, связи, колонки, поля, параметры, шаги процесса. */
+/* Таблица (свойства, связи, колонки, поля, параметры, шаги процесса) — ds-table; широкая
+   прокручивается вбок внутри своей обёртки, а не всё окно. */
 .vp-scrollx {
+  min-width: 0;
   overflow-x: auto;
 }
-.vp-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
+/* Значения не рвутся посреди слова (ORDER_TTL_H, string, адрес базы), как разрешает общее
+   правило ds-table: таблица шире блока прокручивается вбок, а текст с пробелами
+   переносится по словам. */
+.vp-scrollx .ds-table td {
+  overflow-wrap: normal;
 }
-.vp-table th,
-.vp-table td {
-  padding: 5px 8px;
-  border-bottom: 1px solid #eef2f6;
-  text-align: left;
-  vertical-align: top;
+/* Колонка меток — по ширине самой метки («порядок»). */
+.vp-mark-col {
+  width: 1%;
+  white-space: nowrap;
 }
-.vp-table th {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 600;
-}
+/* Метка строки словом-знаком без пилюли: «+» цветом добавления, «−» опасности, «~» и
+   «порядок» — тихим. */
 .vp-tag {
-  padding: 1px 6px;
-  border-radius: 5px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  color: var(--c-fg-muted);
   white-space: nowrap;
 }
 .vp-tag--add {
-  background: #dcfce7;
-  color: #166534;
+  color: var(--c-ok);
 }
 .vp-tag--del {
-  background: #fef2f2;
-  color: #b91c1c;
+  color: var(--c-danger);
 }
-.vp-tag--mod {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-/* Ячейка «было → стало»: прежнее значение зачёркнуто, новое — цветом добавления. */
+/* Ячейка «было → стало»: прежнее значение зачёркнуто тихим цветом, новое — основным. */
 .vp-was {
-  color: #dc2626;
+  color: var(--c-fg-muted);
 }
 .vp-now {
-  color: #166534;
+  color: var(--c-fg);
 }
 
-/* Тихие строки: «Версий ещё нет», «Загрузка…», «На этой стороне элемента нет». */
-.vp-empty {
-  margin: 0;
-  color: #94a3b8;
-  font-size: 12.5px;
-}
-.vp-note {
-  padding: 12px 16px;
-}
-/* Замечания отката над списком: тише строки фиксации, но читаемо — это итог действия. */
-.vp-remarks {
-  margin: 0;
-  border-bottom: 1px solid #eef2f6;
-  color: #475569;
-  font-size: 12.5px;
-  line-height: 1.5;
+/* Блоки со своей прокруткой получают фокус с клавиатуры (прокрутка стрелками): кольцо
+   языка внутри блока. */
+.vp-diff:focus-visible,
+.vp-code:focus-visible,
+.vp-scrollx:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
 }

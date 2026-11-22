@@ -16,7 +16,8 @@ import ScreenHead from "./ScreenHead";
 import "../../../ui/ds.css";
 import "./versions.css";
 
-// Подписи сегментов «Было · v2» / «Стало · сейчас» — по сторонам, которые вернул сервер.
+// Подписи вкладок экрана элемента «Было в v2» и «Стало в v3» (или «Стало сейчас») — по
+// сторонам, которые вернул сервер.
 export interface SideLabels {
   before: string;
   after: string;
@@ -131,8 +132,8 @@ function sideLabels(diff: VersionDiff): SideLabels {
   const before = diff.base?.number;
   const after = diff.target.number;
   return {
-    before: before == null ? "Было" : `Было · v${before}`,
-    after: after === null ? "Стало · сейчас" : `Стало · v${after}`,
+    before: before == null ? "Было" : `Было в v${before}`,
+    after: after === null ? "Стало сейчас" : `Стало в v${after}`,
   };
 }
 

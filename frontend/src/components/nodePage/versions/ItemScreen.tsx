@@ -1,6 +1,7 @@
-// Экран «элемент» панели версий: «категория · имя» и сегменты «Изменения · Было ·
-// Стало» над одним представлением. Старую версию читают здесь же («Было»/«Стало»), без
-// отдельного режима страницы.
+// Экран «элемент» окна версий (редизайн, фаза 9ж): в шапке имя элемента и тихое
+// уточнение за ним, в начале тела вкладки «Изменения», «Было в vN», «Стало в vM» (или
+// «Стало сейчас») над одним представлением. Старую версию читают здесь же («Было» и
+// «Стало»), без отдельного режима страницы.
 import { useState } from "react";
 import LoadError from "../../../ui/LoadError";
 import type { VersionBase } from "../../../api/versions";
@@ -24,7 +25,7 @@ export default function ItemScreen({ nodeId, num, base, item, labels, onBack, on
   onBack: () => void;
   onClose: () => void;
 }) {
-  // Три представления приходят одним ответом — переключение сегментов без сети.
+  // Три представления приходят одним ответом — переключение вкладок без сети.
   const detail = useVersionItem(nodeId, num, item.item_id, base);
   const [view, setView] = useState<ViewKey>("changes");
   const segments: [ViewKey, string][] = [["changes", "Изменения"], ["before", labels.before], ["after", labels.after]];
@@ -32,13 +33,14 @@ export default function ItemScreen({ nodeId, num, base, item, labels, onBack, on
   return (
     <>
       <ScreenHead title={head.title} sub={head.sub} onBack={onBack} onClose={onClose} />
-      <div className="vp-body">
-        <div className="vp-seg" role="group" aria-label="Что показать">
+      <div className="ds-win-body">
+        {/* Вкладки нового языка; механика переключателя прежняя (group и aria-pressed). */}
+        <div className="ds-tabs vp-tabs" role="group" aria-label="Что показать">
           {segments.map(([key, label]) => (
             <button
               key={key}
               type="button"
-              className={view === key ? "is-active" : undefined}
+              className={view === key ? "ds-tab is-active" : "ds-tab"}
               aria-pressed={view === key}
               onClick={() => setView(key)}
             >
@@ -48,12 +50,10 @@ export default function ItemScreen({ nodeId, num, base, item, labels, onBack, on
         </div>
         {detail.error ? (
           <LoadError what="изменения" error={detail.error} onRetry={detail.reload} />
+        ) : detail.data === null ? (
+          <p className="ds-empty vp-flat">Загрузка</p>
         ) : (
-          <div className="vp-item">
-            {detail.data === null
-              ? <p className="vp-empty">Загрузка</p>
-              : <VersionViewBlock view={detail.data[view]} />}
-          </div>
+          <VersionViewBlock view={detail.data[view]} />
         )}
       </div>
     </>

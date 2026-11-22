@@ -3,14 +3,19 @@
 // текст на стороне, columns + rows — таблица (свойства, связи, факты, шаги процесса).
 // Все четыре null — элемента на этой стороне нет («было» у добавленного).
 //
+// Вид (редизайн, фаза 9ж): дельта и полный текст — моноширинные блоки в рамке со своей
+// прокруткой вбок, таблица — тихая ds-table в обёртке со своей прокруткой вбок; метка
+// строки таблицы — словом-знаком цвета изменения, без пилюли.
+//
 // Ячейка «было → стало» рисуется по частям из row.changed (зачёркнутое «было» и
 // «стало»), а не разбором текста: стрелка могла стоять и в самом значении.
 import type { ReactNode } from "react";
 import type { DiffMark, VersionView } from "../../../types";
+import "../../../ui/ds.css";
 import "./versions.css";
 
 // Строка построчной дельты: класс цвета и знак слева, как в unified diff. mod в тексте —
-// заголовок куска «@@ …» или смена свойства схемы, у него свой цвет и без знака.
+// заголовок куска «@@ …» или смена свойства схемы: тихим цветом и без знака.
 const LINE: Record<DiffMark, { cls: string; sign: string }> = {
   "": { cls: "ctx", sign: " " },
   add: { cls: "add", sign: "+" },
@@ -19,8 +24,8 @@ const LINE: Record<DiffMark, { cls: string; sign: string }> = {
   move: { cls: "ctx", sign: " " },
 };
 
-// Метка строки таблицы: «+» новая, «−» удалена, «~» изменена (ячейка «было → стало»),
-// «порядок» — только переставлена.
+// Метка строки таблицы: «+» новая (цветом добавления), «−» удалена (цветом опасности),
+// «~» изменена (ячейка «было → стало») и «порядок» — только переставлена (тихим цветом).
 const TAG: Record<Exclude<DiffMark, "">, { cls: string; text: string }> = {
   add: { cls: "add", text: "+" },
   del: { cls: "del", text: "−" },
@@ -59,15 +64,15 @@ export default function VersionViewBlock({ view }: { view: VersionView }) {
     return <pre className="vp-code">{view.text}</pre>;
   }
   if (view.columns !== null && view.rows !== null) {
-    if (view.rows.length === 0) return <p className="vp-empty">Пусто</p>;
+    if (view.rows.length === 0) return <p className="ds-empty vp-flat">Пусто</p>;
     // Колонка меток — только когда есть что помечать: в «было» и «стало» метки пусты.
     const marked = view.rows.some((r) => r.mark !== "");
     return (
       <div className="vp-scrollx">
-        <table className="vp-table">
+        <table className="ds-table">
           <thead>
             <tr>
-              {marked && <th aria-label="Изменение" />}
+              {marked && <th className="vp-mark-col" aria-label="Изменение" />}
               {view.columns.map((c, i) => <th key={i}>{c}</th>)}
             </tr>
           </thead>
@@ -75,7 +80,7 @@ export default function VersionViewBlock({ view }: { view: VersionView }) {
             {view.rows.map((row, i) => (
               <tr key={i}>
                 {marked && (
-                  <td>
+                  <td className="vp-mark-col">
                     {row.mark !== "" && (
                       <span className={`vp-tag vp-tag--${TAG[row.mark].cls}`}>{TAG[row.mark].text}</span>
                     )}
@@ -89,5 +94,5 @@ export default function VersionViewBlock({ view }: { view: VersionView }) {
       </div>
     );
   }
-  return <p className="vp-empty">На этой стороне элемента нет</p>;
+  return <p className="ds-empty vp-flat">На этой стороне элемента нет</p>;
 }
