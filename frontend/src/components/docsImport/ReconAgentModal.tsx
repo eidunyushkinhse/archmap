@@ -72,7 +72,7 @@ export default function ReconAgentModal({ nodeId, onClose, onApplied }: Props) {
                 </p>
               </InfoPopover>
             </div>
-            <PromptCopyButton ds label="Скопировать задание" copiedLabel="Скопировано" kind="secondary" copy={copyPrompt} />
+            <PromptCopyButton label="Скопировать задание" copiedLabel="Скопировано" kind="secondary" copy={copyPrompt} />
           </section>
 
           <section className="ds-win-block">

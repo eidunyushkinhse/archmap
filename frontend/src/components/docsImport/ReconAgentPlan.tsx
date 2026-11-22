@@ -22,7 +22,7 @@ export default function ReconAgentPlan({ agent }: { agent: ReconAgent }) {
     <div className="apl">
       {checking && <p className="apl-line apl-quiet">Проверяем список</p>}
       {/* Вход тот же, что в прошлый заход: замечание над сводкой. */}
-      {agent.repeatedInput && <UnchangedInputNote ds />}
+      {agent.repeatedInput && <UnchangedInputNote />}
       {idle && report !== null && report.applied && (
         <p className="apl-summary is-ok">Применено: неописанных схем создано {report.created}.</p>
       )}
@@ -36,18 +36,18 @@ export default function ReconAgentPlan({ agent }: { agent: ReconAgent }) {
         </div>
       )}
       {idle && report !== null && report.errors.length > 0 && (
-        <NoteList ds danger title="Список не применить:" items={report.errors} />
+        <NoteList danger title="Список не применить:" items={report.errors} />
       )}
       {idle && agent.groups.map((g) => <ReconGroup key={g.action} group={g} />)}
       {idle && report !== null && report.warnings.length > 0 && (
-        <NoteList ds title="Проверьте:" items={report.warnings} />
+        <NoteList title="Проверьте:" items={report.warnings} />
       )}
       {idle && agent.remarks.length > 0 && (
         <button type="button" className="ds-btn apl-remarks" onClick={agent.copyRemarks}>
           {agent.remarksCopied ? "Скопировано" : "Скопировать замечания для агента"}
         </button>
       )}
-      {agent.askStale && <StaleFilesConfirm ds onKeep={agent.keepStale} onClear={agent.clearPackage} />}
+      {agent.askStale && <StaleFilesConfirm onKeep={agent.keepStale} onClear={agent.clearPackage} />}
     </div>
   );
 }

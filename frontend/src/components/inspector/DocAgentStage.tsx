@@ -79,7 +79,7 @@ function AgentStageWindow({
         {notice && <p className="ds-warn doc-agentnotice" role="status">{notice}</p>}
         <section className="ds-win-block">
           <h3 className="ds-win-block-title">Задание агенту</h3>
-          <PromptCopyButton ds label="Скопировать задание" copiedLabel="Скопировано" kind="secondary" copy={copy} />
+          <PromptCopyButton label="Скопировать задание" copiedLabel="Скопировано" kind="secondary" copy={copy} />
         </section>
 
         <section className="ds-win-block">

@@ -53,7 +53,7 @@ export default function SpecAgentPlan({ agent }: { agent: SpecAgent }) {
       {checking && <p className="apl-line apl-quiet">Проверяем файлы</p>}
       {/* Вход тот же, что в прошлый заход: замечание повторится, и чинить надо разговор
           с агентом. Над сводкой. */}
-      {agent.repeatedInput && <UnchangedInputNote ds />}
+      {agent.repeatedInput && <UnchangedInputNote />}
       {idle && report !== null && report.applied && (
         <p className="apl-summary is-ok">Применено: спецификаций записано {report.specs_written}.</p>
       )}
@@ -61,21 +61,21 @@ export default function SpecAgentPlan({ agent }: { agent: SpecAgent }) {
         <p className={"apl-summary" + (willWrite ? " is-ok" : "")}>{summaryLine(report.specs)}</p>
       )}
       {idle && report !== null && report.errors.length > 0 && (
-        <NoteList ds danger title="Файлы не применить:" items={report.errors} />
+        <NoteList danger title="Файлы не применить:" items={report.errors} />
       )}
       {idle && report !== null && report.specs.length > 0 && <SpecRows rows={report.specs} />}
       {idle && report !== null && report.conflicts.length > 0 && (
-        <NoteList ds title="Конфликты файлов (оставлен первый файл):" items={report.conflicts} />
+        <NoteList title="Конфликты файлов (оставлен первый файл):" items={report.conflicts} />
       )}
       {idle && report !== null && report.warnings.length > 0 && (
-        <NoteList ds title="Проверьте:" items={report.warnings} />
+        <NoteList title="Проверьте:" items={report.warnings} />
       )}
       {idle && agent.remarks.length > 0 && (
         <button type="button" className="ds-btn apl-remarks" onClick={agent.copyRemarks}>
           {agent.remarksCopied ? "Скопировано" : "Скопировать замечания для агента"}
         </button>
       )}
-      {agent.askStale && <StaleFilesConfirm ds onKeep={agent.keepStale} onClear={agent.clearPackage} />}
+      {agent.askStale && <StaleFilesConfirm onKeep={agent.keepStale} onClear={agent.clearPackage} />}
     </div>
   );
 }

@@ -62,7 +62,7 @@ export default function SyncPlan({ imp }: { imp: SyncImport }) {
       {imp.tooBig && <div className="legacy-root"><FileTooBigNotice {...imp.tooBig} /></div>}
       {/* Не помещается в демо: вместо плана — отказ с полоской. */}
       {excess && <div className="legacy-root"><DemoExcessNotice excess={excess} scope="project" /></div>}
-      {preview && !preview.ok && <NoteList ds title="YAML не читается" items={preview.errors ?? []} />}
+      {preview && !preview.ok && <NoteList title="YAML не читается" items={preview.errors ?? []} />}
       {preview?.ok && !excess && (
         <div className="sync-plan">
           <p className="sync-summary">{planSummary(preview)}</p>
@@ -81,8 +81,8 @@ export default function SyncPlan({ imp }: { imp: SyncImport }) {
               </ul>
             </div>
           ))}
-          {!!preview.conflicts?.length && <NoteList ds title="Есть нюанс" items={preview.conflicts} />}
-          {!!preview.warnings?.length && <NoteList ds title="Стоит проверить глазами" items={preview.warnings} />}
+          {!!preview.conflicts?.length && <NoteList title="Есть нюанс" items={preview.conflicts} />}
+          {!!preview.warnings?.length && <NoteList title="Стоит проверить глазами" items={preview.warnings} />}
         </div>
       )}
     </>

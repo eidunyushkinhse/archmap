@@ -163,7 +163,6 @@ export default function DocsAgentModal({ nodeId, onClose, onApplied }: Props) {
               </div>
             </dl>
             <PromptCopyButton
-              ds
               label="Скопировать задание"
               copiedLabel="Скопировано"
               kind="secondary"

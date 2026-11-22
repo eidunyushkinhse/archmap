@@ -59,7 +59,7 @@ export default function DocsAgentPlan({ agent }: { agent: DocsAgent }) {
       {checking && <p className="apl-line apl-quiet">Проверяем файлы</p>}
       {/* Вход тот же, что в прошлый заход: замечание повторится, и чинить надо разговор
           с агентом. Над сводкой. */}
-      {agent.repeatedInput && <UnchangedInputNote ds />}
+      {agent.repeatedInput && <UnchangedInputNote />}
       {/* Ампутация пометок не должна быть молчаливой: пропавшие между попытками — НАД
           сводкой. */}
       {idle && agent.shrank.map((line) => (
@@ -90,21 +90,21 @@ export default function DocsAgentPlan({ agent }: { agent: DocsAgent }) {
         </p>
       )}
       {idle && report !== null && report.errors.length > 0 && (
-        <NoteList ds danger title="Файлы не применить:" items={report.errors} />
+        <NoteList danger title="Файлы не применить:" items={report.errors} />
       )}
       {idle && report !== null && report.logic.length > 0 && <PlanRows agent={agent} rows={report.logic} />}
       {idle && report !== null && report.conflicts.length > 0 && (
-        <NoteList ds title="Конфликты файлов (оставлен первый файл):" items={report.conflicts} />
+        <NoteList title="Конфликты файлов (оставлен первый файл):" items={report.conflicts} />
       )}
       {idle && report !== null && report.warnings.length > 0 && (
-        <NoteList ds title="Проверьте:" items={report.warnings} />
+        <NoteList title="Проверьте:" items={report.warnings} />
       )}
       {idle && remarks.length > 0 && (
         <button type="button" className="ds-btn apl-remarks" onClick={agent.copyRemarks}>
           {agent.remarksCopied ? "Скопировано" : "Скопировать замечания для агента"}
         </button>
       )}
-      {agent.askStale && <StaleFilesConfirm ds onKeep={agent.keepStale} onClear={agent.clearPackage} />}
+      {agent.askStale && <StaleFilesConfirm onKeep={agent.keepStale} onClear={agent.clearPackage} />}
     </div>
   );
 }

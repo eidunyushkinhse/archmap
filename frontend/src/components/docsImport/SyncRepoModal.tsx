@@ -104,7 +104,6 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
               </div>
             </dl>
             <PromptCopyButton
-              ds
               label="Скопировать задание"
               copiedLabel="Скопировано"
               kind="secondary"

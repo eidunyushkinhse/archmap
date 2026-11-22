@@ -87,7 +87,7 @@ export default function FactAgentModal<R extends FactReport>({
         <div className="ds-win-body">
           <section className="ds-win-block">
             <h3 className="ds-win-block-title">Задание агенту</h3>
-            <PromptCopyButton ds label="Скопировать задание" copiedLabel="Скопировано" kind="secondary" copy={copyPrompt} />
+            <PromptCopyButton label="Скопировать задание" copiedLabel="Скопировано" kind="secondary" copy={copyPrompt} />
           </section>
 
           <section className="ds-win-block">

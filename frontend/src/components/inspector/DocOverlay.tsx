@@ -5,7 +5,9 @@
 //     репортятся onDocEvent для меты;
 //   • OpenAPI — OpenApiPane: спеку пишет страница (onCommitOpenapi → PATCH узла).
 // Каркас на новом языке (редизайн, фаза 7а): корень — область .ds, окно во весь экран без
-// полей по 32 px (ширина до 1120 px), шапка в одну строку (docChrome.DocHead).
+// полей по 32 px (ширина до 1120 px), шапка в одну строку (docChrome.DocHead). В стадии
+// «Через ИИ-агента» тот же <dialog> становится малым окном 640 px (DocAgentStage): размер
+// меняет CSS по корню стадии (docOverlay.css, :has()), оболочка о стадии не знает.
 import { useCallback, useEffect, useRef, useState } from "react";
 import Modal from "../../ui/Modal";
 import FlowchartDocs from "./FlowchartDocs";

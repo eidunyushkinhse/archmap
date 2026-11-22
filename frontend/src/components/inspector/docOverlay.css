@@ -1,9 +1,9 @@
 /* Оверлей документации (DocOverlay): широкий сплит «код | живое превью».
-   Каркас, шапка и чтение — новый язык (редизайн, фаза 7а), стадия «Вручную», колонка
-   кода читателя и сцена превью — тоже (фаза 7б): значения только из ui/tokens.css,
-   корень несёт область .ds. Стадия «Через ИИ-агента» — прежнего вида (её тело, подвал и
-   кнопка шапки в legacy-root). Сцену превью этими же классами рисуют ER-диаграмма базы
-   и просмотр документа в вопросах слияния. */
+   Всё на новом языке, значения только из ui/tokens.css, корень несёт область .ds: каркас,
+   шапка и чтение (редизайн, фаза 7а), стадия «Вручную», колонка кода читателя и сцена
+   превью (фаза 7б), стадия «Через ИИ-агента» малым окном семьи окон агента (фаза 7в).
+   Сцену превью этими же классами рисуют ER-диаграмма базы и просмотр документа в
+   вопросах слияния. */
 
 /* ── каркас ─────────────────────────────────────────────────────────────── */
 
@@ -22,8 +22,7 @@
 
 /* Шапка в одну строку под волосяной линией: имя объекта тихим цветом, название
    заголовком окна, хвост (эндпоинт или «воркер»), справа действия стадии и крестик.
-   Высота постоянная: кнопки стадий правки прежнего вида (42 px) в неё помещаются, и
-   переход между стадиями шапку не двигает. */
+   Высота постоянная: переход между чтением и правкой шапку не двигает. */
 .doc-head {
   flex: none;
   display: flex;
@@ -82,12 +81,6 @@
   align-items: center;
   gap: var(--space-2);
 }
-/* Обёртка части прежнего вида (кнопка шапки стадии агента): своей коробки нет, метрики
-   текста legacy-root наследуются через неё. */
-.doc-legacy {
-  display: contents;
-}
-
 /* Строка предупреждения под шапкой (ds-warn) для чтения: конфликт, схемы не загрузились. */
 .ds-warn.doc-notice {
   flex: none;
@@ -116,20 +109,6 @@
   display: flex;
   min-height: 0;
 }
-
-/* «← К схеме» в режиме агента */
-.doc-back {
-  flex: none;
-  font: inherit;
-  font-size: 12.5px;
-  color: #64748b;
-  background: none;
-  border: none;
-  padding: 0 4px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.doc-back:hover { color: #1e293b; }
 
 /* Поля схемы в «Вручную» (новый язык, фаза 7б): имя, вид, эндпоинт в одну строку с
    полями 24 px по бокам, как у шапки; под строкой одна линия. Подпись над полем 12 px
@@ -237,67 +216,6 @@
   color: var(--c-fg-muted);
 }
 
-/* «Через ИИ-агента»: шаги слева, панель пакета справа */
-.doc-agent {
-  flex: 1;
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-}
-.doc-agentleft {
-  flex: none;
-  width: 320px;
-  padding: 18px;
-  border-right: 1px solid #eef0f2;
-  overflow-y: auto;
-}
-.doc-agentright {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 18px;
-  overflow-y: auto;
-}
-.doc-steps {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  counter-reset: doc-step;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #334155;
-}
-.doc-steps li {
-  counter-increment: doc-step;
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 8px;
-}
-.doc-steps li::before {
-  content: counter(doc-step);
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #eff6ff;
-  color: #2563eb;
-  font-size: 12px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-}
-.doc-target {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
-  background: #f3efff;
-  color: #7c5cd6;
-  border-radius: 5px;
-  padding: 1px 6px;
-}
-
 /* ── стадия «Через ИИ-агента» (новый язык, фаза 7в) ─────────────────────────
    Малое окно семьи окон агента («Описать схемы логики…», окна фактов): одна колонка
    640 px на каркасе окна (ds-win), верх на 8vh, высота по содержимому, прокручивается тело,
@@ -370,15 +288,6 @@
 .doc-delbtn:focus-visible {
   outline: 2px solid var(--c-accent);
   outline-offset: 1px;
-}
-
-/* Подвал стадии «Через ИИ-агента» — прежнего вида. */
-.doc-foot {
-  flex: none;
-  padding: 9px 16px;
-  border-top: 1px solid #eef0f2;
-  font-size: 11.5px;
-  color: #94a3b8;
 }
 
 /* ── колонка кода (новый язык, фаза 7б) ─────────────────────────────────────
