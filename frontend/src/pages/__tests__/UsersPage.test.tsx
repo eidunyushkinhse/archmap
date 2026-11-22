@@ -1,5 +1,6 @@
 // Экран «Пользователи»: таблица, правки строк через adminApi, подтверждения
-// блокировки и снятия админа, отключённые кнопки у себя и у последнего админа.
+// блокировки и снятия админа, запертые действия у себя и у последнего админа. Действия
+// строки — пункты меню кнопки-значка (редизайн, фаза 12а).
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -53,9 +54,15 @@ function row(username: string) {
   return within(screen.getByTestId(`user-row-${username}`));
 }
 
-// Действие строки, готовое к нажатию: кнопка в строке.
+// Кнопка меню действий строки.
+function кебаб(username: string): HTMLElement {
+  return row(username).getByRole("button", { name: `Действия с пользователем ${username}` });
+}
+
+// Действие строки, готовое к нажатию: меню строки открыто, пункт найден.
 async function действие(username: string, label: string): Promise<HTMLElement> {
-  return row(username).getByRole("button", { name: label });
+  await userEvent.click(кебаб(username));
+  return within(screen.getByRole("menu")).getByRole("menuitem", { name: label });
 }
 
 // Все действия строки заперты (идёт запись).
@@ -79,38 +86,47 @@ describe("UsersPage", () => {
     expect(row("boss").getByLabelText("Роль boss")).toHaveValue("architect");
   });
 
-  it("у себя «Заблокировать» и «Снять права администратора» отключены с подсказкой", async () => {
+  it("у себя «Заблокировать» и «Снять права администратора» заперты, причина второй строкой", async () => {
     await setup([boss, olga, ivan]);
-    const block = row("boss").getByRole("button", { name: "Заблокировать" });
-    const revoke = row("boss").getByRole("button", { name: "Снять права администратора" });
+    const block = await действие("boss", "Заблокировать");
+    const revoke = screen.getByRole("menuitem", { name: "Снять права администратора" });
     expect(block).toBeDisabled();
     expect(revoke).toBeDisabled();
-    expect(block.parentElement).toHaveAttribute("title", "Нельзя заблокировать себя");
-    expect(revoke.parentElement).toHaveAttribute("title", "Нельзя снять права с себя");
+    expect(block).toHaveAccessibleDescription("Нельзя заблокировать себя");
+    expect(revoke).toHaveAccessibleDescription("Нельзя снять права с себя");
+    expect(within(block).getByText("Нельзя заблокировать себя")).toBeInTheDocument();
+    expect(within(revoke).getByText("Нельзя снять права с себя")).toBeInTheDocument();
+    // Прежней подсказки-обёртки нет.
+    expect(block.parentElement).not.toHaveAttribute("title");
+    // «Сбросить пароль» у себя доступен.
+    expect(screen.getByRole("menuitem", { name: "Сбросить пароль" })).toBeEnabled();
     // у второго админа — доступны
-    expect(row("olga").getByRole("button", { name: "Снять права администратора" })).toBeEnabled();
-    expect(row("olga").getByRole("button", { name: "Заблокировать" })).toBeEnabled();
+    await userEvent.keyboard("{Escape}");
+    expect(await действие("olga", "Снять права администратора")).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Заблокировать" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Заблокировать" })).not.toHaveAccessibleDescription();
   });
 
-  it("у последнего активного админа кнопки отключены с подсказкой", async () => {
+  it("у последнего активного админа пункты заперты, причина второй строкой", async () => {
     // Список глазами админа, которого уже разжаловали в другой вкладке: активный
     // админ один, и это не он сам.
     vi.mocked(adminApi.list).mockResolvedValue([olga, user("boss", { role: "architect" })]);
     vi.mocked(fetchMe).mockResolvedValue({ id: boss.id, username: "boss", role: "architect", is_admin: false, is_guest: false, can_create_project: true });
     render(<UsersPage onAllProjects={vi.fn()} onLogout={vi.fn()} />);
     await screen.findByTestId("user-row-olga");
-    const block = row("olga").getByRole("button", { name: "Заблокировать" });
-    const revoke = row("olga").getByRole("button", { name: "Снять права администратора" });
+    const block = await действие("olga", "Заблокировать");
+    const revoke = screen.getByRole("menuitem", { name: "Снять права администратора" });
     expect(block).toBeDisabled();
     expect(revoke).toBeDisabled();
-    expect(block.parentElement).toHaveAttribute("title", "Это последний администратор");
-    expect(revoke.parentElement).toHaveAttribute("title", "Это последний администратор");
+    expect(block).toHaveAccessibleDescription("Это последний администратор");
+    expect(revoke).toHaveAccessibleDescription("Это последний администратор");
   });
 
   it("блокировка — через подтверждение", async () => {
     await setup([boss, ivan]);
     vi.mocked(adminApi.update).mockResolvedValue({ ...ivan, is_active: false });
-    await userEvent.click(row("ivan").getByRole("button", { name: "Заблокировать" }));
+    await userEvent.click(await действие("ivan", "Заблокировать"));
+    expect(screen.queryByRole("menu")).toBeNull();
     expect(screen.getByText("Заблокировать «ivan»?")).toBeInTheDocument();
     expect(adminApi.update).not.toHaveBeenCalled();
     // в окне подтверждения своя кнопка «Заблокировать» (danger)
@@ -124,7 +140,7 @@ describe("UsersPage", () => {
 
   it("отмена подтверждения ничего не меняет", async () => {
     await setup([boss, olga]);
-    await userEvent.click(row("olga").getByRole("button", { name: "Снять права администратора" }));
+    await userEvent.click(await действие("olga", "Снять права администратора"));
     expect(screen.getByText("Снять права администратора с «olga»?")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(adminApi.update).not.toHaveBeenCalled();
@@ -133,7 +149,7 @@ describe("UsersPage", () => {
   it("снятие админа — через подтверждение; отказ бэка виден в окне", async () => {
     await setup([boss, olga]);
     vi.mocked(adminApi.update).mockRejectedValue(new Error("Нельзя снять права с последнего администратора"));
-    await userEvent.click(row("olga").getByRole("button", { name: "Снять права администратора" }));
+    await userEvent.click(await действие("olga", "Снять права администратора"));
     await userEvent.click(screen.getByRole("button", { name: "Снять" }));
     expect(adminApi.update).toHaveBeenCalledWith("u-olga", { is_admin: false });
     expect(await screen.findByText("Нельзя снять права с последнего администратора")).toBeInTheDocument();
@@ -142,14 +158,15 @@ describe("UsersPage", () => {
   it("разблокировать и сделать админом — сразу, без подтверждения", async () => {
     await setup([boss, ivan, petr]);
     vi.mocked(adminApi.update).mockResolvedValueOnce({ ...petr, is_active: true });
-    await userEvent.click(row("petr").getByRole("button", { name: "Разблокировать" }));
+    await userEvent.click(await действие("petr", "Разблокировать"));
     expect(adminApi.update).toHaveBeenCalledWith("u-petr", { is_active: true });
     await waitFor(() => expect(row("petr").getByText("Активен")).toBeInTheDocument());
 
     vi.mocked(adminApi.update).mockResolvedValueOnce({ ...ivan, is_admin: true });
-    await userEvent.click(row("ivan").getByRole("button", { name: "Сделать администратором" }));
+    await userEvent.click(await действие("ivan", "Сделать администратором"));
     expect(adminApi.update).toHaveBeenCalledWith("u-ivan", { is_admin: true });
-    await waitFor(() => expect(row("ivan").getByRole("button", { name: "Снять права администратора" })).toBeInTheDocument());
+    await waitFor(() => expect(row("ivan").getByText("Да")).toBeInTheDocument());
+    expect(await действие("ivan", "Снять права администратора")).toBeInTheDocument();
   });
 
   it("смена роли — выбором в строке", async () => {
@@ -184,7 +201,7 @@ describe("UsersPage", () => {
 
   it("«Сбросить пароль» открывает окно для этой строки", async () => {
     await setup([boss, ivan]);
-    await userEvent.click(row("ivan").getByRole("button", { name: "Сбросить пароль" }));
+    await userEvent.click(await действие("ivan", "Сбросить пароль"));
     expect(screen.getByText(/Новый пароль для «ivan»/)).toBeInTheDocument();
   });
 
@@ -258,9 +275,54 @@ describe("UsersPage", () => {
     expect(кнопка.querySelector("svg")).toBeNull();
   });
 
+  it("таблица нового языка: в строке одна кнопка-значок, слова вместо пилюль", async () => {
+    await setup([boss, ivan, petr]);
+    expect(screen.getByRole("table")).toHaveClass("ds-table");
+    for (const name of ["boss", "ivan", "petr"]) {
+      const кнопки = row(name).getAllByRole("button");
+      expect(кнопки).toHaveLength(1);
+      expect(кнопки[0]).toHaveClass("ds-icon-btn");
+      expect(кнопки[0]).toHaveAttribute("title", "Действия");
+      expect(кнопки[0]).toHaveAttribute("aria-haspopup", "menu");
+      expect(кнопки[0]).toHaveAttribute("aria-expanded", "false");
+    }
+    expect(row("boss").getByText("вы")).toHaveClass("lp-self");
+    expect(row("petr").getByText("Заблокирован")).toHaveClass("lp-blocked");
+    expect(row("ivan").getByText("Активен")).toHaveClass("lp-quiet");
+    expect(row("ivan").getByText("Нет")).toHaveClass("lp-quiet");
+    expect(row("boss").getByText("Да")).not.toHaveClass("lp-quiet");
+    expect(row("ivan").getByLabelText("Роль ivan").closest(".ds-select")).not.toBeNull();
+  });
+
+  it("меню строки: пункты по порядку, опасный «Заблокировать»; Escape, щелчок мимо и выбор закрывают", async () => {
+    await setup([boss, ivan, petr]);
+    await userEvent.click(кебаб("ivan"));
+    expect(кебаб("ivan")).toHaveAttribute("aria-expanded", "true");
+    const меню = screen.getByRole("menu");
+    expect(меню).toHaveClass("ds-menu", "ds-menu--end");
+    expect(within(меню).getAllByRole("menuitem").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
+      "Сбросить пароль", "Сделать администратором", "Заблокировать",
+    ]);
+    expect(within(меню).getByRole("menuitem", { name: "Заблокировать" })).toHaveClass("ds-menu-item", "ds-menu-item--danger");
+    expect(within(меню).getByRole("menuitem", { name: "Сбросить пароль" })).not.toHaveClass("ds-menu-item--danger");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(кебаб("ivan")).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.click(кебаб("petr"));
+    expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Разблокировать" })).not.toHaveClass("ds-menu-item--danger");
+    await userEvent.click(screen.getByRole("heading", { level: 1 }));
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    await userEvent.click(await действие("ivan", "Сбросить пароль"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(adminApi.update).not.toHaveBeenCalled();
+  });
+
   it("«Все проекты» ведёт обратно", async () => {
     const props = await setup([boss]);
-    await userEvent.click(screen.getByRole("button", { name: "← Все проекты" }));
+    // У логотипа в шапке то же имя «Все проекты» (aria-label); здесь — кнопка-текст.
+    await userEvent.click(screen.getByText("Все проекты"));
     expect(props.onAllProjects).toHaveBeenCalledTimes(1);
   });
 });
