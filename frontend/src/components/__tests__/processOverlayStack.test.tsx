@@ -83,8 +83,31 @@ describe("стек оверлеев холста процесса", () => {
   it("подтверждение из панели участников ложится поверх панели", async () => {
     const confirm = await openDeleteFromPanel();
     const panel = screen.getByText("Добавить из дерева схемы");
-    // Одинаковый z-index — сверху то, что позже в DOM.
+    // Подтверждение позже панели в DOM.
     expect(panel.compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Слой: ближайший предок со своим z-index. Подложка подтверждения выше центра панели и
+    // цветом подложки окон, поэтому панель под ней читается фоном.
+    const layer = (el: HTMLElement) => {
+      let e: HTMLElement | null = el;
+      while (e && !e.style.zIndex) e = e.parentElement;
+      return e as HTMLElement;
+    };
+    const panelLayer = layer(panel);
+    const confirmLayer = layer(confirm);
+    const dim = confirmLayer.previousElementSibling as HTMLElement;
+    expect(Number(dim.style.zIndex)).toBeGreaterThan(Number(panelLayer.style.zIndex));
+    expect(Number(confirmLayer.style.zIndex)).toBeGreaterThan(Number(dim.style.zIndex));
+    expect(dim.style.background).toBe("rgba(15, 23, 42, 0.45)");
+  });
+
+  it("щелчок по подложке подтверждения закрывает только его, панель остаётся", async () => {
+    const confirm = await openDeleteFromPanel();
+    let layer: HTMLElement | null = confirm;
+    while (layer && !layer.style.zIndex) layer = layer.parentElement;
+    await userEvent.click(layer?.previousElementSibling as HTMLElement);
+    await waitFor(() => expect(screen.queryByText(CONFIRM)).toBeNull());
+    expect(screen.getByText("Добавить из дерева схемы")).toBeInTheDocument();
+    expect(processesApi.removeParticipant).not.toHaveBeenCalled();
   });
 
   it("Escape закрывает сперва подтверждение, затем панель — и ничего не удаляет", async () => {

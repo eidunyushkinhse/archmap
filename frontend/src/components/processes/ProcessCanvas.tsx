@@ -331,8 +331,8 @@ export default function ProcessCanvas({
       case "delPart":
         return (
           <>
-            <div style={overlayDim} onClick={() => { if (!o.busy) closeOverlay("delPart"); }} />
-            <div style={overlayCenter}>
+            <div style={confirmDim} onClick={() => { if (!o.busy) closeOverlay("delPart"); }} />
+            <div style={confirmCenter}>
               <ParticipantDeleteConfirm
                 name={o.part.name}
                 links={delLinks}
@@ -399,8 +399,8 @@ export default function ProcessCanvas({
       case "delFrag":
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("delFrag")} />
-            <div style={overlayCenter}>
+            <div style={confirmDim} onClick={() => closeOverlay("delFrag")} />
+            <div style={confirmCenter}>
               <ConfirmDialog
                 variant="card"
                 title="Удалить фрагмент?"
@@ -416,8 +416,8 @@ export default function ProcessCanvas({
       case "bindConfirm":
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("bindConfirm")} />
-            <div style={overlayCenter}>
+            <div style={confirmDim} onClick={() => closeOverlay("bindConfirm")} />
+            <div style={confirmCenter}>
               <ConfirmDialog
                 variant="card"
                 tone="neutral"
@@ -757,6 +757,14 @@ const overlayCenter: CSSProperties = {
   transform: "translate(-50%,-50%)",
   zIndex: 51,
 };
+// Подложка и центр подтверждений («Удалить фрагмент?», «Убрать «…» из процесса?», «Имена
+// расходятся»): выше окон холста (overlayCenter), поэтому окно под подтверждением (панель
+// «Участники») лежит под затемнением и читается фоном. При общем z-index подложка
+// подтверждения оказывалась под центром панели, а её 6% затемнения не было видно. Цвет —
+// подложки окон приложения (dialog.app-modal::backdrop, ui/modal.css): подтверждение
+// холста выглядит так же, как подтверждение в окне.
+const confirmDim: CSSProperties = { ...overlayDim, background: "rgba(15, 23, 42, 0.45)", zIndex: 52 };
+const confirmCenter: CSSProperties = { ...overlayCenter, zIndex: 53 };
 const confirmCard: CSSProperties = {
   width: 300,
   background: "#fff",
