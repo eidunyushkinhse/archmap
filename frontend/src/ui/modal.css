@@ -12,6 +12,15 @@ dialog.app-modal::backdrop {
   background: rgba(15, 23, 42, 0.45);
 }
 
+/* Фокус на самом окне (Modal ставит его на <dialog>, когда в окне нет data-autofocus):
+   кольца у окна нет. После ввода с клавиатуры (Delete на холсте) браузер рисовал по
+   :focus-visible чёрную обводку вокруг всего окна. Кольца кнопок и полей внутри окна —
+   свои, их правило не задевает. */
+dialog.app-modal:focus,
+dialog.app-modal:focus-visible {
+  outline: none;
+}
+
 /* Focus-кольцо и hover «китчена» — каскадом на всех потребителей (инлайн-стилями
    псевдоклассы недоступны). Накрывает любые инпуты/кнопки внутри .app-modal. */
 .app-modal input:focus,

@@ -12,7 +12,8 @@ interface ModalProps {
   // делает того, чего не даёт кнопка. Окнам без полей (подтверждения) не нужен — там
   // Enter и так нажимает кнопку в фокусе.
   onSubmit?: () => void;
-  // Показывать крестик ✕. Дефолт true; false только у NodeDeleteConfirm.
+  // Показывать крестик ✕. Дефолт true; false — у окон со своим крестиком (у окон нового языка
+  // это ds-win-close) и у подтверждений (ui/ConfirmDialog), где крестика нет.
   closeButton?: boolean;
   // Переопределения геометрии бокса: width/maxHeight/overflowY уходят на <dialog>,
   // padding/display/flexDirection — на внутреннюю обёртку (см. split ниже).

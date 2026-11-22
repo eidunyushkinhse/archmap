@@ -150,7 +150,7 @@ function Block({ title, items, warn }: { title: string; items: TransitionPreview
   return (
     <section className="ds-win-block">
       <h3 className="ds-win-block-title">
-        {title}<span className="ds-confirm-count">{items.length}</span>
+        {title} <span className="ds-confirm-count">{items.length}</span>
       </h3>
       {warn && <p className="ds-warn ds-confirm-flat">{warn}</p>}
       <ul className="ds-confirm-list">

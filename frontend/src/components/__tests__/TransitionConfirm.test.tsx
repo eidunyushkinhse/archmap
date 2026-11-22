@@ -62,6 +62,10 @@ describe("TransitionConfirm", () => {
     show();
     const promote = await waitFor(() => block("Станут существующими"));
     expect(within(promote).getByText("3")).toHaveClass("ds-confirm-count");
+    // Между названием и числом настоящий пробел: имя заголовка не склеивается.
+    expect(screen.getByRole("heading", { level: 3, name: "Станут существующими 3" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Будут удалены 2" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Удалятся вместе с ними 1" })).toBeInTheDocument();
     const list = within(promote).getByRole("list");
     expect(list).toHaveClass("ds-confirm-list");
     expect(within(list).getAllByRole("listitem").map((li) => li.getAttribute("title")))
