@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { listPage as page, listPrimaryBtn as newBtn, listTitle as h1, listToast as toastStyle, listTopBar as topBar } from "../ui/pageChrome";
+import { listToast as toastStyle } from "../ui/pageChrome";
 import { adminApi } from "../api/admin";
 import { fetchMe } from "../api/auth";
 import type { AdminUser, AdminUserUpdate, UserRole } from "../types";
@@ -10,9 +10,10 @@ import ResetPasswordDialog from "../components/users/ResetPasswordDialog";
 import { ROLE_LABEL, ROLES } from "../components/users/userLabels";
 import BrandLink from "../ui/BrandLink";
 import ConfirmDialog from "../ui/ConfirmDialog";
-import { PlusIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import { useMessageToast } from "./useToast";
+import "../ui/ds.css";
+import "./listPages.css";
 
 /**
  * Экран «Пользователи» (#/admin/users, только администратор): таблица учёток и
@@ -96,23 +97,27 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
   const activeAdmins = users.filter((u) => u.is_admin && u.is_active).length;
 
   return (
-    <div style={page}>
-      <div style={topBar}>
-        <BrandLink onClick={onAllProjects} />
-        <AccountMenu onLogout={onLogout} />
-      </div>
+    <div className="ds lp-page">
+      <header className="ds-head">
+        <div className="ds-head-left">
+          <BrandLink onClick={onAllProjects} />
+        </div>
+        <div className="ds-head-acts">
+          <AccountMenu onLogout={onLogout} />
+        </div>
+      </header>
 
-      <div style={container}>
+      <main className="lp-main lp-main--crumb">
         <button className="crumb" style={backLink} onClick={onAllProjects}>← Все проекты</button>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-          <h1 style={h1}>Пользователи</h1>
-          <button style={newBtn} onClick={() => setDialog({ kind: "create" })}>
-            <PlusIcon /> Новый пользователь
+        <div className="lp-title-row">
+          <h1 className="lp-title">Пользователи</h1>
+          <button type="button" className="ds-btn ds-btn--primary" onClick={() => setDialog({ kind: "create" })}>
+            Новый пользователь
           </button>
         </div>
 
-        {error && <p style={{ color: "#dc2626", fontSize: 14 }}>{error}</p>}
-        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка</p>}
+        {error && <p className="ds-danger lp-note">{error}</p>}
+        {loading && <p className="ds-empty lp-note">Загрузка</p>}
 
         {!loading && users.length > 0 && (
           <div style={tableBox}>
@@ -207,7 +212,7 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
             </table>
           </div>
         )}
-      </div>
+      </main>
 
       {dialog?.kind === "create" && (
         <NewUserDialog
@@ -251,7 +256,8 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
         />
       )}
 
-      {toast && <div style={toastStyle}>{toast}</div>}
+      {/* Тост прежнего вида (legacy-root держит прежние метрики текста внутри .ds). */}
+      {toast && <div className="legacy-root" style={toastStyle}>{toast}</div>}
     </div>
   );
 }
@@ -285,8 +291,7 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
 }
 
-// ── Стили (шапка и контейнер — как у лендинга «Проекты») ─────────────────────
-const container: CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: "20px 24px 60px" };
+// ── Стили прежнего вида (таблица и «Все проекты»; шапка и колонка — listPages.css) ──
 const backLink: CSSProperties = {
   display: "inline-flex", alignItems: "center", padding: "4px 8px", margin: "0 0 10px -8px",
   border: "none", borderRadius: 8, background: "none", color: "#64748b",

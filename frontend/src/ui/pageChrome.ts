@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
-// Каркас экранов — шапка и тело страницы. Были копиями в четырёх страницах (аудит
-// F-28); здесь одна версия на вид экрана, своё страница добавляет спредом.
+// Каркас рабочих экранов проекта и тост списочных экранов. Были копиями в четырёх страницах
+// (аудит F-28); здесь одна версия на вид экрана, своё страница добавляет спредом.
 
 // ── Рабочие экраны проекта (оболочка ProjectShell, редактор-карта): колонка во
 // всю высоту окна, шапка сверху (каркас ds-head в ui/ds.css), тело — строка панелей.
@@ -9,22 +9,9 @@ import type { CSSProperties } from "react";
 export const workPage: CSSProperties = { display: "flex", flexDirection: "column", height: "100vh", fontFamily: "var(--font-ui)", overflow: "hidden" };
 export const workBodyRow: CSSProperties = { flex: 1, display: "flex", minHeight: 0, overflow: "hidden" };
 
-// ── Списочные экраны («Проекты», «Пользователи»): прокручивается вся страница.
-// Высота шапки 59px задана явно: прежде её задавал аватар 34px, а кружок профиля нового
-// языка 28px (ui/ProfileMenu) — без этого шапка списков сжалась бы на 4px, а логотип при
-// переходе в проект сдвигался бы.
-export const listPage: CSSProperties = { height: "100vh", overflowY: "auto", background: "#f8fafc" };
-export const listTopBar: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  padding: "12px 24px", background: "#fff", borderBottom: "1px solid #e2e8f0",
-  minHeight: 59, boxSizing: "border-box",
-};
-export const listTitle: CSSProperties = { margin: 0, fontSize: 26, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" };
-export const listPrimaryBtn: CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px",
-  background: "#2563eb", color: "#fff", border: "none", borderRadius: 10,
-  fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-};
+// ── Тост списочных экранов («Проекты», «Пользователи») и «Развёртывания»: прежнего вида,
+// у места вызова с классом legacy-root (прежние метрики текста внутри области .ds). Шапка
+// и колонка списков — каркас нового языка (ui/ds.css, ds-head; pages/listPages.css).
 export const listToast: CSSProperties = {
   position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
   background: "#0f172a", color: "#fff", padding: "10px 18px", borderRadius: 10,

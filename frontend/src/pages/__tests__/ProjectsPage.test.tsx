@@ -88,6 +88,21 @@ describe("ProjectsPage", () => {
     vi.mocked(getUserRole).mockReturnValue("architect");
   });
 
+  it("каркас нового языка: корень .ds, шапка ds-head, главная кнопка без значка", async () => {
+    списки([ЯРМАРКА]);
+    открыть();
+    await screen.findByText("Маркетплейс «Ярмарка»");
+    const заголовок = screen.getByRole("heading", { level: 1, name: "Проекты" });
+    expect(заголовок.closest(".ds")).not.toBeNull();
+    const шапка = document.querySelector("header.ds-head");
+    expect(шапка).not.toBeNull();
+    // Логотип на этом экране не ссылка: вести некуда.
+    expect(within(шапка as HTMLElement).queryByRole("button", { name: "Все проекты" })).toBeNull();
+    const кнопка = screen.getByRole("button", { name: "Новый проект" });
+    expect(кнопка).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(кнопка.querySelector("svg")).toBeNull();
+  });
+
   it("вкладки: «Активные» и «Архив» показывают свои списки", async () => {
     списки([ЯРМАРКА, ПЛЁНКА], [СТАРЫЙ]);
     открыть();

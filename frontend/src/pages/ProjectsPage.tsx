@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { listPage as page, listPrimaryBtn as newBtn, listTitle as h1, listToast as toastStyle, listTopBar as topBar } from "../ui/pageChrome";
+import { listToast as toastStyle } from "../ui/pageChrome";
 import { fetchMe, getCanCreateProject, getIsGuest, getMe, getUserRole } from "../api/auth";
 import { projectsApi } from "../api/projects";
 import type { Project } from "../types";
@@ -10,9 +10,12 @@ import ProjectAccessDialog from "../components/project/ProjectAccessDialog";
 import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components/project/ProjectDialogs";
 import ProjectCard from "../components/project/ProjectCard";
 import AccountMenu from "../components/users/AccountMenu";
-import { LogoMark, PlusIcon } from "../ui/icons";
+import BrandLink from "../ui/BrandLink";
+import { LogoMark } from "../ui/icons";
 import { noAutofill } from "../ui/noAutofill";
 import { useMessageToast } from "./useToast";
+import "../ui/ds.css";
+import "./listPages.css";
 
 /**
  * Лендинг «Проекты»: сетка карточек со схемой-превью, метаданными и меню ⋯.
@@ -83,19 +86,18 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
     : list;
 
   return (
-    <div style={page}>
-      {/* Шапка лендинга */}
-      <div style={topBar}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <LogoMark />
-          <span style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-0.01em", color: "#0f172a" }}>
-            Arch<span style={{ color: "#2563eb" }}>Map</span>
-          </span>
+    <div className="ds lp-page">
+      {/* Шапка: логотип без ссылки (экран и так «Все проекты») и меню профиля. */}
+      <header className="ds-head">
+        <div className="ds-head-left">
+          <BrandLink />
         </div>
-        <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
-      </div>
+        <div className="ds-head-acts">
+          <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
+        </div>
+      </header>
 
-      <div style={container}>
+      <main className="lp-main">
         {isGuest && (
           <div style={sandboxBanner} role="note">
             <div>
@@ -103,15 +105,18 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
             </div>
           </div>
         )}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-          <div>
-            <h1 style={h1}>Проекты</h1>
-          </div>
+        <div className="lp-title-row">
+          <h1 className="lp-title">Проекты</h1>
           {isArchitect && (createBlocked ? (
             <BlockedNewButton />
           ) : (
-            <button style={newBtn} data-tour="new-project" onClick={() => setDialog({ kind: "create" })}>
-              <PlusIcon /> Новый проект
+            <button
+              type="button"
+              className="ds-btn ds-btn--primary"
+              data-tour="new-project"
+              onClick={() => setDialog({ kind: "create" })}
+            >
+              Новый проект
             </button>
           ))}
         </div>
@@ -135,8 +140,8 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
           />
         </div>
 
-        {error && <p style={{ color: "#dc2626", fontSize: 14 }}>{error}</p>}
-        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка</p>}
+        {error && <p className="ds-danger lp-note">{error}</p>}
+        {loading && <p className="ds-empty lp-note">Загрузка</p>}
 
         {!loading && filtered.length === 0 ? (
           <EmptyState
@@ -164,7 +169,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
             ))}
           </div>
         )}
-      </div>
+      </main>
 
       {/* Диалоги */}
       {dialog?.kind === "create" && (
@@ -210,12 +215,13 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
         />
       )}
 
-      {toast && <div style={toastStyle}>{toast}</div>}
+      {/* Тост прежнего вида (legacy-root держит прежние метрики текста внутри .ds). */}
+      {toast && <div className="legacy-root" style={toastStyle}>{toast}</div>}
     </div>
   );
 }
 
-// Подсказка к погашенной кнопке (docs/tasks/demo-mode.md, экран 2).
+// Подсказка к запертой кнопке (docs/tasks/demo-mode.md, экран 2).
 const GUEST_LIMIT_HINT = "В демо можно создать один свой проект. Удалите его, чтобы создать другой.";
 
 // «Новый проект», когда гость уже держит предельное число проектов: кнопка видна, но
@@ -224,21 +230,22 @@ function BlockedNewButton() {
   const [tip, setTip] = useState(false);
   return (
     <span
-      style={{ position: "relative", display: "inline-block" }}
+      className="lp-locked"
       onMouseEnter={() => setTip(true)}
       onMouseLeave={() => setTip(false)}
     >
       <button
-        style={{ ...newBtn, ...newBtnBlocked }}
+        type="button"
+        className="ds-btn ds-btn--primary lp-locked-btn"
         data-tour="new-project"
         aria-disabled="true"
         aria-describedby={tip ? "guest-limit-tip" : undefined}
         onFocus={() => setTip(true)}
         onBlur={() => setTip(false)}
       >
-        <PlusIcon /> Новый проект
+        Новый проект
       </button>
-      {tip && <span id="guest-limit-tip" role="tooltip" style={tipStyle}>{GUEST_LIMIT_HINT}</span>}
+      {tip && <span id="guest-limit-tip" role="tooltip" className="lp-tip">{GUEST_LIMIT_HINT}</span>}
     </span>
   );
 }
@@ -260,7 +267,7 @@ function EmptyState({
         Создайте первый проект. В каждом проекте своя изолированная схема системы.
       </p>
       {isArchitect && (
-        <button style={newBtn} onClick={onCreate}><PlusIcon /> Создать первый проект</button>
+        <button type="button" className="ds-btn ds-btn--primary" onClick={onCreate}>Создать первый проект</button>
       )}
     </div>
   );
@@ -273,13 +280,6 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 // ── Стили ─────────────────────────────────────────────────────────────────────
-const container: CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: "28px 24px 60px" };
-const newBtnBlocked: CSSProperties = { background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" };
-const tipStyle: CSSProperties = {
-  position: "absolute", right: 0, top: "calc(100% + 8px)", width: 270, zIndex: 3,
-  background: "rgba(17,24,39,.94)", color: "#f9fafb", fontSize: 12.5, lineHeight: 1.45,
-  padding: "9px 11px", borderRadius: 8, fontWeight: 400, whiteSpace: "normal",
-};
 const sandboxBanner: CSSProperties = {
   display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 22, padding: "12px 16px",
   background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12,

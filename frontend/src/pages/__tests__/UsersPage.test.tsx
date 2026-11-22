@@ -247,6 +247,17 @@ describe("UsersPage", () => {
     expect(row("ivan").getByLabelText("Роль ivan")).toBeEnabled();
   });
 
+  it("каркас нового языка: шапка ds-head, логотип ведёт ко всем проектам, главная кнопка без значка", async () => {
+    const props = await setup([boss]);
+    const шапка = document.querySelector("header.ds-head") as HTMLElement;
+    expect(шапка.closest(".ds")).not.toBeNull();
+    await userEvent.click(within(шапка).getByRole("button", { name: "Все проекты" }));
+    expect(props.onAllProjects).toHaveBeenCalledTimes(1);
+    const кнопка = screen.getByRole("button", { name: "Новый пользователь" });
+    expect(кнопка).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(кнопка.querySelector("svg")).toBeNull();
+  });
+
   it("«Все проекты» ведёт обратно", async () => {
     const props = await setup([boss]);
     await userEvent.click(screen.getByRole("button", { name: "← Все проекты" }));
