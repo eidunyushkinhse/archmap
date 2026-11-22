@@ -27,17 +27,17 @@ const btnBase: CSSProperties = {
   border: "1px solid transparent",
 };
 
-// Главная кнопка страничных отказов (ErrorBoundary, LoadError), плашки обновления
-// (UpdateNotice) и подтверждения оболочки проекта (ProjectShell). Окна документации объекта
-// ушли на ds-btn (фаза 9е), окно фиксации версии (фаза 9ж), окна и страница
-// «Развёртывания» (фаза 11) — тоже.
+// Главная кнопка страничных отказов (ErrorBoundary, LoadError) и плашки обновления
+// (UpdateNotice). Окна документации объекта ушли на ds-btn (фаза 9е), окно фиксации версии
+// (фаза 9ж), окна и страница «Развёртывания» и подтверждение оболочки проекта (фаза 11) —
+// тоже.
 export const primaryBtn: CSSProperties = {
   ...btnBase,
   background: "#2563eb",
   color: "#fff",
 };
 
-// Вторичная кнопка тех же мест (без плашки обновления).
+// Вторичная кнопка страничных отказов (ErrorBoundary, LoadError).
 export const secondaryBtn: CSSProperties = {
   ...btnBase,
   background: "#f1f5f9",

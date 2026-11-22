@@ -18,12 +18,10 @@ import type { LocateTarget } from "../components/SchemaAlerts";
 import ProjectShellHeader from "./ProjectShellHeader";
 import CodeChangeNotice from "../components/project/CodeChangeNotice";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
-import Modal from "../ui/Modal";
-import { primaryBtn, secondaryBtn } from "../ui/styles";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import "../components/NodeTreePanel.css";
 import { safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
-import DialogTitle from "../ui/DialogTitle";
 import type { WorkMode } from "./workMode";
 import { warmLayoutWorker } from "../components/graph/layout/pipelineClient";
 
@@ -289,20 +287,17 @@ export default function ProjectShell({
         />
       )}
 
-      {/* Подтверждение перехода в редактор для алертов про несколько объектов */}
+      {/* Подтверждение перехода в редактор для алертов про несколько объектов: общее
+          подтверждение нового языка, синяя главная кнопка (шаг не разрушает). */}
       {editorConfirmTarget && (
-        <Modal onClose={() => setEditorConfirmTarget(null)} boxStyle={{ width: 420 }}>
-          <DialogTitle lead={<>
-            Эта рекомендация касается нескольких объектов, их можно показать только
-            в редакторе схемы.
-          </>}>
-            Открыть редактор схемы?
-          </DialogTitle>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={confirmGoToEditor} style={primaryBtn}>Открыть</button>
-            <button type="button" onClick={() => setEditorConfirmTarget(null)} style={secondaryBtn}>Отмена</button>
-          </div>
-        </Modal>
+        <ConfirmDialog
+          tone="neutral"
+          title="Открыть редактор схемы?"
+          lead="Эта рекомендация касается нескольких объектов, их можно показать только в редакторе схемы."
+          confirmLabel="Открыть"
+          onConfirm={confirmGoToEditor}
+          onCancel={() => setEditorConfirmTarget(null)}
+        />
       )}
     </div>
   );
