@@ -14,6 +14,7 @@ import type {
   ComponentOut, ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
   IsolatedGroupOut, RemainderOut,
 } from "../../../types";
+import { plural } from "../../../ui/plural";
 import type { QuestionMode } from "./questionText";
 import {
   ADD_ALL, DIFF_PAIR, KEEP_GROUP, edgeTexts, familyTexts, fieldTexts, groupTexts, humanValue,
@@ -295,7 +296,10 @@ export function answerLabel(
   if (a.kind === "keep") return q.kind === "edge" ? keepEdgeLabel(q.source) : KEEP_GROUP;
   if (a.kind === "diff") return DIFF_PAIR;
   if (a.kind === "edge") return lastSegment(a.toPath);
-  if (a.kind === "new_edges") return `Связей: ${a.edges.length}`;
+  if (a.kind === "new_edges") {
+    const n = a.edges.length;
+    return `${n} ${plural(n, ["связь", "связи", "связей"])}`;
+  }
   if (a.kind === "merge") return a.name;
   // Ответ о поле — само выбранное значение человеческими словами (форма/статус).
   return q.kind === "field"

@@ -262,6 +262,8 @@ describe("список всех вопросов (§3, фаза 8а)", () => {
       "Добавить все", "Ядро", "Оставить на контейнере", "Оставить как есть", "Разные объекты",
     ]);
     for (const a of ответы) expect(a).toHaveClass("rq-ql-a--none");
+    // Ответ обрезается многоточием — подсказка отдаёт его целиком, и у варианта по умолчанию.
+    for (const a of ответы) expect(a).toHaveAttribute("title", a.textContent);
     expect(screen.queryByText("—")).toBeNull();
     // Строка называет короткую тему, полный вопрос — в подсказке (фаза 8б).
     expect(строки().map((r) => r.querySelector(".rq-ql-q")!.textContent)).toEqual([
@@ -288,6 +290,7 @@ describe("список всех вопросов (§3, фаза 8а)", () => {
       "Из архива plugin.zip", "Ядро", "Поллер", "Оставить как есть", "Разные объекты",
     ]);
     expect(ответы.map((a) => a.classList.contains("rq-ql-a--none"))).toEqual([false, true, false, false, false]);
+    expect(ответы.map((a) => a.getAttribute("title"))).toEqual(ответы.map((a) => a.textContent));
     await userEvent.click(строки()[4]!);
     expect(счётчик()).toBe("Вопрос 5 из 5");
     expect(screen.getByText(/похожие имена/)).toBeInTheDocument();
@@ -380,9 +383,40 @@ describe("двухшаговые вопросы (§4.6, фаза 8б)", () => {
       kind: "new_edges",
       edges: [{ fromPath: "Плагин", toPath: "Zabbix / server", label: "", tech: "SQL" }],
     });
-    // В списке ответ группы — числом связей.
+    // В списке ответ группы — числом связей словами.
     await userEvent.click(screen.getByRole("button", { name: "Все вопросы" }));
-    expect(строки()[3]!.querySelector(".rq-ql-a")?.textContent).toBe("Связей: 1");
+    expect(строки()[3]!.querySelector(".rq-ql-a")?.textContent).toBe("1 связь");
+  });
+
+  it("второй шаг при открытии встаёт в вид тела окна: только на переходе к нему", async () => {
+    const вид = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(<Stand />);
+    await кВопросу(3);
+    // В jsdom метод — общая заглушка (test-setup): вызовы прошлых шагов не в счёт.
+    вид.mockClear();
+    await userEvent.click(провести());
+    expect(вид).toHaveBeenCalledTimes(1);
+    expect(вид).toHaveBeenCalledWith({ block: "nearest" });
+    // В вид встаёт тело вопроса: заголовок второго шага и его кнопки.
+    const тело = вид.mock.contexts[0] as HTMLElement;
+    expect(within(тело).getByRole("heading", { level: 4 })).toHaveTextContent("Связи объектов с остальной схемой");
+    expect(within(тело).getByRole("button", { name: "Назад к вопросу" })).toBeInTheDocument();
+    // Ввод в поля и возврат к вопросу тело окна не прокручивают.
+    await userEvent.type(screen.getAllByRole("combobox")[0]!, "server");
+    await userEvent.click(screen.getByRole("option", { name: /server/ }));
+    await userEvent.type(screen.getByLabelText("Описание связи от «Плагин»"), "метрики");
+    await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
+    expect(вид).toHaveBeenCalledTimes(1);
+    // Шаг имени — так же.
+    await userEvent.click(дальше());
+    await userEvent.click(одинОбъект());
+    expect(вид).toHaveBeenCalledTimes(2);
+    expect(within(вид.mock.contexts[1] as HTMLElement).getByRole("button", { name: "Объединить" })).toBeInTheDocument();
+    // Хождение по вопросам с открытым шагом — не переход к нему.
+    await userEvent.click(screen.getByRole("button", { name: "← Назад" }));
+    await userEvent.click(дальше());
+    expect(вид).toHaveBeenCalledTimes(2);
+    вид.mockRestore();
   });
 
   it("4.4: проведённые связи — первые три строки и «и ещё N»", async () => {

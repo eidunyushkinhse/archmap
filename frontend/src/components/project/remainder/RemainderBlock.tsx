@@ -12,7 +12,7 @@
 //
 // Разбор не обязателен: без единого ответа действуют варианты «по умолчанию». Поэтому
 // блок ничем не блокирует кнопку окна и не показывает ни янтарного, ни красного.
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { plural } from "../../../ui/plural";
 import { CheckIcon } from "../../../ui/icons";
 import InfoPopover from "../../../ui/InfoPopover";
@@ -59,6 +59,22 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
 
   const go = (to: number) => { setIndex(to); setView("q"); };
 
+  // Второй шаг открыт, только пока его открыл человек: ответ сам по себе его не держит
+  // (фаза 8б), иначе после «Объединить» вопрос навсегда становился бы шагом имени.
+  const шаг2 = q !== undefined && (q.kind === "group" || q.kind === "pair") && stage2[q.id] === true;
+
+  // Открытый человеком второй шаг встаёт в вид тела окна целиком, с кнопками (если
+  // помещается; иначе виден его верх с заголовком). Только на переходе к шагу: флаг ставит
+  // щелчок, открывший шаг, — ввод в поля, возврат к вопросу и хождение по вопросам тело
+  // окна не прокручивают. До отрисовки: шаг не мелькает за краем тела.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const reveal = useRef(false);
+  useLayoutEffect(() => {
+    if (!шаг2 || !reveal.current) return;
+    reveal.current = false;
+    bodyRef.current?.scrollIntoView({ block: "nearest" });
+  }, [шаг2]);
+
   // Стрелки ← → ходят по вопросам (Р9): не в поле ввода (в том же окне живёт
   // textarea YAML), не поверх открытого вьюера и не с модификаторами.
   useEffect(() => {
@@ -77,10 +93,6 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   }, [viewer, view, index, questions.length]);
 
   if (questions.length === 0 || q === undefined) return null;
-
-  // Второй шаг открыт, только пока его открыл человек: ответ сам по себе его не держит
-  // (фаза 8б), иначе после «Объединить» вопрос навсегда становился бы шагом имени.
-  const шаг2 = (q.kind === "group" || q.kind === "pair") && stage2[q.id] === true;
   const title = !шаг2 ? q.title : q.kind === "pair" ? MERGE_TITLE : NEW_EDGE_TITLE;
   // Черновик формы связей: нет своего — строка на каждый объект группы (П4).
   const edgeDraft: EdgesDraft = edgeDrafts[q.id]
@@ -152,6 +164,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
               // Без ответа — тихим цветом вариант, который действует по умолчанию: список
               // показывает, что будет на самом деле.
               const ответ = answerLabel(x, answers, resolutions);
+              const подпись = ответ ?? defaultLabel(x);
               return (
                 <button
                   key={x.id}
@@ -162,8 +175,9 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
                   <span className="rq-ql-n">{i + 1}</span>
                   {/* Короткая тема строкой, полный вопрос — в подсказке (фаза 8б). */}
                   <span className="rq-ql-q" title={x.title}>{x.topic}</span>
-                  <span className={"rq-ql-a" + (ответ === null ? " rq-ql-a--none" : "")}>
-                    {ответ ?? defaultLabel(x)}
+                  {/* Длинный ответ (описание) обрезается многоточием — подсказка отдаёт его целиком. */}
+                  <span className={"rq-ql-a" + (ответ === null ? " rq-ql-a--none" : "")} title={подпись}>
+                    {подпись}
                   </span>
                 </button>
               );
@@ -177,7 +191,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   return (
     <div className="rq-root rq-block">
       {шапка}
-      <div className="rq-bd">
+      <div className="rq-bd" ref={bodyRef}>
         {/* Второй шаг — продолжение того же вопроса: «почему» и «если не отвечать» он не
             повторяет (§4.6), знака «?» у него нет. */}
         <h4 className="rq-q">
@@ -191,7 +205,10 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
           onAnswer={onAnswer}
           onResolve={onResolve}
           stage2={шаг2}
-          onStage2={(on) => setStage2((cur) => ({ ...cur, [q.id]: on }))}
+          onStage2={(on) => {
+            if (on) reveal.current = true;
+            setStage2((cur) => ({ ...cur, [q.id]: on }));
+          }}
           edgeDraft={edgeDraft}
           onEdgeDraft={(next) => setEdgeDrafts((cur) => ({ ...cur, [q.id]: next }))}
           mergeDraft={mergeDraft}

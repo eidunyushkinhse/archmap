@@ -485,7 +485,13 @@ describe("состояние ответа и подпись в списке", ()
         { fromPath: "Плагин", toPath: "Zabbix", label: "", tech: "" },
         { fromPath: "Плагин / Датасорс", toPath: "Zabbix", label: "", tech: "" },
       ] },
-    }, {})).toBe("Связей: 2");
+    }, {})).toBe("2 связи");
+    // Число связей — словами с согласованием (ui/plural).
+    const связи = (n: number) => answerLabel(group!, {
+      "group|Плагин": { kind: "new_edges", edges: Array.from({ length: n }, () => (
+        { fromPath: "Плагин", toPath: "Zabbix", label: "", tech: "" })) },
+    }, {});
+    expect([1, 5, 21].map(связи)).toEqual(["1 связь", "5 связей", "21 связь"]);
   });
 
   it("без ответа — подпись варианта, который действует по умолчанию", () => {
