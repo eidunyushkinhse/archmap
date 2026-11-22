@@ -56,17 +56,21 @@
 .vp-status--quiet {
   color: var(--c-fg-muted);
 }
-/* Строки версий: одна сетка на весь список, строки берут её колонки (subgrid), поэтому
-   автор и дата стоят на одной вертикали во всех строках. Строка — кнопка во всю ширину,
-   подложка при наведении выходит на 8px за колонку текста (как .ds-rows); между строками
-   ничего. Комментарий забирает остальное и обрезается многоточием. */
-.vp-rows {
+/* Строки списков окна — версий на экране списка и элементов дельты на экране версии: одна
+   сетка на весь список, строки берут её колонки (subgrid), поэтому колонки стоят на одной
+   вертикали во всех строках (автор и дата у версий, категория и слово статуса у
+   элементов). Строка — кнопка 30px во всю ширину, подложка при наведении выходит на 8px за
+   колонку текста (как .ds-rows); между строками ничего. Колонка имени забирает остальное
+   и обрезается многоточием. */
+.vp-rows,
+.vp-irows {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
   column-gap: var(--space-3);
   margin: 0 -8px;
 }
-.vp-row {
+.vp-row,
+.vp-irow {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
@@ -84,13 +88,16 @@
   text-align: left;
   cursor: pointer;
 }
-.vp-row:hover {
+.vp-row:hover,
+.vp-irow:hover {
   background: var(--c-hover);
 }
-.vp-row:focus-visible {
+.vp-row:focus-visible,
+.vp-irow:focus-visible {
   outline: 2px solid var(--c-accent);
   outline-offset: -2px;
 }
+/* Версия: номер (цифры ровной ширины), комментарий, автор, дата у правого края. */
 .vp-row-n {
   color: var(--c-fg-muted);
   font-variant-numeric: tabular-nums;
@@ -150,41 +157,7 @@
   width: auto;
 }
 
-/* Строки элементов дельты: одна сетка на весь список (subgrid), поэтому колонка
-   категории одной ширины во всех строках, а слова статуса стоят у правого края. Строка —
-   кнопка 30px, подложка при наведении выходит на 8px за колонку текста, как у строк
-   версий. Путь и имя забирают остальное и обрезаются многоточием. */
-.vp-irows {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
-  column-gap: var(--space-3);
-  margin: 0 -8px;
-}
-.vp-irow {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-  align-items: center;
-  height: 30px;
-  box-sizing: border-box;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  font: inherit;
-  font-size: var(--fs-ui);
-  line-height: var(--lh-ui);
-  color: var(--c-fg);
-  text-align: left;
-  cursor: pointer;
-}
-.vp-irow:hover {
-  background: var(--c-hover);
-}
-.vp-irow:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: -2px;
-}
+/* Элемент дельты: категория, путь и имя, слово статуса, шеврон. */
 .vp-irow-cat {
   color: var(--c-fg-muted);
   white-space: nowrap;
@@ -222,17 +195,21 @@
   margin-right: -6px;
 }
 
-/* ── Экран элемента ── вкладки ds-tabs над одним представлением. */
+/* ── Экран элемента ── вкладки ds-tabs над одним представлением. Представление
+   (дельта, текст, таблица) — единственная область прокрутки экрана, по обеим осям, как
+   блок кода окна экспорта: длинный текст сжимает блок до высоты тела (min-height 0),
+   поэтому вкладки остаются на месте, а полоса прокрутки вбок видна внизу блока сразу. */
 .vp-tabs {
   align-self: flex-start;
 }
 
-/* Построчная дельта текста: моноширинный блок в рамке со своей прокруткой вбок. Строки
+/* Построчная дельта текста: моноширинный блок в рамке со своей прокруткой. Строки
    на общей ширине (vp-diff-in), чтобы подсветка длинной строки при прокрутке вбок не
    обрывалась у края блока. Добавленные и удалённые строки — мягким фоном цвета
    добавления и опасности, текст основным цветом; заголовок куска — тихим. */
 .vp-diff {
-  overflow-x: auto;
+  min-height: 0;
+  overflow: auto;
   padding: var(--space-2) 0;
   border: 1px solid var(--c-line);
   border-radius: var(--radius);
@@ -266,9 +243,10 @@
    цвет на фоне окна, строки не переносятся; в рамке, как построчная дельта, чтобы вкладки
    не прыгали. */
 .vp-code {
+  min-height: 0;
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  overflow-x: auto;
+  overflow: auto;
   border: 1px solid var(--c-line);
   border-radius: var(--radius);
   background: var(--c-bg);
@@ -281,10 +259,11 @@
 }
 
 /* Таблица (свойства, связи, колонки, поля, параметры, шаги процесса) — ds-table; широкая
-   прокручивается вбок внутри своей обёртки, а не всё окно. */
+   и длинная прокручивается внутри своей обёртки, а не всё окно. */
 .vp-scrollx {
   min-width: 0;
-  overflow-x: auto;
+  min-height: 0;
+  overflow: auto;
 }
 /* Значения не рвутся посреди слова (ORDER_TTL_H, string, адрес базы), как разрешает общее
    правило ds-table: таблица шире блока прокручивается вбок, а текст с пробелами
