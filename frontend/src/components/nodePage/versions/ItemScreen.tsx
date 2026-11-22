@@ -8,30 +8,31 @@ import type { VersionItem } from "../../../types";
 import { useVersionItem } from "./useVersions";
 import { itemTitle } from "./versionText";
 import VersionViewBlock from "./VersionViewBlock";
-import BackButton from "./BackButton";
+import ScreenHead from "./ScreenHead";
 import type { SideLabels } from "./VersionScreen";
+import "../../../ui/ds.css";
 import "./versions.css";
 
 type ViewKey = "changes" | "before" | "after";
 
-export default function ItemScreen({ nodeId, num, base, item, labels, onBack }: {
+export default function ItemScreen({ nodeId, num, base, item, labels, onBack, onClose }: {
   nodeId: string | null;
   num: number;
   base: VersionBase;
   item: VersionItem;
   labels: SideLabels;
   onBack: () => void;
+  onClose: () => void;
 }) {
   // Три представления приходят одним ответом — переключение сегментов без сети.
   const detail = useVersionItem(nodeId, num, item.item_id, base);
   const [view, setView] = useState<ViewKey>("changes");
   const segments: [ViewKey, string][] = [["changes", "Изменения"], ["before", labels.before], ["after", labels.after]];
+  const head = itemTitle(item);
   return (
     <>
-      <div className="vp-head">
-        <BackButton onClick={onBack} />
-        <span className="vp-title">{itemTitle(item)}</span>
-        <span className="vp-spacer" />
+      <ScreenHead title={head.title} sub={head.sub} onBack={onBack} onClose={onClose} />
+      <div className="vp-body">
         <div className="vp-seg" role="group" aria-label="Что показать">
           {segments.map(([key, label]) => (
             <button
@@ -45,8 +46,6 @@ export default function ItemScreen({ nodeId, num, base, item, labels, onBack }: 
             </button>
           ))}
         </div>
-      </div>
-      <div className="vp-body">
         {detail.error ? (
           <LoadError what="изменения" error={detail.error} onRetry={detail.reload} />
         ) : (

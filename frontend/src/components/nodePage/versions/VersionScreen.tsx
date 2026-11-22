@@ -9,8 +9,9 @@ import type { VersionBase } from "../../../api/versions";
 import type { VersionDiff, VersionItem, VersionOut } from "../../../types";
 import { VERSION_CATEGORY } from "../../nodeTerms";
 import { useVersionDiff } from "./useVersions";
-import { pathPrefix, statusText, versionMeta } from "./versionText";
-import BackButton from "./BackButton";
+import { pathPrefix, statusText, versionByline } from "./versionText";
+import ScreenHead from "./ScreenHead";
+import "../../../ui/ds.css";
 import "./versions.css";
 
 // Подписи сегментов «Было · v2» / «Стало · сейчас» — по сторонам, которые вернул сервер.
@@ -29,7 +30,7 @@ export interface RestoreAction {
   onRestore: () => void;
 }
 
-export default function VersionScreen({ nodeId, version, prevNum, base, restore, canDelete, onBack, onBase, onItem, onDelete }: {
+export default function VersionScreen({ nodeId, version, prevNum, base, restore, canDelete, onBack, onBase, onItem, onDelete, onClose }: {
   nodeId: string | null;
   version: VersionOut;
   prevNum: number | null;
@@ -41,17 +42,18 @@ export default function VersionScreen({ nodeId, version, prevNum, base, restore,
   onBase: (base: VersionBase) => void;
   onItem: (item: VersionItem, labels: SideLabels) => void;
   onDelete: () => void;
+  onClose: () => void;
 }) {
   const diff = useVersionDiff(nodeId, version.number, base);
   return (
     <>
-      <div className="vp-head">
-        <BackButton onClick={onBack} />
-        <span className="vp-title">v{version.number} · {version.comment}</span>
-        <span className="vp-spacer" />
-        <span className="vp-meta">{versionMeta(version)}</span>
-      </div>
+      <ScreenHead title={`Версия ${version.number}`} onBack={onBack} onClose={onClose} />
       <div className="vp-body">
+        {/* Комментарий версии и под ним тихо «автор, дата». */}
+        <div className="vp-about">
+          <p className="vp-comment">{version.comment}</p>
+          <p className="vp-byline">{versionByline(version)}</p>
+        </div>
         <div className="vp-pending">
           <span className="vp-pending-text">Что изменилось</span>
           <select

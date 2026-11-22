@@ -14,7 +14,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import VersionsPanel from "../nodePage/versions/VersionsPanel";
-import { restoreLead } from "../nodePage/versions/versionText";
+import { restoreLead, versionDate } from "../nodePage/versions/versionText";
 import { versionsApi } from "../../api/versions";
 import { ApiError, DEMO_LIMIT_CODE } from "../../api/client";
 import type {
@@ -95,16 +95,23 @@ describe("VersionsPanel: список", () => {
     expect(await screen.findByText(
       "Есть изменения с v3: схема логики «Создать заказ», конфигурация, связь «Сервис заказов → Kafka заказов» и ещё 1",
     )).toBeInTheDocument();
-    expect(screen.getByText("Версии · Сервис заказов")).toBeInTheDocument();
-    expect(screen.getByText("3 версии")).toBeInTheDocument();
+    // Заголовок — «Версии» без имени объекта (окно открыто с его страницы), счётчика нет.
+    expect(screen.getByRole("heading", { level: 2, name: "Версии" })).toBeInTheDocument();
+    expect(screen.queryByText("Сервис заказов", { exact: false, selector: "h2" })).toBeNull();
+    expect(screen.queryByText("3 версии")).toBeNull();
     expect(screen.getByRole("button", { name: "Зафиксировать версию" })).toBeEnabled();
     expect(versionsApi.list).toHaveBeenCalledWith("n1");
 
-    // Строки версий: номер, комментарий, «дата · автор»; автора удалили — прочерк.
+    // Строки версий: номер, комментарий, автор и дата отдельными колонками без точки;
+    // автора удалили — прочерк.
     const v1 = screen.getByRole("button", { name: /^v1/ });
     expect(v1).toHaveTextContent("orders 2.1");
-    expect(v1).toHaveTextContent(/· —$/);
-    expect(screen.getByRole("button", { name: /^v3/ })).toHaveTextContent(/· petrova$/);
+    expect(within(v1).getByText("—").className).toBe("vp-row-a");
+    expect(within(v1).getByText(versionDate("2026-10-19T10:00:00Z")).className).toBe("vp-row-d");
+    const v3 = screen.getByRole("button", { name: /^v3/ });
+    expect(within(v3).getByText("petrova").className).toBe("vp-row-a");
+    expect(within(v3).getByText("orders 2.3")).toHaveAttribute("title", "orders 2.3");
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("·");
   });
 
   it("изменений нет: «Изменений с vN нет», кнопка неактивна", async () => {
@@ -182,7 +189,10 @@ describe("VersionsPanel: версия и элемент", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: /^v3/ }));
     expect(versionsApi.diff).toHaveBeenLastCalledWith("n1", 3, "prev");
-    expect(screen.getByText("v3 · orders 2.3")).toBeInTheDocument();
+    // Шапка «Версия 3»; в теле комментарий и под ним «автор, дата».
+    expect(screen.getByRole("heading", { level: 2, name: "Версия 3" })).toBeInTheDocument();
+    expect(screen.getByText("orders 2.3").className).toBe("vp-comment");
+    expect(screen.getByText(`petrova, ${versionDate("2026-10-19T10:00:00Z")}`).className).toBe("vp-byline");
 
     const select = screen.getByRole("combobox", { name: "С чем сравнивать" });
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["с v2", "с текущим состоянием"]);
@@ -204,7 +214,7 @@ describe("VersionsPanel: версия и элемент", () => {
 
     // Назад — к списку.
     await userEvent.click(screen.getByRole("button", { name: "Назад" }));
-    expect(screen.getByText("Версии · Сервис заказов")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Версии" })).toBeInTheDocument();
   });
 
   it("первая версия: сравнение «с начала», пустая дельта — фраза о первой версии", async () => {
@@ -245,7 +255,9 @@ describe("VersionsPanel: версия и элемент", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^v3/ }));
     await userEvent.click(await screen.findByRole("button", { name: /^Схема логики/ }));
     expect(versionsApi.item).toHaveBeenCalledWith("n1", 3, "doc:d1", "prev");
-    expect(screen.getByText("Схема логики · Создать заказ")).toBeInTheDocument();
+    // Заголовок — имя элемента, за ним тихо категория.
+    expect(screen.getByRole("heading", { level: 2, name: "Создать заказ" })).toBeInTheDocument();
+    expect(screen.getByText("Схема логики", { selector: ".vp-title-sub" })).toBeInTheDocument();
 
     const segs = within(screen.getByRole("group", { name: "Что показать" })).getAllByRole("button");
     expect(segs.map((b) => b.textContent)).toEqual(["Изменения", "Было · v2", "Стало · v3"]);
@@ -275,7 +287,7 @@ describe("VersionsPanel: версия и элемент", () => {
 
     // Назад — к версии с тем же сравнением.
     await userEvent.click(screen.getByRole("button", { name: "Назад" }));
-    expect(await screen.findByText("v3 · orders 2.3")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Версия 3" })).toBeInTheDocument();
   });
 
   it("элемент «с текущим состоянием»: «Было · vN / Стало · сейчас», пустая сторона, метки строк", async () => {
@@ -418,7 +430,9 @@ describe("VersionsPanel: удаление версии", () => {
     await userEvent.click(screen.getByRole("button", { name: "Удалить версию" }));
     await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
     expect(versionsApi.remove).toHaveBeenCalledWith("n1", 2);
-    await waitFor(() => expect(screen.getByText("2 версии")).toBeInTheDocument());
+    // Список перечитан: v2 в нём нет.
+    expect(await screen.findByRole("button", { name: /^v1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^v2/ })).toBeNull();
     expect(screen.queryByText("Удалить версию 2?")).toBeNull();
   });
 });
