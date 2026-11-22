@@ -37,6 +37,19 @@ describe("TourHelpButton", () => {
     expect(screen.getByRole("button", { name: "Обучение" })).not.toHaveClass("tour-pill--resume");
   });
 
+  it("оба состояния — цель сворачивания карточки (data-tour-pill) со своей подсказкой", () => {
+    render(<TourHelpButton />);
+    const idle = screen.getByRole("button", { name: "Обучение" });
+    expect(idle).toHaveAttribute("data-tour-pill");
+    expect(idle).toHaveAttribute("type", "button");
+    act(() => setTourPaused(true));
+    const paused = screen.getByRole("button", { name: "Продолжить обучение" });
+    expect(paused).toHaveAttribute("data-tour-pill");
+    expect(paused).toHaveAttribute("title", "Вернуться к шагу обучения");
+    expect(paused).toHaveAttribute("type", "button");
+    expect(screen.queryByRole("button", { name: "Обучение" })).toBeNull();
+  });
+
   it("не гостю — ничего", () => {
     vi.mocked(getIsGuest).mockReturnValue(false);
     const { container } = render(<TourHelpButton />);

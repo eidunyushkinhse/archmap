@@ -60,6 +60,35 @@ describe("DemoLoginPage", () => {
     expect(saveToken).toHaveBeenCalledWith("guest-tok");
   });
 
+  it("«Установить»: значок GitHub и подпись, новая вкладка без доступа к окну стенда", () => {
+    render(<DemoLoginPage onLogin={vi.fn()} />);
+    const install = screen.getByRole("link", { name: "Установить" });
+    expect(install).toHaveTextContent(/^Установить$/);
+    expect(install.querySelector("svg")).toHaveAttribute("aria-hidden");
+    expect(install.getAttribute("rel")?.split(" ").sort()).toEqual(["noopener", "noreferrer"]);
+  });
+
+  it("пока песочница готовится, в кнопке вертушка; отказ её убирает", async () => {
+    let fail: (e: Error) => void = () => {};
+    vi.mocked(startDemo).mockReturnValue(new Promise<Token>((_, reject) => { fail = reject; }));
+    render(<DemoLoginPage onLogin={vi.fn()} />);
+    const start = screen.getByRole("button", { name: "Попробовать без регистрации" });
+    expect(start.querySelector("[aria-hidden]")).toBeNull();
+    await userEvent.click(start);
+    const busy = screen.getByRole("button", { name: "Готовим песочницу" });
+    expect(busy.querySelector("span[aria-hidden]")).not.toBeNull();
+    fail(new ApiError(429, FULL));
+    expect(await screen.findByRole("alert")).toHaveTextContent(FULL);
+    expect(screen.getByRole("button", { name: "Попробовать без регистрации" }).querySelector("[aria-hidden]")).toBeNull();
+  });
+
+  it("не-Error из startDemo — общий текст «Не удалось начать»", async () => {
+    vi.mocked(startDemo).mockRejectedValue("сбой");
+    render(<DemoLoginPage onLogin={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Попробовать без регистрации" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось начать");
+  });
+
   it("стенд полон: красная плашка с текстом сервера, кнопка снова доступна", async () => {
     vi.mocked(startDemo).mockRejectedValue(new ApiError(429, FULL));
     const onLogin = vi.fn();

@@ -43,6 +43,15 @@ describe("LoginPage", () => {
     expect(screen.queryByText(/регистрац/i)).toBeNull();
   });
 
+  it("подписи связаны с полями по id; до ошибки пароль не помечен неверным", () => {
+    render(<LoginPage onLogin={vi.fn()} />);
+    expect(screen.getByLabelText("Логин")).toHaveAttribute("id", "login-username");
+    expect(screen.getByLabelText("Пароль")).toHaveAttribute("id", "login-password");
+    expect(screen.getByLabelText("Пароль")).toHaveAttribute("autocomplete", "current-password");
+    expect(screen.getByLabelText("Пароль")).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByRole("button", { name: "Войти" })).toHaveAttribute("type", "submit");
+  });
+
   it("неверный вход: красная плашка с текстом сервера, красная рамка пароля", async () => {
     vi.mocked(login).mockRejectedValue(new Error("Неверный логин или пароль"));
     const onLogin = vi.fn();

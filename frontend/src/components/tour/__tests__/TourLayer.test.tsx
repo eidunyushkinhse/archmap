@@ -116,6 +116,47 @@ describe("TourLayer", () => {
     expect(handlers.onFinish).toHaveBeenCalledOnce();
   });
 
+  // Состав и порядок кнопок карточки по виду шага: начало, обычный, с действием, конец.
+  const buttonsOf = (title: string) =>
+    [...screen.getByRole("dialog", { name: title }).querySelectorAll("button")].map((b) => b.textContent);
+
+  it("кнопки карточки по виду шага: состав и порядок", () => {
+    const welcome = renderLayer("welcome", view({ phase: "center" }), false);
+    expect(buttonsOf("Добро пожаловать в ArchMap")).toEqual(["Пропустить", "Начать"]);
+    welcome.unmount();
+    const info = renderLayer("yar-home", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+    expect(buttonsOf("Главная страница проекта")).toEqual(["Пропустить обучение", "Назад", "Далее"]);
+    info.unmount();
+    const first = renderLayer("yar-home", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }), false);
+    expect(buttonsOf("Главная страница проекта")).toEqual(["Пропустить обучение", "Далее"]);
+    first.unmount();
+    const doing = renderLayer("open-editor", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+    expect(buttonsOf("Откройте редактор")).toEqual(["Пропустить обучение", "Назад"]);
+    doing.unmount();
+    renderLayer("final", view({ phase: "center" }));
+    expect(buttonsOf("Теперь вы знаете, с чего начать")).toEqual(["Завершить"]);
+  });
+
+  it("подсказка-поправка: отдельный абзац-статус после строки действия", () => {
+    const step = STEPS["create-system"];
+    render(
+      <TourLayer
+        view={view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] })}
+        stepKey="create-system"
+        step={step}
+        texts={{ title: step.title, body: step.body, action: step.action, retry: "Нужна именно система." }}
+        count="Шаг 1 из 28"
+        canBack
+        onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
+      />,
+    );
+    const card = screen.getByRole("dialog", { name: step.title });
+    const paras = [...card.querySelectorAll("p")];
+    expect(paras.slice(-2).map((p) => p.className)).toEqual(["tour-do", "tour-retry"]);
+    expect(screen.getByRole("status")).toHaveTextContent("Нужна именно система.");
+    expect(screen.getByRole("status")).toHaveClass("tour-retry");
+  });
+
   it("жест, начатый в вырезе, проходит сквозь затемнение до отпускания", () => {
     vi.useFakeTimers();
     try {
