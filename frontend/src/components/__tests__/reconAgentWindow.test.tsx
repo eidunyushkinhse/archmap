@@ -5,13 +5,16 @@
 // применять, применение уходит с объектом окна и закрывает окно, замечания уходят агенту.
 //
 // Где окно рисуется по-разному (кнопка задания, снятие файла, объект списка), вид спрятан в
-// помощники ниже: сетка написана на прежнем окне, после перевода меняются только помощники.
+// помощники ниже: сетка написана на прежнем окне, после перевода поменялись только
+// помощники. Тесты нового вида — в конце файла: вступление за «?» «Зачем нужен список» и
+// Escape при открытой панели, объект подписью, футер и отказ применения.
 // Modal настоящий (test-setup открывает <dialog> атрибутом open).
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReconAgentModal from "../docsImport/ReconAgentModal";
 import { reconApi } from "../../api/docsImport";
+import { ApiError } from "../../api/client";
 import type { ReconImportReport, ReconItem } from "../../types";
 
 vi.mock("../../api/docsImport", () => ({
@@ -42,7 +45,7 @@ function open() {
 }
 
 // ── помощники вида ───────────────────────────────────────────────────────────
-const кнопкаЗадания = () => screen.getByRole("button", { name: "Скопировать промпт" });
+const кнопкаЗадания = () => screen.getByRole("button", { name: "Скопировать задание" });
 const fileInput = () => document.querySelector("dialog input[type=file]") as HTMLInputElement;
 const применить = () => screen.getByRole("button", { name: "Применить" });
 const раздел = (title: string, n: number) =>
@@ -137,5 +140,63 @@ describe("список операций: задание и превью", () => 
     const текст = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
     expect(текст).toContain("Строки чини по замечаниям, а не удаляй из списка");
     expect(текст).toContain(w);
+  });
+});
+
+describe("список операций: вид нового языка", () => {
+  it("вступления нет: два первых предложения — за «?» «Зачем нужен список», третьего нет", async () => {
+    open();
+    expect(screen.queryByText(/Схемы логики бывают двух видов/)).toBeNull();
+    expect(screen.queryByText(/он перечислит все операции и воркеры/)).toBeNull();
+    const btn = screen.getByRole("button", { name: "Зачем нужен список" });
+    expect(btn.closest(".ds-win-block-head")).toHaveTextContent("Задание агенту");
+    await userEvent.click(btn);
+    expect(screen.getByRole("dialog", { name: "Зачем нужен список" })).toHaveTextContent(
+      "Схемы логики бывают двух видов: операции (работают по запросу) и воркеры (работают сами, "
+      + "в фоне или по расписанию). Чтобы агент описал каждую, сначала нужен их список.");
+    expect(screen.getByText("Перетащите сюда список операций от агента")).toBeInTheDocument();
+  });
+
+  it("Escape при открытом «?» закрывает только его, следующий — окно", async () => {
+    open();
+    await userEvent.click(screen.getByRole("button", { name: "Зачем нужен список" }));
+    const dialog = document.querySelector("dialog")!;
+    const notPrevented = fireEvent.keyDown(window, { key: "Escape" });
+    if (notPrevented) fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(notPrevented).toBe(false);
+    expect(screen.queryByText(/Схемы логики бывают двух видов/)).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("объект списка — тихой подписью под сводкой, без «·»", async () => {
+    open();
+    await положить(report({ node_path: "Zulip / backend" }));
+    const summary = await screen.findByText("Операций и воркеров в списке: 1 (новых 1)", {}, WAIT);
+    expect(summary.textContent).not.toContain("·");
+    expect(screen.getByText("Zulip / backend")).toHaveClass("apl-path");
+  });
+
+  it("футер: «Применить», «Отмена»; «Отмена» закрывает окно", async () => {
+    open();
+    const foot = document.querySelector(".ds-win-foot") as HTMLElement;
+    expect(within(foot).getAllByRole("button").map((b) => b.textContent)).toEqual(["Применить", "Отмена"]);
+    await userEvent.click(within(foot).getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("отказ применения: строка над кнопками, окно открыто", async () => {
+    vi.mocked(reconApi.apply).mockRejectedValueOnce(new ApiError(403, "Недостаточно прав"));
+    open();
+    await положить();
+    await screen.findByText(/Операций и воркеров в списке: 1/, {}, WAIT);
+    await userEvent.click(применить());
+    const foot = document.querySelector(".ds-win-foot") as HTMLElement;
+    expect(await within(foot).findByRole("alert")).toHaveTextContent("Не сохранилось. Недостаточно прав");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onApplied).not.toHaveBeenCalled();
   });
 });

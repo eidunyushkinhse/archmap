@@ -124,8 +124,6 @@ export function useRepeatedInput(input: readonly unknown[], fingerprint: string)
 
 export const head: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 };
 export const sub: CSSProperties = { margin: "0 0 12px", fontSize: 12.5, color: "#64748b", lineHeight: 1.5 };
-export const cols: CSSProperties = { display: "flex", gap: 18, alignItems: "stretch" };
-export const leftCol: CSSProperties = { width: 300, flex: "none", display: "flex", flexDirection: "column" };
 export const rightCol: CSSProperties = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" };
 export const radioRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#334155",

@@ -1,0 +1,85 @@
+/* Окно «Составить список операций с помощью ИИ-агента» (ReconAgentModal, ReconAgentPlan):
+   одна колонка на общем каркасе окна (ui/ds.css: ds-win). Зона файлов — общая часть окон
+   ввоза (importParts.css), сводка и подписи — общий вид отчёта окон дозаливки
+   (agentParts.css: apl-*). Здесь только своё: место окна и разделы отчёта по действию.
+   Значения — только токены ui/tokens.css. */
+
+/* Окно прижато к верху (8vh, ReconAgentModal): не выше экрана без этого отступа и 24px
+   снизу, прокручивается только тело. Своей прокрутки у разделов нет: длинный раздел
+   свёрнут, а кнопки футера видны всегда. */
+.ds-win.rcn-win {
+  max-height: calc(92vh - 24px);
+}
+
+/* Объект списка — тихой подписью под сводкой. */
+.rcn-path {
+  margin-top: 2px;
+}
+
+/* Раздел: заголовок-кнопка «шеврон, подпись, число тихим цветом», примечание, строки. */
+.rcn-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rcn-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  align-self: flex-start;
+  margin-left: -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.rcn-head:hover {
+  background: var(--c-hover);
+}
+.rcn-head:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+}
+.rcn-count {
+  margin-left: var(--space-1);
+  font-weight: 400;
+  color: var(--c-fg-muted);
+}
+.rcn-note {
+  margin: 0 0 2px;
+  color: var(--c-fg-muted);
+}
+
+/* Строки раздела: имя слева, вид тихим цветом справа; значения вида с одного x. */
+.rcn-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: var(--space-4);
+  row-gap: 2px;
+  margin-top: 2px;
+}
+.rcn-row {
+  display: contents;
+}
+.rcn-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rcn-op {
+  color: var(--c-fg);
+}
+.rcn-doc {
+  color: var(--c-fg-muted);
+}
+.rcn-kind {
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
