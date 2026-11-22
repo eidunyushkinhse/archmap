@@ -88,6 +88,22 @@ describe("EdgeQuickCreate", () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(edgesApi.create).not.toHaveBeenCalled();
   });
+
+  it("концы связи — строкой под заголовком; крестик закрывает окно без запроса", async () => {
+    const onClose = vi.fn();
+    render(
+      <EdgeQuickCreate sourceId="a" targetId="b" sourceLabel="Заказы" targetLabel="Оплата"
+        onClose={onClose} onCreated={vi.fn()} />,
+    );
+    expect(screen.getByRole("heading", { name: "Новая связь" })).toBeInTheDocument();
+    expect(screen.getByText("Заказы → Оплата")).toBeInTheDocument();
+    // Подписи строк связаны со своими полями.
+    expect(screen.getByLabelText("Описание")).toHaveAttribute("placeholder", "например, запрос или событие");
+    expect(screen.getByLabelText("Технология")).toHaveAttribute("placeholder", "например, REST или Kafka");
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(edgesApi.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("CrossLevelEdgePicker", () => {

@@ -1066,6 +1066,14 @@ button.ds-sub:hover {
 
 /* ── Окна правки схемы: «Новый объект», «Новая связь», «Выберите связь» ─────
    (фаза 9б редизайна; components/NodeModal, EdgeQuickCreate, EdgeChoiceModal) */
+/* Тихая строка под заголовком окна: пара концов связи «источник → цель». */
+.ds-win-lead {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
 /* Отказ загрузки значения строки окна («Тип» в «Новом объекте»): текст опасности,
    причина строкой ниже, «Повторить» под ними. */
 .ds-prop-fail {
