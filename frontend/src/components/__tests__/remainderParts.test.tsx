@@ -41,6 +41,32 @@ describe("ObjectList (§5.3)", () => {
     expect(screen.queryByRole("button", { name: /Показать остальные/ })).toBeNull();
   });
 
+  it("до шести объектов — все сразу, без «Показать остальные» и без поиска (фаза 8б)", () => {
+    for (const n of [5, 6]) {
+      const { unmount } = render(<ObjectList items={дерево(n)} base="Zabbix" onPick={vi.fn()} />);
+      expect(screen.getAllByRole("button")).toHaveLength(n);
+      expect(screen.getByText(`Компонент ${n}`)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Показать остальные/ })).toBeNull();
+      expect(screen.queryByLabelText("Поиск по имени")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("раскрытый список встаёт в вид окна: поле поиска и начало списка (фаза 8б)", async () => {
+    const вид = vi.spyOn(Element.prototype, "scrollIntoView");
+    // В jsdom метод — общая заглушка (test-setup): вызовы прошлых тестов не в счёт.
+    вид.mockClear();
+    render(<ObjectList items={дерево(9)} base="Zabbix" onPick={vi.fn()} />);
+    expect(вид).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Показать остальные 5" }));
+    expect(вид).toHaveBeenCalledWith({ block: "nearest" });
+    // Прокручивается в вид блок, где поле поиска стоит первым, а список за ним.
+    const блок = вид.mock.contexts.at(-1) as Element;
+    expect(блок.firstElementChild).toBe(screen.getByLabelText("Поиск по имени"));
+    expect(блок.querySelector(".rq-scroll")).not.toBeNull();
+    вид.mockRestore();
+  });
+
   it("у объекта с вложенными — тег, у пути — серый префикс и полужирный хвост", () => {
     render(<ObjectList items={[{ path: "Grafana / Сервер / Рантайм", has_children: true }]} base="Grafana" onPick={vi.fn()} />);
     // Без элемента (ответ прежнего сервера) объект с вложенными — система.
