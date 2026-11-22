@@ -1,6 +1,7 @@
 /* Окна связи (редизайн, фаза 9в) на каркасе окна ui/ds.css (ds-win): «Связь» на странице
-   объекта (components/EdgeEditModal). Значения строк — общие с панелью связи
-   редактора-карты части (inspector/EdgeFields, inspector/panel.css). */
+   объекта (components/EdgeEditModal; значения строк — общие с панелью связи
+   редактора-карты части inspector/EdgeFields и inspector/panel.css) и окно связи между
+   уровнями (components/CrossLevelEdgePicker: маршрут, дерево кандидатов). */
 
 /* ── «Связь» ──────────────────────────────────────────────────────────── */
 /* Строки концов — опора поиска конца (.ip-pop): он встаёт под строкой во всю её ширину,
@@ -45,4 +46,200 @@
 .ew-win .ds-win-foot > .ip-delete {
   margin: 0 0 0 auto;
   align-self: center;
+}
+
+/* ── Связь между уровнями ─────────────────────────────────────────────── */
+/* Маршрут одной строкой 30px: источник обычным текстом слева, соединитель посередине,
+   слот цели справа. Источник по своему имени, но не шире 40% строки (длиннее — с
+   многоточием, полное имя в подсказке); соединитель не уже 56px: на нём наконечник и
+   кнопка разворота; остальное отдаётся цели. */
+.clp-route {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  min-width: 0;
+}
+.clp-src {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-fg);
+}
+/* Соединитель: волосяная линия и наконечник у цели связи, переключатель посередине на
+   фоне окна (линия под ним не просвечивает). */
+.clp-conn {
+  position: relative;
+  flex: 1 1 56px;
+  min-width: 56px;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 8px;
+}
+.clp-conn-line {
+  flex: 1;
+  height: 1px;
+  background: var(--c-line-strong);
+}
+.clp-conn-head {
+  flex: none;
+  color: var(--c-fg-faint);
+}
+/* Два класса: сильнее position: relative у ds-icon-btn при любом порядке подключения CSS. */
+.clp-conn > .clp-swap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  background: var(--c-bg);
+}
+.clp-conn > .clp-swap:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+/* Слот цели: пустой — тихий текст, выбранная цель — значение-кнопка (щелчок снимает
+   выбор). У кнопки путь тихим префиксом, он обрезается первым: имя видно всегда. */
+.clp-slot {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Два класса — сильнее полей и ширины ds-value-btn при любом порядке подключения CSS.
+   Текст кнопки кончается у правого края строки, как у пустого слота: справа
+   отрицательный отступ на её поле. */
+.ds-value-btn.clp-slot {
+  gap: 0;
+  max-width: none;
+  margin: 0 -6px 0 0;
+}
+/* Путь ужимается первым (вес ужатия много больше, чем у имени), до многоточия: черта перед
+   именем не повисает в начале слота. Не хватает и тогда — многоточием ужимается имя. */
+.clp-slot-path {
+  flex: 0 1000 auto;
+  min-width: 1.2em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-fg-muted);
+}
+.clp-slot-sep {
+  flex: none;
+  white-space: pre;
+  color: var(--c-fg-muted);
+}
+.clp-slot-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Дерево кандидатов: рамка, своя прокрутка (колесо у края не прокручивает окно под ним),
+   высота по содержимому, не больше min(260px, 40vh). */
+.clp-tree {
+  flex: none;
+  max-height: min(260px, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+}
+/* Строка: шеврон или пустое место листа, имя и тихие роль и «на этом уровне», у выбранной
+   значок справа. Отступ вложенности задаёт разметка (16px на уровень). */
+.clp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding-right: 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.clp-row:hover {
+  background: var(--c-hover);
+}
+.clp-row.is-picked {
+  background: var(--c-accent-soft);
+}
+.clp-row.is-off {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+.clp-row.is-off:hover {
+  background: none;
+}
+.clp-chev,
+.clp-leaf {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.clp-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.clp-chev:hover {
+  color: var(--c-fg);
+}
+.clp-chev:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.clp-chev svg {
+  transition: transform 0.12s;
+}
+.clp-chev.is-open svg {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .clp-chev svg {
+    transition: none;
+  }
+}
+.clp-name {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 0;
+  overflow-wrap: anywhere;
+}
+.clp-quiet {
+  margin-left: 6px;
+  color: var(--c-fg-muted);
+}
+.clp-row.is-off .clp-quiet {
+  color: var(--c-fg-faint);
+}
+.clp-check {
+  flex: none;
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--c-accent);
+}
+/* Подсветка совпадения при поиске: фон акцента, цвет текста строки. */
+.clp-mark {
+  border-radius: 2px;
+  background: var(--c-accent-soft);
+  color: inherit;
+}
+.clp-row.is-picked .clp-mark {
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+}
+/* «Загрузка», «Нет объектов», «Ничего не найдено» — тихим текстом на месте строк. */
+.clp-note {
+  margin: 0;
+  padding: 5px 8px;
 }

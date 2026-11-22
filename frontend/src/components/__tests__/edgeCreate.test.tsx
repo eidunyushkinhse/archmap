@@ -220,6 +220,11 @@ describe("CrossLevelEdgePicker: страховка выбора цели", () =>
     await userEvent.click(btn);
   }
 
+  // Имя совпадения при поиске разбито подсветкой: элемент имени — тот, у кого подсветка
+  // прямым ребёнком, а весь текст — имя.
+  const isHit = (el: Element | null, name: string) =>
+    el?.textContent === name && el.querySelector(":scope > mark") !== null;
+
   it("сначала видны только корни, вложенные — после раскрытия ветки", async () => {
     open();
     await screen.findByText("Оплата");
@@ -316,7 +321,7 @@ describe("CrossLevelEdgePicker: страховка выбора цели", () =>
     // Совпадение и путь к нему раскрыты без щелчков; имя совпадения разбито подсветкой.
     expect(screen.getByText("Оплата")).toBeInTheDocument();
     expect(screen.getByText("Шлюз оплаты")).toBeInTheDocument();
-    expect(screen.getByText((_, el) => el?.textContent === "Карты" && el.childElementCount > 0)).toBeInTheDocument();
+    expect(screen.getByText((_, el) => isHit(el, "Карты"))).toBeInTheDocument();
     expect(screen.queryByText("Касса")).toBeNull();
     expect(screen.queryByText("Склад")).toBeNull();
   });
@@ -327,7 +332,7 @@ describe("CrossLevelEdgePicker: страховка выбора цели", () =>
     const search = screen.getByPlaceholderText("Поиск по имени");
     await userEvent.type(search, "карт");
 
-    await userEvent.click(screen.getByText((_, el) => el?.textContent === "Карты" && el.childElementCount > 0));
+    await userEvent.click(screen.getByText((_, el) => isHit(el, "Карты")));
 
     expect(search).toHaveValue("");
     expect(screen.getByTitle("Снять выбор")).toHaveTextContent("Карты");
