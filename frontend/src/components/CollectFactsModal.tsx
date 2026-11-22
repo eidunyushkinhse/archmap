@@ -164,7 +164,6 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
         <DocViewer
           title={viewer.name}
           source="спецификация"
-          tag="openapi"
           body={viewer.body}
           diagram={false}
           onPick={() => { setSpec(viewer.id); setViewer(null); }}

@@ -6,7 +6,7 @@
 import type { Answer, Answers, NewEdgesAnswer, Question, Resolutions } from "./questions";
 import type { EdgesDraft, MergeDraft } from "./drafts";
 import { draftFromAnswer, mergeDraftFor } from "./drafts";
-import { endIsSystem, humanValue, lastSegment, pairEdges, VIEWER_TAG } from "./questionText";
+import { endIsSystem, humanValue, lastSegment, pairEdges } from "./questionText";
 import DocViewer from "./DocViewer";
 import MergeNameStep from "./MergeNameStep";
 import NewEdgeForm from "./NewEdgeForm";
@@ -69,7 +69,6 @@ export default function QuestionBody(p: Props) {
           <DocViewer
             title={c.key}
             source={открытый.source_label}
-            tag={VIEWER_TAG[c.family]}
             body={открытый.body}
             diagram={c.family === "doc"}
             onPick={() => { p.onResolve(q.id, `cand:${p.viewer}`); p.onViewer(null); }}

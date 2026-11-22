@@ -68,7 +68,7 @@ describe("сцена вьюера схемы логики (баг Ф2г)", () =>
   it("селектор правила совпадает с разметкой вьюера", () => {
     render(
       <DocViewer
-        title="Запрос метрических данных" source="Из архива plugin-a.zip" tag="mermaid · flowchart"
+        title="Запрос метрических данных" source="Из архива plugin-a.zip"
         body="flowchart TD" diagram onPick={vi.fn()} onClose={vi.fn()}
       />,
     );

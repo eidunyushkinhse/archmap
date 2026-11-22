@@ -243,30 +243,36 @@
 .rq-done-s { font-size: 12.5px; color: #64748b; margin-top: 3px; }
 .rq-done-s b { color: #334155; font-weight: 600; }
 
-/* ── вьюер схемы (§5.5) ───────────────────────────────────────── */
+/* ── просмотр схемы (§5.5): новый язык, корень в области .ds ──── */
+/* Портал уходит из области окна (.imp-res), поэтому вид задан здесь, только токенами. Шапка
+   под волосяной линией, как у окна документа: название 14px/600, тихая подпись источника
+   рядом, крестик — ds-icon-btn справа. Подвал над линией: «Выбрать этот вариант» первой,
+   «Закрыть» за ней, ряд слева. */
 .rq-ov {
-  position: fixed; inset: 0; z-index: 20; background: rgb(15 23 42 / 45%);
-  display: flex; align-items: center; justify-content: center; padding: 32px;
+  position: fixed; inset: 0; z-index: 20; box-sizing: border-box; background: rgb(15 23 42 / 45%);
+  display: flex; align-items: center; justify-content: center; padding: var(--space-8);
 }
 .rq-ov-w {
-  width: min(860px, 94vw); max-height: 86vh; background: #fff; border-radius: 14px;
+  box-sizing: border-box; width: min(860px, 94vw); max-height: 86vh;
+  background: var(--c-bg); border-radius: var(--radius-lg);
   box-shadow: 0 30px 70px -20px rgb(15 23 42 / 50%);
   display: flex; flex-direction: column; overflow: hidden;
 }
-.rq-ov-hd { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid #e2e8f0; }
+.rq-ov-hd {
+  flex: none; display: flex; align-items: baseline; gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--c-line);
+}
 .rq-ov-t {
-  font-size: 14px; font-weight: 600; color: #0f172a;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-body); font-weight: 600; line-height: var(--lh-ui); color: var(--c-fg);
 }
-.rq-ov-t span { font-weight: 400; color: #64748b; }
-.rq-ov-tag {
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px;
-  text-transform: uppercase; letter-spacing: 0.06em; color: #64748b;
-  background: #f1f5f9; border-radius: 5px; padding: 3px 6px; white-space: nowrap;
+.rq-ov-src {
+  flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--c-fg-muted);
 }
-.rq-ov-x { margin-left: auto; border: none; background: none; color: #94a3b8; padding: 2px 4px; display: inline-flex; }
-.rq-ov-x:hover { color: #1e293b; }
-.rq-ov-bd { padding: 14px 16px; overflow: auto; flex: 1; min-height: 0; }
+.rq-ov-x { margin-left: auto; align-self: center; }
+.rq-ov-bd { padding: var(--space-4) var(--space-6); overflow: auto; flex: 1; min-height: 0; }
 /* Сцена пан/зума (схема логики): своя высота, а не «по содержимому» — иначе у
    короткой диаграммы не остаётся места, чтобы её подвинуть или приблизить.
    Остальное — классы docOverlay.css: жесты общие с превью доков.
@@ -280,10 +286,13 @@
    CSS. Сторож — docViewerStage.test.ts. */
 .rq-ov-w .rq-ov-stage { flex: 0 1 auto; min-height: 0; height: min(62vh, 520px); }
 .rq-ov-pre {
-  margin: 0; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: #0f172a; white-space: pre-wrap;
+  margin: 0; font-family: var(--font-mono); font-size: var(--fs-caption); line-height: var(--lh-body);
+  color: var(--c-fg); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.rq-ov-ft { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-top: 1px solid #e2e8f0; }
+.rq-ov-ft {
+  flex: none; display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-6); border-top: 1px solid var(--c-line);
+}
 
 /* ── статус, свёртка и массовые ответы (§2, §6, §7) ───────────── */
 .rq-st { margin-top: 10px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 7px; }

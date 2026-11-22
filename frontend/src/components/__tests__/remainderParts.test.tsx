@@ -7,7 +7,7 @@
 // своим именем отдаёт именно его; Escape закрывает ВЬЮЕР и не уходит выше — под
 // ним нативный <dialog> окна, который иначе закрылся бы заодно.
 import { useState } from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import type { ComponentOut, FuzzyPairOut } from "../../types";
@@ -299,23 +299,39 @@ describe("DocViewer (§5.5, Р8)", () => {
     const onPick = vi.fn();
     const { unmount } = render(
       <DocViewer
-        title="Оформление заказа" source="Из файла zabbix.yaml" tag="mermaid · flowchart"
+        title="Оформление заказа" source="Из файла zabbix.yaml"
         body="flowchart TD" diagram onPick={onPick} onClose={onClose} {...props}
       />,
     );
     return { onClose, onPick, unmount };
   };
 
-  it("рисует схему логики и называет ключ с источником", () => {
+  it("рисует схему логики и называет ключ с источником: два элемента, без «·» и тега", () => {
     вьюер();
     expect(screen.getByTestId("mmd")).toHaveTextContent("flowchart TD");
-    expect(screen.getByText(/Оформление заказа/)).toBeInTheDocument();
-    expect(screen.getByText(/Из файла zabbix.yaml/)).toBeInTheDocument();
-    expect(screen.getByText("mermaid · flowchart")).toBeInTheDocument();
+    expect(screen.getByText("Оформление заказа")).toHaveClass("rq-ov-t");
+    expect(screen.getByText("Из файла zabbix.yaml")).toHaveClass("rq-ov-src");
+    const окно = screen.getByRole("dialog", { name: "Оформление заказа" });
+    // Шапка — только название и источник: ни «·», ни тега формата.
+    expect(окно.querySelector(".rq-ov-hd")?.textContent).toBe("Оформление заказаИз файла zabbix.yaml");
+    // Корень — в области нового языка, крестик — кнопка-значок.
+    expect(окно.closest(".rq-ov")).toHaveClass("ds");
+    expect(within(окно.querySelector(".rq-ov-hd") as HTMLElement).getByRole("button", { name: "Закрыть" }))
+      .toHaveClass("ds-icon-btn");
+  });
+
+  it("подвал: «Выбрать этот вариант» первой, «Закрыть» за ней", () => {
+    вьюер();
+    const подвал = document.querySelector(".rq-ov-ft") as HTMLElement;
+    const кнопки = within(подвал).getAllByRole("button");
+    expect(кнопки.map((b) => b.textContent)).toEqual(["Выбрать этот вариант", "Закрыть"]);
+    expect(кнопки[0]).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(кнопки[1]).toHaveClass("ds-btn");
+    expect(кнопки[1]).not.toHaveClass("ds-btn--primary");
   });
 
   it("не-схему показывает текстом", () => {
-    вьюер({ diagram: false, body: "PGHOST=localhost", tag: "параметр" });
+    вьюер({ diagram: false, body: "PGHOST=localhost" });
     expect(screen.queryByTestId("mmd")).toBeNull();
     expect(screen.getByText("PGHOST=localhost")).toBeInTheDocument();
   });
@@ -353,7 +369,7 @@ describe("DocViewer (§5.5, Р8)", () => {
   });
 
   it("текстовое тело сцены не заводит — зумить нечего", () => {
-    вьюер({ diagram: false, body: "PGHOST=localhost", tag: "параметр" });
+    вьюер({ diagram: false, body: "PGHOST=localhost" });
     expect(document.querySelector(".doc-pvstage")).toBeNull();
   });
 

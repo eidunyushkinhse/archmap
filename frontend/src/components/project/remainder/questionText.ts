@@ -86,15 +86,6 @@ export function splitErrorLine(text: string): { line: number | null; text: strin
   return { line: null, text: text.trim().replace(/\.$/, "") };
 }
 
-/**
- * Тег вьюера по семье (§5.5): схема логики рисуется диаграммой, у прочих тел тег
- * называет их род — чтобы окно не обещало картинку там, где будет текст.
- */
-export const VIEWER_TAG: Record<FamilyConflictOut["family"], string> = {
-  doc: "mermaid · flowchart", spec: "openapi", table: "таблица",
-  channel: "канал", config: "параметр",
-};
-
 /** Индекс кандидата-дефолта спора содержимого; −1 — дефолт «взять все». */
 export const familyDefaultIndex = (c: FamilyConflictOut): number =>
   c.default.startsWith("cand:") ? Number(c.default.slice(5)) : -1;

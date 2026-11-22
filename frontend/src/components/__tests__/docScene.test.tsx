@@ -77,7 +77,7 @@ describe("разметка сцены одна во всех местах", () =
     const { unmount } = render(<ErDiagramModal chart={"erDiagram\n  a {\n  }"} title="Структура: БД заказов" onClose={vi.fn()} />);
     expect(document.querySelector(".doc-pv .doc-pvstage .doc-zoom .doc-zval")).not.toBeNull();
     unmount();
-    render(<DocViewer title="Создание заказа" source="Из проекта" tag="mermaid" body="graph TD\n  A" diagram onPick={vi.fn()} onClose={vi.fn()} />);
+    render(<DocViewer title="Создание заказа" source="Из проекта" body="graph TD\n  A" diagram onPick={vi.fn()} onClose={vi.fn()} />);
     expect(document.querySelector(".doc-pv.rq-ov-stage .doc-pvstage .doc-zoom .doc-zval")).not.toBeNull();
   });
 });
