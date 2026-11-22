@@ -53,14 +53,14 @@ describe("planSections", () => {
         { returned: false, path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "code" },
       ],
     });
-    expect(planSections(p)[0].rows[0].note).toBe("имя, источник, нашли по коду");
+    expect(planSections(p)[0].rows[0].note).toBe("имя, источник; нашли по коду");
   });
 
   it("доливку элемента архитектуры называет словами продукта, а не кодом поля", () => {
     const p = preview({
       nodes: [{ returned: false, path: "С / svc", action: "update", fields: ["element"], matched_by: "code" }],
     });
-    expect(planSections(p)[0].rows[0].note).toBe("элемент архитектуры, нашли по коду");
+    expect(planSections(p)[0].rows[0].note).toBe("элемент архитектуры; нашли по коду");
   });
 
   it("матч по имени показан даже без изменений полей — он слабее якорного", () => {
