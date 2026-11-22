@@ -8,18 +8,23 @@
 // «спецификация и конфигурация», подпись — путь от узла («orders / api»). Окно правил
 // элемента не знает и получателей не отбирает. Узел без вложенных — отказ превью (422)
 // его текстом. Применение — POST /nodes/{id}/docs/distribute; отказ сервера (занято имя,
-// уже есть спецификация) — текстом под формой, окно открыто. После записи окно
+// уже есть спецификация) — строкой над кнопками, окно открыто. После записи окно
 // показывает итог (что перенесено) до «Закрыть», как окно «Собрать с компонентов».
+//
+// Вид (редизайн, фаза 9е): каркас окна нового языка (ui/ds.css, ds-win), части — блоками с
+// заголовками обычным регистром, строка части высотой 30px: название слева (у схемы логики
+// вид словом тихим цветом), список получателей ds-select справа. Списки во всех строках
+// одной ширины и на одной вертикали (docWindows.css).
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
 import type { DistributeDocsOut, TransferDocsPreview } from "../types";
 import { nodesApi, nodeDocsApi } from "../api/nodes";
 import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
-import DialogTitle from "../ui/DialogTitle";
 import { plural } from "../ui/plural";
-import { primaryBtn, secondaryBtn } from "../ui/styles";
-import "./inspector/inspector.css"; // классы insp-doc-chip для чипов вида схемы
+import { ChevronDownIcon, CloseIcon } from "../ui/icons";
+import "../ui/ds.css";
+import "./docWindows.css";
 
 const TITLE = "Перенести документацию";
 const LEAD_SYSTEM = "У системы своей документации нет. Выберите, куда перенести каждую часть.";
@@ -52,19 +57,16 @@ export default function TransferDocsModal({ nodeId, onClose, onApplied }: Props)
 
   if (failed !== null) {
     return (
-      <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <DialogTitle lead={failed}>{TITLE}</DialogTitle>
-        <div style={footRow}>
-          <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
-        </div>
-      </Modal>
+      <Window onClose={onClose} foot={<button type="button" className="ds-btn" onClick={onClose}>Закрыть</button>}>
+        <p className="ds-danger" role="alert">{failed}</p>
+      </Window>
     );
   }
   if (!data) {
     return (
-      <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <div style={muted}>Загружаем данные объекта</div>
-      </Modal>
+      <Window onClose={onClose}>
+        <p className="dw-text dw-muted">Загружаем данные объекта</p>
+      </Window>
     );
   }
   return <TransferForm key={data.node_id} data={data} onClose={onClose} onApplied={onApplied} />;
@@ -117,102 +119,125 @@ function TransferForm({ data, onClose, onApplied }: {
 
   if (result !== null) {
     return (
-      <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <DialogTitle>{TITLE}</DialogTitle>
-        <p style={resultLine}>{transferResult(result)}</p>
-        <div style={footRow}>
-          <button type="button" onClick={onClose} style={primaryBtn}>Закрыть</button>
-        </div>
-      </Modal>
+      <Window onClose={onClose} foot={
+        <button type="button" className="ds-btn ds-btn--primary" onClick={onClose}>Закрыть</button>
+      }>
+        <p className="dw-text">{transferResult(result)}</p>
+      </Window>
     );
   }
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-      <DialogTitle lead={system ? LEAD_SYSTEM : LEAD_CONTAINER}>{TITLE}</DialogTitle>
+    <Window onClose={onClose} foot={
+      <>
+        {error && <p className="ds-danger ds-win-err" role="alert">{error}</p>}
+        <button type="button" className="ds-btn ds-btn--primary" onClick={apply} disabled={sending}>
+          {sending ? "Переносим" : "Перенести"}
+        </button>
+        <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
+      </>
+    }>
+      <p className="dw-text">{system ? LEAD_SYSTEM : LEAD_CONTAINER}</p>
 
       {docs.length > 0 && (
-        <>
-          <div style={groupLabel}>Схемы логики</div>
-          {logicTo.length === 0 ? <p style={muted}>{NONE}</p> : docs.map((d) => (
-            <div key={d.doc_id} style={row}>
-              <span style={rowName} title={d.name}>
-                {d.name}
-                <span className={`insp-doc-chip insp-doc-chip--${d.kind}`} style={{ marginLeft: 8 }}>
-                  {d.kind === "operation" ? "операция" : "воркер"}
-                </span>
-              </span>
-              <select
-                style={select}
-                value={docTo[d.doc_id] ?? ""}
-                onChange={(e) => setDocTo((m) => ({ ...m, [d.doc_id]: e.target.value }))}
-                aria-label={`Куда перенести схему «${d.name}»`}
-              >
-                {logicTo.map((r) => <option key={r.node_id} value={r.node_id}>{r.path}</option>)}
-              </select>
-            </div>
+        <Block title="Схемы логики" empty={logicTo.length === 0}>
+          {docs.map((d) => (
+            <Row
+              key={d.doc_id}
+              name={d.name}
+              kind={d.kind === "operation" ? "операция" : "воркер"}
+              label={`Куда перенести схему «${d.name}»`}
+              value={docTo[d.doc_id] ?? ""}
+              onChange={(v) => setDocTo((m) => ({ ...m, [d.doc_id]: v }))}
+            >
+              {logicTo.map((r) => <option key={r.node_id} value={r.node_id}>{r.path}</option>)}
+            </Row>
           ))}
-        </>
+        </Block>
       )}
 
       {spec && (
-        <>
-          <div style={groupLabel}>Спецификация</div>
-          {processTo.length === 0 ? <p style={muted}>{NONE}</p> : (
-            <div style={row}>
-              <span style={rowName}>OpenAPI</span>
-              <select
-                style={select}
-                value={specTo}
-                onChange={(e) => setSpecTo(e.target.value)}
-                aria-label="Куда перенести спецификацию"
-              >
-                <option value="">Не переносить</option>
-                {processTo.map((r) => (
-                  <option key={r.node_id} value={r.node_id} disabled={r.has_spec}>
-                    {r.path}{r.has_spec ? " (уже есть спецификация)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </>
+        <Block title="Спецификация" empty={processTo.length === 0}>
+          <Row name="OpenAPI" label="Куда перенести спецификацию" value={specTo} onChange={setSpecTo}>
+            <option value="">Не переносить</option>
+            {processTo.map((r) => (
+              <option key={r.node_id} value={r.node_id} disabled={r.has_spec}>
+                {r.path}{r.has_spec ? " (уже есть спецификация)" : ""}
+              </option>
+            ))}
+          </Row>
+        </Block>
       )}
 
       {params > 0 && (
-        <>
-          <div style={groupLabel}>Конфигурация</div>
-          {processTo.length === 0 ? <p style={muted}>{NONE}</p> : (
-            <div style={row}>
-              <span style={rowName}>{params} {plural(params, ["параметр", "параметра", "параметров"])}</span>
-              <select
-                style={select}
-                value={paramsTo}
-                onChange={(e) => setParamsTo(e.target.value)}
-                aria-label="Куда перенести конфигурацию"
-              >
-                <option value="">Не переносить</option>
-                {processTo.map((r) => <option key={r.node_id} value={r.node_id}>{r.path}</option>)}
-              </select>
-            </div>
-          )}
-        </>
+        <Block title="Конфигурация" empty={processTo.length === 0}>
+          <Row
+            name={`${params} ${plural(params, ["параметр", "параметра", "параметров"])}`}
+            label="Куда перенести конфигурацию"
+            value={paramsTo}
+            onChange={setParamsTo}
+          >
+            <option value="">Не переносить</option>
+            {processTo.map((r) => <option key={r.node_id} value={r.node_id}>{r.path}</option>)}
+          </Row>
+        </Block>
       )}
+    </Window>
+  );
+}
 
-      {error && <p style={errText}>{error}</p>}
-
-      <div style={footRow}>
-        <button
-          type="button"
-          onClick={apply}
-          disabled={sending}
-          style={{ ...primaryBtn, ...(sending ? { opacity: 0.6, cursor: "default" } : {}) }}
-        >
-          {sending ? "Переносим" : "Перенести"}
-        </button>
-        <button type="button" onClick={onClose} style={secondaryBtn}>Отмена</button>
+// Каркас окна: шапка с крестиком, тело с прокруткой, подвал (у загрузки его нет).
+function Window({ onClose, foot, children }: { onClose: () => void; foot?: ReactNode; children: ReactNode }) {
+  return (
+    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 560, padding: 0 }}>
+      <div className="ds ds-win dw-win">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">{TITLE}</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="ds-win-body">{children}</div>
+        {foot !== undefined && <div className="ds-win-foot">{foot}</div>}
       </div>
     </Modal>
+  );
+}
+
+// Блок части документации: заголовок обычным регистром и строки; некому принять —
+// «Внутри нет подходящего объекта.» тихим текстом.
+function Block({ title, empty, children }: { title: string; empty: boolean; children: ReactNode }) {
+  return (
+    <section className="ds-win-block">
+      <h3 className="ds-win-block-title">{title}</h3>
+      {empty ? <p className="dw-text dw-muted">{NONE}</p> : <div className="dw-rows">{children}</div>}
+    </section>
+  );
+}
+
+// Строка «часть документации → получатель»: название (длинное — многоточием, целиком в
+// подсказке), у схемы логики её вид словом; справа список получателей.
+function Row({ name, kind, label, value, onChange, children }: {
+  name: string;
+  kind?: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="dw-row">
+      <span className="dw-row-name" title={name}>
+        <span className="dw-row-text">{name}</span>
+        {kind !== undefined && <span className="dw-row-kind">{kind}</span>}
+      </span>
+      <span className="ds-select">
+        <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+          {children}
+        </select>
+        <ChevronDownIcon />
+      </span>
+    </div>
   );
 }
 
@@ -229,48 +254,3 @@ function transferResult(out: DistributeDocsOut): string {
   }
   return parts.length > 0 ? `Перенесено: ${parts.join(", ")}.` : "Ничего не перенесено.";
 }
-
-/* --------------------------------- стили --------------------------------- */
-const resultLine: CSSProperties = { margin: "0 0 6px", fontSize: 14, color: "#1e293b", lineHeight: 1.5 };
-const muted: CSSProperties = { color: "#475569", margin: "4px 0 0", fontSize: 13.5 };
-const groupLabel: CSSProperties = {
-  fontSize: 10.5,
-  fontWeight: 700,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
-  color: "#94a3b8",
-  margin: "12px 0 6px",
-};
-// Строка «часть документации → получатель»
-const row: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "8px 0",
-  borderBottom: "1px solid #f3f4f6",
-};
-const rowName: CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  fontSize: 13.5,
-  fontWeight: 600,
-  color: "#1e293b",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  display: "inline-flex",
-  alignItems: "center",
-};
-const select: CSSProperties = {
-  width: 240,
-  flex: "none",
-  padding: "7px 9px",
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-  fontSize: 13,
-  color: "#1e293b",
-  background: "#fff",
-  outline: "none",
-};
-const errText: CSSProperties = { color: "#dc2626", margin: "10px 0 0", fontSize: 13 };
-const footRow: CSSProperties = { display: "flex", gap: 8, marginTop: 16 };

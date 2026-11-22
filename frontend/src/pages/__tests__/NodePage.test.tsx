@@ -558,7 +558,8 @@ describe("NodePage: правила контейнеров", () => {
     );
     // После успеха — итог в том же окне, «Закрыть» его закрывает.
     expect(await screen.findByText("Перенесено: 1 схема логики.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    // Кнопка подвала по тексту: у крестика окна то же имя «Закрыть».
+    await userEvent.click(screen.getByText("Закрыть", { selector: "button" }));
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
   });
 

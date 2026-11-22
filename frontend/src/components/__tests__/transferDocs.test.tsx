@@ -95,8 +95,23 @@ describe("окно «Перенести документацию»", () => {
     expect(await screen.findByText("Перенесено: 1 схема логики, спецификация, 3 параметра.")).toBeInTheDocument();
     expect(onApplied).toHaveBeenCalledOnce();
     expect(onClose).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    // Кнопка подвала по тексту: у крестика окна то же имя «Закрыть».
+    await userEvent.click(screen.getByText("Закрыть", { selector: "button" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  // Вид (фаза 9е редизайна): части — блоками с заголовками обычным регистром, вид схемы
+  // логики — словом в строке схемы, без пилюли; склеек точкой нет.
+  it("части — блоками с заголовками, вид схемы словом в её строке", async () => {
+    open(preview());
+    const select = await screen.findByLabelText("Куда перенести схему «Старт заказа»");
+    expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent))
+      .toEqual(["Схемы логики", "Спецификация", "Конфигурация"]);
+    expect(document.querySelector(".insp-doc-chip")).toBeNull();
+    const row = screen.getByTitle("Старт заказа");
+    expect(row).toHaveTextContent("Старт заказаоперация");
+    expect(row.parentElement).toContainElement(select);
+    expect(document.body.textContent).not.toContain(" · ");
   });
 
   it("итог переноса называет только перенесённое", async () => {
