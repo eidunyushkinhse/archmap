@@ -10,6 +10,7 @@ import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components
 import ProjectCard from "../components/project/ProjectCard";
 import AccountMenu from "../components/users/AccountMenu";
 import BrandLink from "../ui/BrandLink";
+import LoadError from "../ui/LoadError";
 import { noAutofill } from "../ui/noAutofill";
 import { useMessageToast } from "./useToast";
 import "../ui/ds.css";
@@ -18,6 +19,8 @@ import "./listPages.css";
 /**
  * Экран «Проекты» (редизайн, фаза 12а): сетка карточек с мини-схемой, именем и описанием
  * (components/project/ProjectCard). Вкладки «Активные» и «Архив», поиск, пустые состояния.
+ * Список не загрузился — под заголовком только отказ с «Повторить» (ui/LoadError): вкладки,
+ * поиск и пустое состояние без списка ничего не значат (редизайн, фаза 13в).
  * Открытие проекта — щелчок по превью или тексту карточки. Создать проект — глобальная роль
  * architect; управлять им (редактировать, архив, восстановить, удалить) — только его
  * владелец (my_role); окно «Доступ» открывает каждый, кто видит проект (не-владельцу — на
@@ -57,7 +60,8 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
   // очистки, аудит F-17).
   const [toast, flash] = useMessageToast(2600);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Отказ загрузки списков (сама ошибка: текст причины даёт ui/LoadError).
+  const [error, setError] = useState<unknown>(null);
 
   const reload = useCallback(async () => {
     setError(null);
@@ -68,7 +72,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
       setActive(a);
       setArchived(ar);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось загрузить проекты");
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -119,49 +123,58 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
           ))}
         </div>
 
-        {/* Строка управления: вкладки слева, поиск справа. */}
-        <div className="lp-controls">
-          <div className="ds-tabs">
-            <TabBtn active={tab === "active"} onClick={() => setTab("active")}>Активные</TabBtn>
-            <TabBtn active={tab === "archived"} onClick={() => setTab("archived")}>Архив</TabBtn>
-          </div>
-          <input
-            {...noAutofill("projects-page-1")}
-            className="ds-input lp-search"
-            placeholder="Поиск по имени или описанию"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-
-        {error && <p className="ds-danger lp-note">{error}</p>}
-        {loading && <p className="ds-empty lp-note">Загрузка</p>}
-
-        {!loading && filtered.length === 0 ? (
-          <EmptyState
-            tab={tab}
-            hasQuery={q.length > 0}
-            isArchitect={isArchitect && !createBlocked}
-            onCreate={() => setDialog({ kind: "create" })}
+        {error !== null ? (
+          <LoadError
+            what="проекты"
+            error={error}
+            onRetry={() => { setLoading(true); void reload(); }}
           />
         ) : (
-          <div className="lp-grid">
-            {filtered.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                archivedTab={tab === "archived"}
-                canShare={!isGuest}
-                updaterLabel={guestName !== null && p.updated_by === guestName ? "Гость" : undefined}
-                onOpen={() => onOpenProject(p.id)}
-                onAccess={() => setDialog({ kind: "access", project: p })}
-                onEdit={() => setDialog({ kind: "edit", project: p })}
-                onArchive={() => setDialog({ kind: "archive", project: p })}
-                onRestore={() => setDialog({ kind: "restore", project: p })}
-                onDelete={() => setDialog({ kind: "delete", project: p })}
+          <>
+            {/* Строка управления: вкладки слева, поиск справа. */}
+            <div className="lp-controls">
+              <div className="ds-tabs">
+                <TabBtn active={tab === "active"} onClick={() => setTab("active")}>Активные</TabBtn>
+                <TabBtn active={tab === "archived"} onClick={() => setTab("archived")}>Архив</TabBtn>
+              </div>
+              <input
+                {...noAutofill("projects-page-1")}
+                className="ds-input lp-search"
+                placeholder="Поиск по имени или описанию"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
               />
-            ))}
-          </div>
+            </div>
+
+            {loading && <p className="ds-empty lp-note">Загрузка</p>}
+
+            {!loading && filtered.length === 0 ? (
+              <EmptyState
+                tab={tab}
+                hasQuery={q.length > 0}
+                isArchitect={isArchitect && !createBlocked}
+                onCreate={() => setDialog({ kind: "create" })}
+              />
+            ) : (
+              <div className="lp-grid">
+                {filtered.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    archivedTab={tab === "archived"}
+                    canShare={!isGuest}
+                    updaterLabel={guestName !== null && p.updated_by === guestName ? "Гость" : undefined}
+                    onOpen={() => onOpenProject(p.id)}
+                    onAccess={() => setDialog({ kind: "access", project: p })}
+                    onEdit={() => setDialog({ kind: "edit", project: p })}
+                    onArchive={() => setDialog({ kind: "archive", project: p })}
+                    onRestore={() => setDialog({ kind: "restore", project: p })}
+                    onDelete={() => setDialog({ kind: "delete", project: p })}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
 

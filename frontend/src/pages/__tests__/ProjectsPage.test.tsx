@@ -201,6 +201,31 @@ describe("ProjectsPage", () => {
     expect(screen.queryByText("Загрузка")).toBeNull();
   });
 
+  // Редизайн, фаза 13в: без списка вкладки, поиск и пустое состояние ничего не значат.
+  it("отказ загрузки: только отказ с «Повторить» под шапкой; «Повторить» перечитывает список", async () => {
+    let отказ = true;
+    vi.mocked(projectsApi.list).mockImplementation(async (arch?: boolean) => {
+      if (отказ) throw new Error("Сервер недоступен");
+      return arch ? [] : [ЯРМАРКА];
+    });
+    открыть();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveClass("ds-fail");
+    expect(alert).toHaveTextContent("Не удалось загрузить проекты");
+    expect(alert).toHaveTextContent("Сервер недоступен");
+    expect(screen.queryByText("Пока нет ни одного проекта")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Создать первый проект" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Активные" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Архив" })).toBeNull();
+    expect(screen.queryByPlaceholderText("Поиск по имени или описанию")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Проекты" })).toBeInTheDocument();
+    отказ = false;
+    await userEvent.click(within(alert).getByRole("button", { name: "Повторить" }));
+    expect(await screen.findByText("Маркетплейс «Ярмарка»")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Активные" })).toBeInTheDocument();
+  });
+
   it("«Новый проект» открывает окно создания; закрытие ничего не открывает", async () => {
     списки([ЯРМАРКА]);
     const props = открыть();
