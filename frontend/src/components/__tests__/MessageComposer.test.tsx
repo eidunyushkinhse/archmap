@@ -64,7 +64,7 @@ describe("MessageComposer: достраивание связи", () => {
 
     await user.type(screen.getByLabelText("Что передаётся"), "создать заказ");
     await user.type(screen.getByLabelText("Технология"), "REST");
-    await user.click(screen.getByRole("button", { name: /асинхронная|асинхр\./i }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Тип связи" }), "Асинхронная");
     await user.click(screen.getByRole("button", { name: /Добавить связь в схему/i }));
 
     await waitFor(() => expect(edgesApi.create).toHaveBeenCalledWith({
@@ -182,7 +182,7 @@ describe("MessageComposer: шаг из связи", () => {
   it("смена типа в шапке связи пишется сразу и перечитывает связи пары", async () => {
     renderComposer();
     await screen.findByText("Шаг можно взять из связей между ними:");
-    await userEvent.click(screen.getByRole("button", { name: "асинхр." }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Тип связи" }), "Асинхронная");
     await waitFor(() => expect(edgesApi.update).toHaveBeenCalledWith("e1", { is_synchronous: false }));
     await waitFor(() => expect(processesApi.channels).toHaveBeenCalledTimes(2));
   });
@@ -219,5 +219,54 @@ describe("MessageComposer: связи нет", () => {
     await screen.findByText("Между ними нет задокументированной связи");
     await userEvent.click(screen.getByRole("button", { name: /Добавить связь в схему/ }));
     expect(await screen.findByText("Связь уже есть")).toBeInTheDocument();
+  });
+});
+
+// Вид окна на новом языке (фаза 13г): каркас ds-win карточкой, крестик «Закрыть», тип связи
+// нативным списком с полными словами, выбранный вариант шага помечен для читалок.
+describe("MessageComposer: окно нового языка", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(processesApi.channels).mockResolvedValue([CHANNEL]);
+    vi.mocked(edgesApi.update).mockResolvedValue({} as never);
+  });
+
+  it("каркас окна: заголовок h2, крестик «Закрыть» закрывает без записи", async () => {
+    const onClose = vi.fn();
+    const { container } = renderComposer({ onClose });
+    expect(container.firstElementChild).toHaveClass("ds", "ds-win", "ds-win--card");
+    expect(screen.getByRole("heading", { level: 2, name: "Добавить шаг" })).toHaveClass("ds-win-title");
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(processesApi.addMessage).not.toHaveBeenCalled();
+  });
+
+  it("тип связи — список «Синхронная» / «Асинхронная», запирается на время записи", async () => {
+    let finish: () => void = () => {};
+    vi.mocked(edgesApi.update).mockReturnValue(new Promise((r) => { finish = () => r({} as never); }) as never);
+    renderComposer();
+    const select = await screen.findByRole("combobox", { name: "Тип связи" });
+    expect([...(select as HTMLSelectElement).options].map((o) => o.text)).toEqual(["Синхронная", "Асинхронная"]);
+    expect(select).toHaveValue("sync");
+    await userEvent.selectOptions(select, "Асинхронная");
+    expect(select).toBeDisabled();
+    finish();
+    await waitFor(() => expect(select).toBeEnabled());
+  });
+
+  it("выбранный вариант шага помечен aria-pressed", async () => {
+    renderComposer();
+    const leg = await screen.findByRole("button", { name: /«создать заказ»/ });
+    expect(leg).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(leg);
+    expect(leg).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /«заказ создан»/ })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("пара объектов одной строкой: полное имя в подсказке", async () => {
+    renderComposer();
+    await screen.findByText("Шаг можно взять из связей между ними:");
+    expect(screen.getByTitle("Покупатель")).toHaveTextContent("Покупатель");
+    expect(screen.getByTitle("Сервис заказов")).toHaveTextContent("Сервис заказов");
   });
 });

@@ -567,6 +567,192 @@ button.seq-doc:focus-visible {
   display: flex;
 }
 
+/* ── Окно «Добавить шаг» (MessageComposer) ──
+   Пара объектов одной строкой без коробок: значок и имя, стрелка, значок и имя; длинное
+   имя обрезается многоточием (полное — в title). Стрелка смотрит туда же, куда протянули
+   шаг на диаграмме (is-left — цель левее источника). */
+.mc-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+.mc-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mc-glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+}
+.mc-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--c-fg);
+}
+.mc-arrow {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-faint);
+}
+.mc-arrow.is-left {
+  transform: scaleX(-1);
+}
+/* Отказ и «Загрузка связей» — абзацы без своего нижнего поля (у ds-danger оно есть): шаг
+   задаёт тело окна. */
+.proc-win .mc-flat {
+  margin: 0;
+}
+/* Связи нет: предупреждение двумя строками без коробки и значка, дальше поля новой связи
+   (подпись над полем тихим цветом). «Технология» и «Тип связи» — в одной строке. */
+.mc-warn-head {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-warn);
+}
+.mc-muted {
+  margin: 0;
+  color: var(--c-fg-muted);
+}
+.mc-warn-head + .mc-muted {
+  margin-top: 2px;
+}
+.mc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mc-label {
+  color: var(--c-fg-muted);
+}
+.mc-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.mc-row > .mc-field:first-child {
+  flex: 1;
+}
+.mc-field .ds-input:disabled,
+.mc-sync select:disabled {
+  background: var(--c-bg-subtle);
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+/* Связи есть: каждая связь группой без коробки (шапка «A → B», технология, тип связи у
+   правого края; под ней варианты шага), между группами линия. Список прокручивается (до
+   200px). */
+.mc-channels {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  margin: 0 -6px;
+  overflow: auto;
+}
+.mc-channel + .mc-channel {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-line);
+}
+.mc-chhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 6px;
+}
+.mc-chname {
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.mc-tech {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+/* Список типа связи своей ширины (по самому длинному варианту): ширина 100% у ds-select
+   не даёт списку минимальной ширины в строке (приём listPages.css, lp-role). В шапке
+   связи — у правого края. */
+.ds-select.mc-sync {
+  display: inline-flex;
+  flex: none;
+}
+.ds-select.mc-sync select {
+  width: auto;
+}
+.mc-chhead .mc-sync {
+  margin-left: auto;
+}
+/* Вариант шага: строка 30px — кружок выбора, значок вида, слово вида, подпись в кавычках.
+   Под курсором подложка, выбранный — тоном акцента. */
+.mc-leg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.mc-leg:hover {
+  background: var(--c-hover);
+}
+.mc-leg.is-sel {
+  background: var(--c-accent-soft);
+}
+.mc-leg:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.mc-radio {
+  position: relative;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 50%;
+  background: var(--c-bg);
+}
+.mc-radio.is-on {
+  border-color: var(--c-accent);
+}
+.mc-radio.is-on::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--c-accent);
+}
+.mc-legicon {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+}
+.mc-word {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.mc-cap {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ── Тело холста процесса: диаграмма и панель шага справа (ProcessCanvas) ──
    Панель — часть раскладки: открылась — область диаграммы сузилась и вписалась заново. */
 .proc-body {

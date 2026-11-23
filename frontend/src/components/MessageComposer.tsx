@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import { edgesApi } from "../api/nodes";
 import { processesApi } from "../api/processes";
 import type { Channel, MessageCreate, ProcessMessage, ProcessParticipant } from "../types";
-import { C4Glyph, IcoArrowR, IcoClose, IcoLink, IcoWarn } from "./processes/icons";
+import { C4Glyph, IcoArrowR } from "./processes/icons";
 import { legMeta } from "./processes/legMeta";
-import { BPT } from "./processes/tokens";
-import SyncSegmented from "./SyncSegmented";
+import SyncSelect from "./SyncSelect";
+import { CloseIcon } from "../ui/icons";
+import "../ui/ds.css";
 import "./processes/processes.css";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
@@ -19,6 +19,10 @@ import { noAutofill } from "../ui/noAutofill";
  * поэтому полей «От кого/Кому» тут больше нет — только схема выбранной пары.
  * Сообщение НЕ рисуется, а выбирается из плеч задокументированных каналов между
  * двумя участниками (GET /channels). Нет канала → валидатор ведёт достроить схему.
+ *
+ * Вид — каркас окна нового языка карточкой поверх диаграммы (ds-win ds-win--card,
+ * редизайн, фаза 13г): заголовок с крестиком; тело — пара объектов, отказы, связи пары
+ * или поля новой связи; подвал — главная кнопка и «Отмена». Классы mc-* — processes.css.
  */
 interface Props {
   processId: string;
@@ -175,212 +179,155 @@ export default function MessageComposer({
   }
 
   return (
-    <div className="bp bp-composer">
-      <div className="bp-comphead">
-        <span style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Добавить шаг</span>
-        <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={onClose}>
-          <IcoClose s={14} />
+    <div className="ds ds-win ds-win--card proc-win">
+      <div className="ds-win-head">
+        <h2 className="ds-win-title">Добавить шаг</h2>
+        <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+          <CloseIcon />
         </button>
       </div>
 
-      {/* Схема выбранной пары: узлы в порядке колонок схемы, стрелка source→target */}
-      <div style={{ display: "flex", alignItems: "stretch", gap: 8, padding: "14px 14px 10px" }}>
-        <NodeChip part={partByNode[leftId]} fallback={leftId} />
-        <div style={{ display: "flex", alignItems: "center", color: BPT.accent, flex: "none" }}>
-          <span style={{ display: "inline-flex", transform: targetRight ? "none" : "scaleX(-1)" }}>
-            <IcoArrowR s={18} />
+      <div className="ds-win-body">
+        {/* Пара объектов: в порядке колонок схемы, стрелка source→target */}
+        <p className="mc-pair">
+          <PairEnd part={partByNode[leftId]} fallback={leftId} />
+          <span className={"mc-arrow" + (targetRight ? "" : " is-left")}>
+            <IcoArrowR s={16} />
           </span>
-        </div>
-        <NodeChip part={partByNode[rightId]} fallback={rightId} />
-      </div>
+          <PairEnd part={partByNode[rightId]} fallback={rightId} />
+        </p>
 
-      {error && <div style={{ color: "#dc2626", fontSize: 12, padding: "0 14px 6px" }}>{error}</div>}
-      {limit && (
-        <div style={{ color: "#dc2626", fontSize: 12, padding: "0 14px 6px" }} role="alert">
-          <LimitText message={limit} />
-        </div>
-      )}
+        {error && <p className="ds-danger mc-flat">{error}</p>}
+        {limit && (
+          <p className="ds-danger mc-flat" role="alert">
+            <LimitText message={limit} />
+          </p>
+        )}
 
-      {channels === null ? (
-        <div style={{ fontSize: 12, color: BPT.mut, padding: "6px 14px 16px" }}>Загрузка связей</div>
-      ) : channels.length === 0 ? (
-        <div style={{ padding: "8px 14px 14px" }}>
-          <div style={validator}>
-            <span style={{ color: BPT.amberDot, flex: "none", marginTop: 1 }}>
-              <IcoWarn s={18} />
-            </span>
+        {channels === null ? (
+          <p className="ds-empty mc-flat">Загрузка связей</p>
+        ) : channels.length === 0 ? (
+          <>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: BPT.amber, marginBottom: 3 }}>
-                Между ними нет задокументированной связи
-              </div>
-              <div style={{ fontSize: 12, color: "#92591a", lineHeight: 1.5 }}>
+              <p className="mc-warn-head">Между ними нет задокументированной связи</p>
+              <p className="mc-muted">
                 Шаг процесса идёт только по связи из схемы. Опишите связь
                 «{nameOf(fromNode)} → {nameOf(toNode)}», и она появится на схеме и в этом списке.
-              </div>
+              </p>
             </div>
-          </div>
 
-          {/* Поля связи. «Что передаётся» = label связи: из него берётся подпись
-              плеча, поэтому поле стоит первым и получает фокус. */}
-          <div style={{ marginTop: 12 }}>
-            <label className="bp-field-label" htmlFor="bp-new-label">Что передаётся</label>
-            <input
-              {...noAutofill("message-composer-1")}
-              id="bp-new-label"
-              className="bp-input"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="например, создать заказ"
-              disabled={busy}
-              autoFocus
-            />
-          </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "flex-end" }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <label className="bp-field-label" htmlFor="bp-new-tech">Технология</label>
+            {/* Поля связи. «Что передаётся» = label связи: из него берётся подпись
+                плеча, поэтому поле стоит первым и получает фокус. */}
+            <div className="mc-field">
+              <label className="mc-label" htmlFor="bp-new-label">Что передаётся</label>
               <input
-                {...noAutofill("message-composer-2")}
-                id="bp-new-tech"
-                className="bp-input"
-                value={newTech}
-                onChange={(e) => setNewTech(e.target.value)}
-                placeholder="например, REST или Kafka"
+                {...noAutofill("message-composer-1")}
+                id="bp-new-label"
+                className="ds-input"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                placeholder="например, создать заказ"
                 disabled={busy}
+                autoFocus
               />
             </div>
-            <div style={{ flex: "none" }}>
-              <span className="bp-field-label">Тип связи</span>
-              <SyncSegmented value={newSync} onChange={setNewSync} disabled={busy} compact />
+            <div className="mc-row">
+              <div className="mc-field">
+                <label className="mc-label" htmlFor="bp-new-tech">Технология</label>
+                <input
+                  {...noAutofill("message-composer-2")}
+                  id="bp-new-tech"
+                  className="ds-input"
+                  value={newTech}
+                  onChange={(e) => setNewTech(e.target.value)}
+                  placeholder="например, REST или Kafka"
+                  disabled={busy}
+                />
+              </div>
+              <div className="mc-field">
+                <span className="mc-label">Тип связи</span>
+                <SyncSelect className="mc-sync" value={newSync} onChange={setNewSync} disabled={busy} />
+              </div>
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-            <button className="bp-btn-primary" onClick={() => void addSchemaEdge()} disabled={busy}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <IcoLink s={14} />
-                {busy ? "Добавляем" : "Добавить связь в схему"}
-              </span>
-            </button>
-            <button className="bp-btn-ghost" onClick={onClose}>
-              Отмена
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div style={{ fontSize: 11.5, color: BPT.micro, padding: "4px 14px 6px" }}>
-            Шаг можно взять из связей между ними:
-          </div>
-          <div style={{ padding: "0 14px", display: "grid", gap: 9, maxHeight: 200, overflow: "auto" }}>
-            {channels.map((ch) => (
-              <div className="bp-channel" key={ch.edge_id}>
-                <div className="bp-channelhd">
-                  <b>
-                    {nameOf(ch.legs[0]?.from_id ?? "")} → {nameOf(ch.legs[0]?.to_id ?? "")}
-                  </b>
-                  {ch.technology && (
-                    <span
-                      style={{
-                        fontSize: 9.5,
-                        fontWeight: 600,
-                        color: BPT.micro,
-                        background: "#f1f5f9",
-                        border: "1px solid " + BPT.line,
-                        borderRadius: 4,
-                        padding: "1px 5px",
-                      }}
-                    >
-                      {ch.technology}
-                    </span>
-                  )}
-                  <span style={{ marginLeft: "auto", flex: "none" }}>
-                    <SyncSegmented
+          </>
+        ) : (
+          <>
+            <p className="mc-muted">Шаг можно взять из связей между ними:</p>
+            <div className="mc-channels">
+              {channels.map((ch) => (
+                <div className="mc-channel" key={ch.edge_id}>
+                  <div className="mc-chhead">
+                    <b className="mc-chname">
+                      {nameOf(ch.legs[0]?.from_id ?? "")} → {nameOf(ch.legs[0]?.to_id ?? "")}
+                    </b>
+                    {ch.technology && <span className="mc-tech">{ch.technology}</span>}
+                    <SyncSelect
+                      className="mc-sync"
                       value={ch.synchronous}
                       onChange={(v) => void setChannelSync(ch.edge_id, v)}
                       disabled={syncEdge !== null}
-                      compact
                     />
-                  </span>
-                </div>
-                {ch.legs.map((leg) => {
-                  const m = legMeta(leg.kind);
-                  const on = sel?.edgeId === ch.edge_id && sel?.leg === leg.leg;
-                  return (
-                    <button
-                      key={leg.leg}
-                      className={"bp-legpick" + (on ? " is-sel" : "")}
-                      onClick={() => setSel({ edgeId: ch.edge_id, leg: leg.leg })}
-                    >
-                      <span className={"bp-legradio" + (on ? " is-on" : "")} />
-                      <span style={{ color: BPT.head, flex: "none", display: "inline-flex" }}>
-                        <m.Icon s={13} />
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: BPT.head,
-                          textTransform: "uppercase",
-                          letterSpacing: ".03em",
-                          flex: "none",
-                        }}
+                  </div>
+                  {ch.legs.map((leg) => {
+                    const m = legMeta(leg.kind);
+                    const on = sel?.edgeId === ch.edge_id && sel?.leg === leg.leg;
+                    return (
+                      <button
+                        type="button"
+                        key={leg.leg}
+                        className={"mc-leg" + (on ? " is-sel" : "")}
+                        aria-pressed={on}
+                        onClick={() => setSel({ edgeId: ch.edge_id, leg: leg.leg })}
                       >
-                        {m.word}
-                      </span>
-                      <span style={{ fontSize: 12.5, color: BPT.head }}>
-                        «{leg.default_caption ?? "—"}»
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8, padding: "12px 14px 14px", justifyContent: "flex-end", borderTop: "1px solid " + BPT.line2, marginTop: 10 }}>
-            <button className="bp-btn-primary" onClick={() => void add()} disabled={!sel || busy}>
-              Добавить шаг
-            </button>
-            <button className="bp-btn-ghost" onClick={onClose}>
-              Отмена
-            </button>
-          </div>
-        </>
+                        <span className={"mc-radio" + (on ? " is-on" : "")} />
+                        <span className="mc-legicon">
+                          <m.Icon s={13} />
+                        </span>
+                        <span className="mc-word">{m.word}</span>
+                        <span className="mc-cap">«{leg.default_caption ?? "—"}»</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {channels !== null && channels.length === 0 && (
+        <div className="ds-win-foot">
+          <button type="button" className="ds-btn ds-btn--primary" onClick={() => void addSchemaEdge()} disabled={busy}>
+            {busy ? "Добавляем" : "Добавить связь в схему"}
+          </button>
+          <button type="button" className="ds-btn" onClick={onClose}>
+            Отмена
+          </button>
+        </div>
+      )}
+      {channels !== null && channels.length > 0 && (
+        <div className="ds-win-foot">
+          <button type="button" className="ds-btn ds-btn--primary" onClick={() => void add()} disabled={!sel || busy}>
+            Добавить шаг
+          </button>
+          <button type="button" className="ds-btn" onClick={onClose}>
+            Отмена
+          </button>
+        </div>
       )}
     </div>
   );
 }
 
-// Схематичная карточка узла (иконка C4 + имя, без подробностей).
-function NodeChip({ part, fallback }: { part: ProcessParticipant | undefined; fallback: string }) {
+// Конец пары: значок формы и имя одной строкой; длинное имя — многоточием, полное в title.
+function PairEnd({ part, fallback }: { part: ProcessParticipant | undefined; fallback: string }) {
+  const name = part?.name ?? fallback;
   return (
-    <div style={chip}>
-      <span style={{ color: part?.is_external ? BPT.mut : BPT.sec, display: "inline-flex", flex: "none" }}>
-        <C4Glyph shape={part?.shape ?? "service"} s={17} />
+    <span className="mc-end" title={name}>
+      <span className="mc-glyph">
+        <C4Glyph shape={part?.shape ?? "service"} s={15} />
       </span>
-      <b style={{ fontSize: 13, fontWeight: 600, color: BPT.head, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-        {part?.name ?? fallback}
-      </b>
-    </div>
+      <span className="mc-name">{name}</span>
+    </span>
   );
 }
-
-const chip: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flex: 1,
-  minWidth: 0,
-  height: 40,
-  padding: "0 11px",
-  background: "#fff",
-  border: "1px solid " + BPT.line,
-  borderRadius: 9,
-};
-const validator: CSSProperties = {
-  display: "flex",
-  gap: 11,
-  padding: "13px 14px",
-  background: BPT.amberBg,
-  border: "1px solid " + BPT.amberLine,
-  borderRadius: 10,
-};
