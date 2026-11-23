@@ -14,4 +14,13 @@ describe("ConnectionNotice (аудит R-24)", () => {
     act(() => setOffline(false));
     expect(screen.queryByRole("status")).toBeNull();
   });
+
+  // Вид (редизайн, фаза 13а): тост нового языка вверху окна, без инлайн-стиля.
+  it("вид: тост ds-toast вверху окна", () => {
+    render(<ConnectionNotice />);
+    act(() => setOffline(true));
+    const плашка = screen.getByRole("status");
+    expect(плашка).toHaveClass("ds-toast", "ds-toast--service-top");
+    expect(плашка).not.toHaveAttribute("style");
+  });
 });
