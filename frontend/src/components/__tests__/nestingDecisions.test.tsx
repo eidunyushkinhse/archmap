@@ -76,8 +76,9 @@ describe("nodeNesting — общая точка решения", () => {
 });
 
 describe("подсказка строки дерева (treeRowTitle)", () => {
-  it("слой — только у сервиса с детьми; уровень развёртывания — у системы", () => {
-    expect(treeRowTitle("editor", group())).toBe("Открыть слой: Ядро");
+  // «Слой» в подсказке заменён словом продукта «уровень» (редизайн, фаза 13в).
+  it("уровень — у сервиса с детьми на карте и у системы в развёртывании", () => {
+    expect(treeRowTitle("editor", group())).toBe("Открыть уровень: Ядро");
     expect(treeRowTitle("deploy", group())).toBe("Открыть уровень: Ядро");
     expect(treeRowTitle("editor", leaf())).toBe("Показать на схеме: Платежи");
     expect(treeRowTitle("deploy", leaf())).toBe("Показать на схеме: Платежи");
