@@ -101,7 +101,7 @@ describe("ConfigParamsSection", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByText("Зависит: POST /orders, GET /cart · api")).toBeInTheDocument(),
+      expect(screen.getByText("Зависит: POST /orders, GET /cart (api)")).toBeInTheDocument(),
     );
   });
 
@@ -273,7 +273,7 @@ describe("ConfigParamsSection: элемент архитектуры", () => {
 
   it("контейнер с компонентами — «Добавить» есть, схема компонента названа с компонентом", async () => {
     renderSection({ element: { kind: "container" }, use: [usage({ node_id: "n2", node_name: "api" })] });
-    expect(await screen.findByText("Зависит: POST /orders · api")).toBeInTheDocument();
+    expect(await screen.findByText("Зависит: POST /orders (api)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Добавить" })).toBeInTheDocument();
   });
 

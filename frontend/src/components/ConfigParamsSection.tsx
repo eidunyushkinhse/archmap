@@ -200,12 +200,14 @@ function ParamRow({
       ...data, base_version: param.version,
     }));
 
-  // «Зависит» — ТОЛЬКО когда ссылки есть: тихой строкой под описанием параметра.
+  // «Зависит» — ТОЛЬКО когда ссылки есть: тихой строкой под описанием параметра. Схема
+  // другого объекта — с его именем в скобках, своя — одним именем (без склейки «·»,
+  // редизайн, фаза 13в).
   const used = usage.length > 0 && (
     <div className="cfg-usage">
       Зависит:{" "}
       {usage
-        .map((u) => (u.node_id === nodeId ? u.doc_name : `${u.doc_name} · ${u.node_name}`))
+        .map((u) => (u.node_id === nodeId ? u.doc_name : `${u.doc_name} (${u.node_name})`))
         .join(", ")}
     </div>
   );
