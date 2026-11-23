@@ -321,7 +321,8 @@ button.ds-sub:hover {
    процесса, заголовок панели объекта. Открытое меню держит подложку (aria-expanded).
    Фокус с клавиатуры — кольцом, как у остальных кнопок языка: подложка значит «под
    мышью» или «открыто», и фокус от неё должен отличаться.
-   position: relative — для точки-признака у значка («Рекомендации»). */
+   position: relative — для точки-признака у значка («Рекомендации»). Шрифт от корня, а не
+   гарнитура кнопки браузера: размеры кнопки от него не зависят. */
 .ds-icon-btn {
   position: relative;
   flex: none;
@@ -334,6 +335,7 @@ button.ds-sub:hover {
   border: 0;
   border-radius: var(--radius);
   background: none;
+  font: inherit;
   color: var(--c-fg-muted);
   cursor: pointer;
 }
@@ -481,6 +483,7 @@ button.ds-sub:hover {
 .ds-check input {
   flex: none;
   margin: 0;
+  font: inherit;
 }
 .app-modal .ds-win input[type="checkbox"]:focus {
   box-shadow: none;
