@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { Project } from "../../types";
 import SchemaPreview from "./SchemaPreview";
 import { KebabIcon } from "../../ui/icons";
-import { useDismiss } from "../../ui/useDismiss";
+import { useMenu } from "../../ui/useMenu";
 import "../../ui/ds.css";
 import "./projectCard.css";
 
@@ -79,32 +79,35 @@ function CardMenu({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useDismiss(open, ref, setOpen);
-  // Пункт меню: закрывает меню и зовёт действие; «Удалить навсегда» — опасным пунктом.
+  // Закрытие, стрелки и возврат фокуса на кнопку меню — общим хуком ui/useMenu.
+  const { wrapRef, triggerRef, menuRef, onKeyDown, pick } = useMenu(open, setOpen);
+  // Пункт меню: фокус на кнопку меню, закрывает меню и зовёт действие; «Удалить навсегда» —
+  // опасным пунктом.
   const item = (label: string, fn: () => void, danger = false) => (
     <button
       type="button"
       className={"ds-menu-item" + (danger ? " ds-menu-item--danger" : "")}
-      onClick={() => { setOpen(false); fn(); }}
+      onClick={() => pick(fn)}
     >
       {label}
     </button>
   );
   return (
-    <div ref={ref} className="project-card-menu">
+    <div ref={wrapRef} className="project-card-menu">
       <button
+        ref={triggerRef}
         type="button"
         className="ds-icon-btn project-card-kebab"
         onClick={() => setOpen((o) => !o)}
         aria-label="Меню проекта"
         aria-haspopup="menu"
         aria-expanded={open}
+        onKeyDown={onKeyDown}
       >
         <KebabIcon />
       </button>
       {open && (
-        <div className="ds-menu ds-menu--end" role="menu">
+        <div ref={menuRef} className="ds-menu ds-menu--end" role="menu" onKeyDown={onKeyDown}>
           {item("Открыть", onOpen)}
           {canShare && item("Доступ", onAccess)}
           {isOwner && item("Редактировать", onEdit)}

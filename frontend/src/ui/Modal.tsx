@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import "./modal.css";
 
@@ -54,6 +54,14 @@ function isSubmitKey(e: KeyboardEvent<HTMLElement>): boolean {
  * preventDefault по повторному Escape) — и тогда мы дёргаем onClose. Размонтирует
  * нас родитель: при unmount элемент просто убирается из DOM, событие close не
  * стреляет, лишнего onClose нет (важно для StrictMode-двойного маунта).
+ *
+ * Возврат фокуса. Нативный <dialog> возвращает фокус на элемент, бывший в фокусе до
+ * открытия, только при close(); мы окно размонтируем, и фокус уходил в никуда (редизайн,
+ * фаза 13в). Поэтому элемент в фокусе запоминается на первом рендере, до того как окно
+ * возьмёт фокус (поле с autoFocus берёт его ещё до эффектов), а при размонтировании фокус
+ * возвращается на него: если он ещё на странице и фокус потерян. Новое окно, открытое
+ * вместо этого, возьмёт фокус своим эффектом позже. Меню, чей пункт открыл окно, заранее
+ * ставит фокус на свою кнопку (ui/useMenu): пункт размонтирован, а кнопка остаётся.
  */
 export default function Modal({
   onClose,
@@ -62,6 +70,13 @@ export default function Modal({
   children,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [opener] = useState<Element | null>(() => document.activeElement);
+
+  useEffect(() => () => {
+    const now = document.activeElement;
+    const lost = now === null || now === document.body;
+    if (lost && opener instanceof HTMLElement && opener.isConnected) opener.focus();
+  }, [opener]);
 
   useEffect(() => {
     const dialog = dialogRef.current;

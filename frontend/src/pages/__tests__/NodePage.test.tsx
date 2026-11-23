@@ -1551,6 +1551,23 @@ describe("NodePage: ⋯-меню и версии документации", () =
     expect(меню()).toBeNull();
   });
 
+  // Клавиатура меню «⋯» (редизайн, фаза 13в, общий хук ui/useMenu): раньше Escape его не
+  // закрывал, а по пунктам ходил только Tab.
+  it("клавиатура: стрелка вниз с кнопки на первый пункт, End на последний, Escape закрывает и возвращает фокус на кнопку", async () => {
+    await openMenu(true, "editor");
+    const кнопка = screen.getByTitle("Действия");
+    кнопка.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toHaveFocus();
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("button", { name: "Удалить объект" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".np-dropdown")).toBeNull();
+    expect(кнопка).toHaveFocus();
+  });
+
   // Вход в экран схемы пунктом меню (фаза 13д): уровень родителя, объект подсвечен, возврат
   // на страницу объекта. Обработчик один у обеих ролей; подпись — по роли.
   it.each([

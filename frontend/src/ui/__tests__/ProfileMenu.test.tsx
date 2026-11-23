@@ -100,6 +100,56 @@ describe("ProfileMenu", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  // Клавиатура меню (редизайн, фаза 13в, общий хук ui/useMenu).
+  it("клавиатура: стрелки по кругу, Home и End, Escape и выбор пункта возвращают фокус на кнопку, Tab закрывает", async () => {
+    let focusAtAction: Element | null = null;
+    const onChangePassword = vi.fn(() => { focusAtAction = document.activeElement; });
+    render(
+      <>
+        <ProfileMenu role="Архитектор" onLogout={vi.fn()} onChangePassword={onChangePassword} onOpenTokens={vi.fn()} />
+        <button type="button">после меню</button>
+      </>,
+    );
+    const кнопка = screen.getByLabelText("Профиль");
+    const пункт = (name: string) => screen.getByRole("menuitem", { name });
+    кнопка.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(пункт("Сменить пароль")).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(пункт("Токены для MCP")).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(пункт("Выйти")).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(пункт("Сменить пароль")).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}");
+    expect(пункт("Выйти")).toHaveFocus();
+    await userEvent.keyboard("{Home}");
+    expect(пункт("Сменить пароль")).toHaveFocus();
+    await userEvent.keyboard("{End}");
+    expect(пункт("Выйти")).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(кнопка).toHaveFocus();
+
+    // Выбор пункта: фокус на кнопке меню ещё до действия (окно вернёт его туда же).
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.keyboard("{Enter}");
+    expect(onChangePassword).toHaveBeenCalledTimes(1);
+    expect(focusAtAction).toBe(кнопка);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(кнопка).toHaveFocus();
+
+    // Tab из меню закрывает его, фокус идёт дальше своим ходом.
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.tab();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: "после меню" })).toHaveFocus();
+  });
+
   it("«Сменить пароль» и «Выйти» зовут свои колбэки", async () => {
     const onChangePassword = vi.fn();
     const onLogout = vi.fn();

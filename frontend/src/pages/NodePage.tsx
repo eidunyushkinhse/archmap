@@ -40,6 +40,7 @@ import ProcessesSection from "../components/nodePage/ProcessesSection";
 import SchemaSection from "../components/nodePage/SchemaSection";
 import VersionsPanel from "../components/nodePage/versions/VersionsPanel";
 import { useProjectRole } from "./projectRole";
+import { useMenu } from "../ui/useMenu";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -196,6 +197,10 @@ function NodePageInner({
   );
   const containerNode = componentContainer.data;
   const [menuOpen, setMenuOpen] = useState(false);
+  // ⋯-меню: Escape, стрелки и возврат фокуса на кнопку — общим хуком ui/useMenu; щелчок мимо
+  // ловит своя подложка np-backdrop (она внутри обёртки меню).
+  const { wrapRef: menuWrapRef, triggerRef: menuBtnRef, menuRef, onKeyDown: onMenuKey, pick } =
+    useMenu(menuOpen, setMenuOpen);
   const [confirming, setConfirming] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   // Панель «Версии документации» (⋯-меню, обе роли). Удаляет версии только владелец
@@ -410,39 +415,40 @@ function NodePageInner({
 
               {/* ⋯-меню: пункты просмотра — обеим ролям (история версий нужна и
                   читателю, docs/tasks/doc-versions.md §7), пункты правки — редактору */}
-              <div className="np-menu-wrap">
+              <div ref={menuWrapRef} className="np-menu-wrap">
                 <button
+                  ref={menuBtnRef}
                   type="button"
                   className="np-menu-btn"
                   onClick={() => setMenuOpen((o) => !o)}
                   title="Действия"
                   aria-expanded={menuOpen}
+                  onKeyDown={onMenuKey}
                 >
                   ⋯
                 </button>
                 {menuOpen && (
                   <>
                     <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
-                    <div className="np-dropdown ds-menu">
+                    <div ref={menuRef} className="np-dropdown ds-menu" onKeyDown={onMenuKey}>
                       {onNavigateMap && (
-                        <button type="button" className="ds-menu-item" onClick={() => {
-                          setMenuOpen(false);
+                        <button type="button" className="ds-menu-item" onClick={() => pick(() => {
                           // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
                           onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
-                        }}>
+                        })}>
                           {/* Читателю тот же экран открывается в режиме просмотра (фаза 13д). */}
                           {isArchitect ? "Открыть в редакторе" : "Развернуть схему"}
                         </button>
                       )}
-                      <button type="button" className="ds-menu-item" onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
+                      <button type="button" className="ds-menu-item" onClick={() => pick(() => setVersionsOpen(true))}>
                         Версии документации
                       </button>
                       {isArchitect && (
                         <>
-                          <button type="button" className="ds-menu-item" onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
+                          <button type="button" className="ds-menu-item" onClick={() => pick(() => setExportOpen(true))}>
                             Экспорт объекта с вложенными
                           </button>
-                          <button type="button" className="ds-menu-item ds-menu-item--danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
+                          <button type="button" className="ds-menu-item ds-menu-item--danger" onClick={() => pick(() => setConfirming(true))}>
                             Удалить объект
                           </button>
                         </>

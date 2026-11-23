@@ -13,6 +13,7 @@
 // Вторая половина — подтверждение окна клавишей (onSubmit): Enter в однострочном поле,
 // Ctrl/Cmd+Enter в многострочном; флажки, кнопки, поле, погасившее Enter само, набор
 // через IME и Enter с модификатором окно не подтверждают.
+import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -134,5 +135,42 @@ describe("Modal: подтверждение клавишей", () => {
     await userEvent.type(screen.getByLabelText("Имя"), "Касса{Enter}");
 
     expect(screen.getByLabelText("Имя")).toHaveValue("Касса");
+  });
+});
+
+// Возврат фокуса (редизайн, фаза 13в). Окно снимается размонтированием (close() не зовём),
+// а нативный <dialog> сам возвращает фокус только при close(): после окна фокус уходил в
+// никуда. Теперь — на элемент, который был в фокусе до открытия, если он ещё на странице.
+describe("Modal: возврат фокуса", () => {
+  function Host({ keepOpener = true }: { keepOpener?: boolean }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        {(keepOpener || !open) && <button type="button" onClick={() => setOpen(true)}>Открыть окно</button>}
+        {open && (
+          <Modal onClose={() => setOpen(false)}>
+            <button type="button" onClick={() => setOpen(false)}>Готово</button>
+          </Modal>
+        )}
+      </>
+    );
+  }
+
+  it("закрытое окно возвращает фокус на элемент, бывший в фокусе до открытия", async () => {
+    render(<Host />);
+    const opener = screen.getByRole("button", { name: "Открыть окно" });
+    await userEvent.click(opener);
+    const done = screen.getByText("Готово");
+    expect(opener).not.toHaveFocus();
+    await userEvent.click(done);
+    expect(screen.queryByText("Готово")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
+  it("элемента до открытия больше нет — фокус не ставится никуда", async () => {
+    render(<Host keepOpener={false} />);
+    await userEvent.click(screen.getByRole("button", { name: "Открыть окно" }));
+    await userEvent.click(screen.getByText("Готово"));
+    expect(document.activeElement === document.body || document.activeElement === null).toBe(true);
   });
 });

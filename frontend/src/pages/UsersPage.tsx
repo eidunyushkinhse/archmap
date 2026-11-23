@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useState } from "react";
 import { adminApi } from "../api/admin";
 import { fetchMe } from "../api/auth";
 import type { AdminUser, AdminUserUpdate, UserRole } from "../types";
@@ -9,7 +9,7 @@ import { ROLE_LABEL, ROLES } from "../components/users/userLabels";
 import BrandLink from "../ui/BrandLink";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { ChevronDownIcon, KebabIcon } from "../ui/icons";
-import { useDismiss } from "../ui/useDismiss";
+import { useMenu } from "../ui/useMenu";
 import { useMessageToast } from "./useToast";
 import "../ui/ds.css";
 import "./listPages.css";
@@ -245,32 +245,32 @@ interface RowAction {
 }
 
 // Меню действий строки: кнопка-значок, меню у её правого края. Закрывается выбором пункта,
-// щелчком мимо и Escape (useDismiss). Пока идёт запись, кнопка и пункты заперты. Запертый
-// по правилу пункт остаётся в меню, причина — второй строкой пункта: имя пункта — подпись
-// (aria-label), причина — его описание (aria-describedby). Меню не помещается под кнопкой,
+// щелчком мимо и Escape; стрелки по незапертым пунктам и возврат фокуса на кнопку — общим
+// хуком ui/useMenu. Пока идёт запись, кнопка и пункты заперты. Запертый по правилу пункт
+// остаётся в меню, причина — второй строкой пункта: имя пункта — подпись (aria-label),
+// причина — его описание (aria-describedby). Меню не помещается под кнопкой,
 // а над ней места больше (нижние строки длинной таблицы) — раскрывается вверх.
 function RowMenu({ username, busy, actions }: { username: string; busy: boolean; actions: RowAction[] }) {
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const { wrapRef, triggerRef, menuRef, onKeyDown, pick } = useMenu(open, setOpen);
   const idBase = useId();
-  useDismiss(open, ref, setOpen);
 
   // До отрисовки (без вспышки вниз, потом вверх), как у components/AddDocsMenu.
   useLayoutEffect(() => {
     if (!open) return;
-    const wrap = ref.current;
+    const wrap = wrapRef.current;
     const menu = menuRef.current;
     if (!wrap || !menu) return;
     const rect = wrap.getBoundingClientRect();
     const below = window.innerHeight - rect.bottom;
     setUp(below < menu.offsetHeight + 8 && rect.top > below);
-  }, [open]);
+  }, [open, wrapRef, menuRef]);
 
   return (
-    <div ref={ref} className="lp-row-menu">
+    <div ref={wrapRef} className="lp-row-menu">
       <button
+        ref={triggerRef}
         type="button"
         className="ds-icon-btn"
         title="Действия"
@@ -279,11 +279,12 @@ function RowMenu({ username, busy, actions }: { username: string; busy: boolean;
         aria-expanded={open}
         disabled={busy}
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={onKeyDown}
       >
         <KebabIcon />
       </button>
       {open && (
-        <div ref={menuRef} className={"ds-menu ds-menu--end" + (up ? " lp-menu--up" : "")} role="menu">
+        <div ref={menuRef} className={"ds-menu ds-menu--end" + (up ? " lp-menu--up" : "")} role="menu" onKeyDown={onKeyDown}>
           {actions.map((a, i) => {
             const why = a.locked ? `${idBase}-${i}` : undefined;
             return (
@@ -295,7 +296,7 @@ function RowMenu({ username, busy, actions }: { username: string; busy: boolean;
                 disabled={busy || why !== undefined}
                 aria-label={why ? a.label : undefined}
                 aria-describedby={why}
-                onClick={() => { setOpen(false); a.run(); }}
+                onClick={() => pick(a.run)}
               >
                 <span>{a.label}</span>
                 {why && <span id={why} className="lp-menu-why">{a.locked}</span>}

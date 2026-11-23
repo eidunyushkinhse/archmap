@@ -18,14 +18,15 @@
 //
 // Вид один в обеих шапках (редизайн, фазы 4б и 5): тихая кнопка-значок и меню нового
 // языка (ui/ds.css). Редактор-карта ставит сверху пункты самой страницы (подписи связей,
-// «Переразложить уровень»): отдельные кнопки им в шапке не нужны.
+// «Переразложить уровень»): отдельные кнопки им в шапке не нужны. Закрытие, стрелки и
+// возврат фокуса на кнопку — общим хуком ui/useMenu.
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import ExportModal from "./ExportModal";
 import SyncRepoModal from "./docsImport/SyncRepoModal";
 import ImportIntoModal from "./project/ImportIntoModal";
 import { KebabIcon } from "../ui/icons";
-import { useDismiss } from "../ui/useDismiss";
+import { useMenu } from "../ui/useMenu";
 import "../ui/ds.css";
 
 /** Область экспорта: что грузим и как назвать окно/пункт меню. */
@@ -74,13 +75,11 @@ export default function SchemaActions({
   const [importIntoOpen, setImportIntoOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const { wrapRef, triggerRef, menuRef, onKeyDown, pick } = useMenu(menuOpen, setMenuOpen);
 
   useEffect(() => () => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
   }, []);
-
-  useDismiss(menuOpen, wrapRef, setMenuOpen);
 
   function showToast(message: string) {
     setToast(message);
@@ -114,6 +113,7 @@ export default function SchemaActions({
   return (
     <div ref={wrapRef} style={{ position: "relative" }}>
       <button
+        ref={triggerRef}
         type="button"
         className="ds-icon-btn"
         onClick={() => setMenuOpen((o) => !o)}
@@ -121,12 +121,13 @@ export default function SchemaActions({
         aria-label="Действия со схемой"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
+        onKeyDown={onKeyDown}
       >
         <KebabIcon />
       </button>
 
       {menuOpen && (
-        <div className="ds-menu ds-menu--end" style={menuWidth} role="menu" aria-label="Действия со схемой">
+        <div ref={menuRef} className="ds-menu ds-menu--end" style={menuWidth} role="menu" aria-label="Действия со схемой" onKeyDown={onKeyDown}>
           {items.length > 0 && (
             <>
               {items.map((it) => (
@@ -136,7 +137,7 @@ export default function SchemaActions({
                   className="ds-menu-item"
                   role="menuitem"
                   disabled={it.disabled}
-                  onClick={() => { setMenuOpen(false); it.onSelect(); }}
+                  onClick={() => pick(it.onSelect)}
                 >
                   {it.label}
                 </button>
@@ -149,7 +150,7 @@ export default function SchemaActions({
             className="ds-menu-item"
             role="menuitem"
             disabled={!exportScope}
-            onClick={() => { setMenuOpen(false); setExportOpen(true); }}
+            onClick={() => pick(() => setExportOpen(true))}
           >
             {exportScope?.title ?? "Экспорт"}
           </button>
@@ -159,7 +160,7 @@ export default function SchemaActions({
               className="ds-menu-item"
               role="menuitem"
               title="Изменения из файлов сольются с текущей схемой"
-              onClick={() => { setMenuOpen(false); setSyncOpen(true); }}
+              onClick={() => pick(() => setSyncOpen(true))}
             >
               Обновить из кода
             </button>
@@ -171,7 +172,7 @@ export default function SchemaActions({
               role="menuitem"
               disabled={archiveBusy}
               title="Архив всего, что есть в проекте: схема, схемы логики, спецификации, структуры баз, каналы брокеров, конфигурация и процессы"
-              onClick={() => { setMenuOpen(false); void downloadArchive(); }}
+              onClick={() => pick(() => { void downloadArchive(); })}
             >
               {archiveBusy ? "Собираем архив" : "Экспорт проекта (zip)"}
             </button>
@@ -185,7 +186,7 @@ export default function SchemaActions({
               className="ds-menu-item"
               role="menuitem"
               title="Добавить к проекту всё, что есть в архивах других проектов"
-              onClick={() => { setMenuOpen(false); setImportIntoOpen(true); }}
+              onClick={() => pick(() => setImportIntoOpen(true))}
             >
               Догрузить архив
             </button>
