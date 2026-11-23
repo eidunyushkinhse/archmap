@@ -1,13 +1,39 @@
-/* Стили «хрома» приложения прежнего вида, которым нужны псевдоклассы (:hover) — задать
-   инлайном нельзя. Шапки нового языка — ui/ds.css (ds-head*, ds-icon-btn, ds-avatar). */
+/* Логотип ArchMap (ui/BrandLink): знак и слово в левом верхнем углу шапок. Цвета — токены
+   ui/tokens.css; размер и вес слова, зазор, поля и радиус кнопки — прежние: знак и слово
+   стоят на тех же координатах во всех шапках (списки, оболочка проекта, редактор, вход).
+   Шапки нового языка — ui/ds.css (ds-head*, ds-icon-btn, ds-avatar). */
 
-/* Хлебная крошка-ссылка: подсветка фона и синева на hover (без подчёркиваний). */
-.crumb:hover {
-  background: #eff6ff;
-  color: #1d4ed8;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.brand-word {
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--c-fg);
+}
+.brand-word-accent {
+  color: var(--c-accent);
 }
 
-/* Логотип-ссылка на «Все проекты» (ui/BrandLink) */
-.brand-link { background: none; transition: background 0.12s ease; }
-.brand-link:hover { background: #f1f5f9; }
-.brand-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+/* Логотип-ссылка на «Все проекты»: кнопка без рамки, подложка под курсором, кольцо фокуса
+   с клавиатуры. */
+.brand-link {
+  margin: -3px -6px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.brand-link:hover {
+  background: var(--c-hover);
+}
+.brand-link:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
