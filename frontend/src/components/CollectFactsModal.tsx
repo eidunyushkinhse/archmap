@@ -25,9 +25,8 @@ import type { CollectFactsOut, CollectFactsPreview } from "../types";
 import { nodesApi } from "../api/nodes";
 import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
-import InfoPopover from "../ui/InfoPopover";
 import { CloseIcon } from "../ui/icons";
-import { DocViewer, Option, PathLabel, SplitOption } from "./project/remainder";
+import { DocViewer, Option, PathLabel, SplitOption, TitleWithWhy } from "./project/remainder";
 import {
   asksSpec, candidateSub, collectFacts, collectResult, collectRow, droppedParams, isParamQuestion,
   paramQuestion, specHolders, specQuestion,
@@ -216,29 +215,8 @@ function Window({ onClose, foot, children }: { onClose: () => void; foot: ReactN
 function Question({ texts, children }: { texts: CollectQuestionTexts; children: ReactNode }) {
   return (
     <section>
-      <h4 className="rq-q"><TitleWithWhy texts={texts} /></h4>
+      <h4 className="rq-q"><TitleWithWhy title={texts.title} why={texts.why} ifLeft={texts.ifLeft} /></h4>
       <div className="rq-opts">{children}</div>
     </section>
-  );
-}
-
-/**
- * Заголовок вопроса со знаком «?» сразу после текста: в подсказке «почему возник вопрос» и
- * «Если не отвечать, то …» (так же, как в окнах ввоза, RemainderBlock). Последнее слово и
- * знак в одной обёртке без переноса: знак не уезжает на строку один.
- */
-function TitleWithWhy({ texts }: { texts: CollectQuestionTexts }) {
-  const cut = texts.title.lastIndexOf(" ") + 1;
-  return (
-    <>
-      {texts.title.slice(0, cut)}
-      <span className="rq-q-end">
-        {texts.title.slice(cut)}
-        <InfoPopover label="Почему возник вопрос" width={380}>
-          <p>{texts.why}</p>
-          <p>{texts.ifLeft}</p>
-        </InfoPopover>
-      </span>
-    </>
   );
 }

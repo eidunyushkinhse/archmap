@@ -15,13 +15,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { plural } from "../../../ui/plural";
 import { CheckIcon } from "../../../ui/icons";
-import InfoPopover from "../../../ui/InfoPopover";
 import type { Answer, Answers, Question, Resolutions } from "./questions";
 import { answerLabel, answerState, defaultLabel, summarize } from "./questions";
 import { emptyEdgesDraft, mergeDraftFor } from "./drafts";
 import type { EdgesDraft, MergeDraft } from "./drafts";
 import { MERGE_TITLE, mergeContext, NEW_EDGE_CONTEXT, NEW_EDGE_TITLE } from "./questionText";
 import QuestionBody from "./QuestionBody";
+import TitleWithWhy from "./TitleWithWhy";
 import "../../../ui/ds.css";
 import "./remainder.css";
 
@@ -243,26 +243,4 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
 function currentName(q: Question, answers: Answers): string | null {
   const a = answers[q.id];
   return a?.kind === "merge" ? a.name : null;
-}
-
-/**
- * Заголовок вопроса со знаком «?» сразу после текста: в подсказке «почему возник вопрос» и
- * «Если не отвечать, то …». Последнее слово и знак в одной обёртке без переноса: знак не
- * уезжает на строку один. Подсказка — fixed-слой (InfoPopover), прокрутка тела окна её не
- * режет.
- */
-function TitleWithWhy({ title, why, ifLeft }: { title: string; why: string; ifLeft: string | null }) {
-  const cut = title.lastIndexOf(" ") + 1;
-  return (
-    <>
-      {title.slice(0, cut)}
-      <span className="rq-q-end">
-        {title.slice(cut)}
-        <InfoPopover label="Почему возник вопрос" width={380}>
-          <p>{why}</p>
-          {ifLeft !== null && <p>{ifLeft}</p>}
-        </InfoPopover>
-      </span>
-    </>
-  );
 }
