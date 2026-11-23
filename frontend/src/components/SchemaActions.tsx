@@ -111,7 +111,7 @@ export default function SchemaActions({
   };
 
   return (
-    <div ref={wrapRef} style={{ position: "relative" }}>
+    <div ref={wrapRef} className="ds-menu-root">
       <button
         ref={triggerRef}
         type="button"

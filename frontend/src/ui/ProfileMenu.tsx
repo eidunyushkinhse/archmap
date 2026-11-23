@@ -42,7 +42,7 @@ export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangeP
   );
 
   return (
-    <div ref={wrapRef} className="ds" style={{ position: "relative" }}>
+    <div ref={wrapRef} className="ds ds-menu-root">
       <button
         ref={triggerRef}
         type="button"

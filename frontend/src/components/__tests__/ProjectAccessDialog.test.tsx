@@ -230,9 +230,9 @@ describe("ProjectAccessDialog: вид", () => {
     expect(подвал).toHaveLength(1);
     expect(подвал[0].className).toBe("ds-btn");
     expect(screen.getAllByRole("button", { name: "Закрыть" }).filter((b) => b.classList.contains("ds-win-close"))).toHaveLength(1);
-    // Инлайн-стилей у разметки окна нет; свой отступ несёт только общий шеврон списков
-    // (ui/icons, ChevronDownIcon): роль участника editor и роль нового участника.
-    expect([...document.querySelectorAll("[style]")].map((e) => e.tagName.toLowerCase())).toEqual(["svg", "svg"]);
+    // Инлайн-стилей у разметки окна нет, у общего шеврона списков тоже: его отступ задаёт
+    // класс (ui/icons.css, ChevronDownIcon).
+    expect([...document.querySelectorAll("[style]")].map((e) => e.tagName.toLowerCase())).toEqual([]);
   });
 
   it("строки участников: у владельца слово «Владелец» и «Передать владение», у остальных список роли и «Удалить»", async () => {
