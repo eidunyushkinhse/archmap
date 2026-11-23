@@ -1,16 +1,15 @@
 /* Разбор остатка слияния вопросами (Ф-E; ТЗ «Остаток слияния — разбор вопросами»,
-   §5 и §9). Спокойная палитра: белое поле, slate-текст, единственный акцент —
-   синий выбора. ЯНТАРНОГО И КРАСНОГО ВНУТРИ БЛОКА НЕТ ВОВСЕ: остаток — не ошибка
-   (красный живёт только в строке статуса, и та снаружи блока).
+   §5 и §9). Остаток — не ошибка: красный живёт только в строке статуса, и та снаружи
+   блока.
 
-   Здесь каркас вопросов; их вид на новом языке — importResult.css (область .imp-res: окна
-   ввоза и «Собрать с компонентов»), просмотр схемы (rq-ov) — здесь же на токенах: он
-   порталится из области окна (фаза 8а редизайна).
+   Здесь каркас вопросов: раскладка, места и то, что не зависит от окна. Цвета, кегли и
+   отступы вопросов на новом языке — importResult.css (область .imp-res: окна ввоза и
+   «Собрать с компонентов»; все части блока живут только в ней). Просмотр схемы (rq-ov) —
+   здесь же на токенах: он порталится из области окна (фаза 8а редизайна).
 
-   Классы с префиксом rq-: блок живёт внутри двух чужих окон (создание проекта и
-   догрузка архивов), и общие имена там уже заняты. Все интерактивные элементы
-   наследуют шрифт явно (font-family: inherit) — иначе браузер подставит им свой,
-   и кнопка перестанет быть частью текста. */
+   Классы с префиксом rq-: блок живёт внутри чужих окон, и общие имена там уже заняты.
+   Все интерактивные элементы наследуют шрифт явно (font-family: inherit) — иначе браузер
+   подставит им свой, и кнопка перестанет быть частью текста. */
 
 /* Приложение НЕ задаёт box-sizing глобально, а поля блока тянутся на всю ширину
    колонки: в content-box padding и рамка добавлялись сверху 100%, и «Описание» с
@@ -18,86 +17,48 @@
    блока — трогать глобальный сброс ради одного окна нельзя. */
 .rq-root, .rq-root * { box-sizing: border-box; }
 
-.rq-root {
-  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
-  font-size: 13.5px;
-  line-height: 1.45;
-  letter-spacing: normal;
-  color: #334155;
-}
+.rq-root { letter-spacing: normal; }
 
 /* ── каркас блока ─────────────────────────────────────────────── */
-.rq-block {
-  margin-top: 16px;
-  border: 1px solid #dfe6ee;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
-}
-.rq-sub { display: flex; align-items: center; gap: 10px; padding: 7px 15px 0; }
-.rq-cnt { font-size: 12px; color: #94a3b8; }
-.rq-bd { padding: 11px 15px 14px; }
-.rq-ft {
-  display: flex; align-items: center; gap: 12px;
-  padding: 11px 15px; border-top: 1px solid #eef2f7;
-}
+.rq-sub { display: flex; align-items: center; }
+.rq-ft { display: flex; align-items: center; }
 .rq-sp { margin-left: auto; }
 
 /* ── вопрос ───────────────────────────────────────────────────── */
-.rq-q {
-  margin: 0; font-size: 15.5px; line-height: 1.35; font-weight: 600;
-  color: #0f172a; text-wrap: pretty;
-}
-.rq-ctx { margin: 5px 0 0; font-size: 12.5px; line-height: 1.45; color: #64748b; max-width: 460px; }
+.rq-q { margin: 0; text-wrap: pretty; }
+.rq-ctx { margin: 5px 0 0; }
 /* Последнее слово заголовка и знак «?» без переноса между ними (RemainderBlock, CollectFactsModal). */
 .rq-q-end { white-space: nowrap; }
 
 /* ── варианты ответа (§5.1) ───────────────────────────────────── */
-.rq-opts { display: flex; flex-direction: column; gap: 6px; margin-top: 11px; }
+.rq-opts { display: flex; flex-direction: column; }
 .rq-opt {
-  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
-  border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; padding: 9px 11px;
-  font-family: inherit; font-size: 13.5px; line-height: 1.35; color: #0f172a;
+  display: flex; align-items: center; width: 100%; text-align: left;
+  border: 1px solid var(--c-line); font-family: inherit;
 }
-.rq-opt:hover { border-color: #cbd5e1; background: #f8fafc; }
-.rq-opt--on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
-.rq-opt--on:hover { background: #eff6ff; }
 .rq-opt-b { min-width: 0; flex: 1; }
-.rq-opt-b b { font-weight: 600; }
-.rq-opt-sub { display: block; font-size: 12px; font-weight: 400; color: #64748b; margin-top: 2px; }
-.rq-opt--on .rq-opt-sub { color: #64748b; }
+.rq-opt-sub { display: block; }
 /* Строка подписи из нескольких: проведённые связи у варианта «Провести связь». */
 .rq-opt-line { display: block; }
-.rq-opt-tag { margin-left: auto; flex: none; font-size: 11px; font-weight: 500; color: #94a3b8; }
-.rq-opt--on .rq-opt-tag { color: #1d4ed8; }
-/* Серый префикс пути: «Grafana / Сервер Grafana / <b>Рантайм плагинов</b>». */
-.rq-opt-m { color: #64748b; font-weight: 400; }
-.rq-opt--on .rq-opt-m { color: #7ea2e8; }
+.rq-opt-tag { margin-left: auto; flex: none; }
+/* Тихий префикс пути: «Grafana / Сервер Grafana / <b>Рантайм плагинов</b>». */
+.rq-opt-m { font-weight: 400; }
 
 /* Сплит-кнопка «источник | Открыть» (§5.2) — только у схем логики. */
-.rq-opt-row { display: flex; align-items: stretch; }
-.rq-opt-row .rq-opt { flex: 1; min-width: 0; border-radius: 9px 0 0 9px; }
+.rq-opt-row { display: flex; }
+.rq-opt-row .rq-opt { flex: 1; min-width: 0; }
 .rq-opt-r {
-  flex: none; display: flex; align-items: center; padding: 0 13px;
-  border: 1px solid #e2e8f0; border-left: none; border-radius: 0 9px 9px 0;
-  background: #fff; font-family: inherit; font-size: 12.5px; font-weight: 600;
-  color: #1d4ed8; white-space: nowrap;
+  flex: none; display: flex; align-items: center;
+  font-family: inherit; white-space: nowrap;
 }
-.rq-opt-r:hover { background: #f8fafc; }
-.rq-opt-row .rq-opt--on { border-right-color: #2563eb; }
-.rq-opt-row .rq-opt--on + .rq-opt-r { border-color: #2563eb; border-left: none; }
 
 /* ── список объектов (§5.3) ───────────────────────────────────── */
-.rq-more { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
-/* Поле «Поиск по имени» — ds-input; здесь только место. */
-.rq-filter { margin-top: 9px; }
+.rq-more { display: flex; align-items: center; gap: 12px; }
 /* Раскрытый список (фаза 8б): своя прокрутка, колесо у края не крутит окно под ним. */
 .rq-scroll {
   max-height: min(360px, 45vh); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
-  margin-top: 9px; padding-right: 2px;
 }
-.rq-scroll .rq-opts { margin-top: 0; }
-.rq-empty { font-size: 12.5px; color: #94a3b8; margin-top: 9px; }
+.rq-empty { margin-top: 9px; }
 
 /* ── форма проведения связей: строка на объект группы (§5.4, П4) ── */
 /* Фаза 8б: без карточек. На объект одна строка высотой поля, между объектами 8px; поля
@@ -129,7 +90,7 @@
 .rq-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .rq-own { margin-top: 8px; }
 /* Кнопки шага имени и формы связей: главная первой, «Назад к вопросу» за ней. */
-.rq-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.rq-acts { display: flex; flex-wrap: wrap; align-items: center; }
 
 /* ── комбобокс выбора объекта (П4 v2) ─────────────────────────── */
 .rq-cbo { position: relative; min-width: 0; }
@@ -145,15 +106,14 @@
 .rq-cbo-list {
   position: fixed; z-index: 5; max-height: 320px; overflow-y: auto; overscroll-behavior: contain;
   padding: 4px;
-  border: 1px solid #e2e8f0; border-radius: 9px; background: #fff;
+  border: 1px solid var(--c-line); background: var(--c-bg);
   box-shadow: 0 10px 24px -12px rgb(15 23 42 / 35%);
 }
 .rq-cbo-row {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-  border: none; border-radius: 7px; background: none; padding: 6px 8px;
-  font-family: inherit; font-size: 13px; line-height: 1.35; color: #0f172a;
+  border: none; background: none; padding: 6px 8px;
+  font-family: inherit; line-height: 1.35;
 }
-.rq-cbo-row--on { background: #eff6ff; color: #1d4ed8; }
 .rq-cbo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rq-cbo-empty { margin: 0; padding: 6px 8px; }
 
@@ -169,32 +129,21 @@
 .rq-link--in { font-size: inherit; line-height: inherit; }
 
 /* ── список «Все вопросы» (§3) ────────────────────────────────── */
-.rq-ql { margin-top: 2px; }
 .rq-ql-r {
-  display: flex; align-items: baseline; gap: 9px; width: 100%; text-align: left;
-  border: none; border-radius: 8px; background: none; padding: 6px 8px;
-  font-family: inherit; font-size: 13px; line-height: 1.35; color: #334155;
+  display: flex; align-items: baseline; width: 100%; text-align: left;
+  border: none; background: none; font-family: inherit;
 }
-.rq-ql-r:hover { background: #f8fafc; }
-.rq-ql-r--on { background: #eff6ff; }
-.rq-ql-n { flex: none; width: 20px; font-size: 11.5px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+.rq-ql-n { flex: none; font-variant-numeric: tabular-nums; }
 .rq-ql-q { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rq-ql-a {
-  flex: none; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 12px; color: #1d4ed8; font-weight: 600;
-}
-/* Подпись «ответа нет» — третичным серым; выбранный вариант по умолчанию подписывается
-   синим наравне с прочими ответами: пользователь его ВЫБРАЛ (П8 приёмки). */
-.rq-ql-a--none { color: #94a3b8; font-weight: 400; }
+.rq-ql-a { flex: none; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── итог разбора (§8) ────────────────────────────────────────── */
-.rq-done { display: flex; align-items: center; gap: 8px; }
+.rq-done { display: flex; align-items: center; }
 .rq-tick {
-  width: 20px; height: 20px; border-radius: 50%; background: #dcfce7; color: #15803d;
+  width: 20px; height: 20px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; flex: none;
 }
-.rq-tick--open { background: #f1f5f9; color: #475569; font-size: 12px; font-weight: 600; }
-.rq-done-t { font-size: 14px; font-weight: 600; color: #0f172a; }
+.rq-tick--open { font-weight: 600; }
 
 /* ── просмотр схемы (§5.5): новый язык, корень в области .ds ──── */
 /* Портал уходит из области окна (.imp-res), поэтому вид задан здесь, только токенами. Шапка
@@ -253,35 +202,20 @@
 }
 
 /* ── статус, свёртка и массовые ответы (§2, §6, §7) ───────────── */
-.rq-st { margin-top: 10px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
-.rq-st--ok { color: #15803d; gap: 6px; }
-.rq-st--ask { color: #0f172a; }
-.rq-st--bad { color: #dc2626; }
-.rq-st-mk {
-  width: 17px; height: 17px; border-radius: 50%; background: #e2e8f0; color: #475569;
-  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none;
-}
-.rq-st--bad .rq-st-mk { background: #fee2e2; color: #dc2626; }
-.rq-st-sub { font-size: 12.5px; line-height: 1.45; color: #475569; margin-top: 4px; padding-left: 24px; }
-.rq-st-sub b { color: #0f172a; font-weight: 600; }
+.rq-st { display: flex; align-items: center; }
+.rq-st-mk { border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; }
 
-.rq-uf { margin-top: 12px; }
 .rq-uf-hd {
   display: flex; align-items: center; gap: 7px; border: none; background: none; padding: 0;
-  font-family: inherit; font-size: 12.5px; font-weight: 500; line-height: 1.3;
-  color: #64748b; text-align: left;
+  font-family: inherit; text-align: left;
 }
-.rq-uf-hd:hover { color: #334155; }
-.rq-uf-car { color: #94a3b8; transition: transform 0.15s; flex: none; display: inline-flex; }
+.rq-uf-car { transition: transform 0.15s; flex: none; display: inline-flex; }
 .rq-uf--open .rq-uf-car { transform: rotate(90deg); }
-.rq-uf-bd { margin-top: 7px; padding-left: 19px; }
-.rq-uf-lead { font-size: 12px; line-height: 1.5; color: #64748b; max-width: 470px; }
+.rq-uf-bd { padding-left: 19px; }
 /* Маркированный список пунктов (правка Ф2г) — один вид у свёртки «Придется
    подправить вручную» и у ошибок под красным статусом. */
-.rq-ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.45; color: #334155; }
-.rq-ul li { margin-top: 5px; }
-.rq-ul li:first-child { margin-top: 0; }
+.rq-ul { margin: 6px 0 0; padding-left: 18px; }
 
 /* Массовые ответы догрузки: подпись строкой, под ней кнопки ds-btn. */
-.rq-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.rq-bulk-l { flex: 0 0 100%; font-size: 12px; color: #64748b; }
+.rq-bulk { display: flex; flex-wrap: wrap; align-items: center; }
+.rq-bulk-l { flex: 0 0 100%; }
