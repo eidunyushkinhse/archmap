@@ -271,6 +271,24 @@ describe("PlacementDialog", () => {
     expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
   });
 
+  // Фокус на смене шага (редизайн, фаза 13в): кнопка, державшая фокус, исчезает, а окно то
+  // же. На втором шаге фокус на «Снять», «Отмена» возвращает его на «Снять размещение».
+  it("второй шаг: фокус на «Снять»; «Отмена» возвращает фокус на «Снять размещение»", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue(inside());
+    setup([container()]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Снять размещение" })).toBeEnabled());
+    screen.getByRole("button", { name: "Снять размещение" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByText("Снять размещение «Заказы»?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Снять" })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole("button", { name: "Отмена" })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.queryByText("Снять размещение «Заказы»?")).toBeNull();
+    expect(screen.getByRole("button", { name: "Снять размещение" })).toHaveFocus();
+    expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
+  });
+
   it("система без единиц едет сама — отказ сервера строкой в окне", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pn("c", "Заказы", null, [], "service", "system"),

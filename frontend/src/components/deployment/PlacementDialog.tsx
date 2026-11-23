@@ -14,7 +14,7 @@
 // прижатый к верху экрана (ds-win--top): дерево раскрывается и высота окна меняется, а верх
 // стоит на месте. Окно не выше экрана, прокручивается тело. Первым абзацем тела — о ком
 // речь, у одной системы вторым — кому достанутся площадки.
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DeploymentNode, Node, SiteOut } from "../../types";
 import Modal from "../../ui/Modal";
@@ -105,6 +105,18 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   const all = useAsyncLoad(needAll ? "placement-nodes" : "placement-none", () => (needAll ? nodesApi.getAll() : Promise.resolve(NO_NODES)));
   // Второй шаг: подтверждение снятия размещения у единиц системы.
   const [clearing, setClearing] = useState<PlacementConflict[] | null>(null);
+  // Фокус на смене шага (редизайн, фаза 13в): окно то же, а кнопка, державшая фокус,
+  // исчезает. Второй шаг ставит фокус на «Снять», возврат с него — на «Снять размещение»,
+  // которая на шаг вела. До отрисовки кадра: фокус не мелькает в никуда.
+  const clearBtnRef = useRef<HTMLButtonElement>(null);
+  const removeBtnRef = useRef<HTMLButtonElement>(null);
+  const confirmStep = clearing !== null;
+  const wasConfirmStep = useRef(false);
+  useLayoutEffect(() => {
+    if (confirmStep === wasConfirmStep.current) return;
+    wasConfirmStep.current = confirmStep;
+    (confirmStep ? clearBtnRef : removeBtnRef).current?.focus();
+  }, [confirmStep]);
 
   const toggleMark = (siteId: string) => {
     setMarks((m) => ({ ...m, [siteId]: m[siteId] === "on" ? "off" : "on" }));
@@ -213,7 +225,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
           </div>
           <div className="ds-win-foot">
             {error && <p className="ds-danger ds-win-err" role="alert">{error}</p>}
-            <button type="button" className="ds-btn ds-btn--primary" onClick={() => { void clearAll(); }} disabled={busy}>
+            <button ref={clearBtnRef} type="button" className="ds-btn ds-btn--primary" onClick={() => { void clearAll(); }} disabled={busy}>
               Снять
             </button>
             <button type="button" className="ds-btn" onClick={() => { setClearing(null); setError(null); }} disabled={busy}>
@@ -279,7 +291,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
           <button type="button" className="ds-btn ds-btn--primary" onClick={() => { void apply(); }} disabled={busy || allPending}>
             Применить
           </button>
-          <button type="button" className="ds-btn" onClick={removeAll} disabled={busy || allPending || !hasOwn}>
+          <button ref={removeBtnRef} type="button" className="ds-btn" onClick={removeAll} disabled={busy || allPending || !hasOwn}>
             Снять размещение
           </button>
           <button type="button" className="ds-btn" onClick={onClose} disabled={busy}>
