@@ -97,8 +97,16 @@
   border-bottom: 1px solid #eef2f6;
 }
 
-/* Крестик удаления участника: спрятан, проявляется по ховеру на шапке линии жизни. */
+/* ── Ручки правки на шапке участника (SequenceDiagram) ──
+   Крестик удаления (правый верхний угол) и стрелка «на страницу объекта» (правый нижний):
+   кружки 20px без тени, рамка --c-line-strong, спрятаны и проявляются по ховеру на шапке
+   линии жизни и при фокусе клавиатуры. Под курсором у крестика рамка цвета опасности, у
+   стрелки — значок акцентом; подложка у обоих --c-hover. Размер и место — инлайн-стили
+   шапки (pheadDel, pheadOpen). */
 .bp-phead-del {
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-bg);
+  color: var(--c-danger);
   opacity: 0;
   transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
 }
@@ -107,12 +115,13 @@
   opacity: 1;
 }
 .bp-phead-del:hover {
-  background: #fef2f2;
-  border-color: #fca5a5;
+  border-color: var(--c-danger);
+  background: var(--c-hover);
 }
-
-/* Стрелка «на страницу объекта» — проявляется по ховеру, как крестик удаления. */
 .bp-phead-open {
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-bg);
+  color: var(--c-fg-muted);
   opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
@@ -121,8 +130,8 @@
   opacity: 1;
 }
 .bp-phead-open:hover {
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--c-accent);
+  background: var(--c-hover);
 }
 
 .bp-channel {

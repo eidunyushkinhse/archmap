@@ -981,7 +981,7 @@ export default function SequenceDiagram({
               background: unbound ? BROKEN.soft : "var(--c-bg)",
               border: "1px solid " + (unbound ? BROKEN.border : isStatus ? sc.border : p.external ? "var(--c-line)" : "var(--c-line-strong)"),
               borderRadius: "var(--radius)",
-              boxShadow: isDragged ? "0 6px 18px rgba(15,23,42,.22)" : undefined,
+              boxShadow: isDragged ? "0 6px 18px color-mix(in srgb, var(--c-fg) 22%, transparent)" : undefined,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1131,7 +1131,7 @@ export default function SequenceDiagram({
               left: xFirst - 40,
               top: ghostY,
               width: xLast - xFirst + 80,
-              borderTop: "1.5px dashed #bcd2fb",
+              borderTop: "1.5px dashed color-mix(in srgb, var(--c-accent) 30%, var(--c-bg))",
               zIndex: 2,
             }}
           />
@@ -1143,7 +1143,7 @@ export default function SequenceDiagram({
                 y1={ghostY}
                 x2={drag.px}
                 y2={drag.py}
-                stroke={BPT.accent}
+                stroke="var(--c-accent)"
                 strokeWidth="2"
                 strokeDasharray="5 4"
                 markerEnd="url(#sqcap-fill-existing)"
@@ -1168,13 +1168,11 @@ export default function SequenceDiagram({
                   top: ghostY,
                   transform: isHover ? "translate(-50%,-50%) scale(1.12)" : "translate(-50%,-50%)",
                   cursor: drag ? "grabbing" : "grab",
-                  ...(isSource
-                    ? { background: BPT.accent, color: "#fff", borderColor: BPT.accent }
-                    : isHover
-                      ? { background: BPT.accent, color: "#fff", borderColor: BPT.accent }
-                      : isTarget
-                        ? { background: BPT.wash }
-                        : null),
+                  ...(isSource || isHover
+                    ? circleFilled
+                    : isTarget
+                      ? { background: "var(--c-accent-soft)" }
+                      : null),
                 }}
               >
                 <IcoPlus s={15} />
@@ -1201,9 +1199,9 @@ export default function SequenceDiagram({
                   height: isHover ? 15 : 11,
                   borderRadius: "50%",
                   transform: "translate(-50%,-50%)",
-                  background: ok ? BPT.okBg : BPT.badBg,
-                  border: "2px solid " + (ok ? BPT.okLine : BPT.badLine),
-                  boxShadow: isHover ? "0 0 0 4px " + (ok ? BPT.okWash : BPT.badWash) : undefined,
+                  background: `color-mix(in srgb, var(${ok ? "--c-ok" : "--c-danger"}) 15%, var(--c-bg))`,
+                  border: `2px solid var(${ok ? "--c-ok" : "--c-danger"})`,
+                  boxShadow: isHover ? `0 0 0 4px color-mix(in srgb, var(${ok ? "--c-ok" : "--c-danger"}) ${ok ? 18 : 16}%, transparent)` : undefined,
                   transition: "width .1s, height .1s, box-shadow .1s",
                   pointerEvents: "none",
                   zIndex: 6,
@@ -1222,7 +1220,7 @@ export default function SequenceDiagram({
                   top: ghostY + 16,
                   width: 2,
                   height: SELF_OFF - 32,
-                  borderLeft: "2px dashed " + BPT.accent,
+                  borderLeft: "2px dashed var(--c-accent)",
                   opacity: 0.5,
                   pointerEvents: "none",
                   zIndex: 5,
@@ -1237,7 +1235,7 @@ export default function SequenceDiagram({
                   top: ghostY + SELF_OFF,
                   pointerEvents: "none",
                   transform: selfHover ? "translate(-50%,-50%) scale(1.12)" : "translate(-50%,-50%)",
-                  ...(selfHover ? { background: BPT.accent, color: "#fff", borderColor: BPT.accent } : null),
+                  ...(selfHover ? circleFilled : null),
                 }}
               >
                 <IcoSelf s={16} />
@@ -1278,8 +1276,8 @@ export default function SequenceDiagram({
                 top: rowY(Math.min(selRange.a, selRange.b)) - 16,
                 width: xLast - xFirst + 112,
                 height: rowY(Math.max(selRange.a, selRange.b)) - rowY(Math.min(selRange.a, selRange.b)) + 32,
-                background: "rgba(37,99,235,.10)",
-                border: "1.5px dashed #2563eb",
+                background: "color-mix(in srgb, var(--c-accent) 10%, transparent)",
+                border: "1.5px dashed var(--c-accent)",
                 borderRadius: 8,
               }}
             />
@@ -1290,8 +1288,9 @@ export default function SequenceDiagram({
   );
 }
 
-// Крестик удаления участника в правом верхнем углу шапки (видимость — по ховеру,
-// через CSS .bp-phead:hover .bp-phead-del).
+// Крестик удаления участника в правом верхнем углу шапки. Рамка, фон, цвет, видимость по
+// ховеру и вид под курсором — в CSS (.bp-phead-del, processes.css): инлайн-цвет перебивал
+// правило наведения.
 const pheadDel: CSSProperties = {
   position: "absolute",
   top: -8,
@@ -1299,21 +1298,17 @@ const pheadDel: CSSProperties = {
   width: 20,
   height: 20,
   borderRadius: "50%",
-  border: "1px solid var(--c-line)",
-  background: "var(--c-bg)",
-  color: "var(--c-danger)",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   padding: 0,
   cursor: "pointer",
-  boxShadow: "0 1px 3px rgba(15,23,42,.12)",
   zIndex: 5,
 };
 // Стрелка «на страницу объекта» — кружок на правом нижнем углу шапки, зеркало
-// крестика удаления на правом верхнем. Проявление по ховеру — в bp-phead-open
-// (processes.css). Раньше стояла в потоке у правого края и даже невидимой
-// отъедала у имени 27 px — «Покупатель» ломался посреди слова.
+// крестика удаления на правом верхнем. Рамка, цвет, проявление по ховеру и вид под
+// курсором — в bp-phead-open (processes.css). Раньше стояла в потоке у правого края и
+// даже невидимой отъедала у имени 27 px — «Покупатель» ломался посреди слова.
 const pheadOpen: CSSProperties = {
   position: "absolute",
   right: -8,
@@ -1321,19 +1316,16 @@ const pheadOpen: CSSProperties = {
   width: 20,
   height: 20,
   borderRadius: "50%",
-  border: "1px solid var(--c-line)",
-  background: "var(--c-bg)",
-  color: "var(--c-fg-muted)",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   padding: 0,
   cursor: "pointer",
-  boxShadow: "0 1px 3px rgba(15,23,42,.12)",
   zIndex: 5,
 };
 
-// Кружок «+» под участником — источник/цель drag-to-connect.
+// Кружок «+» под участником — источник/цель drag-to-connect. Плоский: рамка и значок
+// акцентом, без тени.
 const circleBase: CSSProperties = {
   position: "absolute",
   width: 34,
@@ -1343,11 +1335,12 @@ const circleBase: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   padding: 0,
-  background: "#fff",
-  border: "1.5px solid " + BPT.accent,
-  color: BPT.accent,
-  boxShadow: "0 1px 3px rgba(15,23,42,.12)",
+  background: "var(--c-bg)",
+  border: "1.5px solid var(--c-accent)",
+  color: "var(--c-accent)",
   touchAction: "none",
   zIndex: 6,
   transition: "background .12s, transform .08s",
 };
+// Залитый кружок: источник протягивания, цель под курсором, хэндл «себе» под курсором.
+const circleFilled: CSSProperties = { background: "var(--c-accent)", color: "var(--c-bg)" };
