@@ -50,7 +50,7 @@ describe("TourLayer", () => {
     expect(document.querySelector("[data-tour-layer] .tour-ring")).toBeNull();
   });
 
-  it("приветствие: абзац о паузе курсивом — после текста, отдельным абзацем", () => {
+  it("приветствие: примечание о паузе — после текста, отдельным абзацем", () => {
     renderLayer("welcome", view({ phase: "center" }), false);
     const paras = [...screen.getByRole("dialog", { name: "Добро пожаловать в ArchMap" }).querySelectorAll("p")];
     expect(paras.map((p) => p.className)).toEqual(["", "tour-note"]);

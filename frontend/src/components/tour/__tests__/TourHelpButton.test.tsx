@@ -1,4 +1,4 @@
-// Пилюля «Обучение» в шапке гостя (docs/tasks/demo-tour-2.md, п.2–3): на месте
+// Кнопка «Обучение» в шапке гостя (docs/tasks/demo-tour-2.md, п.2–3): на месте
 // прежних «Песочница» + «?», то же действие — пройти обучение заново. Не гостю её нет.
 // Пока тур на паузе (docs/tasks/demo-tour-pause.md) — «Продолжить обучение».
 import { act, render, screen } from "@testing-library/react";
@@ -14,7 +14,7 @@ describe("TourHelpButton", () => {
   let off: (() => void) | null = null;
   afterEach(() => { off?.(); off = null; setTourPaused(false); });
 
-  it("гостю — пилюля «Обучение», нажатие запускает обучение заново", async () => {
+  it("гостю — кнопка «Обучение», нажатие запускает обучение заново", async () => {
     const restart = vi.fn();
     off = onTourRestart(restart);
     render(<TourHelpButton />);
