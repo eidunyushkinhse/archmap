@@ -277,8 +277,8 @@ export default function ProcessCanvas({
         if (!detail) return null;
         return (
           <>
-            <div style={overlayDim} onClick={() => dismiss("composer")} />
-            <div style={overlayCenter}>
+            <div className="proc-dim" onClick={() => dismiss("composer")} />
+            <div className="proc-center">
               <MessageComposer
                 processId={id}
                 participants={detail.participants}
@@ -331,8 +331,8 @@ export default function ProcessCanvas({
       case "delPart":
         return (
           <>
-            <div style={confirmDim} onClick={() => { if (!o.busy) closeOverlay("delPart"); }} />
-            <div style={confirmCenter}>
+            <div className="proc-confirm-dim" onClick={() => { if (!o.busy) closeOverlay("delPart"); }} />
+            <div className="proc-confirm-center">
               <ParticipantDeleteConfirm
                 name={o.part.name}
                 links={delLinks}
@@ -399,8 +399,8 @@ export default function ProcessCanvas({
       case "delFrag":
         return (
           <>
-            <div style={confirmDim} onClick={() => closeOverlay("delFrag")} />
-            <div style={confirmCenter}>
+            <div className="proc-confirm-dim" onClick={() => closeOverlay("delFrag")} />
+            <div className="proc-confirm-center">
               <ConfirmDialog
                 variant="card"
                 title="Удалить фрагмент?"
@@ -416,8 +416,8 @@ export default function ProcessCanvas({
       case "bindConfirm":
         return (
           <>
-            <div style={confirmDim} onClick={() => closeOverlay("bindConfirm")} />
-            <div style={confirmCenter}>
+            <div className="proc-confirm-dim" onClick={() => closeOverlay("bindConfirm")} />
+            <div className="proc-confirm-center">
               <ConfirmDialog
                 variant="card"
                 tone="neutral"
@@ -440,8 +440,8 @@ export default function ProcessCanvas({
         if (!detail) return null;
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("bindPart")} />
-            <div style={overlayCenter}>
+            <div className="proc-dim" onClick={() => closeOverlay("bindPart")} />
+            <div className="proc-center">
               <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>
@@ -468,8 +468,8 @@ export default function ProcessCanvas({
         if (!detail) return null;
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("parts")} />
-            <div style={overlayCenter}>
+            <div className="proc-dim" onClick={() => closeOverlay("parts")} />
+            <div className="proc-center">
               <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Участники</div>
@@ -723,8 +723,8 @@ function PromptCard({
 }) {
   return (
     <>
-      <div style={overlayDim} onClick={onCancel} />
-      <div style={overlayCenter}>
+      <div className="proc-dim" onClick={onCancel} />
+      <div className="proc-center">
         <div style={confirmCard}>
           <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>{title}</div>
           <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>{hint}</div>
@@ -749,22 +749,8 @@ function PromptCard({
   );
 }
 
-const overlayDim: CSSProperties = { position: "fixed", inset: 0, background: "rgba(15,23,42,.06)", zIndex: 50 };
-const overlayCenter: CSSProperties = {
-  position: "fixed",
-  top: "50%",
-  left: "50%",
-  transform: "translate(-50%,-50%)",
-  zIndex: 51,
-};
-// Подложка и центр подтверждений («Удалить фрагмент?», «Убрать «…» из процесса?», «Имена
-// расходятся»): выше окон холста (overlayCenter), поэтому окно под подтверждением (панель
-// «Участники») лежит под затемнением и читается фоном. При общем z-index подложка
-// подтверждения оказывалась под центром панели, а её 6% затемнения не было видно. Цвет —
-// подложки окон приложения (dialog.app-modal::backdrop, ui/modal.css): подтверждение
-// холста выглядит так же, как подтверждение в окне.
-const confirmDim: CSSProperties = { ...overlayDim, background: "rgba(15, 23, 42, 0.45)", zIndex: 52 };
-const confirmCenter: CSSProperties = { ...overlayCenter, zIndex: 53 };
+// Подложка и центр окон и подтверждений — классы processes.css (proc-dim, proc-center,
+// proc-confirm-dim, proc-confirm-center): там же, почему подтверждение лежит выше окна.
 const confirmCard: CSSProperties = {
   width: 300,
   background: "#fff",

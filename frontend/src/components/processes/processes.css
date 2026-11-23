@@ -377,6 +377,42 @@ button.seq-doc:focus-visible {
 }
 
 
+/* ── Окна правки поверх диаграммы (ProcessCanvas, MessageComposer) ──
+   Окна — div-слои одного стека (useOverlayStack), не <dialog>: вложенный <dialog> здесь
+   нельзя. Слой окна — подложка (proc-dim) и центр (proc-center) поверх всего экрана.
+   Подтверждения («Удалить фрагмент?», «Убрать «…» из процесса?», «Имена расходятся»)
+   лежат выше окон: окно под подтверждением (панель «Участники») затемнено и читается
+   фоном. При общем z-index подложка подтверждения оказывалась под центром панели, и её
+   затемнения не было видно. Затемнение подтверждения той же силы, что подложка окон
+   приложения (dialog.app-modal::backdrop, ui/modal.css), подложка окна лёгкая. Само окно —
+   каркас ds-win карточкой (ds-win--card, ui/ds.css). */
+.proc-dim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.proc-center {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 51;
+}
+.proc-confirm-dim {
+  position: fixed;
+  inset: 0;
+  z-index: 52;
+  background: color-mix(in srgb, var(--c-fg) 45%, transparent);
+}
+.proc-confirm-center {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 53;
+}
+
 /* ── Тело холста процесса: диаграмма и панель шага справа (ProcessCanvas) ──
    Панель — часть раскладки: открылась — область диаграммы сузилась и вписалась заново. */
 .proc-body {

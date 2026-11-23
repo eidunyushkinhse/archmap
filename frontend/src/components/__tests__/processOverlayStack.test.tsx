@@ -3,6 +3,9 @@
 // зашит в разметку — подтверждение удаления участника, открытое из панели «Участники»,
 // оказывалось ПОД панелью. Схема логики — сама модалка: Escape принадлежит ей
 // (несохранённая правка спрашивает), холст его не перехватывает.
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -64,6 +67,13 @@ const DETAIL = {
 
 const CONFIRM = /Убрать «Покупатель» из процесса\?/;
 
+// Слои окон — классы processes.css. jsdom стилей не считает: z-index и цвет подложки читаем
+// из самого файла стилей (импорт «?raw» у стилей vitest отдаёт пустым).
+const CSS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "processes", "processes.css"), "utf8");
+const rule = (cls: string) => CSS.match(new RegExp(`\\.${cls} \\{([^}]*)\\}`))?.[1] ?? "";
+const zOf = (cls: string) => Number(rule(cls).match(/z-index: (\d+)/)?.[1]);
+const layerOf = (el: HTMLElement) => el.closest(".proc-center, .proc-confirm-center") as HTMLElement;
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(processesApi.get).mockResolvedValue(DETAIL);
@@ -85,26 +95,24 @@ describe("стек оверлеев холста процесса", () => {
     const panel = screen.getByText("Добавить из дерева схемы");
     // Подтверждение позже панели в DOM.
     expect(panel.compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Слой: ближайший предок со своим z-index. Подложка подтверждения выше центра панели и
-    // цветом подложки окон, поэтому панель под ней читается фоном.
-    const layer = (el: HTMLElement) => {
-      let e: HTMLElement | null = el;
-      while (e && !e.style.zIndex) e = e.parentElement;
-      return e as HTMLElement;
-    };
-    const panelLayer = layer(panel);
-    const confirmLayer = layer(confirm);
+    // Слой: центр окна или подтверждения (классы processes.css). Подложка подтверждения выше
+    // центра панели и затемняет её, поэтому панель под ней читается фоном.
+    const panelLayer = layerOf(panel);
+    const confirmLayer = layerOf(confirm);
+    expect(panelLayer.className).toBe("proc-center");
+    expect(confirmLayer.className).toBe("proc-confirm-center");
     const dim = confirmLayer.previousElementSibling as HTMLElement;
-    expect(Number(dim.style.zIndex)).toBeGreaterThan(Number(panelLayer.style.zIndex));
-    expect(Number(confirmLayer.style.zIndex)).toBeGreaterThan(Number(dim.style.zIndex));
-    expect(dim.style.background).toBe("rgba(15, 23, 42, 0.45)");
+    expect(dim.className).toBe("proc-confirm-dim");
+    expect(zOf("proc-confirm-dim")).toBeGreaterThan(zOf("proc-center"));
+    expect(zOf("proc-confirm-center")).toBeGreaterThan(zOf("proc-confirm-dim"));
+    expect(zOf("proc-center")).toBeGreaterThan(zOf("proc-dim"));
+    expect(rule("proc-confirm-dim")).toContain("background: color-mix(in srgb, var(--c-fg) 45%, transparent)");
+    expect(rule("proc-dim")).toContain("background: color-mix(in srgb, var(--c-fg) 6%, transparent)");
   });
 
   it("щелчок по подложке подтверждения закрывает только его, панель остаётся", async () => {
     const confirm = await openDeleteFromPanel();
-    let layer: HTMLElement | null = confirm;
-    while (layer && !layer.style.zIndex) layer = layer.parentElement;
-    await userEvent.click(layer?.previousElementSibling as HTMLElement);
+    await userEvent.click(layerOf(confirm).previousElementSibling as HTMLElement);
     await waitFor(() => expect(screen.queryByText(CONFIRM)).toBeNull());
     expect(screen.getByText("Добавить из дерева схемы")).toBeInTheDocument();
     expect(processesApi.removeParticipant).not.toHaveBeenCalled();

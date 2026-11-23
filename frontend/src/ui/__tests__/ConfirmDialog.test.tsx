@@ -153,6 +153,8 @@ describe("ConfirmDialog: каркас окна", () => {
   it("вид card: тот же каркас карточкой", () => {
     show({ variant: "card" });
     expect(root()).toHaveClass("ds", "ds-win", "ds-confirm", "ds-confirm--card");
+    // Коробку карточки даёт общий модификатор окна (окна правки процесса стоят на нём же).
+    expect(root()).toHaveClass("ds-win--card");
     expect(root().querySelector(".ds-win-title")?.tagName).toBe("H2");
     expect(screen.getByRole("button", { name: "Удалить" }).className).toBe("ds-btn ds-btn--danger");
   });

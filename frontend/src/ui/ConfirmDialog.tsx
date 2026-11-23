@@ -78,7 +78,7 @@ export default function ConfirmDialog({
   );
 
   if (variant === "card") {
-    return <div className="ds ds-win ds-confirm ds-confirm--card">{content}</div>;
+    return <div className="ds ds-win ds-win--card ds-confirm ds-confirm--card">{content}</div>;
   }
   return (
     <Modal onClose={onCancel} onSubmit={onSubmit} boxStyle={{ width: 440, padding: 0 }}>
