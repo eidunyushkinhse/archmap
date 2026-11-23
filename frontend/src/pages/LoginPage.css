@@ -4,15 +4,6 @@
    медиазапрос. Глобальные h1 и h2 из index.css перебиваются классами ниже. */
 
 .login {
-  /* Прежняя палитра правой половины демо-входа — до её перевода на токены. */
-  --login-line: #e2e8f0;
-  --login-line-soft: #eef2f6;
-  --login-ink: #0f172a;
-  --login-ink-2: #475569;
-  --login-ink-3: #64748b;
-  --login-accent: #2563eb;
-  --login-accent-ink: #1d4ed8;
-
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto; /* #root и body режут переполнение — прокрутка своя */

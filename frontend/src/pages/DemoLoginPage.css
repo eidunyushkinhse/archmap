@@ -1,19 +1,12 @@
-/* Правая половина демо-входа (docs/tasks/demo-mode.md, экран 1 прототипа). Сетка
-   страницы, левая половина, плашки (.login-msg) и токены цвета — из LoginPage.css. */
+/* Правая половина демо-входа (docs/tasks/demo-mode.md, экран 1 прототипа; редизайн, фаза 12б).
+   Сетка страницы, левая половина, заголовок h2 и сообщение (.login-msg) — из LoginPage.css,
+   кнопки — примитивы ui/ds.css, значения — только токены ui/tokens.css. */
 
+/* Колонка той же ширины, что форма входа (.login-formbox). */
 .demo-box {
-  width: min(340px, 100%);
+  width: min(320px, 100%);
   display: grid;
-  gap: 18px;
-}
-
-.demo-box h2 {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.2;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--login-ink);
+  gap: var(--space-4);
 }
 
 .demo-facts {
@@ -21,88 +14,51 @@
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .demo-facts li {
   display: flex;
-  gap: 9px;
-  font-size: 13.5px;
-  line-height: 1.45;
-  color: var(--login-ink-2);
+  gap: 10px;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
 }
 
+/* Маркер — тихая точка 4px по середине первой строки. */
 .demo-facts li::before {
   content: "";
   flex: none;
-  width: 6px;
-  height: 6px;
-  margin-top: 7px;
+  width: 4px;
+  height: 4px;
+  margin-top: calc(var(--lh-ui) * 0.5em - 2px);
   border-radius: 50%;
-  background: var(--login-accent);
+  background: var(--c-fg-faint);
 }
 
 /* Две кнопки одной ширины: на всю ширину колонки. */
 .demo-actions {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
-.demo-btn {
-  box-sizing: border-box;
+/* «Попробовать без регистрации» (ds-btn--primary) и ссылка «Установить» вида ds-btn:
+   текст и значок по центру, у ссылки нет подчёркивания. */
+.ds-btn.demo-btn {
   width: 100%;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px 18px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.1;
   text-decoration: none;
-  cursor: pointer;
 }
 
-.demo-btn--primary {
-  background: var(--login-accent);
-  color: #fff;
-}
-
-.demo-btn--primary:hover:not(:disabled) {
-  background: var(--login-accent-ink);
-}
-
-.demo-btn--primary:disabled {
-  background: #93b4f5;
-  cursor: not-allowed;
-}
-
-.demo-btn--secondary {
-  background: #f1f5f9;
-  color: var(--login-ink-2);
-  border-color: var(--login-line);
-}
-
-.demo-btn--secondary:hover {
-  background: var(--login-line-soft);
-  color: var(--login-ink);
-}
-
-.demo-btn:focus-visible {
-  outline: 2px solid var(--login-accent);
-  outline-offset: 2px;
-}
-
+/* Вертушка «Готовим песочницу»: кольцо цветом текста кнопки (белым по акценту). */
 .demo-spin {
   display: inline-block;
   flex: none;
-  width: 13px;
-  height: 13px;
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  border-top-color: #fff;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, currentColor 50%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: demo-spin 0.8s linear infinite;
 }
@@ -121,8 +77,7 @@
 
 .demo-hint {
   margin: 0;
-  font-size: 13px;
-  font-style: italic;
-  line-height: 1.5;
-  color: var(--login-ink-3);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
 }
