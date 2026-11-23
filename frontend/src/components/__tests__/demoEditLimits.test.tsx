@@ -4,7 +4,7 @@
 // процесс» — в окне «Новый объект», в окне новой связи и тостом внизу холста
 // процессов. Экран 5: «Не сохранилось.» в подвале окна схемы (строкой над кнопками) и
 // спеки, правка остаётся в редакторе; тем же текстом — секции конфигурации.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeModal from "../NodeModal";
@@ -134,6 +134,34 @@ describe("экран 4 · предел при правке схемы", () => {
     expect(screen.getByRole("status")).toHaveTextContent(`Не получилось добавить объект. ${NODES}`);
     await waitFor(() => { show(limit(EDGES), "edge"); });
     expect(screen.getByRole("status")).toHaveTextContent(`Не получилось добавить связь. ${EDGES}`);
+  });
+});
+
+// Страховка механики тоста холста (редизайн, фаза 13а, меняется только вид): role="status",
+// жирное начало, гаснет ровно через 6 с.
+describe("экран 4 · тост холста гаснет", () => {
+  it("тост предела: role=status, жирное начало, гаснет через 6 с", () => {
+    let show: (e: unknown, a: "node") => boolean = () => false;
+    function Harness() {
+      const [msg, s] = useDemoLimitToast();
+      show = s;
+      return <DemoLimitToast message={msg} />;
+    }
+    render(<Harness />);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      act(() => { show(limit(NODES), "node"); });
+      const тост = screen.getByRole("status");
+      expect(тост).toHaveTextContent(`Не получилось добавить объект. ${NODES}`);
+      expect(тост.querySelector("b")?.textContent).toBe("Не получилось добавить объект.");
+      expect(тост).not.toHaveAttribute("aria-live");
+      act(() => { vi.advanceTimersByTime(5999); });
+      expect(screen.getByRole("status")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByRole("status")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

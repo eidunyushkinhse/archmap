@@ -507,6 +507,31 @@ describe("DeploymentPage", () => {
     expect(await screen.findByText("«Лист» размещён на «s1»")).toBeInTheDocument();
   });
 
+  // Страховка механики тоста (редизайн, фаза 13а, меняется только вид): aria-live="polite",
+  // без роли, гаснет ровно через 4 с.
+  it("тост «размещён»: aria-live polite, без роли, гаснет через 4 с", async () => {
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("l1", "Лист", "c1")); });
+    // Под подменённым setTimeout findBy* не годится (обёртка RTL ждёт setTimeout 0): цепочку
+    // записи и перечитывания графа (одни промисы) досчитываем внутри act.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => {
+        props().projection?.pickFrame?.("deploy:site:s1");
+        for (let i = 0; i < 30; i++) await Promise.resolve();
+      });
+      const тост = screen.getByText("«Лист» размещён на «s1»");
+      expect(тост).toHaveAttribute("aria-live", "polite");
+      expect(тост).not.toHaveAttribute("role");
+      act(() => { vi.advanceTimersByTime(3999); });
+      expect(screen.getByText("«Лист» размещён на «s1»")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByText("«Лист» размещён на «s1»")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("система, чьи единицы нигде не стоят или стоят там же, — запись сразу (набор единицам раздаёт сервер)", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pnode("c1", "Витрина", null, { has_children: true, partial: ["t"] }),

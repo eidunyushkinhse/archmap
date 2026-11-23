@@ -1,7 +1,7 @@
 // Экран «Пользователи»: таблица, правки строк через adminApi, подтверждения
 // блокировки и снятия админа, запертые действия у себя и у последнего админа. Действия
 // строки — пункты меню кнопки-значка (редизайн, фаза 12а).
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -232,6 +232,28 @@ describe("UsersPage", () => {
     expect(adminApi.update).toHaveBeenLastCalledWith("u-petr", { role: "architect" });
     expect(await screen.findByText("Роль изменена")).toBeInTheDocument();
     expect(adminApi.update).toHaveBeenCalledTimes(3);
+  });
+
+  // Страховка механики тоста (редизайн, фаза 13а, меняется только вид): тост итога — без
+  // роли и без aria-live, гаснет ровно через 2,6 с.
+  it("тост итога: без роли, гаснет через 2,6 с", async () => {
+    await setup([boss, ivan]);
+    vi.mocked(adminApi.update).mockResolvedValue({ ...ivan, role: "architect" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => {
+        fireEvent.change(row("ivan").getByLabelText("Роль ivan"), { target: { value: "architect" } });
+      });
+      const тост = screen.getByText("Роль изменена");
+      expect(тост).not.toHaveAttribute("role");
+      expect(тост).not.toHaveAttribute("aria-live");
+      act(() => { vi.advanceTimersByTime(2599); });
+      expect(screen.getByText("Роль изменена")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByText("Роль изменена")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("снятие прав после подтверждения: тело запроса, окно закрыто, тост, строка «Нет»", async () => {

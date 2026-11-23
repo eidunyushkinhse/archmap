@@ -6,7 +6,7 @@ import { render as rtlRender, screen, fireEvent, waitFor, act } from "@testing-l
 import type { ReactElement, ReactNode } from "react";
 import { flushSync } from "react-dom";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
 import { nodesApi } from "../../api/nodes";
 import { ProjectRoleContext } from "../projectRole";
@@ -1410,5 +1410,85 @@ describe("MapEditorPage: «+ Добавить связь» из окна выб�
     const quick = screen.getByTestId("edge-quick-create");
     expect(quick).toHaveAttribute("data-source", "user");
     expect(quick).toHaveAttribute("data-target", "cat");
+  });
+});
+
+// Страховка механики тостов колонки холста (редизайн, фаза 13а, меняется только вид): чужая
+// правка и итог «Принять переход» — без роли, отказ — role="alert"; все три в одной колонке;
+// гаснут ровно через 4, 5 и 6 с.
+describe("MapEditorPage: тосты колонки холста", () => {
+  type Drop = { onDropRefused: (t: string, d: string | null) => void };
+  const drop = () => levelGraphProps.current!.drop as Drop;
+  const ЧУЖАЯ = "Схему только что изменили в другом окне";
+  const ИТОГ = "Переход принят: 2 объекта переведено в существующие";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    role.current = "owner";
+    levelGraphProps.current = null;
+    sessionStorage.clear();
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ has_status_info: true }) as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  async function открыть() {
+    const { useRemoteSync } = await import("../useRemoteSync");
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    return vi.mocked(useRemoteSync).mock.calls.at(-1)?.[0] as { onRemoteChange: () => void };
+  }
+
+  it("чужая правка: тост без роли, гаснет через 4 с", async () => {
+    const sync = await открыть();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => { sync.onRemoteChange(); });
+    const тост = screen.getByText(ЧУЖАЯ);
+    expect(тост).not.toHaveAttribute("role");
+    expect(тост).not.toHaveAttribute("aria-live");
+    act(() => { vi.advanceTimersByTime(3999); });
+    expect(screen.getByText(ЧУЖАЯ)).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.queryByText(ЧУЖАЯ)).toBeNull();
+  });
+
+  it("итог «Принять переход»: тост без роли, гаснет через 5 с", async () => {
+    await открыть();
+    fireEvent.click(screen.getByRole("button", { name: "Принять переход" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => { (transitionProps.current!.onApplied as (m: string) => void)(ИТОГ); });
+    const тост = screen.getByText(ИТОГ);
+    expect(тост).not.toHaveAttribute("role");
+    expect(тост).not.toHaveAttribute("aria-live");
+    act(() => { vi.advanceTimersByTime(4999); });
+    expect(screen.getByText(ИТОГ)).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.queryByText(ИТОГ)).toBeNull();
+  });
+
+  it("отказ: тост role=alert, гаснет через 6 с", async () => {
+    await открыть();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    act(() => { drop().onDropRefused("component", null); });
+    expect(screen.getByRole("alert")).toHaveTextContent("Компонентом объект бывает только внутри контейнера");
+    act(() => { vi.advanceTimersByTime(5999); });
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("три тоста разом стоят в одной колонке: чужая правка, итог, отказ", async () => {
+    const sync = await открыть();
+    fireEvent.click(screen.getByRole("button", { name: "Принять переход" }));
+    await act(async () => { sync.onRemoteChange(); });
+    await act(async () => { (transitionProps.current!.onApplied as (m: string) => void)(ИТОГ); });
+    act(() => { drop().onDropRefused("component", null); });
+    const колонка = screen.getByText(ЧУЖАЯ).parentElement;
+    expect(колонка).not.toBeNull();
+    expect(screen.getByText(ИТОГ).parentElement).toBe(колонка);
+    expect(screen.getByRole("alert").parentElement).toBe(колонка);
+    expect([...колонка!.children].map((c) => c.textContent?.slice(0, 12))).toEqual([
+      ЧУЖАЯ.slice(0, 12), ИТОГ.slice(0, 12), "Компонентом ",
+    ]);
   });
 });

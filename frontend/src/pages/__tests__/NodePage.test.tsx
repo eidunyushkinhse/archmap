@@ -806,6 +806,24 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await waitFor(() => expect(screen.getByText("Объект только что изменили в другом окне")).toBeInTheDocument(), ждать);
   });
 
+  // Страховка механики тостов (редизайн, фаза 13а, меняется только вид): чужая правка схемы
+  // даёт тост блока схемы, чужая правка объекта — тост страницы; оба без роли и aria-live.
+  it("чужая правка (graph_rev): тост блока схемы и тост страницы, оба без роли", async () => {
+    setupPoll({ name: "Сервис оплаты" });
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Платёжный шлюз", version: 5 }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
+    await тик();
+
+    const схема = await screen.findByText("Схему только что изменили в другом окне", {}, ждать);
+    const объект = await screen.findByText("Объект только что изменили в другом окне", {}, ждать);
+    for (const тост of [схема, объект]) {
+      expect(тост).not.toHaveAttribute("role");
+      expect(тост).not.toHaveAttribute("aria-live");
+    }
+  });
+
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {
     setupPoll({ name: "Сервис оплаты" });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);

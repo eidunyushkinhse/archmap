@@ -1,7 +1,7 @@
 // ProjectHomePage: отказ загрузки меты проекта или схемы корня — экран с причиной и
 // «Повторить», а не вечная «Загрузка» (аудит R-2, R-10). Тяжёлый блок схемы и
 // поллинг замоканы: проверяется оркестрация загрузки страницы.
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectHomePage from "../ProjectHomePage";
@@ -10,6 +10,7 @@ import { processesApi } from "../../api/processes";
 import { nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
 import { ProjectRoleContext } from "../projectRole";
+import { useRemoteSync } from "../useRemoteSync";
 
 vi.mock("../../api/projects", () => ({ projectsApi: { get: vi.fn() } }));
 vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
@@ -152,5 +153,36 @@ describe("ProjectHomePage: шапка и разделы", () => {
     expect(screen.queryByText(/открыть/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Оплата" }));
     expect(onNavigateProcesses).toHaveBeenCalledWith("b");
+  });
+});
+
+// Страховка механики тоста чужой правки (редизайн, фаза 13а, меняется только вид): тост
+// стоит в обёртке блока схемы (её правый верхний угол), без роли, гаснет ровно через 4 с.
+describe("ProjectHomePage: тост «Схему только что изменили в другом окне»", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+  });
+
+  it("чужая правка схемы: тост в блоке схемы без роли, гаснет через 4 с", async () => {
+    render(<ProjectHomePage {...props} />);
+    await screen.findByTestId("schema");
+    const sync = vi.mocked(useRemoteSync).mock.calls.at(-1)?.[0] as { onRemoteChange: () => void };
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => { sync.onRemoteChange(); });
+      const тост = screen.getByText("Схему только что изменили в другом окне");
+      expect(тост).not.toHaveAttribute("role");
+      expect(тост).not.toHaveAttribute("aria-live");
+      expect(тост.parentElement).toContainElement(screen.getByTestId("schema"));
+      act(() => { vi.advanceTimersByTime(3999); });
+      expect(screen.getByText("Схему только что изменили в другом окне")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByText("Схему только что изменили в другом окне")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

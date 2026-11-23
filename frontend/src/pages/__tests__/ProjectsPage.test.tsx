@@ -3,7 +3,7 @@
 // состояния, «Загрузка» и отказ загрузки, какие окна открывают пункты меню карточки и что
 // после них (тост, перезагрузка списков, переход в проект). Окна заменены заглушками с
 // кнопками их колбэков: здесь проверяется страница, а не окна.
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProjectsPage from "../ProjectsPage";
@@ -303,6 +303,28 @@ describe("ProjectsPage", () => {
     expect(screen.queryByRole("button", { name: "Меню проекта" })).toBeNull();
     await userEvent.click(screen.getByText("Маркетплейс «Ярмарка»"));
     expect(props.onOpenProject).toHaveBeenCalledWith("p1");
+  });
+
+  // Страховка механики тоста (редизайн, фаза 13а, меняется только вид): тост итога — без
+  // роли и без aria-live, гаснет ровно через 2,6 с.
+  it("тост итога: без роли, гаснет через 2,6 с", async () => {
+    списки([ЯРМАРКА]);
+    открыть();
+    await screen.findByText("Маркетплейс «Ярмарка»");
+    await пункт("Маркетплейс «Ярмарка»", "Редактировать");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "сохранено" })); });
+      const тост = screen.getByText("Проект обновлён");
+      expect(тост).not.toHaveAttribute("role");
+      expect(тост).not.toHaveAttribute("aria-live");
+      act(() => { vi.advanceTimersByTime(2599); });
+      expect(screen.getByText("Проект обновлён")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByText("Проект обновлён")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("подвал карточки: кто менял и дата", async () => {
