@@ -2,7 +2,7 @@
    аватар, раздел, подгруппа,
    строка списка, тихая кнопка «Добавить», вторичная кнопка, каркас окна с блоками,
    поле ввода и список выбора формы, вкладки-текст, меню, предупреждение, тихая таблица,
-   строки «подпись — значение», поле в виде текста, подтверждение. Значения — только токены
+   строки «подпись — значение», поле в виде текста, подтверждение, тост. Значения — только токены
    ui/tokens.css. Класс ставит переведённый экран (корень с .ds); стили импортирует
    каждый модуль, который ставит класс (как ui/smallButton.css): стили чужого ленивого
    чанка на странице могут быть не загружены. */
@@ -1183,4 +1183,126 @@ textarea.ds-input {
 .ds-text-danger:disabled {
   color: var(--c-fg-faint);
   cursor: default;
+}
+
+/* ── Тост: всплывающее сообщение ─────────────────────────────────────────
+   Один вид для итога действия, чужой правки и отказа: отказ отличают текст и role="alert",
+   а не цвет. Тёмная плашка видна и на белой странице, и на холсте. Гарнитура, кегль,
+   интерлиньяж, трекинг и цвет заданы явно: тост стоит и в области нового языка, и внутри
+   области холста редактора (legacy-root, прежние метрики корня), и вне любой области
+   (служебные плашки в main.tsx) и везде выглядит одинаково. Сам тост места не знает: его
+   ставит модификатор места ниже. Ширина по тексту, не больше 420px и не шире окна;
+   длинный текст переносится. */
+.ds-toast {
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--c-fg);
+  color: var(--c-bg);
+  font: 400 var(--fs-ui) / var(--lh-ui) var(--font-ui);
+  letter-spacing: 0;
+  text-align: left;
+  overflow-wrap: break-word;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 18%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 12%, transparent);
+}
+/* Выделенное начало (что случилось: «Не получилось добавить объект.»). */
+.ds-toast b {
+  font-weight: 600;
+  color: inherit;
+}
+/* Тост с кнопкой («Обновить» у «Вышла новая версия»): текст и кнопка в строку. Кнопка —
+   ds-btn, на тёмной плашке она читается белой; кольцо фокуса отодвинуто от неё наружу,
+   чтобы между кнопкой и кольцом была видна тёмная плашка. */
+.ds-toast--action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ds-toast--action .ds-btn {
+  flex: none;
+}
+.ds-toast--action .ds-btn:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Места тоста. Значения и z-index — прежние места каждого тоста (фаза 13а меняла только
+   вид). Шкала: тосты страниц 50 и 60, панель «Рекомендации» 50, служебные плашки 10000. */
+/* Низ окна по центру: итог действия на «Проектах», «Пользователях» и в «Развёртывании».
+   Щелчки проходят сквозь тост к тому, что под ним. */
+.ds-toast--bottom {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  pointer-events: none;
+}
+/* Низ окна справа: итог «Обновить из кода» и «Догрузить архив», отказ архива. */
+.ds-toast--bottom-end {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+}
+/* Под шапкой у правого края окна: «Объект только что изменили в другом окне». */
+.ds-toast--top-end {
+  position: fixed;
+  top: 74px;
+  right: 24px;
+  z-index: 60;
+}
+/* Правый верхний угол блока схемы (у родителя position: relative): «Схему только что
+   изменили в другом окне» на главной проекта и на странице объекта. */
+.ds-toast--corner {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+}
+/* Низ холста по центру (у родителя position: relative): отказ по пределу демо-стенда и
+   заметки холста процессов. Ширина своя: шире обычного тоста, но не шире холста. */
+.ds-toast--canvas {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  width: min(520px, calc(100% - 32px));
+  max-width: none;
+}
+/* Служебные плашки поверх всего: «Нет связи с сервером» вверху окна по центру, «Вышла новая
+   версия» внизу. */
+.ds-toast--service-top {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+}
+.ds-toast--service-bottom {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+}
+/* Колонка тостов холста редактора (правый верхний угол области холста): чужая правка, итог
+   «Принять переход», отказ — друг под другом с шагом 8px. Колонка прозрачна для мыши,
+   щелчки ловят только сами тосты. */
+.ds-toast-rail {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.ds-toast-rail > .ds-toast {
+  pointer-events: auto;
 }
