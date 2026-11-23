@@ -216,7 +216,7 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
                         </span>
                         <button
                           type="button"
-                          className="pa-del"
+                          className="ds-text-danger pa-del"
                           disabled={busy}
                           aria-label={`Удалить ${m.username}`}
                           onClick={() => void act(() => projectsApi.removeMember(project.id, m.user_id))}

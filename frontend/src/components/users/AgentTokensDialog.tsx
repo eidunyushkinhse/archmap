@@ -160,7 +160,7 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
                       </div>
                       <button
                         type="button"
-                        className="ud-revoke"
+                        className="ds-text-danger ud-revoke"
                         aria-label={`Отозвать ${t.name}`}
                         onClick={() => { setRevokeError(null); setRevoking(t); }}
                       >
