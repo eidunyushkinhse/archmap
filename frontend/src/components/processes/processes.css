@@ -472,8 +472,7 @@ button.seq-doc:focus-visible {
 .mc-row > .mc-field:first-child {
   flex: 1;
 }
-.mc-field .ds-input:disabled,
-.mc-sync select:disabled {
+.mc-field .ds-input:disabled {
   background: var(--c-bg-subtle);
   color: var(--c-fg-faint);
   cursor: default;

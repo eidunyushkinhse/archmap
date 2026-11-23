@@ -559,6 +559,17 @@ textarea.ds-input {
   color: var(--c-fg-muted);
   pointer-events: none;
 }
+/* Запертый список: тихая подложка, текст и шеврон тише, курсор обычный. Прозрачность
+   браузера у запертого списка (0,7) снята: вид задают цвета (редизайн, фаза 13в). */
+.ds-select select:disabled {
+  background: var(--c-bg-subtle);
+  color: var(--c-fg-faint);
+  cursor: default;
+  opacity: 1;
+}
+.ds-select:has(select:disabled) svg {
+  color: var(--c-fg-faint);
+}
 
 /* ── Вкладки-текст: активная с подчёркиванием, без подложки-сегмента ─────── */
 .ds-tabs {
