@@ -1121,5 +1121,5 @@ const NO_DROP_FRAMES: DropFrameTarget[] = [];
 
 // ── Стили ───────────────────────────────────────────────────────────
 
-const page: CSSProperties = { ...workPage, background: "#f8fafc" };
+const page: CSSProperties = { ...workPage, background: "var(--c-bg-subtle)" };
 const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" };

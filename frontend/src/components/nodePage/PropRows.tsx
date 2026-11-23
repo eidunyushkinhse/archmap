@@ -34,9 +34,10 @@ import "./propRows.css";
 
 type NodePatch = ReturnType<typeof useNodePatch>;
 
-// Точка статуса: у существующего — нейтральная серая, у прочих — цвет статуса.
+// Точка статуса: у существующего — нейтральная серая (тихий текст языка), у прочих — цвет
+// статуса.
 function statusDotColor(status: NodeStatus, isExternal: boolean): string {
-  if (status === "existing") return "#9ca3af";
+  if (status === "existing") return "var(--c-fg-faint)";
   return getNodeColors(isExternal, 0, status).bg;
 }
 
