@@ -1533,6 +1533,24 @@ describe("NodePage: ⋯-меню и версии документации", () =
     expect(screen.getByTestId("versions-panel")).toHaveAttribute("data-can-delete", "true");
   });
 
+  // Страховка механики меню перед общим хуком клавиатуры (редизайн, фаза 13в): зелёная и
+  // до него, и после. Щелчок мимо ловит подложка np-backdrop.
+  it("механика: кнопка открывает и закрывает, щелчок мимо закрывает, пункт закрывает и зовёт действие", async () => {
+    await openMenu(true, "editor");
+    const кнопка = screen.getByTitle("Действия");
+    const меню = () => document.querySelector(".np-dropdown");
+    expect(меню()).not.toBeNull();
+    await userEvent.click(кнопка);
+    expect(меню()).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(document.querySelector(".np-backdrop") as HTMLElement);
+    expect(меню()).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
+    expect(screen.getByTestId("versions-panel")).toBeInTheDocument();
+    expect(меню()).toBeNull();
+  });
+
   // Вход в экран схемы пунктом меню (фаза 13д): уровень родителя, объект подсвечен, возврат
   // на страницу объекта. Обработчик один у обеих ролей; подпись — по роли.
   it.each([

@@ -124,6 +124,36 @@ describe("SchemaActions", () => {
     }
   });
 
+  // Страховка механики меню перед общим хуком клавиатуры (редизайн, фаза 13в): зелёная и
+  // до него, и после.
+  it("механика: кнопка открывает и закрывает, Escape и щелчок мимо закрывают, пункт закрывает и зовёт действие", async () => {
+    const onSelect = vi.fn();
+    render(
+      <>
+        <SchemaActions
+          projectId="p" isArchitect exportScope={SCOPE} onSynced={vi.fn()}
+          items={[{ label: "Скрыть подписи связей", onSelect }]}
+        />
+        <p>снаружи</p>
+      </>,
+    );
+    const кнопка = screen.getByRole("button", { name: "Действия со схемой" });
+    await userEvent.click(кнопка);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await userEvent.click(кнопка);
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByText("снаружи"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Скрыть подписи связей" }));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("в «Процессах» пункта «Обновить из кода» нет; Escape закрывает меню", async () => {
     render(<SchemaActions projectId="p" isArchitect exportScope={null} syncHidden onSynced={vi.fn()} />);
     await openMenu();

@@ -99,6 +99,28 @@ describe("ProjectCard: меню по роли в проекте", () => {
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
+  // Страховка механики меню перед общим хуком клавиатуры (редизайн, фаза 13в): зелёная и
+  // до него, и после.
+  it("механика: кнопка открывает и закрывает, Escape и щелчок мимо закрывают, пункт закрывает и зовёт действие", async () => {
+    const onEdit = vi.fn();
+    render(<><ProjectCard project={проект("owner")} archivedTab={false} {...колбэки} onEdit={onEdit} /><p>снаружи</p></>);
+    const кнопка = screen.getByRole("button", { name: "Меню проекта" });
+    await userEvent.click(кнопка);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await userEvent.click(кнопка);
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByText("снаружи"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("«Доступ» открывает окно доступа", async () => {
     await пункты("editor");
     await userEvent.click(screen.getByRole("button", { name: "Доступ" }));

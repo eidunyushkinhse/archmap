@@ -78,6 +78,28 @@ describe("ProfileMenu", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
+  // Страховка механики меню перед общим хуком клавиатуры (редизайн, фаза 13в): зелёная и
+  // до него, и после.
+  it("механика: кнопка открывает и закрывает, Escape и щелчок мимо закрывают, пункт закрывает и зовёт действие", async () => {
+    const onChangePassword = vi.fn();
+    render(<><ProfileMenu role="Архитектор" onLogout={vi.fn()} onChangePassword={onChangePassword} /><p>снаружи</p></>);
+    const кнопка = screen.getByLabelText("Профиль");
+    await userEvent.click(кнопка);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await userEvent.click(кнопка);
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByText("снаружи"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Сменить пароль" }));
+    expect(onChangePassword).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("«Сменить пароль» и «Выйти» зовут свои колбэки", async () => {
     const onChangePassword = vi.fn();
     const onLogout = vi.fn();

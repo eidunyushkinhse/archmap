@@ -344,6 +344,17 @@ describe("UsersPage", () => {
     expect(adminApi.update).not.toHaveBeenCalled();
   });
 
+  // Страховка механики меню перед общим хуком клавиатуры (редизайн, фаза 13в): зелёная и
+  // до него, и после. Escape, щелчок мимо и выбор пункта держит тест выше.
+  it("меню строки: кнопка открывает и закрывает", async () => {
+    await setup([boss, ivan]);
+    await userEvent.click(кебаб("ivan"));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await userEvent.click(кебаб("ivan"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(кебаб("ivan")).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("«Все проекты» ведёт обратно", async () => {
     const props = await setup([boss]);
     // У логотипа в шапке то же имя «Все проекты» (aria-label); здесь — кнопка-текст.
