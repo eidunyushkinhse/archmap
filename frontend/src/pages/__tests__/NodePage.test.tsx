@@ -814,7 +814,8 @@ describe("NodePage: чужая правка узла и «Свойства»", {
   it("чужая правка (graph_rev): текст тоста у блока схемы и тост страницы без роли", async () => {
     setupPoll({ name: "Сервис оплаты" });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
-    expect(screen.getByTestId("schema-block")).toHaveAttribute("data-notice", "");
+    // Раздел «Схема» грузится своим запросом после страницы: ждём блок, а не берём сразу.
+    expect(await screen.findByTestId("schema-block", {}, ждать)).toHaveAttribute("data-notice", "");
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Платёжный шлюз", version: 5 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
@@ -927,7 +928,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
 
     await тик();
     // Тост чужой правки схемы рисует блок схемы по переданному тексту (notice): текста нет.
-    expect(screen.getByTestId("schema-block")).toHaveAttribute("data-notice", "");
+    expect(await screen.findByTestId("schema-block", {}, ждать)).toHaveAttribute("data-notice", "");
     expect(screen.queryByText("Объект только что изменили в другом окне")).not.toBeInTheDocument();
   });
 });
