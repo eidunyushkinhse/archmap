@@ -29,6 +29,7 @@ import { messageEdits } from "./messageEdits";
 import { participantEdits } from "./participantEdits";
 import { useProcessHistory } from "./useProcessHistory";
 import { useOverlayStack, type Overlay, type OverlayKind } from "./useOverlayStack";
+import { useOverlayFocus } from "./useOverlayFocus";
 import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
 import "../../ui/ds.css";
 import "./processes.css";
@@ -91,7 +92,7 @@ export default function ProcessCanvas({
   // фрагмента, шага внутри участника, подтверждения, привязка, панель участников, схема
   // логики). Провал из панели шага в схему логики (У7) — окно поверх: закрывается
   // схема, панель остаётся.
-  const { stack: overlayStack, get: overlay, open: openOverlay, close: closeOverlay, update: updateOverlay } =
+  const { stack: overlayStack, get: overlay, open: pushOverlay, close: closeOverlay, update: updateOverlay } =
     useOverlayStack();
   // Вид схемы — общий с C4-схемой ключ ЭТОГО проекта (в другом проекте свой).
   const [view, setView] = useState<SchemaView>(readSchemaView);
@@ -102,6 +103,14 @@ export default function ProcessCanvas({
   // правке масштаб всегда 1. Ширина окна — без панели шага: панель раскладку не меняет.
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Фокус окон стека (редизайн, фаза 13в): при открытии внутрь окна, Tab по кругу внутри
+  // верхнего, при закрытии туда, откуда окно открыли (processes/useOverlayFocus). Окна лежат
+  // в области прокрутки; открытие сначала запоминает, где был фокус.
+  const rememberOpener = useOverlayFocus(scrollRef, overlayStack);
+  const openOverlay = useCallback((o: Overlay) => {
+    rememberOpener(o.kind);
+    pushOverlay(o);
+  }, [rememberOpener, pushOverlay]);
   const [diagramW, setDiagramW] = useState<number | null>(null);
   const { fitWidth, scale } = useDiagramFit(bodyRef, scrollRef, diagramW, !editing);
 
