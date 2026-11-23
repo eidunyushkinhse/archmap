@@ -881,9 +881,9 @@ button.seq-doc:focus-visible {
   text-decoration: underline;
   outline: none;
 }
-/* Расхождение со схемой — янтарь, как на диаграмме (BROKEN.ink). */
+/* Расхождение со схемой — цветом предупреждения языка. */
 .sp-broken {
-  color: #b45309;
+  color: var(--c-warn);
 }
 .sp-path {
   display: block;
@@ -1129,9 +1129,9 @@ button.seq-doc:focus-visible {
 .proc-iconbtn + .ds-add {
   margin-left: 4px;
 }
-/* «Восстановить связи (N)»: шаги без связи — сигнал, текст янтарём (BROKEN.ink). */
+/* «Восстановить связи (N)»: шаги без связи — сигнал, текст цветом предупреждения. */
 .proc-reattach {
-  color: #b45309;
+  color: var(--c-warn);
 }
 /* «Фрагмент»: кнопка с меню; пока идёт протягивание диапазона — нажата. */
 .proc-menuwrap {
@@ -1165,6 +1165,29 @@ button.seq-doc:focus-visible {
   padding: 8px 20px 0;
   font-size: var(--fs-ui);
   color: var(--c-danger);
+}
+/* Итог подхвата связей («Восстановлено связей: 2, осталось без связи: 1»): сводка, а не
+   ошибка, цветом предупреждения; щелчок гасит. */
+.proc-note {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-warn);
+  cursor: pointer;
+}
+/* Полоса «Протяните по шагам…» с «Отмена» — тост языка с кнопкой (ui/ds.css, ds-toast
+   ds-toast--action). Место прежнее: верх области диаграммы по центру, 10px от верха,
+   z-index 7 (над полосой шапок участников). Ширина шире обычного тоста: на широкой
+   диаграмме текст в одну строку (в строку полоса занимает 556–568px по виду фрагмента,
+   замер 13г), на узкой переносится. */
+.ds-toast.proc-frag-hint {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  max-width: min(580px, calc(100% - 32px));
 }
 /* Пустой проект (ProcessWorkspace): одна строка и «Добавить» редактору. */
 .proc-empty {

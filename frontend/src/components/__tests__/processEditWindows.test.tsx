@@ -6,6 +6,9 @@
 // объектов (ParticipantPicker) и окно шага (MessageComposer) настоящие.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import ProcessCanvas from "../processes/ProcessCanvas";
 import { processesApi } from "../../api/processes";
@@ -335,5 +338,40 @@ describe("окна выбора объектов: каркас нового яз
     await userEvent.click(within(win).getByRole("button", { name: "Закрыть" }));
     await waitFor(() => expect(screen.queryByText("Привязать «Биллинг»")).toBeNull());
     noWrites();
+  });
+});
+
+// Полоса «Протяните по шагам…» на новом языке (фаза 13г): тост языка с кнопкой, без
+// инлайн-стилей; место (верх по центру, z-index 7) — правило processes.css.
+describe("полоса выбора диапазона под фрагмент", () => {
+  it("тост языка с «Отмена»; «Отмена» гасит полосу без записи и без окна", async () => {
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Фрагмент" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Необязательно (opt)" }));
+    const text = screen.getByText(/Протяните по шагам, чтобы выделить диапазон для фрагмента/);
+    const bar = text.parentElement as HTMLElement;
+    expect(bar).toHaveClass("ds-toast", "ds-toast--action", "proc-frag-hint");
+    expect(within(bar).getByText("«opt»").tagName).toBe("B");
+    expect(bar.querySelectorAll("[style]")).toHaveLength(0);
+    expect(bar).not.toHaveAttribute("style");
+    const cancel = within(bar).getByRole("button", { name: "Отмена" });
+    expect(cancel.className).toBe("ds-btn");
+    await userEvent.click(cancel);
+    expect(screen.queryByText(/Протяните по шагам/)).toBeNull();
+    expect(screen.queryByText("Фрагмент «opt»")).toBeNull();
+    noWrites();
+  });
+
+  it("место полосы — верх области по центру, z-index 7, ширина до 580px", () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "processes", "processes.css"), "utf8");
+    const m = css.match(/\.ds-toast\.proc-frag-hint \{([^}]*)\}/);
+    expect(m).not.toBeNull();
+    const body = m?.[1] ?? "";
+    expect(body).toMatch(/position: absolute;/);
+    expect(body).toMatch(/top: 10px;/);
+    expect(body).toMatch(/left: 50%;/);
+    expect(body).toMatch(/transform: translateX\(-50%\);/);
+    expect(body).toMatch(/z-index: 7;/);
+    expect(body).toMatch(/max-width: min\(580px, calc\(100% - 32px\)\);/);
   });
 });

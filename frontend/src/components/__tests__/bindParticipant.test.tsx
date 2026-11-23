@@ -114,7 +114,11 @@ describe("привязка участника: итог подхвата кан�
 
     await openPicker();
 
-    await screen.findByText("Восстановлено связей: 2, осталось без связи: 1");
+    const note = await screen.findByText("Восстановлено связей: 2, осталось без связи: 1");
+    // Итог — абзацем языка цветом предупреждения (proc-note), без инлайн-стиля.
+    expect(note.tagName).toBe("P");
+    expect(note).toHaveClass("proc-note");
+    expect(note).not.toHaveAttribute("style");
   });
 
   it("когда всё подхватилось — про остаток не пишем", async () => {

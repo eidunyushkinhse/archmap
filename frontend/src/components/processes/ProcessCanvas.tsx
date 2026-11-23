@@ -20,7 +20,6 @@ import ProcessToolbar from "./ProcessToolbar";
 import SequenceDiagram from "./SequenceDiagram";
 import { deriveActivations } from "./sequence/layout";
 import { detailToSeq } from "./sequence/fromDetail";
-import { BPT, BROKEN } from "./tokens";
 import { useProcessDetail } from "./useProcessDetail";
 import { useDiagramFit } from "./useDiagramFit";
 import { revealDelta } from "./reveal";
@@ -596,12 +595,9 @@ export default function ProcessCanvas({
         {error && <div className="proc-error">{error}</div>}
         {/* Итог подхвата каналов: гасится кликом — это не ошибка, а сводка. */}
         {bindNote && (
-          <div
-            onClick={() => setBindNote(null)}
-            style={{ padding: "8px 14px 0", color: BROKEN.ink, fontSize: 12, cursor: "pointer" }}
-          >
+          <p className="proc-note" onClick={() => setBindNote(null)}>
             {bindNote}
-          </div>
+          </p>
         )}
         {!detail || !seq ? (
           <div className="proc-blank">Загрузка</div>
@@ -634,14 +630,14 @@ export default function ProcessCanvas({
           </div>
         )}
 
-        {/* Подсказка режима выбора диапазона под фрагмент */}
+        {/* Подсказка режима выбора диапазона под фрагмент: тост языка с кнопкой. */}
         {editing && fragSelect && (
-          <div style={fragHintBar}>
+          <div className="ds-toast ds-toast--action proc-frag-hint">
             <span>
               Протяните по шагам, чтобы выделить диапазон для фрагмента{" "}
-              <b style={{ color: BPT.amber }}>«{fragSelect}»</b>
+              <b>«{fragSelect}»</b>
             </span>
-            <button className="bp-btn-ghost" style={{ height: 26, padding: "0 10px" }} onClick={() => setFragSelect(null)}>
+            <button type="button" className="ds-btn" onClick={() => setFragSelect(null)}>
               Отмена
             </button>
           </div>
@@ -685,24 +681,7 @@ const canvasShell: CSSProperties = {
   flexDirection: "column",
   minHeight: 0,
 };
-const fragHintBar: CSSProperties = {
-  position: "absolute",
-  top: 10,
-  left: "50%",
-  transform: "translateX(-50%)",
-  zIndex: 7,
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  padding: "7px 8px 7px 14px",
-  background: "#fffbeb",
-  border: "1px solid #fcd9a8",
-  borderRadius: 10,
-  boxShadow: "0 6px 20px rgba(15,23,42,.12)",
-  fontSize: 12.5,
-  color: "#92591a",
-  whiteSpace: "nowrap",
-};
+
 // Окно «одно поле» поверх холста: рефлексивное сообщение, ветка «иначе», условие
 // фрагмента (аудит F-2: три копии одной разметки). Каркас окна нового языка карточкой
 // (ds-win ds-win--card): заголовок, пояснение, поле на всю ширину с фокусом при открытии,
