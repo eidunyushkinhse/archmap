@@ -1,6 +1,8 @@
 // Редактор-карта (MapEditorPage) — полноэкранный редактор схем (pages_pivot, Фаза 4).
 // Роут: #/p/<pid>/map/<nodeId?>. Шапка (MapEditorHeader): крошки уровней, «Рекомендации»,
-// меню «Действия со схемой», вид схемы, «Принять переход», «Готово».
+// меню «Действия со схемой», вид схемы, «Принять переход», «Готово». Читателю (право правки
+// из роли в проекте, canEditProject) тот же экран открывается в режиме просмотра: без
+// палитры и действий правки, в шапке «Закрыть» вместо «Готово» (фаза 13д).
 // Слева: дерево объектов (дизайн страниц + секция «Добавить объект» внизу).
 // Центр: LevelGraph со всеми жестами. Справа: панель объекта или связи (ObjectInspector,
 // 320px) — только пока что-то выбрано.
@@ -63,7 +65,7 @@ interface Props {
   nodeId: string | null;
   // Узел для временной подсветки (locate, Ф11) — пульс ~2.5с при открытии
   locateNodeId?: string | null;
-  // «Готово»/Esc → возврат туда, откуда открыли (роут не меняется, Ф12)
+  // «Готово» (читателю «Закрыть»)/Esc → возврат туда, откуда открыли (роут не меняется, Ф12)
   onDone: () => void;
   // Логотип в топбаре — на экран «Все проекты».
   onAllProjects: () => void;
@@ -1010,8 +1012,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           {loading ? (
             <p className="ds-empty ds-pane-note">Загрузка</p>
           ) : loadError ? (
+            // Выход назван по роли: читателю экран не редактор (режим просмотра, фаза 13д).
             <LoadError what="уровень схемы" error={loadError.error} onRetry={retryLoad}
-              onBack={onDone} backLabel="Закрыть редактор" />
+              onBack={onDone} backLabel={isArchitect ? "Закрыть редактор" : "Закрыть"} />
           ) : (
             <LevelGraph
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}

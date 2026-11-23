@@ -346,7 +346,9 @@ describe("MapEditorPage", () => {
       expect(screen.getByRole("menuitem", { name: /подписи связей/ })).toBeInTheDocument();
       expect(screen.queryByRole("menuitem", { name: "Переразложить уровень" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Принять переход" })).toBeNull();
-      expect(screen.getByRole("button", { name: "Готово" })).toBeInTheDocument();
+      // Выход читателя — вторичная «Закрыть» (фаза 13д): «Готово» и главной кнопки нет.
+      expect(screen.getByRole("button", { name: "Закрыть" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Готово" })).toBeNull();
     } finally {
       role.current = "owner";
     }
@@ -389,12 +391,23 @@ describe("MapEditorPage", () => {
     expect(btns).toEqual(["Принять переход", "Готово"]);
   });
 
-  it("читатель: выход из экрана зовёт onDone", async () => {
+  // Читателю завершать нечего (экран в режиме просмотра): на месте «Готово» вторичная
+  // «Закрыть» с тем же onDone, главной кнопки в шапке нет вовсе.
+  it("читатель: на месте «Готово» вторичная «Закрыть», главной кнопки в шапке нет; зовёт onDone", async () => {
     role.current = "reader";
     try {
-      render(<MapEditorPage {...props} nodeId={null} />);
+      vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")], has_status_info: true }) as never);
+      const { container } = render(<MapEditorPage {...props} nodeId={null} />);
       await screen.findByTestId("level-graph");
-      await userEvent.click(screen.getByRole("button", { name: "Готово" }));
+      const close = screen.getByRole("button", { name: "Закрыть" });
+      expect(close.className).toBe("ds-btn");
+      expect(close).toHaveAttribute("type", "button");
+      expect(close.closest(".ds-head-btns")).not.toBeNull();
+      expect(container.querySelectorAll(".ds-head .ds-btn--primary")).toHaveLength(0);
+      expect(screen.queryByRole("button", { name: "Готово" })).toBeNull();
+      const btns = [...(container.querySelector(".ds-head-btns")?.querySelectorAll("button") ?? [])].map((b) => b.textContent);
+      expect(btns).toEqual(["Закрыть"]);
+      await userEvent.click(close);
       expect(props.onDone).toHaveBeenCalledOnce();
     } finally {
       role.current = "owner";
@@ -404,16 +417,17 @@ describe("MapEditorPage", () => {
   // Отказ загрузки уровня: выход назван по роли, зовёт тот же onDone.
   it.each([
     { who: "редактор проекта", r: "owner" as ProjectRole, label: "Закрыть редактор" },
-    { who: "читатель", r: "reader" as ProjectRole, label: "Закрыть редактор" },
+    { who: "читатель", r: "reader" as ProjectRole, label: "Закрыть" },
   ])("отказ загрузки уровня, $who: выход «$label» зовёт onDone", async ({ r, label }) => {
     role.current = r;
     try {
       vi.mocked(nodesApi.getGraph).mockRejectedValueOnce(new TypeError("Failed to fetch"));
       render(<MapEditorPage {...props} nodeId={null} />);
       const alert = await screen.findByRole("alert");
-      const back = screen.getAllByRole("button").filter((b) => alert.contains(b)).map((b) => b.textContent);
-      expect(back).toEqual(["Повторить", label]);
-      await userEvent.click(screen.getByRole("button", { name: label }));
+      const inAlert = screen.getAllByRole("button").filter((b) => alert.contains(b));
+      expect(inAlert.map((b) => b.textContent)).toEqual(["Повторить", label]);
+      // У читателя «Закрыть» есть и в шапке: щёлкаем кнопку самого отказа.
+      await userEvent.click(inAlert[1] as HTMLElement);
       expect(props.onDone).toHaveBeenCalledOnce();
     } finally {
       role.current = "owner";

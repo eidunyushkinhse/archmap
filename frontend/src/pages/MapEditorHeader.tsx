@@ -1,5 +1,7 @@
 // Шапка редактора-карты (редизайн, фаза 4б): слева логотип и крошки уровней, справа
-// «Рекомендации», меню «Действия со схемой», вид схемы, «Принять переход» и «Готово».
+// «Рекомендации», меню «Действия со схемой», вид схемы, «Принять переход» и «Готово». У
+// читателя (экран в режиме просмотра, фаза 13д) из этого ряда только меню, вид схемы и
+// вторичная «Закрыть»: завершать ему нечего, главной кнопки в шапке нет.
 // Каркас — общий с шапкой оболочки проекта (ui/ds.css, ds-head*, фаза 5): при входе в
 // редактор логотип и первая строка не прыгают. Крошки — pages/MapEditorPage.css (me-crumb*).
 //
@@ -43,6 +45,7 @@ interface Props {
   schemaView: SchemaView | null;
   onSchemaView: (view: SchemaView) => void;
   onAcceptTransition: () => void;
+  // Выход туда, откуда открыли: «Готово» редактору проекта, «Закрыть» читателю.
   onDone: () => void;
 }
 
@@ -106,7 +109,11 @@ export default function MapEditorHeader({
           {isArchitect && schemaView !== null && (
             <button type="button" className="ds-btn" onClick={onAcceptTransition}>Принять переход</button>
           )}
-          <button type="button" className="ds-btn ds-btn--primary" onClick={onDone}>Готово</button>
+          {isArchitect ? (
+            <button type="button" className="ds-btn ds-btn--primary" onClick={onDone}>Готово</button>
+          ) : (
+            <button type="button" className="ds-btn" onClick={onDone}>Закрыть</button>
+          )}
           {/* Гость демо-стенда: пилюля «Обучение» — пройти обучение заново, как в шапках
               оболочки и списка (у остальных она ничего не рисует). */}
           <TourHelpButton />
