@@ -2,8 +2,9 @@
    аватар, раздел, подгруппа,
    строка списка, тихая кнопка «Добавить», вторичная кнопка, каркас окна с блоками,
    поле ввода и список выбора формы, вкладки-текст, меню, предупреждение, тихая таблица,
-   строки «подпись — значение», поле в виде текста, подтверждение, тост, отказ загрузки.
-   Значения — только токены ui/tokens.css. Класс ставит переведённый экран (корень с .ds); стили импортирует
+   строки «подпись — значение», поле в виде текста, подтверждение, тост, отказ загрузки,
+   «Что-то сломалось». Значения — только токены ui/tokens.css. Класс ставит переведённый
+   экран (корень с .ds); стили импортирует
    каждый модуль, который ставит класс (как ui/smallButton.css): стили чужого ленивого
    чанка на странице могут быть не загружены. */
 
@@ -716,6 +717,61 @@ textarea.ds-input {
   display: flex;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+/* ── «Что-то сломалось» (ui/ErrorBoundary) ──────────────────────────────────
+   Вместо упавшего поддерева: белая область, по центру колонка до 460px без коробки (рамки,
+   радиуса и тени нет). Заголовок h2 со своими полями (глобальное правило h2 из index.css
+   перебито), пояснение тихим цветом, строка с текстом ошибки моноширинным на тихой подложке,
+   кнопки как у отказа загрузки. Метрики текста заданы явно по той же причине, что у ds-fail:
+   граница стоит и вокруг всего приложения, вне любой области нового языка. */
+.ds-crash {
+  flex: 1;
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--c-bg);
+  font: 400 var(--fs-ui) / var(--lh-ui) var(--font-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.ds-crash-col {
+  width: 460px;
+  max-width: 100%;
+}
+.ds-crash-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.ds-crash-lead {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Глобального стиля code нет (index.css): вид строки ошибки целиком здесь. Длинное слово
+   без пробелов переносится, а не растягивает колонку. */
+.ds-crash-code {
+  display: block;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  background: var(--c-bg-subtle);
+  color: var(--c-fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ds-crash .ds-fail-acts {
+  margin-top: var(--space-4);
 }
 
 /* ── Тихая таблица: шапка 12px, строки с волосяной линией сверху ─────────── */

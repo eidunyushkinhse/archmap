@@ -1,11 +1,13 @@
 import { Component } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import { primaryBtn, secondaryBtn } from "./styles";
+import type { ReactNode } from "react";
+// Только стили (ui/ds.css уже в начальном чанке вместе с экраном входа): граница ошибок
+// не тянет за собой ни кода, ни хуков, ни ленивых модулей.
+import "./ds.css";
 
 // Граница ошибок рендера (единственный способ поймать исключение рендера в React —
 // классовый компонент). Без неё любое исключение в дереве размонтирует ВСЁ приложение:
-// белый экран без текста и без выхода. Здесь вместо упавшего поддерева — карточка
-// «Что-то сломалось» с двумя выходами: обновить страницу и уйти к списку проектов.
+// белый экран без текста и без выхода. Здесь вместо упавшего поддерева — «Что-то
+// сломалось» с двумя выходами: обновить страницу и уйти к списку проектов.
 // В журнал ошибка попадает через createRoot({ onCaughtError }) в main.tsx.
 //
 // resetKey — смена значения сбрасывает ошибку (App передаёт ключ маршрута: человек ушёл
@@ -48,23 +50,25 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 }
 
+// Вид нового языка (ui/ds.css, ds-crash): белая область, колонка по центру без коробки.
+// Только разметка и классы: граница обязана оставаться простой и надёжной.
 function CrashCard({ error, onReset }: { error: Error; onReset: () => void }) {
   return (
-    <div style={wrap} role="alert">
-      <div style={card}>
-        <h2 style={title}>Что-то сломалось</h2>
-        <p style={lead}>
+    <div className="ds ds-crash" role="alert">
+      <div className="ds-crash-col">
+        <h2 className="ds-crash-title">Что-то сломалось</h2>
+        <p className="ds-crash-lead">
           Страницу не удалось показать. Обновите её, а если не поможет, вернитесь к списку
           проектов и откройте страницу заново.
         </p>
-        <code style={detail}>{error.message || error.name}</code>
-        <div style={actions}>
-          <button type="button" style={primaryBtn} onClick={() => window.location.reload()}>
+        <code className="ds-crash-code">{error.message || error.name}</code>
+        <div className="ds-fail-acts">
+          <button type="button" className="ds-btn ds-btn--primary" onClick={() => window.location.reload()}>
             Обновить страницу
           </button>
           <button
             type="button"
-            style={secondaryBtn}
+            className="ds-btn"
             onClick={() => {
               window.location.hash = "/projects";
               onReset();
@@ -77,39 +81,3 @@ function CrashCard({ error, onReset }: { error: Error; onReset: () => void }) {
     </div>
   );
 }
-
-const wrap: CSSProperties = {
-  flex: 1,
-  minHeight: "60vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 24,
-  background: "#f8fafc",
-};
-const card: CSSProperties = {
-  width: 460,
-  maxWidth: "100%",
-  background: "#fff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 13,
-  boxShadow: "0 16px 40px rgba(15,23,42,.10)",
-  padding: 24,
-};
-const title: CSSProperties = { margin: "0 0 10px", fontSize: 18, color: "#1e293b" };
-const lead: CSSProperties = { margin: "0 0 12px", fontSize: 14, lineHeight: 1.5, color: "#475569" };
-// Глобального стиля code нет (index.css) — вид кода целиком здесь.
-const detail: CSSProperties = {
-  display: "block",
-  fontFamily: "ui-monospace, Consolas, monospace",
-  fontSize: 12,
-  lineHeight: "135%",
-  padding: "4px 8px",
-  borderRadius: 4,
-  background: "#f4f3ec",
-  color: "#94a3b8",
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-  marginBottom: 16,
-};
-const actions: CSSProperties = { display: "flex", gap: 8 };

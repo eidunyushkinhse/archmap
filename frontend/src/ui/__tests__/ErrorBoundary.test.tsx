@@ -52,6 +52,22 @@ describe("ErrorBoundary", () => {
     for (const b of card.querySelectorAll("button")) expect(b).toHaveAttribute("type", "button");
   });
 
+  // Вид нового языка (фаза 13б): примитив ds-crash, корень сам несёт ds, колонка без
+  // коробки, кнопки языка («Обновить страницу» главная), ни одного инлайн-стиля.
+  it("вид: область ds-crash с корнем ds, колонка, строка кода, кнопки языка", () => {
+    render(<ErrorBoundary><Bomb /></ErrorBoundary>);
+    const card = screen.getByRole("alert");
+    expect(card).toHaveClass("ds", "ds-crash");
+    expect(card.firstElementChild).toHaveClass("ds-crash-col");
+    expect(screen.getByRole("heading", { level: 2, name: "Что-то сломалось" })).toHaveClass("ds-crash-title");
+    expect(card.querySelector("code")).toHaveClass("ds-crash-code");
+    expect(screen.getByRole("button", { name: "Обновить страницу" })).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(screen.getByRole("button", { name: "К проектам" })).toHaveClass("ds-btn");
+    expect(screen.getByRole("button", { name: "К проектам" })).not.toHaveClass("ds-btn--primary");
+    expect(card).not.toHaveAttribute("style");
+    expect(card.querySelector("[style]")).toBeNull();
+  });
+
   it("«К проектам» ведёт на #/projects и даёт поддереву второй шанс", async () => {
     render(<ErrorBoundary><Bomb /></ErrorBoundary>);
     shouldThrow = false;
