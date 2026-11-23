@@ -1,10 +1,10 @@
-/* Страница входа: сплит «заголовок + превью схемы» слева и форма справа.
-   Сознательно одна светлая тема (slate + синий #2563eb, как ui/styles.ts): так
-   выглядит само приложение. Стили — файлом, а не инлайном: нужны :focus, :hover
-   и медиазапрос. Глобальные h1/h2 из index.css перебиваются классами ниже. */
+/* Экран входа и демо-входа (редизайн, фаза 12б): слева заголовок и живое превью схемы,
+   справа форма. Корень — область нового языка (.ds: гарнитура, кегль и цвет), значения
+   только из токенов ui/tokens.css. Стили — файлом, а не инлайном: нужны :focus, :hover и
+   медиазапрос. Глобальные h1 и h2 из index.css перебиваются классами ниже. */
 
 .login {
-  --login-bg: #f8fafc;
+  /* Прежняя палитра правой половины — до её перевода на токены. */
   --login-line: #e2e8f0;
   --login-line-soft: #eef2f6;
   --login-ink: #0f172a;
@@ -19,42 +19,39 @@
   overflow-y: auto; /* #root и body режут переполнение — прокрутка своя */
   display: grid;
   grid-template-columns: 1.25fr 1fr;
-  background: #fff;
-  color: var(--login-ink);
+  background: var(--c-bg);
   color-scheme: light;
-  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
-  font-size: 16px;
-  line-height: normal;
-  letter-spacing: normal;
 }
 
 /* ── Левая половина: заголовок и превью холста ─────────────────────────── */
 .login-left {
   min-width: 0;
-  background: var(--login-bg);
-  border-right: 1px solid var(--login-line);
+  background: var(--c-bg);
+  border-right: 1px solid var(--c-line);
   padding: 28px 36px 34px;
   display: flex;
   flex-direction: column;
   gap: 26px;
 }
 
+/* Те же метрики, что у названия на странице объекта (NodePage.css, .np-name). */
 .login-pitch h1 {
   margin: 0 0 10px;
   max-width: 16em;
-  font-size: 30px;
-  line-height: 1.15;
-  font-weight: 800;
-  letter-spacing: -0.025em;
+  font-family: inherit;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
   text-wrap: balance;
-  color: var(--login-ink);
+  color: var(--c-fg);
 }
 
 .login-pitch p {
   margin: 0;
-  font-size: 15.5px;
-  line-height: 1.5;
-  color: var(--login-ink-2);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--c-fg-muted);
 }
 
 /* Карточка-«холст»: SVG позиционирован абсолютно, чтобы не влиять на высоту
@@ -63,10 +60,9 @@
   position: relative;
   flex: 1 1 0;
   min-height: 220px;
-  background: #fff;
-  border: 1px solid var(--login-line);
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
 }
 
 .login-canvas svg {

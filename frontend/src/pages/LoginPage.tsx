@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { login, saveToken } from "../api/auth";
 import LoginPitch from "../components/login/LoginPitch";
+import "../ui/ds.css";
 import "./LoginPage.css";
 
 interface Props {
@@ -43,7 +44,7 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
   const badPassword = message?.kind === "error";
 
   return (
-    <div className="login">
+    <div className="login ds">
       <LoginPitch />
 
       <main className="login-right">

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { saveToken, startDemo } from "../api/auth";
 import LoginPitch from "../components/login/LoginPitch";
 import { GitHubIcon } from "../ui/icons";
+import "../ui/ds.css";
 import "./LoginPage.css";
 import "./DemoLoginPage.css";
 
@@ -44,7 +45,7 @@ export default function DemoLoginPage({ onLogin, notice = null }: Props) {
   }
 
   return (
-    <div className="login">
+    <div className="login ds">
       <LoginPitch />
 
       <main className="login-right">
