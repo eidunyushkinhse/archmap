@@ -36,7 +36,6 @@ import { isConflict } from "../api/client";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import LoadError from "../ui/LoadError";
-import { listToast } from "../ui/pageChrome";
 import { ChevronIcon, EdgeLabelsIcon, RelayoutIcon, SiteKindIcon } from "../ui/icons";
 import { loadErrorText } from "../ui/loadErrorText";
 import { plural } from "../ui/plural";
@@ -541,9 +540,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
         )}
         {/* Окно выбора связи (несколько связей в пучке) — рендерит useEdgeChoice */}
         {choiceModal}
-        {/* Тост прежнего вида (тосты переводятся отдельно): legacy-root держит его прежние
-            метрики внутри области нового языка (ui/tokens.css). */}
-        {toast && <div className="legacy-root" style={listToast} aria-live="polite">{toast}</div>}
+        {/* Тост итога: низ окна по центру, щелчки проходят сквозь него (ui/ds.css). */}
+        {toast && <div className="ds-toast ds-toast--bottom" aria-live="polite">{toast}</div>}
       </div>
     </>
   );

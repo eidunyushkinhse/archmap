@@ -91,6 +91,9 @@ describe("SchemaActions", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Обновить из кода" }));
     fireEvent.click(screen.getByRole("button", { name: "применено" }));
     const тост = screen.getByText("Схема обновлена из кода");
+    expect(тост).toHaveClass("ds-toast", "ds-toast--bottom-end");
+    expect(тост).not.toHaveClass("legacy-root");
+    expect(тост).not.toHaveAttribute("style");
     expect(тост).not.toHaveAttribute("role");
     expect(тост).not.toHaveAttribute("aria-live");
     expect(onSynced).toHaveBeenCalledTimes(1);
@@ -107,6 +110,9 @@ describe("SchemaActions", () => {
     try {
       await act(async () => { fireEvent.click(screen.getByRole("menuitem", { name: "Экспорт проекта (zip)" })); });
       const тост = screen.getByText("Не удалось собрать архив. Попробуйте ещё раз.");
+      expect(тост).toHaveClass("ds-toast", "ds-toast--bottom-end");
+      expect(тост).not.toHaveClass("legacy-root");
+      expect(тост).not.toHaveAttribute("style");
       expect(тост).not.toHaveAttribute("role");
       expect(тост).not.toHaveAttribute("aria-live");
       act(() => { vi.advanceTimersByTime(4999); });

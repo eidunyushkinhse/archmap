@@ -222,8 +222,8 @@ export default function SchemaActions({
           }}
         />
       )}
-      {/* Тост остаётся прежнего вида и в шапке нового языка (legacy-root, ui/tokens.css). */}
-      {toast && <div className="legacy-root" style={toastStyle}>{toast}</div>}
+      {/* Тост итога и отказа: низ окна справа (ui/ds.css). */}
+      {toast && <div className="ds-toast ds-toast--bottom-end">{toast}</div>}
     </div>
   );
 }
@@ -232,18 +232,3 @@ const NO_ITEMS: readonly SchemaMenuItem[] = [];
 
 // Меню не уже 240px: короткие пункты оболочки («Экспорт схемы») не сужают его.
 const menuWidth: CSSProperties = { minWidth: 240 };
-// Тост-итог применения синка / ошибки архива: тот же язык, что у тостов конкурентности.
-const toastStyle: CSSProperties = {
-  position: "fixed",
-  right: 18,
-  bottom: 18,
-  zIndex: 60,
-  maxWidth: 420,
-  padding: "10px 14px",
-  borderRadius: 8,
-  background: "#065f46",
-  color: "#ecfdf5",
-  fontSize: 13,
-  lineHeight: 1.45,
-  boxShadow: "0 10px 24px rgba(15,23,42,.18)",
-};

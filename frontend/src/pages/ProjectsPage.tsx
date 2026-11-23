@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { listToast as toastStyle } from "../ui/pageChrome";
 import { fetchMe, getCanCreateProject, getIsGuest, getMe, getUserRole } from "../api/auth";
 import { projectsApi } from "../api/projects";
 import type { Project } from "../types";
@@ -210,8 +209,8 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
         />
       )}
 
-      {/* Тост прежнего вида (legacy-root держит прежние метрики текста внутри .ds). */}
-      {toast && <div className="legacy-root" style={toastStyle}>{toast}</div>}
+      {/* Тост итога: низ окна по центру, щелчки проходят сквозь него (ui/ds.css). */}
+      {toast && <div className="ds-toast ds-toast--bottom">{toast}</div>}
     </div>
   );
 }

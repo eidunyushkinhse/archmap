@@ -245,6 +245,9 @@ describe("UsersPage", () => {
         fireEvent.change(row("ivan").getByLabelText("Роль ivan"), { target: { value: "architect" } });
       });
       const тост = screen.getByText("Роль изменена");
+      expect(тост).toHaveClass("ds-toast", "ds-toast--bottom");
+      expect(тост).not.toHaveClass("legacy-root");
+      expect(тост).not.toHaveAttribute("style");
       expect(тост).not.toHaveAttribute("role");
       expect(тост).not.toHaveAttribute("aria-live");
       act(() => { vi.advanceTimersByTime(2599); });

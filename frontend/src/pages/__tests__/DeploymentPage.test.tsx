@@ -521,6 +521,9 @@ describe("DeploymentPage", () => {
         for (let i = 0; i < 30; i++) await Promise.resolve();
       });
       const тост = screen.getByText("«Лист» размещён на «s1»");
+      expect(тост).toHaveClass("ds-toast", "ds-toast--bottom");
+      expect(тост).not.toHaveClass("legacy-root");
+      expect(тост).not.toHaveAttribute("style");
       expect(тост).toHaveAttribute("aria-live", "polite");
       expect(тост).not.toHaveAttribute("role");
       act(() => { vi.advanceTimersByTime(3999); });

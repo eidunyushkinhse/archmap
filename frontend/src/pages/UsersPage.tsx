@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { listToast as toastStyle } from "../ui/pageChrome";
 import { adminApi } from "../api/admin";
 import { fetchMe } from "../api/auth";
 import type { AdminUser, AdminUserUpdate, UserRole } from "../types";
@@ -230,8 +229,8 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
         />
       )}
 
-      {/* Тост прежнего вида (legacy-root держит прежние метрики текста внутри .ds). */}
-      {toast && <div className="legacy-root" style={toastStyle}>{toast}</div>}
+      {/* Тост итога: низ окна по центру, щелчки проходят сквозь него (ui/ds.css). */}
+      {toast && <div className="ds-toast ds-toast--bottom">{toast}</div>}
     </div>
   );
 }
