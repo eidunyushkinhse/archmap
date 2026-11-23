@@ -242,37 +242,36 @@ export default function SchemaSection({
     ? () => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })
     : undefined;
 
+  // Чужая правка схемы: тост внутри рамки схемы, его рисует сам блок (notice).
   return (
-    <div style={{ position: "relative" }}>
-      {/* Чужая правка схемы: тост в правом верхнем углу блока схемы (ui/ds.css). */}
-      {remoteToast && <div className="ds-toast ds-toast--corner">Схему только что изменили в другом окне</div>}
-      <EmbeddedSchemaBlock
-        nodes={view.nodes}
-        endpoints={view.endpoints}
-        edges={edges}
-        viewLayout={view.layout}
-        containerId={node.parent_id ?? null}
-        layoutViewId={node.id}
-        persistence={persistence}
-        ancestorNames={ancestors.map((a) => a.name)}
-        ancestorIds={ancestors.map((a) => a.id)}
-        ancestorElements={ancestors.map((a) => a.element_effective)}
-        ancestorExternals={ancestors.map((a) => a.is_external)}
-        depth={ancestors.length}
-        isArchitect={isArchitect}
-        schemaView={schemaView}
-        onSchemaViewChange={setSchemaView}
-        onNavigateNode={onNavigateNode}
-        onEdit={onEdit}
-        onRelayout={handleRelayout}
-        relayoutToken={relayoutToken}
-        mutationToken={mutationToken}
-        height={height}
-        showViewFilter={hasStatusInfo}
-        title="Схема"
-      />
-    </div>
+    <EmbeddedSchemaBlock
+      nodes={view.nodes}
+      endpoints={view.endpoints}
+      edges={edges}
+      viewLayout={view.layout}
+      containerId={node.parent_id ?? null}
+      layoutViewId={node.id}
+      persistence={persistence}
+      ancestorNames={ancestors.map((a) => a.name)}
+      ancestorIds={ancestors.map((a) => a.id)}
+      ancestorElements={ancestors.map((a) => a.element_effective)}
+      ancestorExternals={ancestors.map((a) => a.is_external)}
+      depth={ancestors.length}
+      isArchitect={isArchitect}
+      schemaView={schemaView}
+      onSchemaViewChange={setSchemaView}
+      onNavigateNode={onNavigateNode}
+      onEdit={onEdit}
+      onRelayout={handleRelayout}
+      relayoutToken={relayoutToken}
+      mutationToken={mutationToken}
+      height={height}
+      showViewFilter={hasStatusInfo}
+      title="Схема"
+      notice={remoteToast ? "Схему только что изменили в другом окне" : null}
+    />
   );
 }
 
-// Тост «Схему только что изменили в другом окне» (remote-sync) — поверх окна схемы.
+// Тост «Схему только что изменили в другом окне» (remote-sync) рисует блок схемы внутри своей
+// рамки (EmbeddedSchemaBlock, notice).

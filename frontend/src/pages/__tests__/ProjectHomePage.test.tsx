@@ -17,7 +17,9 @@ vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: ({ title }: { title?: string }) => <div data-testid="schema" data-title={title} />,
+  default: ({ title, notice }: { title?: string; notice?: string | null }) => (
+    <div data-testid="schema" data-title={title} data-notice={notice ?? ""} />
+  ),
 }));
 // Панель версий — маркер с пропсами: здесь проверяется вход из ⋯-меню проекта, сама
 // панель покрыта своим тестом (VersionsPanel.test).
@@ -156,8 +158,9 @@ describe("ProjectHomePage: шапка и разделы", () => {
   });
 });
 
-// Страховка механики тоста чужой правки (редизайн, фаза 13а, меняется только вид): тост
-// стоит в обёртке блока схемы (её правый верхний угол), без роли, гаснет ровно через 4 с.
+// Механика тоста чужой правки (редизайн, фазы 13а и 13б): страница передаёт текст тоста
+// блоку схемы (notice), сам тост рисует блок внутри своей рамки (embeddedSchemaNotice.test);
+// своей разметки тоста у страницы нет, срок ровно 4 с.
 describe("ProjectHomePage: тост «Схему только что изменили в другом окне»", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -166,24 +169,22 @@ describe("ProjectHomePage: тост «Схему только что измен�
     vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
   });
 
-  it("чужая правка схемы: тост в блоке схемы без роли, гаснет через 4 с", async () => {
+  it("чужая правка схемы: текст тоста уходит блоку схемы, через 4 с — пусто", async () => {
     render(<ProjectHomePage {...props} />);
     await screen.findByTestId("schema");
+    expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "");
     const sync = vi.mocked(useRemoteSync).mock.calls.at(-1)?.[0] as { onRemoteChange: () => void };
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       await act(async () => { sync.onRemoteChange(); });
-      const тост = screen.getByText("Схему только что изменили в другом окне");
-      expect(тост).toHaveClass("ds-toast", "ds-toast--corner");
-      expect(тост).not.toHaveClass("legacy-root");
-      expect(тост).not.toHaveAttribute("style");
-      expect(тост).not.toHaveAttribute("role");
-      expect(тост).not.toHaveAttribute("aria-live");
-      expect(тост.parentElement).toContainElement(screen.getByTestId("schema"));
-      act(() => { vi.advanceTimersByTime(3999); });
-      expect(screen.getByText("Схему только что изменили в другом окне")).toBeInTheDocument();
-      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "Схему только что изменили в другом окне");
+      // Своей разметки тоста у страницы нет: ни плашки, ни обёртки с тостом над блоком.
+      expect(document.querySelector(".ds-toast")).toBeNull();
       expect(screen.queryByText("Схему только что изменили в другом окне")).toBeNull();
+      act(() => { vi.advanceTimersByTime(3999); });
+      expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "Схему только что изменили в другом окне");
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "");
     } finally {
       vi.useRealTimers();
     }

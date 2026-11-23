@@ -59,10 +59,12 @@ vi.mock("../../api/deployment", () => ({
 // В data-nodes выкладываем мету узлов, которую схема РИСУЕТ: по ней видно, доехала
 // ли правка страницы до данных схемы без перезагрузки.
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: ({ nodes }: { nodes: Node[] }) => (
+  default: ({ nodes, notice }: { nodes: Node[]; notice?: string | null }) => (
     <div
       data-testid="schema-block"
       data-nodes={nodes.map((n) => `${n.id}:${n.shape}:${n.status}:${n.name}`).join("|")}
+      // Текст тоста чужой правки схемы: сам тост рисует блок внутри своей рамки.
+      data-notice={notice ?? ""}
     >
       схема
     </div>
@@ -806,27 +808,28 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await waitFor(() => expect(screen.getByText("Объект только что изменили в другом окне")).toBeInTheDocument(), ждать);
   });
 
-  // Страховка механики тостов (редизайн, фаза 13а, меняется только вид): чужая правка схемы
-  // даёт тост блока схемы, чужая правка объекта — тост страницы; оба без роли и aria-live.
-  it("чужая правка (graph_rev): тост блока схемы и тост страницы, оба без роли", async () => {
+  // Механика тостов (редизайн, фазы 13а и 13б): чужая правка схемы передаёт текст тоста
+  // блоку схемы (сам тост рисует блок внутри рамки, embeddedSchemaNotice.test; срок —
+  // schemaSectionNotice.test), чужая правка объекта даёт тост страницы без роли и aria-live.
+  it("чужая правка (graph_rev): текст тоста у блока схемы и тост страницы без роли", async () => {
     setupPoll({ name: "Сервис оплаты" });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
+    expect(screen.getByTestId("schema-block")).toHaveAttribute("data-notice", "");
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Платёжный шлюз", version: 5 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
-    const схема = await screen.findByText("Схему только что изменили в другом окне", {}, ждать);
+    await waitFor(() => expect(screen.getByTestId("schema-block"))
+      .toHaveAttribute("data-notice", "Схему только что изменили в другом окне"), ждать);
+    // Своей плашки этого тоста у страницы нет: его место — внутри рамки схемы.
+    expect(screen.queryByText("Схему только что изменили в другом окне")).toBeNull();
     const объект = await screen.findByText("Объект только что изменили в другом окне", {}, ждать);
-    for (const тост of [схема, объект]) {
-      expect(тост).not.toHaveAttribute("role");
-      expect(тост).not.toHaveAttribute("aria-live");
-      expect(тост).toHaveClass("ds-toast");
-      expect(тост).not.toHaveClass("legacy-root");
-      expect(тост).not.toHaveAttribute("style");
-    }
-    expect(схема).toHaveClass("ds-toast--corner");
-    expect(объект).toHaveClass("ds-toast--top-end");
+    expect(объект).not.toHaveAttribute("role");
+    expect(объект).not.toHaveAttribute("aria-live");
+    expect(объект).toHaveClass("ds-toast", "ds-toast--top-end");
+    expect(объект).not.toHaveClass("legacy-root");
+    expect(объект).not.toHaveAttribute("style");
   });
 
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {
@@ -923,7 +926,8 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await act(async () => { await Promise.resolve(); });
 
     await тик();
-    expect(screen.queryByText("Схему только что изменили в другом окне")).not.toBeInTheDocument();
+    // Тост чужой правки схемы рисует блок схемы по переданному тексту (notice): текста нет.
+    expect(screen.getByTestId("schema-block")).toHaveAttribute("data-notice", "");
     expect(screen.queryByText("Объект только что изменили в другом окне")).not.toBeInTheDocument();
   });
 });

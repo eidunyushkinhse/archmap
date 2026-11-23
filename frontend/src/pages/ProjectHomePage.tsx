@@ -156,51 +156,49 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
         </header>
 
         {/* ── Схема (корневой уровень) ──────────────────────────── */}
-        <div style={{ position: "relative" }}>
-          {/* Чужая правка схемы: тост в правом верхнем углу блока схемы (ui/ds.css). */}
-          {remoteToast && <div className="ds-toast ds-toast--corner">Схему только что изменили в другом окне</div>}
-          {/* Пустой проект: в строке заголовка «Редактировать» нет (onEdit не передаём) —
-              её место занимает «Начать наполнение» внутри пустого окна, и ведёт она туда
-              же, в редактор-карту (решение пользователя 2026-09-05; прежняя «+ Объект» звала
-              страницу объекта с пустым id и не делала ничего). */}
-          <EmbeddedSchemaBlock
-            title="Схема"
-            nodes={graphNodes}
-            endpoints={endpoints}
-            edges={lvl.edges}
-            viewLayout={lvl.viewLayout}
-            containerId={null}
-            persistence={persistence}
-            ancestorNames={[]}
-            ancestorIds={[]}
-            ancestorElements={[]}
-            depth={0}
-            isArchitect={isArchitect}
-            schemaView={schemaView}
-            onSchemaViewChange={setSchemaView}
-            onNavigateNode={onNavigateNode}
-            onRelayout={handleRelayout}
-            relayoutToken={relayoutToken}
-            height={height}
-            showViewFilter={hasStatusInfo}
-            onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
-            empty={
-              hasNodes ? undefined : (
-                <span>
-                  Схема пуста
-                  {isArchitect && (
-                    <>
-                      <br />
-                      <button className="btn-sm-primary" style={{ marginTop: 10 }} onClick={() => onNavigateMap?.(null)}>
-                        Начать наполнение
-                      </button>
-                    </>
-                  )}
-                </span>
-              )
-            }
-          />
-        </div>
+        {/* Пустой проект: в строке заголовка «Редактировать» нет (onEdit не передаём) —
+            её место занимает «Начать наполнение» внутри пустого окна, и ведёт она туда
+            же, в редактор-карту (решение пользователя 2026-09-05; прежняя «+ Объект» звала
+            страницу объекта с пустым id и не делала ничего). Чужая правка схемы: тост
+            внутри рамки схемы, его рисует сам блок (notice). */}
+        <EmbeddedSchemaBlock
+          title="Схема"
+          notice={remoteToast ? "Схему только что изменили в другом окне" : null}
+          nodes={graphNodes}
+          endpoints={endpoints}
+          edges={lvl.edges}
+          viewLayout={lvl.viewLayout}
+          containerId={null}
+          persistence={persistence}
+          ancestorNames={[]}
+          ancestorIds={[]}
+          ancestorElements={[]}
+          depth={0}
+          isArchitect={isArchitect}
+          schemaView={schemaView}
+          onSchemaViewChange={setSchemaView}
+          onNavigateNode={onNavigateNode}
+          onRelayout={handleRelayout}
+          relayoutToken={relayoutToken}
+          height={height}
+          showViewFilter={hasStatusInfo}
+          onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
+          empty={
+            hasNodes ? undefined : (
+              <span>
+                Схема пуста
+                {isArchitect && (
+                  <>
+                    <br />
+                    <button className="btn-sm-primary" style={{ marginTop: 10 }} onClick={() => onNavigateMap?.(null)}>
+                      Начать наполнение
+                    </button>
+                  </>
+                )}
+              </span>
+            )
+          }
+        />
 
         {/* ── Процессы ──────────────────────────────────────────── */}
         {processes.length > 0 && (
@@ -232,4 +230,5 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   );
 }
 
-// Тост «Схему только что изменили в другом окне» (remote-sync) — поверх окна схемы.
+// Тост «Схему только что изменили в другом окне» (remote-sync) рисует блок схемы внутри своей
+// рамки (EmbeddedSchemaBlock, notice).

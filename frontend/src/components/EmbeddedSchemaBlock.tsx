@@ -68,13 +68,17 @@ interface Props {
   // разделом страницы нового языка: заголовок, вкладки вида и «Редактировать» в одной
   // строке, рамка 1px, высота окна — clamp от высоты экрана (CSS), а не от ширины.
   title?: string;
+  // Тост поверх схемы («Схему только что изменили в другом окне»): текст или null. Блок
+  // рисует его внутри рамки сверху по центру (ui/ds.css, ds-toast--frame), и у пустой
+  // схемы тоже; щелчки тост пропускает. Срок показа держит страница.
+  notice?: string | null;
 }
 
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, ancestorElements, ancestorExternals, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
-  height, toolbarHint, showViewFilter, empty, title,
+  height, toolbarHint, showViewFilter, empty, title, notice,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -271,6 +275,9 @@ export default function EmbeddedSchemaBlock({
             <SchemaLegend />
           </>
         )}
+        {/* Тост чужой правки: внутри рамки, а не на строке заголовка раздела (там он
+            закрывал вкладки вида и «Редактировать»). */}
+        {notice && <div className="ds-toast ds-toast--frame">{notice}</div>}
       </div>
 
       {/* Модалка выбора связи (общее плечо / несколько связей) */}
