@@ -425,6 +425,148 @@ button.seq-doc:focus-visible {
   padding-right: var(--win-pad);
 }
 
+/* Окно «Участники»: нынешние участники строками 30px без фона (значок, имя, «Убрать»),
+   подложка под курсором; список прокручивается (до 140px). «Убрать» — кнопка-значок 24px:
+   видна под курсором строки и при фокусе клавиатуры внутри строки (прозрачность, а не
+   скрытие: кнопка остаётся в порядке Tab; :focus-visible, а не :focus-within: щелчок
+   мышью значок не закрепляет), на устройствах без наведения видна всегда — как значки
+   строк окна «Площадки» (deployment.css). */
+.proc-parts {
+  display: flex;
+  flex-direction: column;
+  max-height: 140px;
+  margin: 0 -6px;
+  overflow: auto;
+}
+.proc-part {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 3px 0 6px;
+  border-radius: var(--radius);
+}
+.proc-part:hover {
+  background: var(--c-hover);
+}
+.proc-part-glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+}
+.proc-part-glyph.is-broken {
+  color: var(--c-warn);
+}
+.proc-part-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--c-fg);
+}
+.ds-icon-btn.proc-part-x {
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+}
+.proc-part:hover .proc-part-x,
+.proc-part-x:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .ds-icon-btn.proc-part-x {
+    opacity: 1;
+  }
+}
+.proc-part .ds-icon-btn.proc-part-x:hover {
+  background: var(--c-line);
+}
+
+/* ── Выбор объектов (ParticipantPicker): поиск, дерево, «Добавить» ──
+   Дерево в рамке, строки 28px, подложка под курсором; шеврон и значок тихим цветом (глиф —
+   общий с деревом объектов, NodeTreePanel.css). Уже добавленный: имя и «в процессе» самым
+   тихим цветом, флажок отмечен и заперт. Отступ уровня — инлайн paddingLeft строки. */
+.pp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.pp-tree {
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+}
+.pp-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding-right: 8px;
+  border-radius: var(--radius);
+}
+.pp-row:hover {
+  background: var(--c-hover);
+}
+.pp-chev {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--c-fg-muted);
+  transition: transform 0.12s;
+}
+.pp-chev.has-kids {
+  cursor: pointer;
+}
+.pp-chev.is-open {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pp-chev {
+    transition: none;
+  }
+}
+.pp-row input[type="checkbox"] {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
+}
+.pp-row input[type="checkbox"]:disabled {
+  cursor: default;
+}
+/* Фокус флажка — кольцом языка только с клавиатуры, как у флажков окон (ui/ds.css). */
+.pp-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+.pp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.pp-row.is-added .pp-name {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+.pp-added {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-faint);
+}
+.pp-tree .pp-note {
+  margin: 0;
+  padding: 4px;
+}
+.pp-foot {
+  display: flex;
+}
+
 /* ── Тело холста процесса: диаграмма и панель шага справа (ProcessCanvas) ──
    Панель — часть раскладки: открылась — область диаграммы сузилась и вписалась заново. */
 .proc-body {

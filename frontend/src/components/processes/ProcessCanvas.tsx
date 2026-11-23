@@ -15,6 +15,7 @@ import ConfirmDialog from "../../ui/ConfirmDialog";
 import ParticipantDeleteConfirm, { type DelLink } from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
 import { C4Glyph, IcoBrokenLink, IcoClose } from "./icons";
+import { CloseIcon } from "../../ui/icons";
 import ProcessToolbar from "./ProcessToolbar";
 import SequenceDiagram from "./SequenceDiagram";
 import { deriveActivations } from "./sequence/layout";
@@ -440,23 +441,23 @@ export default function ProcessCanvas({
           <>
             <div className="proc-dim" onClick={() => closeOverlay("bindPart")} />
             <div className="proc-center">
-              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>
-                    Привязать «{partById[o.pid]?.name ?? "участника"}»
-                  </div>
-                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => closeOverlay("bindPart")}>
-                    <IcoClose s={14} />
+              <div className="ds ds-win ds-win--card proc-win">
+                <div className="ds-win-head">
+                  <h2 className="ds-win-title">Привязать «{partById[o.pid]?.name ?? "участника"}»</h2>
+                  <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={() => closeOverlay("bindPart")}>
+                    <CloseIcon />
                   </button>
                 </div>
-                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  Участник пришёл из импорта, или его объект удалили со схемы. Выберите, какому
-                  объекту он соответствует.
+                <div className="ds-win-body">
+                  <p className="ds-win-lead">
+                    Участник пришёл из импорта, или его объект удалили со схемы. Выберите, какому
+                    объекту он соответствует.
+                  </p>
+                  <ParticipantPicker
+                    added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                    onAdd={(ids) => { if (ids[0]) void requestBind(o.pid, ids[0]); }}
+                  />
                 </div>
-                <ParticipantPicker
-                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
-                  onAdd={(ids) => { if (ids[0]) void requestBind(o.pid, ids[0]); }}
-                />
               </div>
             </div>
           </>
@@ -468,37 +469,40 @@ export default function ProcessCanvas({
           <>
             <div className="proc-dim" onClick={() => closeOverlay("parts")} />
             <div className="proc-center">
-              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Участники</div>
-                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => closeOverlay("parts")}>
-                    <IcoClose s={14} />
+              <div className="ds ds-win ds-win--card proc-win">
+                <div className="ds-win-head">
+                  <h2 className="ds-win-title">Участники</h2>
+                  <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={() => closeOverlay("parts")}>
+                    <CloseIcon />
                   </button>
                 </div>
-                {detail.participants.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10, maxHeight: 140, overflow: "auto" }}>
-                    {[...detail.participants]
-                      .sort((a, b) => a.order - b.order)
-                      .map((p) => (
-                        <div key={p.id} style={partRow}>
-                          <span style={{ color: p.node_id ? (p.is_external ? BPT.mut : BPT.sec) : BROKEN.ink, display: "inline-flex" }}>
-                            {p.shape ? <C4Glyph shape={p.shape} s={15} /> : <IcoBrokenLink s={13} />}
-                          </span>
-                          <span style={{ fontSize: 13, color: BPT.head, flex: 1 }}>{p.name}</span>
-                          <button style={partX} title="Убрать" onClick={() => requestRemoveParticipant(p)}>
-                            <IcoClose s={13} />
-                          </button>
-                        </div>
-                      ))}
+                <div className="ds-win-body">
+                  {detail.participants.length > 0 && (
+                    <div className="proc-parts">
+                      {[...detail.participants]
+                        .sort((a, b) => a.order - b.order)
+                        .map((p) => (
+                          <div key={p.id} className="proc-part">
+                            {/* Без объекта (разорванная связь) — значок цветом предупреждения. */}
+                            <span className={"proc-part-glyph" + (p.node_id ? "" : " is-broken")}>
+                              {p.shape ? <C4Glyph shape={p.shape} s={15} /> : <IcoBrokenLink s={13} />}
+                            </span>
+                            <span className="proc-part-name">{p.name}</span>
+                            <button type="button" className="ds-icon-btn proc-part-x" title="Убрать" onClick={() => requestRemoveParticipant(p)}>
+                              <IcoClose s={13} />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  <div className="ds-win-block">
+                    <h3 className="ds-win-block-title">Добавить из дерева схемы</h3>
+                    <ParticipantPicker
+                      added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                      onAdd={(ids) => void addParticipants(ids)}
+                    />
                   </div>
-                )}
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: BPT.mut, marginBottom: 6 }}>
-                  Добавить из дерева схемы
                 </div>
-                <ParticipantPicker
-                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
-                  onAdd={(ids) => void addParticipants(ids)}
-                />
               </div>
             </div>
           </>
@@ -752,27 +756,3 @@ function PromptCard({
 
 // Подложка и центр окон и подтверждений — классы processes.css (proc-dim, proc-center,
 // proc-confirm-dim, proc-confirm-center): там же, почему подтверждение лежит выше окна.
-const confirmCard: CSSProperties = {
-  width: 300,
-  background: "#fff",
-  border: "1px solid " + BPT.line,
-  borderRadius: 13,
-  boxShadow: "0 20px 56px rgba(15,23,42,.24)",
-  padding: 16,
-};
-const partRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "5px 6px",
-  borderRadius: 7,
-  background: "#f8fafc",
-};
-const partX: CSSProperties = {
-  border: "none",
-  background: "none",
-  cursor: "pointer",
-  color: "#94a3b8",
-  display: "inline-flex",
-  padding: 2,
-};

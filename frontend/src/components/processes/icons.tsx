@@ -109,14 +109,6 @@ export function IcoDoc({ s = 12 }: { s?: number }) {
     </svg>
   );
 }
-export function IcoSearch({ s = 14 }: { s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="M16 16 L21 21" />
-    </svg>
-  );
-}
 export function IcoWarn({ s = 15 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.8}>

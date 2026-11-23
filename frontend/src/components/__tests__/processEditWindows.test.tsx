@@ -299,3 +299,41 @@ describe("окна «одно поле»: каркас нового языка",
     expect(win.querySelectorAll("[style]")).toHaveLength(0);
   });
 });
+
+// Окна «Участники» и «Привязать «…»» на новом языке (фаза 13г): каркас ds-win карточкой,
+// крестик «Закрыть», строки участников без фона, заголовок блока выбора без капса.
+describe("окна выбора объектов: каркас нового языка", () => {
+  it("«Участники»: каркас, крестик «Закрыть» закрывает, строки и заголовок блока", async () => {
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Добавить участника" }));
+    const title = await screen.findByRole("heading", { level: 2, name: "Участники" });
+    const win = windowOf(title);
+    expect(win).toHaveClass("ds", "ds-win", "ds-win--card");
+    expect(screen.getByRole("heading", { level: 3, name: "Добавить из дерева схемы" })).toHaveClass("ds-win-block-title");
+    const removes = within(win).getAllByTitle("Убрать");
+    expect(removes.every((b) => b.classList.contains("ds-icon-btn"))).toBe(true);
+    // Участник без объекта — значок цветом предупреждения.
+    const broken = within(win).getByText("Биллинг").parentElement?.querySelector(".proc-part-glyph");
+    expect(broken).toHaveClass("is-broken");
+    expect(within(win).getByText("Покупатель", { selector: ".proc-part-name" }).parentElement?.querySelector(".proc-part-glyph"))
+      .not.toHaveClass("is-broken");
+    await within(win).findByText("Склад");
+    // Инлайн-стиль в окне — только отступ уровня строк дерева.
+    const styled = [...win.querySelectorAll(":not(svg)[style]")].map((e) => e.getAttribute("style"));
+    expect(styled.every((st) => /^padding-left: \d+px;$/.test(st ?? ""))).toBe(true);
+    await userEvent.click(within(win).getByRole("button", { name: "Закрыть" }));
+    await waitFor(() => expect(screen.queryByText("Участники")).toBeNull());
+    noWrites();
+  });
+
+  it("«Привязать «…»»: каркас, пояснение абзацем, крестик «Закрыть» закрывает", async () => {
+    await open();
+    await userEvent.click(screen.getByText("bind-u"));
+    const win = windowOf(await screen.findByRole("heading", { level: 2, name: "Привязать «Биллинг»" }));
+    expect(win).toHaveClass("ds", "ds-win", "ds-win--card");
+    expect(within(win).getByText(/Участник пришёл из импорта/)).toHaveClass("ds-win-lead");
+    await userEvent.click(within(win).getByRole("button", { name: "Закрыть" }));
+    await waitFor(() => expect(screen.queryByText("Привязать «Биллинг»")).toBeNull());
+    noWrites();
+  });
+});

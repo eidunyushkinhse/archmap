@@ -3,14 +3,17 @@
 // совпадениям), мультивыбор чекбоксами и добавление пачкой. Уже добавленные участники
 // помечены и недоступны. Дерево собирается на клиенте из плоского /nodes/all. Источник
 // объектов и правило отбора участников общие с окном импорта (schemaNodes).
+// Вид — новый язык (редизайн, фаза 13г; processes.css, блок «Выбор объектов»): поле
+// поиска ds-input без значка, как в дереве объектов слева; дерево в рамке, строки 28px;
+// «Добавить» главной кнопкой у левого края под деревом.
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Node } from "../../types";
 import { treeNesting } from "../../types";
 import { Chevron, ShapeGlyph } from "../nodeTree.shared";
-import { IcoSearch } from "./icons";
-import { BPT } from "./tokens";
 import "../NodeTreePanel.css";
+import "../../ui/ds.css";
+import "./processes.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { useSchemaNodes } from "./schemaNodes";
 
@@ -77,14 +80,11 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
     const isSel = selected.has(n.id);
     return (
       <div key={n.id}>
-        <div style={{ ...row, paddingLeft: 6 + depth * 16, opacity: isAdded ? 0.5 : 1 }}>
+        {/* Отступ уровня — единственное вычисляемое свойство строки. */}
+        <div className={"pp-row" + (isAdded ? " is-added" : "")} style={{ paddingLeft: 6 + depth * 16 }}>
           <span
+            className={"pp-chev" + (hasKids ? " has-kids" : "") + (open ? " is-open" : "")}
             onClick={hasKids ? () => toggleOpen(n.id) : undefined}
-            style={{
-              width: 14, height: 14, display: "inline-flex", alignItems: "center",
-              color: BPT.mut, cursor: hasKids ? "pointer" : "default",
-              transform: open ? "rotate(90deg)" : "none", transition: "transform .12s",
-            }}
           >
             {hasKids ? <Chevron /> : null}
           </span>
@@ -93,20 +93,14 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
             checked={isAdded || isSel}
             disabled={isAdded}
             onChange={() => toggleSel(n.id)}
-            style={{ cursor: isAdded ? "default" : "pointer", flex: "none" }}
           />
-          <span style={{ color: n.is_external ? BPT.mut : BPT.sec, display: "inline-flex", flex: "none" }}>
-            {/* Глиф — как в дереве объектов: пустая система (лист с элементом «система»,
-                Р39) и внешняя система (Р42) рисуются системой, а не листом */}
-            <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
-          </span>
-          <span
-            onClick={() => toggleSel(n.id)}
-            style={{ fontSize: 13, color: BPT.head, cursor: isAdded ? "default" : "pointer", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-          >
+          {/* Глиф — как в дереве объектов: пустая система (лист с элементом «система»,
+              Р39) и внешняя система (Р42) рисуются системой, а не листом */}
+          <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
+          <span className="pp-name" onClick={() => toggleSel(n.id)}>
             {n.name}
           </span>
-          {isAdded && <span style={{ fontSize: 10, color: BPT.mut, flex: "none" }}>в процессе</span>}
+          {isAdded && <span className="pp-added">в процессе</span>}
         </div>
         {open && hasKids && kids.map((k) => renderRow(k, depth + 1))}
       </div>
@@ -120,60 +114,30 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
   }
 
   return (
-    <div>
-      <div style={searchWrap}>
-        <span style={{ color: BPT.mut, display: "inline-flex", flex: "none" }}>
-          <IcoSearch s={14} />
-        </span>
-        <input
-          {...noAutofill("participant-picker-1")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск по имени"
-          style={{ border: "none", outline: "none", fontSize: 13, flex: 1, background: "transparent", color: BPT.head }}
-        />
-      </div>
-      <div style={listBox}>
+    <div className="pp">
+      <input
+        {...noAutofill("participant-picker-1")}
+        className="ds-input"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Поиск по имени"
+      />
+      <div className="pp-tree">
         {error ? (
-          <div style={{ fontSize: 12, color: "#dc2626", padding: 8 }}>{error}</div>
+          <p className="ds-danger pp-note">{error}</p>
         ) : nodes === null ? (
-          <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>Загрузка</div>
+          <p className="ds-empty pp-note">Загрузка</p>
         ) : roots.length === 0 ? (
-          <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>В схеме нет объектов</div>
+          <p className="ds-empty pp-note">В схеме нет объектов</p>
         ) : (
           roots.map((r) => renderRow(r, 0))
         )}
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-        <button className="bp-btn-primary" onClick={add} disabled={selected.size === 0}>
+      <div className="pp-foot">
+        <button type="button" className="ds-btn ds-btn--primary" onClick={add} disabled={selected.size === 0}>
           {selected.size > 0 ? `Добавить (${selected.size})` : "Добавить"}
         </button>
       </div>
     </div>
   );
 }
-
-const searchWrap: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 7,
-  height: 34,
-  padding: "0 10px",
-  border: "1px solid " + BPT.line,
-  borderRadius: 8,
-  marginBottom: 8,
-};
-const listBox: CSSProperties = {
-  maxHeight: 260,
-  overflow: "auto",
-  border: "1px solid " + BPT.line,
-  borderRadius: 8,
-  padding: "4px 2px",
-};
-const row: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 7,
-  padding: "3px 8px 3px 0",
-  borderRadius: 6,
-};

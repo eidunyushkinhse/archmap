@@ -117,3 +117,47 @@ describe("ParticipantPicker: выбор, поиск, состояния", () => 
     expect(await screen.findByText("Не удалось загрузить объекты. Сервер не ответил")).toBeInTheDocument();
   });
 });
+
+// Вид выбора на новом языке (фаза 13г): поле поиска ds-input без значка, «Добавить» главной
+// кнопкой языка, состояния абзацами ds-empty и ds-danger, у строк только отступ уровня.
+describe("ParticipantPicker: вид нового языка", () => {
+  beforeEach(() => {
+    vi.mocked(nodesApi.getAll).mockReset();
+  });
+
+  it("поле поиска и кнопка — примитивы языка; инлайн-стиль только у отступа уровня", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      node("trade", { name: "Торговля", has_children: true, child_count: 1, element_effective: "system" }),
+      node("api", { name: "Order API", parent_id: "trade" }),
+    ]);
+    const { container } = render(<ParticipantPicker added={new Set(["api"])} onAdd={vi.fn()} />);
+    await screen.findByText("Торговля");
+    const search = screen.getByPlaceholderText("Поиск по имени");
+    expect(search).toHaveClass("ds-input");
+    // Поле стоит первым в выборе, без значка лупы перед ним.
+    expect(search.parentElement).toHaveClass("pp");
+    expect(search.previousElementSibling).toBeNull();
+    expect(screen.getByRole("button", { name: "Добавить" }).className).toBe("ds-btn ds-btn--primary");
+    await userEvent.click(screen.getByText("Торговля").parentElement?.firstElementChild as HTMLElement);
+    expect(screen.getByText("в процессе")).toHaveClass("pp-added");
+    // Шеврон общий с деревом объектов (nodeTree.shared) и несёт свой display: его не считаем.
+    const styled = [...container.querySelectorAll(":not(svg)[style]")].map((e) => e.getAttribute("style"));
+    expect(styled).toEqual(["padding-left: 6px;", "padding-left: 22px;"]);
+  });
+
+  it("«Загрузка» и пустая схема — ds-empty, отказ — ds-danger", async () => {
+    vi.mocked(nodesApi.getAll).mockReturnValue(new Promise(() => {}));
+    const first = render(<ParticipantPicker added={new Set()} onAdd={vi.fn()} />);
+    expect(screen.getByText("Загрузка")).toHaveClass("ds-empty");
+    first.unmount();
+
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+    const second = render(<ParticipantPicker added={new Set()} onAdd={vi.fn()} />);
+    expect(await screen.findByText("В схеме нет объектов")).toHaveClass("ds-empty");
+    second.unmount();
+
+    vi.mocked(nodesApi.getAll).mockRejectedValue(new Error("Сервер не ответил"));
+    render(<ParticipantPicker added={new Set()} onAdd={vi.fn()} />);
+    expect(await screen.findByText("Не удалось загрузить объекты. Сервер не ответил")).toHaveClass("ds-danger");
+  });
+});
