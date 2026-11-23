@@ -82,8 +82,8 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
   );
 }
 
-// Зона архивов и итог превью под ней. Плашки пределов демо-стенда прежнего вида живут в
-// legacy-root: область .ds окна держит их на прежних метриках (ui/tokens.css).
+// Зона архивов и итог превью под ней. Сообщения пределов демо-стенда — абзацы нового языка
+// (components/demo/DemoLimitNotice) на метриках окна.
 function IntoInputs({ into }: { into: ImportInto }) {
   const { fresh, excess, questions } = into;
   const ok = fresh?.ok === true && !excess;
@@ -102,9 +102,9 @@ function IntoInputs({ into }: { into: ImportInto }) {
         notes={into.drop.error && <p className="ds-warn fz-line">{into.drop.error}</p>}
       />
       {into.checking && <p className="ii-line ii-quiet">Считаем, что добавится</p>}
-      {into.tooBig && <div className="legacy-root"><FileTooBigNotice {...into.tooBig} /></div>}
+      {into.tooBig && <FileTooBigNotice {...into.tooBig} />}
       {/* Не помещается в демо: вместо диффа и вопросов — отказ с полоской. */}
-      {excess && <div className="legacy-root"><DemoExcessNotice excess={excess} scope="project" /></div>}
+      {excess && <DemoExcessNotice excess={excess} scope="project" />}
       {fresh && !excess && (
         <div className="ii-result">
           {/* Та же строка статуса, что в окне создания (§1.2): отказ разбора архива — её

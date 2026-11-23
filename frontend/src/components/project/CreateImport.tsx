@@ -4,9 +4,8 @@
 // «Импорте» ни слова об агенте: окно ввоза не знает, откуда у пользователя файлы.
 //
 // После применения вместо всего этого — отчёт: что приехало и что придётся поправить
-// руками; из него уходят в проект кнопкой «Открыть проект». Плашки пределов демо-стенда
-// прежнего вида живут в legacy-root: область .ds окна держит их на прежних метриках
-// (ui/tokens.css).
+// руками; из него уходят в проект кнопкой «Открыть проект». Сообщения пределов демо-стенда
+// — абзацы нового языка (components/demo/DemoLimitNotice) на метриках окна.
 import { useId } from "react";
 import type { ArchiveImportResult } from "../../types";
 import GrowField from "../../ui/GrowField";
@@ -35,8 +34,8 @@ export default function CreateImport({ cp }: { cp: CreateProject }) {
         summary={imp.excess ? null : (imp.fresh?.c4 ?? null)}
         remainder={imp.remainder}
       />
-      {imp.tooBig && <div className="legacy-root"><FileTooBigNotice {...imp.tooBig} /></div>}
-      {imp.excess && <div className="legacy-root"><DemoExcessNotice excess={imp.excess} scope="files" /></div>}
+      {imp.tooBig && <FileTooBigNotice {...imp.tooBig} />}
+      {imp.excess && <DemoExcessNotice excess={imp.excess} scope="files" />}
     </>
   );
   if (!agent) return <section className="ds-win-block">{pane}</section>;

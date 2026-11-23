@@ -3,7 +3,7 @@
    строка списка, тихая кнопка «Добавить», вторичная кнопка, каркас окна с блоками,
    поле ввода и список выбора формы, вкладки-текст, меню, предупреждение, тихая таблица,
    строки «подпись — значение», поле в виде текста, подтверждение, тост, отказ загрузки,
-   «Что-то сломалось». Значения — только токены ui/tokens.css. Класс ставит переведённый
+   «Что-то сломалось», пределы демо-стенда. Значения — только токены ui/tokens.css. Класс ставит переведённый
    экран (корень с .ds); стили импортирует
    каждый модуль, который ставит класс (как ui/smallButton.css): стили чужого ленивого
    чанка на странице могут быть не загружены. */
@@ -772,6 +772,53 @@ textarea.ds-input {
 }
 .ds-crash .ds-fail-acts {
   margin-top: var(--space-4);
+}
+
+/* ── Пределы демо-стенда (components/demo/DemoLimitNotice) ───────────────────
+   Сообщение — абзац ds-danger без коробки, начало выделено <strong> тем же цветом. В окнах
+   ввоза у сообщения своих отступов нет (шаг задаёт блок окна), под ним полоска «142 из 100»:
+   подпись и цифры 12px тихим цветом (цифры табличные), дорожка 4px цвета линии, заполнение
+   цветом опасности. Отказ записи в разделах страницы объекта — тот же абзац с отступом 10px
+   снизу. */
+.ds-limit {
+  display: grid;
+  gap: var(--space-3);
+}
+.ds-limit-msg {
+  margin: 0;
+}
+.ds-limit-note {
+  margin: 0 0 10px;
+}
+.ds-limit-msg strong,
+.ds-limit-note strong {
+  font-weight: 600;
+  color: inherit;
+}
+.ds-limit-meter {
+  display: grid;
+  gap: var(--space-1);
+}
+.ds-limit-meter-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ds-limit-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-line);
+  overflow: hidden;
+}
+.ds-limit-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--c-danger);
 }
 
 /* ── Тихая таблица: шапка 12px, строки с волосяной линией сверху ─────────── */

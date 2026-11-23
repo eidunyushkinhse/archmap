@@ -1,8 +1,8 @@
 // План обновления в окне «Обновить из кода»: галочки «что обновлять», состояние сверки и
 // сам план по разделам (syncPlanView считает, здесь только вид). Показываются только
-// изменения; раздел — название и число тихим цветом, разделы, требующие внимания
-// (пропажи), — цветом предупреждения. Плашки пределов демо-стенда прежнего вида живут в
-// legacy-root: область .ds окна держит их на прежних метриках (ui/tokens.css).
+// изменения; раздел — название и число тихим цветом, а разделы, требующие внимания
+// (пропажи), выделены цветом предупреждения. Сообщения пределов демо-стенда — абзацы нового
+// языка (components/demo/DemoLimitNotice) на метриках окна.
 import type { SyncPolicies } from "../../types";
 import type { SyncImport } from "./useSyncImport";
 import { planSections, planSummary } from "./syncPlanView";
@@ -59,9 +59,9 @@ export default function SyncPlan({ imp }: { imp: SyncImport }) {
       </div>
 
       {imp.checking && <p className="sync-line sync-quiet">Сверяем со схемой</p>}
-      {imp.tooBig && <div className="legacy-root"><FileTooBigNotice {...imp.tooBig} /></div>}
+      {imp.tooBig && <FileTooBigNotice {...imp.tooBig} />}
       {/* Не помещается в демо: вместо плана — отказ с полоской. */}
-      {excess && <div className="legacy-root"><DemoExcessNotice excess={excess} scope="project" /></div>}
+      {excess && <DemoExcessNotice excess={excess} scope="project" />}
       {preview && !preview.ok && <NoteList title="YAML не читается" items={preview.errors ?? []} />}
       {preview?.ok && !excess && (
         <div className="sync-plan">
