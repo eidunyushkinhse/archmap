@@ -355,6 +355,14 @@ describe("UsersPage", () => {
     expect(кебаб("ivan")).toHaveAttribute("aria-expanded", "false");
   });
 
+  // Перенос в таблице (редизайн, фаза 13в): логин бывает длинным без пробелов, его ячейка
+  // переносится в любом месте (ds-td-long); статус, роль и дата рвутся только по словам.
+  it("ячейка логина переносится в любом месте, статус и дата — только по словам", async () => {
+    await setup([boss, petr]);
+    expect(screen.getByText("petr").closest("td")).toHaveClass("ds-td-long");
+    expect(screen.getByText("Заблокирован").closest("td")).not.toHaveClass("ds-td-long");
+  });
+
   it("«Все проекты» ведёт обратно", async () => {
     const props = await setup([boss]);
     // У логотипа в шапке то же имя «Все проекты» (aria-label); здесь — кнопка-текст.

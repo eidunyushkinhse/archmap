@@ -155,7 +155,8 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
             <tbody>
               {users.map((u) => (
                 <tr key={u.id} data-testid={`user-row-${u.username}`}>
-                  <td>
+                  {/* Логин бывает длинным без пробелов: переносится в любом месте (ds-td-long). */}
+                  <td className="ds-td-long">
                     <span className="lp-login">{u.username}</span>
                     {u.id === meId && <span className="lp-self">вы</span>}
                   </td>

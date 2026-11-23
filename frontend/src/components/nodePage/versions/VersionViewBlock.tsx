@@ -35,6 +35,17 @@ const TAG: Record<Exclude<DiffMark, "">, { cls: string; text: string }> = {
 
 type Row = NonNullable<VersionView["rows"]>[number];
 
+// Значение со «словом» от 40 знаков без пробелов (длинный адрес базы, ссылка, ключ): его
+// ячейка переносится в любом месте (ds-td-long, ui/ds.css) и своей длины колонке не
+// навязывает, иначе таблица шире окна, а соседние колонки сжаты. Прочие значения (тип,
+// «да», имя параметра, короткий адрес) рвутся только по словам (редизайн, фаза 13в).
+const LONG_RUN = /\S{40}/;
+function cellClass(row: Row, j: number): string | undefined {
+  const change = row.changed.find((c) => c.index === j);
+  const texts = change ? [change.was, change.now] : [row.cells[j] ?? ""];
+  return texts.some((t) => LONG_RUN.test(t)) ? "ds-td-long" : undefined;
+}
+
 // Ячейки строки таблицы: у отличающейся от другой стороны — «было» зачёркнуто, «стало»
 // рядом; прочие — текстом как есть.
 function rowCells(row: Row): ReactNode[] {
@@ -86,7 +97,7 @@ export default function VersionViewBlock({ view }: { view: VersionView }) {
                     )}
                   </td>
                 )}
-                {rowCells(row).map((cell, j) => <td key={j}>{cell}</td>)}
+                {rowCells(row).map((cell, j) => <td key={j} className={cellClass(row, j)}>{cell}</td>)}
               </tr>
             ))}
           </tbody>
