@@ -91,7 +91,10 @@ export default function App() {
   // «Кто я» (роль и признак администратора из БД) — внешний стор api/auth. Подписка
   // перерисовывает дерево, когда ответ /auth/me пришёл: страницы зовут синхронный
   // getUserRole() в рендере и видят свежую роль, а не записанную в токен при входе.
-  useSyncExternalStore(subscribeMe, getMe);
+  const me = useSyncExternalStore(subscribeMe, getMe);
+  // Ответ /auth/me не пришёл (не 401: сбой сервера или сети). Экран «Пользователи» тогда
+  // рисуется, как раньше: права проверит сервер.
+  const [meFailed, setMeFailed] = useState(false);
 
   useEffect(() => {
     const onHash = () => { setRoute(routeFromHash()); };
@@ -103,8 +106,16 @@ export default function App() {
   // до ответа (и без него) действует роль из токена; 401 блокировки ловит подписка ниже.
   useEffect(() => {
     if (!authenticated) return;
-    fetchMe().catch(() => {});
+    fetchMe().then(() => setMeFailed(false), () => setMeFailed(true));
   }, [authenticated]);
+
+  // «Пользователи» — экран администратора. Того, кто не администратор (и гостя демо-стенда),
+  // адрес уводит на «Все проекты» (редизайн, фаза 13в). Признак администратора приходит
+  // только с /auth/me: пока ответа нет, решения нет.
+  const usersDenied = authenticated && route.name === "users" && (getIsGuest() || (me !== null && !me.is_admin));
+  useEffect(() => {
+    if (usersDenied) window.location.hash = "/projects";
+  }, [usersDenied]);
 
   useEffect(() => {
     let alive = true;
@@ -117,6 +128,7 @@ export default function App() {
   // после входа со «Всех проектов»; иначе адрес сохраняется и человек вернётся туда же.
   const resetSession = useCallback((notice: string | null, toProjects: boolean) => {
     clearToken();
+    setMeFailed(false);
     setCurrentProjectId(null);
     setLoginNotice(notice);
     setAuthenticated(false);
@@ -163,8 +175,11 @@ export default function App() {
   // Ключ сброса границ ошибок: ушли на другой маршрут — упавшую страницу пробуем снова.
   const resetKey = JSON.stringify(route);
 
-  // Гостю демо-стенда экран «Пользователи» недоступен: ведём на «Все проекты».
-  if (route.name === "users" && !getIsGuest()) {
+  // Экран «Пользователи» — администратору. До ответа «кто я» не рисуем ничего: не мелькнуть
+  // заголовком и кнопками администратора. Не администратору — «Все проекты» ниже, адрес
+  // меняет эффект usersDenied.
+  if (route.name === "users" && !usersDenied) {
+    if (me === null && !meFailed) return null;
     return (
       <ErrorBoundary resetKey={resetKey}>
         <Suspense fallback={null}>

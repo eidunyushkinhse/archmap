@@ -22,9 +22,10 @@ beforeEach(() => {
   clearToken();
   window.location.hash = "";
   vi.spyOn(console, "error").mockImplementation(() => {});
+  // Администратор: экран «Пользователи» (второй тест) рисуется только ему (фаза 13в).
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(JSON.stringify({ id: "u1", username: "ivan", role: "architect", is_admin: false }), {
+    vi.fn(async () => new Response(JSON.stringify({ id: "u1", username: "ivan", role: "architect", is_admin: true }), {
       status: 200, headers: { "Content-Type": "application/json" },
     })),
   );

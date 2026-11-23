@@ -2,7 +2,7 @@
 // удалённая песочница выводит на демо-вход с предупреждением, истёкший токен гостя —
 // на демо-вход без предупреждения, экран «Пользователи» гостю недоступен. Страницы проекта —
 // заглушки; настоящие api/auth и client работают поверх подменённого fetch.
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import App from "../App";
 import { clearToken, saveToken } from "../api/auth";
@@ -89,5 +89,7 @@ describe("App на демо-стенде", () => {
     render(<App />);
     expect(await screen.findByTestId("projects")).toBeInTheDocument();
     expect(screen.queryByTestId("users-page")).toBeNull();
+    // Адрес тоже уводится на «Все проекты» (редизайн, фаза 13в).
+    await waitFor(() => expect(window.location.hash).toBe("#/projects"));
   });
 });
