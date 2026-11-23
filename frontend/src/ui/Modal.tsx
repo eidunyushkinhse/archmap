@@ -135,14 +135,16 @@ export default function Modal({
   );
 }
 
-// Сброс UA-стилей <dialog> (чёрная рамка, padding, узкий max-*) + наш бокс.
+// Сброс UA-стилей <dialog> (чёрная рамка, padding, узкий max-*) + наш бокс. Тень — токен окна
+// с запасным значением: живая схема лендинга (embed) токенов не грузит, а окно выбора связи
+// открывается и в ней.
 const dialogBase: CSSProperties = {
   border: "none",
   padding: 0,
   maxWidth: "calc(100vw - 32px)",
   background: "#fff",
   borderRadius: 12,
-  boxShadow: "0 16px 40px rgba(15,23,42,.18)",
+  boxShadow: "var(--shadow-window, 0 16px 40px rgba(15, 23, 42, 0.18))",
   // Цвет текста (сброс UA-цвета CanvasText) — правилом в modal.css, от родителя окна.
 };
 // Обёртка контента: дефолтный padding 28 (переопределяется через boxStyle.padding)

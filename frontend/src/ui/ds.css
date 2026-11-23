@@ -1160,7 +1160,7 @@ textarea.ds-input {
   border: 1px solid var(--c-line);
   border-radius: 12px;
   background: var(--c-bg);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  box-shadow: var(--shadow-window);
 }
 
 /* ── Подтверждение: окно-вопрос на каркасе .ds-win (ui/ConfirmDialog) ─────────

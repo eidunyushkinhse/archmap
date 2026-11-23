@@ -35,6 +35,11 @@
   --radius: 6px;
   --radius-lg: 10px;
 
+  /* Тени слоёв поверх страницы: окно (ui/Modal и окно карточкой .ds-win--card) и панель
+     пояснения «?» (ui/popover.css). Значения прежние: цвет тени не токен текста, а свой. */
+  --shadow-window: 0 16px 40px rgba(15, 23, 42, 0.18);
+  --shadow-popover: 0 8px 28px rgba(15, 23, 42, 0.16);
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
