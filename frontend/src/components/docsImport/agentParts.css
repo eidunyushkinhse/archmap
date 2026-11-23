@@ -39,12 +39,12 @@
   color: var(--c-fg);
   resize: vertical;
 }
-/* Кольцо фокуса поля: рамка акцентом и светлый ореол 3px. Ореол прежнего оттенка (#bfdbfe):
-   у токена --c-accent-soft он светлее, и перевод на токен поменял бы вид кольца. */
+/* Кольцо фокуса поля то же, что у полей языка (ui/ds.css, .ds-input:focus): рамка акцентом
+   и светлый ореол 3px. */
 .pcb-area:focus {
   outline: none;
   border-color: var(--c-accent);
-  box-shadow: 0 0 0 3px #bfdbfe;
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
 
 /* Список замечаний: заголовок цветом предупреждения, пункты тихим цветом. */
