@@ -73,7 +73,7 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
   const canApply = !!preview && !preview.is_noop && !applying;
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 560, padding: 0 }}>
+    <Modal onClose={onClose} boxStyle={{ width: 560, padding: 0 }}>
       <div className="ds ds-win">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Принять переход</h2>

@@ -49,7 +49,7 @@ export default function EdgeChoiceModal<E extends ChoiceEdge>({
   onClose,
 }: Props<E>) {
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 440, padding: 0 }}>
+    <Modal onClose={onClose} boxStyle={{ width: 440, padding: 0 }}>
       <div className="ds ds-win">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Выберите связь</h2>

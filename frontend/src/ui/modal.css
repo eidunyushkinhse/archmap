@@ -30,10 +30,3 @@ dialog.app-modal:focus-visible {
   border-color: #2563eb;
   box-shadow: 0 0 0 3px #bfdbfe;
 }
-
-.app-modal .app-close {
-  color: #94a3b8;
-}
-.app-modal .app-close:hover {
-  color: #1e293b;
-}

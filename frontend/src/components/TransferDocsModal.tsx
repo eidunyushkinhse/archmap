@@ -189,7 +189,7 @@ function TransferForm({ data, onClose, onApplied }: {
 // Каркас окна: шапка с крестиком, тело с прокруткой, подвал (у загрузки его нет).
 function Window({ onClose, foot, children }: { onClose: () => void; foot?: ReactNode; children: ReactNode }) {
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 560, padding: 0 }}>
+    <Modal onClose={onClose} boxStyle={{ width: 560, padding: 0 }}>
       <div className="ds ds-win dw-win">
         <div className="ds-win-head">
           <h2 className="ds-win-title">{TITLE}</h2>

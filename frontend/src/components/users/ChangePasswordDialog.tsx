@@ -48,7 +48,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
 
   if (done) {
     return (
-      <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 440, padding: 0 }}>
+      <Modal onClose={onClose} boxStyle={{ width: 440, padding: 0 }}>
         <div className="ds ds-win">
           {head("Пароль изменён")}
           <div className="ds-win-body">
@@ -63,7 +63,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
   }
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} closeButton={false} boxStyle={{ width: 440, padding: 0 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 440, padding: 0 }}>
       <div className="ds ds-win">
         {head("Сменить пароль")}
 

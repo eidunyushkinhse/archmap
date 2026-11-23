@@ -75,7 +75,7 @@ export default function FactAgentModal<R extends FactReport>({
   }
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
+    <Modal onClose={onClose} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
       <div className="ds ds-win fact-win" {...drop.bind}>
         <div className="ds-win-head">
           <h2 className="ds-win-title">{kind.title}</h2>

@@ -157,7 +157,7 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
 
   return (
     <>
-      <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 520, padding: 0 }}>
+      <Modal onClose={onClose} boxStyle={{ width: 520, padding: 0 }}>
         <div className="ds ds-win">
           <div className="ds-win-head">
             <h2 className="ds-win-title">Доступ к проекту</h2>

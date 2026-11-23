@@ -100,7 +100,7 @@ function EdgeWindow({ onClose, onSubmit, children }: {
   children: ReactNode;
 }) {
   return (
-    <Modal onClose={onClose} onSubmit={onSubmit} closeButton={false} boxStyle={{ width: 480, padding: 0, overflow: "visible" }}>
+    <Modal onClose={onClose} onSubmit={onSubmit} boxStyle={{ width: 480, padding: 0, overflow: "visible" }}>
       <div className="ds ds-win ew-win">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Связь</h2>

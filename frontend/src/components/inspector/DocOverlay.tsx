@@ -64,7 +64,7 @@ export default function DocOverlay({
   }, [confirmClose, onClose]);
 
   return (
-    <Modal onClose={requestClose} closeButton={false} boxStyle={{ padding: 0 }}>
+    <Modal onClose={requestClose} boxStyle={{ padding: 0 }}>
       <div className="ds doc-root">
         {/* Вопрос — слоем внутри окна, а не вложенным <dialog> (ловушка Modal). */}
         {confirmClose && <ConfirmClose onBack={() => setConfirmClose(false)} onClose={onClose} />}

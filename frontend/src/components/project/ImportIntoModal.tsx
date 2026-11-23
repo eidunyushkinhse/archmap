@@ -44,7 +44,7 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
   return (
     // Окно прижато к верху, как «Новый проект»: высота меняется с приходом превью, и по
     // центру зона файлов прыгала бы по экрану.
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
+    <Modal onClose={onClose} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
       <div className="ds ds-win imp-res ii-win" {...(result ? {} : into.drop.bind)}>
         <div className="ds-win-head">
           <h2 className="ds-win-title">Догрузить архив</h2>

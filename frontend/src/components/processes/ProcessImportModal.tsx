@@ -249,7 +249,7 @@ export default function ProcessImportModal({ onClose, onImported, replace, onRep
       : "Импортировать";
 
   return (
-    <Modal onClose={onClose} onSubmit={() => void submit()} closeButton={false} boxStyle={{ width: 720, padding: 0 }}>
+    <Modal onClose={onClose} onSubmit={() => void submit()} boxStyle={{ width: 720, padding: 0 }}>
       <div
         className={"ds ds-win pim" + (dropping ? " is-drop" : "")}
         onDragOver={onDragOver}

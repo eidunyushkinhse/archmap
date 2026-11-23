@@ -50,7 +50,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
   };
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} closeButton={false} boxStyle={{ width: 480, padding: 0 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 480, padding: 0 }}>
       <div className="ds ds-win">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Редактировать проект</h2>

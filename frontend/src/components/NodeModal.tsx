@@ -155,7 +155,7 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
     }
   }
   return (
-    <Modal onClose={onClose} onSubmit={handleSave} closeButton={false} boxStyle={{ width: 480, padding: 0, margin: "8vh auto auto" }}>
+    <Modal onClose={onClose} onSubmit={handleSave} boxStyle={{ width: 480, padding: 0, margin: "8vh auto auto" }}>
       <div className="ds ds-win ds-win--top">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Новый объект</h2>

@@ -128,7 +128,7 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
 
   return (
     <>
-      <Modal onClose={onClose} closeButton={false} boxStyle={BOX}>
+      <Modal onClose={onClose} boxStyle={BOX}>
         <div className="ds ds-win ds-win--top">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Площадки</h2>

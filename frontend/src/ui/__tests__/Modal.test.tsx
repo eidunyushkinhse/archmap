@@ -52,12 +52,21 @@ describe("Modal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("крестик закрывает окно", () => {
+  // Своего крестика у ui/Modal нет (редизайн, фаза 13б): окна рисуют свой (ds-win-close) и
+  // закрываются им через тот же onClose; у подтверждений крестика нет вовсе.
+  it("своего крестика нет: в окне только кнопки содержимого, крестик окна закрывает его", () => {
     const onClose = vi.fn();
-    render(<Modal onClose={onClose}>содержимое</Modal>);
+    const { container } = render(<Modal onClose={onClose}>содержимое</Modal>);
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+    expect(screen.queryByLabelText("Закрыть")).toBeNull();
 
+    render(
+      <Modal onClose={onClose}>
+        <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose} />
+      </Modal>,
+    );
+    expect(screen.getAllByLabelText("Закрыть")).toHaveLength(1);
     screen.getByLabelText("Закрыть").click();
-
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

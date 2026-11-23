@@ -86,7 +86,7 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
   );
 
   return (
-    <Modal onClose={onDone} closeButton={false} boxStyle={{ width: 600, padding: 0 }}>
+    <Modal onClose={onDone} boxStyle={{ width: 600, padding: 0 }}>
       <div className="ds ds-win">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Токен выпущен</h2>

@@ -50,7 +50,6 @@ export default function ErDiagramModal({ chart, title, onClose }: Props) {
   return (
     <Modal
       onClose={onClose}
-      closeButton={false}
       boxStyle={{ width: "calc(100vw - 48px)", maxWidth: "none", padding: 0 }}
     >
       {/* Высоту задаёт СВОЙ корень окна (dw-er в docWindows.css), а не бокс: Modal кладёт

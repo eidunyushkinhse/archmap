@@ -80,7 +80,7 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
   };
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 720, padding: 0 }}>
+    <Modal onClose={onClose} boxStyle={{ width: 720, padding: 0 }}>
       <div className="ds ds-win">
         <div className="ds-win-head">
           <h2 className="ds-win-title">{title}</h2>

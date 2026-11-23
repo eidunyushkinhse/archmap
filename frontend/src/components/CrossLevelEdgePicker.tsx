@@ -244,7 +244,7 @@ export default function CrossLevelEdgePicker({
   const submit = () => { if (canCreate) void handleCreate(); };
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} closeButton={false} boxStyle={{ width: 480, padding: 0, margin: "8vh auto auto" }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 480, padding: 0, margin: "8vh auto auto" }}>
       <div className="ds ds-win ds-win--top">
         <div className="ds-win-head">
           <h2 className="ds-win-title">{title}</h2>

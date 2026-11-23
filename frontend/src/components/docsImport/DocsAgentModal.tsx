@@ -97,7 +97,7 @@ export default function DocsAgentModal({ nodeId, onClose, onApplied }: Props) {
   }
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
+    <Modal onClose={onClose} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
       <div className="ds ds-win dap-win" {...drop.bind}>
         <div className="ds-win-head">
           <h2 className="ds-win-title">Описать схемы логики с помощью ИИ-агента</h2>

@@ -81,7 +81,7 @@ export default function ConfirmDialog({
     return <div className="ds ds-win ds-confirm ds-confirm--card">{content}</div>;
   }
   return (
-    <Modal onClose={onCancel} onSubmit={onSubmit} closeButton={false} boxStyle={{ width: 440, padding: 0 }}>
+    <Modal onClose={onCancel} onSubmit={onSubmit} boxStyle={{ width: 440, padding: 0 }}>
       <div className="ds ds-win ds-confirm">{content}</div>
     </Modal>
   );

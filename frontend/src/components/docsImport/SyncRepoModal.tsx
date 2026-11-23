@@ -70,7 +70,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
       .then((r) => r.prompt));
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 640, padding: 0 }}>
+    <Modal onClose={onClose} boxStyle={{ width: 640, padding: 0 }}>
       <div className="ds ds-win sync-win" {...imp.drop.bind}>
         <div className="ds-win-head">
           <h2 className="ds-win-title">Обновить из кода</h2>

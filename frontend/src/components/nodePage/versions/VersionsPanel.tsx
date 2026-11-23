@@ -149,7 +149,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
 
   return (
     <>
-      <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 680, padding: 0, margin: "8vh auto auto" }}>
+      <Modal onClose={onClose} boxStyle={{ width: 680, padding: 0, margin: "8vh auto auto" }}>
         <div className="ds ds-win ds-win--top">
           {data === null ? (
             <>

@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { CloseIcon } from "./icons";
 import "./modal.css";
 
 interface ModalProps {
-  // Единственный канал закрытия: Escape и крестик (клик по подложке не закрывает).
+  // Единственный канал закрытия: Escape и крестик самого окна (у окон нового языка это
+  // ds-win-close; у подтверждений ui/ConfirmDialog крестика нет). Клик по подложке не
+  // закрывает. Своего крестика у ui/Modal нет.
   onClose: () => void;
   // Подтверждение окна с клавиатуры: Enter в однострочном поле, Ctrl/Cmd+Enter в
   // многострочном (там Enter — перенос строки). Передают окна с полями ввода; это тот
@@ -12,9 +13,6 @@ interface ModalProps {
   // делает того, чего не даёт кнопка. Окнам без полей (подтверждения) не нужен — там
   // Enter и так нажимает кнопку в фокусе.
   onSubmit?: () => void;
-  // Показывать крестик ✕. Дефолт true; false — у окон со своим крестиком (у окон нового языка
-  // это ds-win-close) и у подтверждений (ui/ConfirmDialog), где крестика нет.
-  closeButton?: boolean;
   // Переопределения геометрии бокса: width/maxHeight/overflowY уходят на <dialog>,
   // padding/display/flexDirection — на внутреннюю обёртку (см. split ниже).
   boxStyle?: CSSProperties;
@@ -60,7 +58,6 @@ function isSubmitKey(e: KeyboardEvent<HTMLElement>): boolean {
 export default function Modal({
   onClose,
   onSubmit,
-  closeButton = true,
   boxStyle,
   children,
 }: ModalProps) {
@@ -72,7 +69,7 @@ export default function Modal({
     // В StrictMode эффект может отработать дважды: повторный showModal на уже
     // открытом диалоге кидает исключение, поэтому проверяем open.
     if (!dialog.open) dialog.showModal();
-    // showModal уводит фокус на первый фокусируемый элемент (это был бы крестик ✕).
+    // showModal уводит фокус на первый фокусируемый элемент (это был бы крестик окна).
     // Если в контенте помечен [data-autofocus] — фокусируем его; иначе уводим фокус
     // на сам диалог (tabIndex=-1), чтобы не подсвечивать обводкой крестик.
     const target = dialog.querySelector<HTMLElement>("[data-autofocus]") ?? dialog;
@@ -118,11 +115,6 @@ export default function Modal({
         onSubmit();
       } : undefined}
     >
-      {closeButton && (
-        <button onClick={onClose} className="app-close" style={closeBtn} aria-label="Закрыть">
-          <CloseIcon />
-        </button>
-      )}
       <div style={{ ...wrapperBase, ...wrapperOverrides }}>{children}</div>
     </dialog>
   );
@@ -142,16 +134,4 @@ const dialogBase: CSSProperties = {
 // Обёртка контента: дефолтный padding 28 (переопределяется через boxStyle.padding)
 const wrapperBase: CSSProperties = {
   padding: 28,
-};
-const closeBtn: CSSProperties = {
-  position: "absolute",
-  top: 14,
-  right: 14,
-  border: "none",
-  background: "none",
-  cursor: "pointer",
-  color: "#94a3b8", // hover #1e293b — каскадом из modal.css (.app-close)
-  display: "inline-flex",
-  padding: 2,
-  zIndex: 1, // поверх контента обёртки
 };

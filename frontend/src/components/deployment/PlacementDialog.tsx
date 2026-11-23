@@ -202,7 +202,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   if (clearing) {
     const one = objects.length === 1 ? objects[0] : null;
     return (
-      <Modal onClose={onClose} closeButton={false} boxStyle={BOX}>
+      <Modal onClose={onClose} boxStyle={BOX}>
         <div className="ds ds-win ds-win--top ds-confirm">
           <div className="ds-win-head">
             <h2 className="ds-win-title">{one ? unplaceQuestion(one.name) : "Снять размещение выбранных объектов?"}</h2>
@@ -229,7 +229,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   const allPending = needAll && all.data === null;
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={BOX}>
+    <Modal onClose={onClose} boxStyle={BOX}>
       <div className="ds ds-win ds-win--top">
         <div className="ds-win-head">
           <h2 className="ds-win-title">Размещение</h2>
