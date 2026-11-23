@@ -3,7 +3,8 @@
 // менять пароль гостю незачем. Только гостю: гости бывают лишь на демо-стенде, а тур
 // App монтирует ровно им (demo_mode и гость). Пока тур на паузе (клик по затемнению,
 // docs/tasks/demo-tour-pause.md), кнопка — «Продолжить обучение»: тур ушёл в неё.
-// Вид (редизайн, фаза 12б): в покое вторичная кнопка языка (ds-btn), на паузе — главная.
+// Вид (редизайн, фазы 12б и 13а): в покое вторичная кнопка языка (ds-btn), на паузе — своя
+// кнопка с мягкой подложкой акцента (tour.css): рядом в шапке редактора стоит главная «Готово».
 import { useSyncExternalStore } from "react";
 import { getIsGuest } from "../../api/auth";
 import { getTourPaused, requestTourRestart, requestTourResume, subscribeTourPaused } from "./tourStore";
@@ -16,7 +17,7 @@ export default function TourHelpButton() {
   // Ключи разные: тур ушёл на паузу — новая кнопка, её вспышка проигрывается заново.
   return paused ? (
     <button
-      key="resume" type="button" className="ds-btn ds-btn--primary tour-pill--resume" data-tour-pill=""
+      key="resume" type="button" className="ds-btn tour-pill--resume" data-tour-pill=""
       onClick={requestTourResume} title="Вернуться к шагу обучения"
     >
       Продолжить обучение

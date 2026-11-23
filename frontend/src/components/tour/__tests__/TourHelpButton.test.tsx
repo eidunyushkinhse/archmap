@@ -50,6 +50,16 @@ describe("TourHelpButton", () => {
     expect(screen.queryByRole("button", { name: "Обучение" })).toBeNull();
   });
 
+  // Хвост приёмки фазы 12б: на паузе кнопка своего вида, не главная кнопка страницы (в
+  // шапке редактора рядом стоит главная «Готово»).
+  it("кнопка паузы — не главная кнопка страницы", () => {
+    render(<TourHelpButton />);
+    act(() => setTourPaused(true));
+    const paused = screen.getByRole("button", { name: "Продолжить обучение" });
+    expect(paused).toHaveClass("ds-btn", "tour-pill--resume");
+    expect(paused).not.toHaveClass("ds-btn--primary");
+  });
+
   it("не гостю — ничего", () => {
     vi.mocked(getIsGuest).mockReturnValue(false);
     const { container } = render(<TourHelpButton />);
