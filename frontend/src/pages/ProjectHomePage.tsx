@@ -21,7 +21,7 @@ import { DocRow, DocRowLabel } from "../components/docRow";
 import Section from "../ui/Section";
 import { useProjectRole } from "./projectRole";
 import "./NodePage.css";
-import "../ui/smallButton.css";
+import "../components/EmbeddedSchemaBlock.css";
 import "../ui/ds.css";
 
 interface Props {
@@ -190,7 +190,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
                 {isArchitect && (
                   <>
                     <br />
-                    <button className="btn-sm-primary" style={{ marginTop: 10 }} onClick={() => onNavigateMap?.(null)}>
+                    <button type="button" className="ds-btn ds-btn--primary esb-empty-act" onClick={() => onNavigateMap?.(null)}>
                       Начать наполнение
                     </button>
                   </>

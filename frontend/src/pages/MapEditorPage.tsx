@@ -1008,7 +1008,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           </div>
           <DemoLimitToast message={limitToast} />
           {loading ? (
-            <p style={{ color: "#6b7280", padding: 24 }}>Загрузка</p>
+            <p className="ds-empty ds-pane-note">Загрузка</p>
           ) : loadError ? (
             <LoadError what="уровень схемы" error={loadError.error} onRetry={retryLoad}
               onBack={onDone} backLabel="Закрыть редактор" />

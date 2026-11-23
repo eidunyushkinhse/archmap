@@ -29,4 +29,14 @@ describe("тяжёлая схема mermaid", () => {
     await userEvent.click(screen.getByRole("button", { name: "Показать всё равно" }));
     await waitFor(() => expect(render_).toHaveBeenCalledOnce());
   });
+
+  // Вид (редизайн, фаза 13б): второстепенное действие внутри заметки — вторичная кнопка языка.
+  it("«Показать всё равно» — вторичная кнопка ds-btn", () => {
+    render(<MermaidRenderer chart={heavy} />);
+    const btn = screen.getByRole("button", { name: "Показать всё равно" });
+    expect(btn).toHaveClass("ds-btn");
+    expect(btn).not.toHaveClass("ds-btn--primary");
+    expect(btn).toHaveAttribute("type", "button");
+    expect(btn).not.toHaveAttribute("style");
+  });
 });

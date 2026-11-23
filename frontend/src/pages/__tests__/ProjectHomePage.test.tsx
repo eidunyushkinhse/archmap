@@ -1,6 +1,7 @@
 // ProjectHomePage: отказ загрузки меты проекта или схемы корня — экран с причиной и
 // «Повторить», а не вечная «Загрузка» (аудит R-2, R-10). Тяжёлый блок схемы и
 // поллинг замоканы: проверяется оркестрация загрузки страницы.
+import type { ReactNode } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,8 +18,8 @@ vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: ({ title, notice }: { title?: string; notice?: string | null }) => (
-    <div data-testid="schema" data-title={title} data-notice={notice ?? ""} />
+  default: ({ title, notice, empty }: { title: string; notice?: string | null; empty?: ReactNode }) => (
+    <div data-testid="schema" data-title={title} data-notice={notice ?? ""}>{empty}</div>
   ),
 }));
 // Панель версий — маркер с пропсами: здесь проверяется вход из ⋯-меню проекта, сама
@@ -188,5 +189,38 @@ describe("ProjectHomePage: тост «Схему только что измен�
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Пустой проект: «Схема пуста» и у архитектора «Начать наполнение» главной кнопкой языка
+// (редизайн, фаза 13б), отступ сверху классом; ведёт в редактор-карту корня.
+describe("ProjectHomePage: пустая схема", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+  });
+
+  it("архитектор: «Начать наполнение» — ds-btn ds-btn--primary без инлайн-стиля, ведёт в редактор", async () => {
+    const onNavigateMap = vi.fn();
+    render(
+      <ProjectRoleContext.Provider value="editor">
+        <ProjectHomePage {...props} isArchitect onNavigateMap={onNavigateMap} />
+      </ProjectRoleContext.Provider>,
+    );
+    const btn = await screen.findByRole("button", { name: "Начать наполнение" });
+    expect(screen.getByTestId("schema")).toHaveTextContent("Схема пуста");
+    expect(btn).toHaveClass("ds-btn", "ds-btn--primary", "esb-empty-act");
+    expect(btn).not.toHaveAttribute("style");
+    expect(btn).toHaveAttribute("type", "button");
+    await userEvent.click(btn);
+    expect(onNavigateMap).toHaveBeenCalledWith(null);
+  });
+
+  it("читатель: только «Схема пуста», без кнопки", async () => {
+    render(<ProjectHomePage {...props} />);
+    await waitFor(() => expect(screen.getByTestId("schema")).toHaveTextContent("Схема пуста"));
+    expect(screen.queryByRole("button", { name: "Начать наполнение" })).toBeNull();
   });
 });

@@ -29,8 +29,8 @@ const SEG_SUB: Record<SchemaView, string> = {
 interface Props {
   view: SchemaView;
   onChange: (v: SchemaView) => void;
-  /** Раскладка: секция панели (по умолчанию), строка тулбара или вкладки-текст. */
-  variant?: "panel" | "inline" | "tabs";
+  /** Раскладка: секция панели (по умолчанию) или вкладки-текст. */
+  variant?: "panel" | "tabs";
 }
 
 export function SchemaViewFilter({ view, onChange, variant = "panel" }: Props) {
@@ -56,39 +56,27 @@ export function SchemaViewFilter({ view, onChange, variant = "panel" }: Props) {
       </div>
     );
   }
-  const inline = variant === "inline";
-  const seg = (
-    <div
-      className={"insp-seg" + (inline ? " insp-seg--inline" : "")}
-      role="radiogroup"
-      aria-label="Вид схемы"
-    >
-      {SCHEMA_VIEWS.map((v) => {
-        const active = v.id === view;
-        return (
-          <button
-            key={v.id}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(v.id)}
-            className={"insp-seg-btn" + (active ? " is-active" : "")}
-            // В одну строку пояснение не влезает — отдаём его подсказкой.
-            title={inline ? VIEW_BY_ID[v.id].hint : undefined}
-          >
-            <span className="insp-seg-main">{v.label}</span>
-            {!inline && <span className="insp-seg-sub">{SEG_SUB[v.id]}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  if (inline) return seg;
   return (
     <div>
       <div className="insp-eyebrow">Вид схемы</div>
-      {seg}
+      <div className="insp-seg" role="radiogroup" aria-label="Вид схемы">
+        {SCHEMA_VIEWS.map((v) => {
+          const active = v.id === view;
+          return (
+            <button
+              key={v.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(v.id)}
+              className={"insp-seg-btn" + (active ? " is-active" : "")}
+            >
+              <span className="insp-seg-main">{v.label}</span>
+              <span className="insp-seg-sub">{SEG_SUB[v.id]}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
