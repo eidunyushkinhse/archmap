@@ -174,6 +174,9 @@ describe("ProjectHomePage: тост «Схему только что измен�
     try {
       await act(async () => { sync.onRemoteChange(); });
       const тост = screen.getByText("Схему только что изменили в другом окне");
+      expect(тост).toHaveClass("ds-toast", "ds-toast--corner");
+      expect(тост).not.toHaveClass("legacy-root");
+      expect(тост).not.toHaveAttribute("style");
       expect(тост).not.toHaveAttribute("role");
       expect(тост).not.toHaveAttribute("aria-live");
       expect(тост.parentElement).toContainElement(screen.getByTestId("schema"));

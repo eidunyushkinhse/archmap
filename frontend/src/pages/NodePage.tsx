@@ -3,7 +3,6 @@
 // ровной сеткой (inline CAS), схема (контекст объекта виртуальным корневым уровнем —
 // SchemaSection), дальше только разделы с содержимым. Правка — по клику на значении.
 import { Fragment, useCallback, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
 import { nodeNesting, shapeDocs } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
@@ -67,14 +66,6 @@ const nodeSig = (n: Node): string => JSON.stringify([
 
 // Единиц статуса нет (лист, пустая система) — общий пустой список, без «Загрузки…».
 const NO_UNITS: Node[] = [];
-
-// Тост «Объект только что изменили в другом окне» — поверх страницы (fixed).
-const metaToastStyle: CSSProperties = {
-  position: "fixed", top: 74, right: 24, zIndex: 60,
-  background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3",
-  borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600,
-  boxShadow: "0 4px 12px rgba(30,41,59,.12)",
-};
 
 interface Props {
   nodeId: string;
@@ -369,7 +360,8 @@ function NodePageInner({
 
   return (
     <div className="np-page ds">
-      {metaToast && <div className="legacy-root" style={metaToastStyle}>Объект только что изменили в другом окне</div>}
+      {/* Чужая правка объекта: тост поверх страницы под шапкой у правого края (ui/ds.css). */}
+      {metaToast && <div className="ds-toast ds-toast--top-end">Объект только что изменили в другом окне</div>}
       <div className="np-inner">
         {/* ── Шапка: крошки, название, статус страницы и меню, описание ── */}
         <header className="np-header">

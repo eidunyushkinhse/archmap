@@ -821,7 +821,12 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     for (const тост of [схема, объект]) {
       expect(тост).not.toHaveAttribute("role");
       expect(тост).not.toHaveAttribute("aria-live");
+      expect(тост).toHaveClass("ds-toast");
+      expect(тост).not.toHaveClass("legacy-root");
+      expect(тост).not.toHaveAttribute("style");
     }
+    expect(схема).toHaveClass("ds-toast--corner");
+    expect(объект).toHaveClass("ds-toast--top-end");
   });
 
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {

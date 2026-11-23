@@ -14,7 +14,6 @@ import { usePersistenceHost } from "./usePersistenceHost";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
 import { useToast } from "./useToast";
-import { remoteToastStyle } from "../ui/remoteToast";
 import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
 import VersionsPanel from "../components/nodePage/versions/VersionsPanel";
@@ -158,7 +157,8 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
 
         {/* ── Схема (корневой уровень) ──────────────────────────── */}
         <div style={{ position: "relative" }}>
-          {remoteToast && <div className="legacy-root" style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
+          {/* Чужая правка схемы: тост в правом верхнем углу блока схемы (ui/ds.css). */}
+          {remoteToast && <div className="ds-toast ds-toast--corner">Схему только что изменили в другом окне</div>}
           {/* Пустой проект: в строке заголовка «Редактировать» нет (onEdit не передаём) —
               её место занимает «Начать наполнение» внутри пустого окна, и ведёт она туда
               же, в редактор-карту (решение пользователя 2026-09-05; прежняя «+ Объект» звала

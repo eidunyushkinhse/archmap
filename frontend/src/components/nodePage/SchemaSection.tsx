@@ -15,7 +15,6 @@ import EmbeddedSchemaBlock from "../EmbeddedSchemaBlock";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../schemaView";
 import type { LevelPersistenceProps, NavigateMap, ViewMetaRef } from "../graph/types";
 import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../pageSchema";
-import { remoteToastStyle } from "../../ui/remoteToast";
 import Section from "../../ui/Section";
 import "../../ui/ds.css";
 import "./schemaSection.css";
@@ -245,7 +244,8 @@ export default function SchemaSection({
 
   return (
     <div style={{ position: "relative" }}>
-      {remoteToast && <div className="legacy-root" style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
+      {/* Чужая правка схемы: тост в правом верхнем углу блока схемы (ui/ds.css). */}
+      {remoteToast && <div className="ds-toast ds-toast--corner">Схему только что изменили в другом окне</div>}
       <EmbeddedSchemaBlock
         nodes={view.nodes}
         endpoints={view.endpoints}
