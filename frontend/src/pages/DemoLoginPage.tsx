@@ -52,9 +52,9 @@ export default function DemoLoginPage({ onLogin, notice = null }: Props) {
         <div className="demo-box">
           <h2>Попробуйте ArchMap</h2>
           {message && (
-            <div className={`login-msg login-msg--${message.kind}`} role="alert">
+            <p className={`${message.kind === "error" ? "ds-danger" : "ds-warn"} login-msg`} role="alert">
               {message.text}
-            </div>
+            </p>
           )}
           <ul className="demo-facts">
             <li>Познакомьтесь с демо-проектом «Ярмарка». Вы поймёте, как может выглядеть ваша документация.</li>

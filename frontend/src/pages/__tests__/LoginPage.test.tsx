@@ -1,4 +1,4 @@
-// Страница входа: поля и кнопка, ошибка сервера и notice в плашках, глаз пароля,
+// Страница входа: поля и кнопка, ошибка сервера и notice сообщениями, глаз пароля,
 // неактивная кнопка во время запроса, onLogin после успешного входа.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -52,14 +52,14 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: "Войти" })).toHaveAttribute("type", "submit");
   });
 
-  it("неверный вход: красная плашка с текстом сервера, красная рамка пароля", async () => {
+  it("неверный вход: сообщение цветом опасности с текстом сервера, красная рамка пароля", async () => {
     vi.mocked(login).mockRejectedValue(new Error("Неверный логин или пароль"));
     const onLogin = vi.fn();
     render(<LoginPage onLogin={onLogin} />);
     await fillAndSubmit("ivan", "wrong");
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Неверный логин или пароль");
-    expect(alert).toHaveClass("login-msg--error");
+    expect(alert).toHaveClass("ds-danger");
     expect(screen.getByLabelText("Пароль")).toHaveClass("login-input--bad");
     expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-invalid", "true");
     expect(login).toHaveBeenCalledWith("ivan", "wrong");
@@ -75,17 +75,17 @@ describe("LoginPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Ошибка входа");
   });
 
-  it("notice — жёлтая плашка; после новой попытки сменяется результатом", async () => {
+  it("notice — предупреждение; после новой попытки сменяется результатом", async () => {
     vi.mocked(login).mockRejectedValue(new Error("Неверный логин или пароль"));
     render(<LoginPage onLogin={vi.fn()} notice="Учётная запись заблокирована" />);
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Учётная запись заблокирована");
-    expect(alert).toHaveClass("login-msg--notice");
+    expect(alert).toHaveClass("ds-warn");
     expect(screen.getByLabelText("Пароль")).not.toHaveClass("login-input--bad");
 
     await fillAndSubmit();
     const after = await screen.findByText("Неверный логин или пароль");
-    expect(after).toHaveClass("login-msg--error");
+    expect(after).toHaveClass("ds-danger");
     expect(screen.queryByText("Учётная запись заблокирована")).toBeNull();
   });
 

@@ -1,7 +1,8 @@
 // Страница входа: слева заголовок и анимированное превью схемы, справа форма
 // «Логин / Пароль». Регистрации здесь нет: учётные записи заводит администратор.
 // Вход как раньше: login → saveToken → onLogin; notice — причина, по которой
-// сессию закрыли без спроса.
+// сессию закрыли без спроса. Вид (редизайн, фаза 12б): поля, кнопка показа пароля и
+// главная кнопка — примитивы нового языка (ui/ds.css), сообщение — абзацем без коробки.
 import { useState } from "react";
 import { login, saveToken } from "../api/auth";
 import LoginPitch from "../components/login/LoginPitch";
@@ -11,11 +12,11 @@ import "./LoginPage.css";
 interface Props {
   onLogin: () => void;
   // Почему сессию закрыли без спроса (например, «Учётная запись заблокирована»):
-  // жёлтая плашка на месте ошибки входа, пока человек не попробует войти снова.
+  // предупреждение на месте ошибки входа, пока человек не попробует войти снова.
   notice?: string | null;
 }
 
-// Сообщение под полями: ошибка входа (красная) или причина выхода (жёлтая).
+// Сообщение над кнопкой: отказ входа (цветом опасности) или причина выхода (предупреждение).
 type Message = { kind: "error" | "notice"; text: string };
 
 export default function LoginPage({ onLogin, notice = null }: Props) {
@@ -56,6 +57,7 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
               <div className="login-wrap">
                 <input
                   id="login-username"
+                  className="ds-input"
                   autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -70,7 +72,7 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
                   id="login-password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
-                  className={`login-input--password${badPassword ? " login-input--bad" : ""}`}
+                  className={`ds-input login-input--password${badPassword ? " login-input--bad" : ""}`}
                   aria-invalid={badPassword || undefined}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -78,7 +80,7 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
                 />
                 <button
                   type="button"
-                  className="login-eye"
+                  className="ds-icon-btn login-eye"
                   aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
                   onClick={() => setShowPassword((v) => !v)}
                 >
@@ -86,16 +88,12 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
                 </button>
               </div>
             </div>
-            {/* Слот сообщения есть всегда, даже пустой: его зазор в сетке формы
-                отделяет кнопку от полей, как в принятом макете. */}
-            <div>
-              {message && (
-                <div className={`login-msg login-msg--${message.kind}`} role="alert">
-                  {message.text}
-                </div>
-              )}
-            </div>
-            <button type="submit" className="login-btn" disabled={busy}>
+            {message && (
+              <p className={`${message.kind === "error" ? "ds-danger" : "ds-warn"} login-msg`} role="alert">
+                {message.text}
+              </p>
+            )}
+            <button type="submit" className="ds-btn ds-btn--primary login-submit" disabled={busy}>
               {busy ? "Входим" : "Войти"}
             </button>
           </form>
@@ -108,7 +106,7 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
 
 function EyeIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}
       strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
       <circle cx="12" cy="12" r="3" />

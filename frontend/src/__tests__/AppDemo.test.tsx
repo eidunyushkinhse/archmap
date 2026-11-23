@@ -1,6 +1,6 @@
 // App на демо-стенде (docs/tasks/demo-mode.md): экран входа выбирается по /auth/config,
-// удалённая песочница выводит на демо-вход с жёлтой плашкой, истёкший токен гостя —
-// на демо-вход без плашки, экран «Пользователи» гостю недоступен. Страницы проекта —
+// удалённая песочница выводит на демо-вход с предупреждением, истёкший токен гостя —
+// на демо-вход без предупреждения, экран «Пользователи» гостю недоступен. Страницы проекта —
 // заглушки; настоящие api/auth и client работают поверх подменённого fetch.
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -62,18 +62,18 @@ describe("App на демо-стенде", () => {
     expect(screen.queryByRole("heading", { name: "Попробуйте ArchMap" })).toBeNull();
   });
 
-  it("песочницу убрали: демо-вход с жёлтой плашкой, сессия сброшена", async () => {
+  it("песочницу убрали: демо-вход с предупреждением, сессия сброшена", async () => {
     saveToken(guestJwt());
     stubRoutes(DEMO_CONFIG, { status: 401, body: { detail: GONE } });
     render(<App />);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(GONE);
-    expect(alert).toHaveClass("login-msg--notice");
+    expect(alert).toHaveClass("ds-warn");
     expect(screen.getByRole("button", { name: "Попробовать без регистрации" })).toBeInTheDocument();
     expect(localStorage.getItem("access_token")).toBeNull();
   });
 
-  it("токен гостя истёк: демо-вход без плашки", async () => {
+  it("токен гостя истёк: демо-вход без предупреждения", async () => {
     saveToken(guestJwt());
     stubRoutes(DEMO_CONFIG, { status: 401, body: { detail: "Недействительный токен" } });
     render(<App />);

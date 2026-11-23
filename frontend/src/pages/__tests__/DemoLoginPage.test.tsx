@@ -89,27 +89,27 @@ describe("DemoLoginPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось начать");
   });
 
-  it("стенд полон: красная плашка с текстом сервера, кнопка снова доступна", async () => {
+  it("стенд полон: сообщение цветом опасности с текстом сервера, кнопка снова доступна", async () => {
     vi.mocked(startDemo).mockRejectedValue(new ApiError(429, FULL));
     const onLogin = vi.fn();
     render(<DemoLoginPage onLogin={onLogin} />);
     await userEvent.click(screen.getByRole("button", { name: "Попробовать без регистрации" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(FULL);
-    expect(alert).toHaveClass("login-msg--error");
+    expect(alert).toHaveClass("ds-danger");
     expect(screen.getByRole("button", { name: "Попробовать без регистрации" })).toBeEnabled();
     expect(onLogin).not.toHaveBeenCalled();
     expect(saveToken).not.toHaveBeenCalled();
   });
 
-  it("песочница удалена: жёлтая плашка, новая попытка её убирает", async () => {
+  it("песочница удалена: предупреждение, новая попытка его убирает", async () => {
     vi.mocked(startDemo).mockResolvedValue(TOKEN);
     render(<DemoLoginPage onLogin={vi.fn()} notice={SANDBOX_GONE_DETAIL} />);
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(
       "Песочница удалена, потому что в ней сутки ничего не делали. Начните заново, это займёт пару секунд.",
     );
-    expect(alert).toHaveClass("login-msg--notice");
+    expect(alert).toHaveClass("ds-warn");
     await userEvent.click(screen.getByRole("button", { name: "Попробовать без регистрации" }));
     expect(screen.queryByRole("alert")).toBeNull();
   });
