@@ -1,7 +1,7 @@
-// Разовый совет о грязи стрелок на перегруженной сцене (perf.md P15): на сцене
-// класса P8 (>OVERLOAD_NODES узлов) рядом с предупреждением об анимациях всплывает
-// отдельный тост-совет «подёргайте узлы» — ТОЛЬКО тому, кто может двигать узлы
-// (наблюдателю совет невыполним, ему остаётся стандартный P8).
+// Разовое предупреждение перегруженной сцены (perf.md P8): на сцене больше OVERLOAD_NODES
+// узлов холст один раз на вид показывает «На схеме очень много объектов, поэтому анимации
+// могут отключаться» — и архитектору, и наблюдателю; на обычной сцене плашки нет. Разового
+// совета о неаккуратных стрелках (P15) больше нет: у архитектора плашка на холсте одна.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resetHarness, pipeline } from "./levelGraphHarness";
 import { renderGraph } from "./levelGraphRender";
@@ -32,39 +32,36 @@ vi.mock("../graph/interaction/useEdgeConnect", async () => (await import("./leve
 
 const appNode = (id: string): AppNode => ({ id, name: id, shape: "service" } as AppNode);
 
-// Перегруженная по узлам сцена (displayedCount > OVERLOAD_NODES → P8/P15).
+// Перегруженная по узлам сцена (displayedCount > OVERLOAD_NODES → P8).
 const overloadNodes = () =>
   Array.from({ length: OVERLOAD_NODES + 1 }, (_, i) => appNode(`n${i}`));
 
-const dirty = (c: HTMLElement) => c.querySelector(".lg-dirty-toast");
 const overload = (c: HTMLElement) => c.querySelector(".lg-overload-toast");
 
-describe("LevelGraph — совет о грязи стрелок на перегруженной сцене (P15)", () => {
+describe("LevelGraph — разовое предупреждение перегруженной сцены (P8)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetHarness();
   });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("перегруженная сцена у архитектора: совет всплывает рядом с тостом P8", async () => {
+  it("перегруженная сцена у архитектора: предупреждение P8, и плашка на холсте одна", async () => {
     pipeline.result.layout.nodes = overloadNodes();
     const { container } = await renderGraph({});
     expect(overload(container)).not.toBeNull();
-    expect(dirty(container)).not.toBeNull();
-    expect(dirty(container)?.textContent).toContain("Подвиньте несколько объектов");
+    expect(overload(container)?.textContent).toContain("анимации могут отключаться");
+    expect(container.querySelectorAll('[class$="-toast"]').length).toBe(1);
   });
 
-  it("обычная сцена: ни P8, ни совета", async () => {
+  it("обычная сцена: предупреждения P8 нет", async () => {
     pipeline.result.layout.nodes = [appNode("A")];
     const { container } = await renderGraph({});
     expect(overload(container)).toBeNull();
-    expect(dirty(container)).toBeNull();
   });
 
-  it("наблюдатель на перегруженной сцене: P8 остаётся, совета нет (двигать нечем)", async () => {
+  it("наблюдатель на перегруженной сцене: предупреждение P8 есть", async () => {
     pipeline.result.layout.nodes = overloadNodes();
     const { container } = await renderGraph({ isArchitect: false, mode: { readOnly: true } });
     expect(overload(container)).not.toBeNull();
-    expect(dirty(container)).toBeNull();
   });
 });
