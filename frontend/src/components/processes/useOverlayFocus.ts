@@ -18,7 +18,7 @@ import type { Overlay, OverlayKind } from "./useOverlayStack";
 //
 // layerRef — область, где лежат окна стека (центры .proc-center и .proc-confirm-center —
 // прямые дети, в порядке стека: верхнее последним). Возвращает remember: его зовёт открытие
-// окна, ДО того как окно возьмёт фокус, — так запоминается, куда фокус вернуть.
+// окна ДО того, как окно возьмёт фокус. Так запоминается, куда фокус вернуть.
 
 // Поле ввода текста (список «Тип связи» сюда не входит: в окне шага главное — выбор варианта).
 const FIELD = 'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not(:disabled), textarea:not(:disabled)';
