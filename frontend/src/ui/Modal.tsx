@@ -128,8 +128,7 @@ const dialogBase: CSSProperties = {
   background: "#fff",
   borderRadius: 12,
   boxShadow: "0 16px 40px rgba(15,23,42,.18)",
-  // Цвет текста (сброс UA-цвета CanvasText) — в modal.css: инлайн-стиль перебил бы
-  // закрепление прежних метрик окна внутри области .ds (ui/tokens.css).
+  // Цвет текста (сброс UA-цвета CanvasText) — правилом в modal.css, от родителя окна.
 };
 // Обёртка контента: дефолтный padding 28 (переопределяется через boxStyle.padding)
 const wrapperBase: CSSProperties = {

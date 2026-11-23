@@ -943,9 +943,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   // ── Рендер ───────────────────────────────────────────────────────
   // Корень — на новом языке (класс ds): шапка, дерево с палитрой (своя область .ds),
-  // правая панель. Холст и окна закреплены на прежних метриках текста (legacy-root,
-  // ui/tokens.css); холст закреплён ещё и своим правилом там же. Тосты на холсте — тосты
-  // нового языка (ui/ds.css, ds-toast): метрики они задают сами.
+  // правая панель и окна (каркас ds-win). Область холста закреплена на прежних метриках
+  // текста (legacy-root, ui/tokens.css); холст закреплён ещё и своим правилом там же.
+  // Тосты, отказ загрузки и «Загрузка» на холсте — нового языка: метрики они задают сами.
   return (
     <div ref={rootRef} className="map-editor ds" style={page}>
       <MapEditorHeader
@@ -1048,9 +1048,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         )}
       </div>
 
-      {/* Модалки. Окна (<dialog>) закреплены на прежних метриках правилом
-          .ds dialog.app-modal; обёртка без коробки держит прежние метрики и у остального. */}
-      <div className="legacy-root" style={{ display: "contents" }}>
+      {/* Модалки: все на каркасе ds-win нового языка. */}
       {consequences.dialog}
       {nodeModal.open && (
         <NodeModal
@@ -1111,7 +1109,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       )}
       {/* Выбор связи (обычный / общее плечо) — рендерит useEdgeChoice */}
       {choiceModal}
-      </div>
     </div>
   );
 }

@@ -513,7 +513,7 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
-  it("корень, шапка и дерево на новом языке; холст и окна — на прежних метриках", async () => {
+  it("корень, шапка, дерево и окна на новом языке; на прежних метриках только холст", async () => {
     const { container } = render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     const root = container.querySelector(".map-editor");
@@ -522,8 +522,10 @@ describe("MapEditorPage", () => {
     expect(head?.parentElement).toBe(root);
     expect(head?.closest(".legacy-root")).toBeNull();
     const pinned = [...(root?.children ?? [])].filter((el) => el.classList.contains("legacy-root"));
-    // Обёртка окон; в теле — область холста. Дерево — своя область .ds (NodeTreePanel).
-    expect(pinned).toHaveLength(1);
+    // Обёртки окон больше нет (фаза 13б): окна на каркасе ds-win. В теле — область холста.
+    // Дерево — своя область .ds (NodeTreePanel).
+    expect(pinned).toHaveLength(0);
+    expect(container.querySelectorAll(".legacy-root")).toHaveLength(1);
     expect(screen.getByTestId("tree-panel").closest(".legacy-root")).toBeNull();
     expect(screen.getByTestId("level-graph").closest(".legacy-root")).not.toBeNull();
   });
