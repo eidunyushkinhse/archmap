@@ -33,6 +33,25 @@ describe("ErrorBoundary", () => {
     expect(screen.getByRole("button", { name: "К проектам" })).toBeInTheDocument();
   });
 
+  // Страховка вида карточки перед переводом на новый язык (редизайн, фаза 13б): заголовок,
+  // пояснение, строка с текстом ошибки (у ошибки без текста — её имя) и порядок кнопок.
+  it("карточка: заголовок, пояснение, текст ошибки строкой кода, кнопки по порядку", () => {
+    function Nameless(): never {
+      const e = new Error("");
+      e.name = "SyntaxError";
+      throw e;
+    }
+    render(<ErrorBoundary><Nameless /></ErrorBoundary>);
+    const card = screen.getByRole("alert");
+    expect(screen.getByRole("heading", { level: 2, name: "Что-то сломалось" })).toBeInTheDocument();
+    expect(card).toHaveTextContent(
+      "Страницу не удалось показать. Обновите её, а если не поможет, вернитесь к списку проектов и откройте страницу заново.",
+    );
+    expect(card.querySelector("code")).toHaveTextContent("SyntaxError");
+    expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Обновить страницу", "К проектам"]);
+    for (const b of card.querySelectorAll("button")) expect(b).toHaveAttribute("type", "button");
+  });
+
   it("«К проектам» ведёт на #/projects и даёт поддереву второй шанс", async () => {
     render(<ErrorBoundary><Bomb /></ErrorBoundary>);
     shouldThrow = false;
