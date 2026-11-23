@@ -8,16 +8,18 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import ProcessCanvas from "../processes/ProcessCanvas";
 import { processesApi } from "../../api/processes";
 import { nodesApi } from "../../api/nodes";
-import type { Node, ProcessDetail } from "../../types";
+import type { Channel, Node, ProcessDetail } from "../../types";
 
 vi.mock("../processes/SequenceDiagram", () => ({
   default: (props: {
     onSelfConnect?: (pid: string) => void;
+    onConnect?: (from: string, to: string) => void;
     onBindParticipant?: (pid: string) => void;
     onFragmentClick?: (fid: string) => void;
   }) => (
     <div>
       <button onClick={() => props.onSelfConnect?.("pa")}>self-pa</button>
+      <button onClick={() => props.onConnect?.("pa", "pb")}>connect-pa-pb</button>
       <button onClick={() => props.onBindParticipant?.("u")}>bind-u</button>
       <button onClick={() => props.onFragmentClick?.("f1")}>frag-f1</button>
     </div>
@@ -170,6 +172,30 @@ describe("фокус окон правки процесса", () => {
     expect(del).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByText("Удалить фрагмент?")).toBeNull());
+    expect(opener).toHaveFocus();
+  });
+
+  // «Добавить шаг» сначала читает связи пары: целей фокуса в окне ещё нет, кроме крестика.
+  it("«Добавить шаг»: пока связи грузятся, фокус ждёт; пришли — на первом варианте шага", async () => {
+    let ответить: (v: Channel[]) => void = () => {};
+    vi.mocked(processesApi.channels).mockImplementation(() => new Promise<Channel[]>((res) => { ответить = res; }));
+    await open();
+    const opener = screen.getByText("connect-pa-pb");
+    await userEvent.click(opener);
+    await screen.findByText("Загрузка связей");
+    expect(opener).toHaveFocus();
+    ответить([{
+      edge_id: "e1", source_id: "na", target_id: "nb", technology: "REST", label: "создать заказ",
+      synchronous: true,
+      legs: [
+        { leg: "forward", kind: "forward", from_id: "na", to_id: "nb", default_caption: "создать заказ" },
+        { leg: "return", kind: "return", from_id: "nb", to_id: "na", default_caption: "заказ создан" },
+      ],
+    } as Channel]);
+    const first = await screen.findByRole("button", { name: /создать заказ/ });
+    await waitFor(() => expect(first).toHaveFocus());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText("Добавить шаг")).toBeNull());
     expect(opener).toHaveFocus();
   });
 

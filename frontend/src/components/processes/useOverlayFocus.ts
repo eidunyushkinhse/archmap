@@ -7,7 +7,8 @@ import type { Overlay, OverlayKind } from "./useOverlayStack";
 //  - При открытии фокус внутри окна: поле, которое взяло его само (autoFocus), остаётся;
 //    иначе первое текстовое поле (поиск в «Участниках» и «Привязать «…»»), иначе первая
 //    незапертая кнопка, кроме крестика (у подтверждения — главная, в «Добавить шаг» —
-//    первый вариант шага).
+//    первый вариант шага). Окно, которое сначала грузится («Добавить шаг» читает связи),
+//    получает фокус, когда цель появится.
 //  - Tab и Shift+Tab ходят по кругу внутри ВЕРХНЕГО окна и наружу не выходят.
 //  - Закрылось верхнее окно — фокус туда, где он был до его открытия (окно под ним, кнопка
 //    шапки процесса), если этот элемент ещё на странице и фокус потерян. Окно, открытое из
@@ -67,6 +68,20 @@ export function useOverlayFocus(layerRef: RefObject<HTMLElement | null>, stack: 
 
   // Открытие и закрытие: сразу после того, как стек отрисован (до кадра на экране).
   useLayoutEffect(() => {
+    // Окно ещё грузится, и ставить фокус некуда: ждём, пока в нём появится цель, если фокус
+    // к тому времени не ушёл в окно сам.
+    let waiting: MutationObserver | null = null;
+    const focusInto = (win: HTMLElement) => {
+      const target = initialTarget(win);
+      if (target) { target.focus(); return; }
+      const observer = new MutationObserver(() => {
+        if (!win.isConnected || win.contains(document.activeElement)) { observer.disconnect(); return; }
+        const later = initialTarget(win);
+        if (later) { observer.disconnect(); later.focus(); }
+      });
+      observer.observe(win, { childList: true, subtree: true });
+      waiting = observer;
+    };
     const prev = prevKinds.current;
     const now = kindsKey ? (kindsKey.split(",") as OverlayKind[]) : [];
     prevKinds.current = now;
@@ -87,12 +102,13 @@ export function useOverlayFocus(layerRef: RefObject<HTMLElement | null>, stack: 
     // Открылось новое верхнее окно (не нативное): фокус внутрь, если он не там.
     if (nowTop !== null && nowTop !== "doc" && !prev.includes(nowTop)) {
       const win = topWindow(layerRef.current);
-      if (win && !win.contains(document.activeElement)) initialTarget(win)?.focus();
+      if (win && !win.contains(document.activeElement)) focusInto(win);
     } else if (nowTop !== null && nowTop !== "doc" && lost()) {
       // Под закрывшимся окном осталось другое, а открывший элемент пропал: фокус в него.
       const win = topWindow(layerRef.current);
-      if (win) initialTarget(win)?.focus();
+      if (win) focusInto(win);
     }
+    return () => waiting?.disconnect();
   }, [kindsKey, layerRef]);
 
   // Tab по кругу внутри верхнего окна.
