@@ -120,11 +120,14 @@
   margin: 0;
 }
 
-/* «+» под вложенными площадками и под корнями: строка с одной кнопкой, значок на месте
-   шеврона, тихий; под курсором подложка. */
+/* «+» под вложенными площадками и под корнями: строка с одной кнопкой, значок тихий, под
+   курсором подложка. Значок у правого края строки, в рост значков строк (ds-icon-btn):
+   «+» всех уровней вложенности на одной вертикали с карандашом и корзиной, а не лесенкой
+   у шевронов своего уровня (редизайн, фаза 13в). */
 .site-add {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   min-height: 30px;
   padding: 0 var(--space-1) 0 4px;
   border: 0;
@@ -135,8 +138,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius);
   color: var(--c-fg-muted);
 }
