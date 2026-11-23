@@ -1,6 +1,6 @@
-// Переключатель вида схемы вкладками-текстом (вариант tabs, редизайн): тот же выбор
-// «Как есть / Переход / Как будет», что у сегмента, но активный вид — подчёркнутая
-// вкладка, а пояснение вида — в подсказке.
+// Переключатель вида схемы вкладками-текстом (редизайн; прежнего вида сегментом больше
+// нет): выбор «Как есть / Переход / Как будет», активный вид — подчёркнутая вкладка, а
+// пояснение вида — в подсказке.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ import { VIEW_BY_ID } from "../schemaView";
 describe("SchemaViewFilter: вкладки", () => {
   it("три вида вкладками, активный отмечен, клик меняет вид", async () => {
     const onChange = vi.fn();
-    render(<SchemaViewFilter view="all" onChange={onChange} variant="tabs" />);
+    render(<SchemaViewFilter view="all" onChange={onChange} />);
     const group = screen.getByRole("radiogroup", { name: "Вид схемы" });
     expect(group).toHaveClass("ds-tabs");
     const tabs = screen.getAllByRole("radio");

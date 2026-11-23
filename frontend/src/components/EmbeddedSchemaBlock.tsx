@@ -204,7 +204,7 @@ export default function EmbeddedSchemaBlock({
         {(showViewFilter || onEdit) && (
           <div className="ds-sec-acts">
             {showViewFilter && (
-              <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} variant="tabs" />
+              <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} />
             )}
             {onEdit && (
               <button type="button" className="ds-btn" data-tour="schema-edit" onClick={onEdit}>

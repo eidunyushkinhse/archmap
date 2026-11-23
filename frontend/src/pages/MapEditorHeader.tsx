@@ -102,7 +102,7 @@ export default function MapEditorHeader({
             onSynced={onSynced}
           />
         </div>
-        {schemaView !== null && <SchemaViewFilter view={schemaView} onChange={onSchemaView} variant="tabs" />}
+        {schemaView !== null && <SchemaViewFilter view={schemaView} onChange={onSchemaView} />}
         <div className="ds-head-btns">
           {/* «Принять переход» — рядом с видом схемы: обе вещи про статусы и есть,
               только когда принимать есть что. */}
