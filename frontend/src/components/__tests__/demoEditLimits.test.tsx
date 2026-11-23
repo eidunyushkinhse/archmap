@@ -155,6 +155,9 @@ describe("экран 4 · тост холста гаснет", () => {
       expect(тост).toHaveTextContent(`Не получилось добавить объект. ${NODES}`);
       expect(тост.querySelector("b")?.textContent).toBe("Не получилось добавить объект.");
       expect(тост).not.toHaveAttribute("aria-live");
+      expect(тост).toHaveClass("ds-toast", "ds-toast--canvas");
+      expect(тост).not.toHaveAttribute("style");
+      expect(тост.querySelector("[style]")).toBeNull();
       act(() => { vi.advanceTimersByTime(5999); });
       expect(screen.getByRole("status")).toBeInTheDocument();
       act(() => { vi.advanceTimersByTime(1); });

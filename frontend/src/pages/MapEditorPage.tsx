@@ -31,7 +31,6 @@ import type { DropFrameTarget, EdgeChoiceEnds, LayoutPatch, LevelDeleteCallbacks
 import { useRemoteSync } from "./useRemoteSync";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
-import { remoteToastInRail } from "../ui/remoteToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
 import type { LocateTarget } from "../components/SchemaAlerts";
@@ -998,13 +997,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         {/* Холст — от левой панели до правого края окна или до панели объекта, без поля
             и рамки (pages/MapEditorPage.css). */}
         <div className="legacy-root" style={graphArea}>
-          {/* Рейл тостов холста (правый верхний угол): тост чужой сессии, итог перехода,
-              отказ. Прозрачен для мыши, интерактивны только тосты (pointerEvents auto).
+          {/* Колонка тостов холста (правый верхний угол, ui/ds.css): чужая правка, итог
+              перехода, отказ. Прозрачна для мыши, щелчки ловят только сами тосты.
               Кнопка «Рекомендации» отсюда ушла в шапку (редизайн, фаза 4б). */}
-          <div style={toastRail}>
-            {remoteToast && <div style={remoteToastInRail}>Схему только что изменили в другом окне</div>}
-            {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
-            {errorToast && <div role="alert" style={errorToastStyle}>{errorToast}</div>}
+          <div className="ds-toast-rail">
+            {remoteToast && <div className="ds-toast">Схему только что изменили в другом окне</div>}
+            {transitionToast && <div className="ds-toast">{transitionToast}</div>}
+            {errorToast && <div role="alert" className="ds-toast">{errorToast}</div>}
           </div>
           <DemoLimitToast message={limitToast} />
           {loading ? (
@@ -1123,8 +1122,3 @@ const NO_DROP_FRAMES: DropFrameTarget[] = [];
 
 const page: CSSProperties = { ...workPage, background: "#f8fafc" };
 const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" };
-// Рейл тостов холста (правый верхний угол): колонка, прозрачна для мыши —
-// интерактивны только сами тосты (у них pointerEvents auto).
-const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
-const errorToastStyle: CSSProperties = { background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
-const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

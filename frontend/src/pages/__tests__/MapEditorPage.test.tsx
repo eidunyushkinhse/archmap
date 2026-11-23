@@ -1487,6 +1487,13 @@ describe("MapEditorPage: тосты колонки холста", () => {
     expect(колонка).not.toBeNull();
     expect(screen.getByText(ИТОГ).parentElement).toBe(колонка);
     expect(screen.getByRole("alert").parentElement).toBe(колонка);
+    // Вид (фаза 13а): колонка ds-toast-rail, в ней три тоста одного вида без инлайн-стиля.
+    expect(колонка).toHaveClass("ds-toast-rail");
+    expect(колонка).not.toHaveAttribute("style");
+    for (const тост of колонка!.children) {
+      expect(тост).toHaveClass("ds-toast");
+      expect(тост).not.toHaveAttribute("style");
+    }
     expect([...колонка!.children].map((c) => c.textContent?.slice(0, 12))).toEqual([
       ЧУЖАЯ.slice(0, 12), ИТОГ.slice(0, 12), "Компонентом ",
     ]);
