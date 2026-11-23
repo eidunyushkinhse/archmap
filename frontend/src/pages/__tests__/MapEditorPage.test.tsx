@@ -376,6 +376,50 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
+  // Выход из экрана по роли (фаза 13д). Редактору проекта: «Готово» — единственная главная
+  // кнопка шапки, последней в ряду кнопок, после «Принять переход».
+  it("редактор проекта: «Готово» — главная кнопка шапки, последней после «Принять переход»", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")], has_status_info: true }) as never);
+    const { container } = render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const done = screen.getByRole("button", { name: "Готово" });
+    expect(done.className).toBe("ds-btn ds-btn--primary");
+    expect(container.querySelectorAll(".ds-head .ds-btn--primary")).toHaveLength(1);
+    const btns = [...(container.querySelector(".ds-head-btns")?.querySelectorAll("button") ?? [])].map((b) => b.textContent);
+    expect(btns).toEqual(["Принять переход", "Готово"]);
+  });
+
+  it("читатель: выход из экрана зовёт onDone", async () => {
+    role.current = "reader";
+    try {
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      await userEvent.click(screen.getByRole("button", { name: "Готово" }));
+      expect(props.onDone).toHaveBeenCalledOnce();
+    } finally {
+      role.current = "owner";
+    }
+  });
+
+  // Отказ загрузки уровня: выход назван по роли, зовёт тот же onDone.
+  it.each([
+    { who: "редактор проекта", r: "owner" as ProjectRole, label: "Закрыть редактор" },
+    { who: "читатель", r: "reader" as ProjectRole, label: "Закрыть редактор" },
+  ])("отказ загрузки уровня, $who: выход «$label» зовёт onDone", async ({ r, label }) => {
+    role.current = r;
+    try {
+      vi.mocked(nodesApi.getGraph).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      render(<MapEditorPage {...props} nodeId={null} />);
+      const alert = await screen.findByRole("alert");
+      const back = screen.getAllByRole("button").filter((b) => alert.contains(b)).map((b) => b.textContent);
+      expect(back).toEqual(["Повторить", label]);
+      await userEvent.click(screen.getByRole("button", { name: label }));
+      expect(props.onDone).toHaveBeenCalledOnce();
+    } finally {
+      role.current = "owner";
+    }
+  });
+
   it("Esc вызывает onDone", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");

@@ -1531,6 +1531,33 @@ describe("NodePage: ⋯-меню и версии документации", () =
     await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
     expect(screen.getByTestId("versions-panel")).toHaveAttribute("data-can-delete", "true");
   });
+
+  // Вход в экран схемы пунктом меню (фаза 13д): уровень родителя, объект подсвечен, возврат
+  // на страницу объекта. Обработчик один у обеих ролей; подпись — по роли.
+  it.each([
+    { who: "читатель", isArchitect: false, role: "reader" as ProjectRole, label: "Открыть в редакторе" },
+    { who: "редактор", isArchitect: true, role: "editor" as ProjectRole, label: "Открыть в редакторе" },
+  ])("$who: пункт «$label» первым, ведёт на уровень родителя с подсветкой и возвратом", async ({ isArchitect, role, label }) => {
+    const n = node("n1", { parent_id: "sys" });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([node("sys", { name: "Система" }), n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    render(
+      <ProjectRoleContext.Provider value={role}>
+        <NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />
+      </ProjectRoleContext.Provider>,
+    );
+    await userEvent.click(await screen.findByTitle("Действия"));
+    const items = [...document.querySelectorAll(".np-dropdown .ds-menu-item")].map((b) => b.textContent?.trim());
+    expect(items[0]).toBe(label);
+    await userEvent.click(screen.getByRole("button", { name: label }));
+    expect(nav.onNavigateMap).toHaveBeenCalledOnce();
+    expect(nav.onNavigateMap).toHaveBeenCalledWith("sys", { locate: "n1", ret: "node:n1" });
+    // Меню закрылось вместе с выбором пункта.
+    expect(document.querySelector(".np-dropdown")).toBeNull();
+  });
 });
 
 // ── Пустая схема объекта: кнопка вложенного объекта (Ф8 эпика «Элемент архитектуры») ──

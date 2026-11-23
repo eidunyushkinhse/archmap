@@ -17,9 +17,13 @@ vi.mock("../../api/projects", () => ({ projectsApi: { get: vi.fn() } }));
 vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
+// onEdit блока (вход в экран схемы из строки заголовка) — маркером: передан ли и куда ведёт.
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: ({ title, notice, empty }: { title: string; notice?: string | null; empty?: ReactNode }) => (
-    <div data-testid="schema" data-title={title} data-notice={notice ?? ""}>{empty}</div>
+  default: ({ title, notice, empty, onEdit }: { title: string; notice?: string | null; empty?: ReactNode; onEdit?: () => void }) => (
+    <div data-testid="schema" data-title={title} data-notice={notice ?? ""} data-edit={onEdit ? "есть" : "нет"}>
+      {empty}
+      {onEdit && <button type="button" data-testid="schema-edit" onClick={onEdit} />}
+    </div>
   ),
 }));
 // Панель версий — маркер с пропсами: здесь проверяется вход из ⋯-меню проекта, сама
@@ -222,5 +226,47 @@ describe("ProjectHomePage: пустая схема", () => {
     render(<ProjectHomePage {...props} />);
     await waitFor(() => expect(screen.getByTestId("schema")).toHaveTextContent("Схема пуста"));
     expect(screen.queryByRole("button", { name: "Начать наполнение" })).toBeNull();
+  });
+});
+
+// Вход в экран схемы из строки заголовка «Схема» (фаза 13д): страница отдаёт блоку onEdit
+// любой роли, когда в проекте есть объекты, и ведёт он на корневой уровень. Подпись кнопки
+// по роли рисует блок (embeddedSchemaEntry.test). В пустом проекте onEdit нет ни у кого.
+describe("ProjectHomePage: вход в экран схемы", () => {
+  const withNodes = { ...graph, nodes: [{ id: "a", name: "Заказы", shape: "service" }] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+  });
+
+  it.each([
+    { who: "читатель", role: "reader" as const, isArchitect: false },
+    { who: "редактор", role: "editor" as const, isArchitect: true },
+  ])("$who, объекты есть: onEdit передан и ведёт на корневой уровень", async ({ role, isArchitect }) => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(withNodes as never);
+    const onNavigateMap = vi.fn();
+    render(
+      <ProjectRoleContext.Provider value={role}>
+        <ProjectHomePage {...props} isArchitect={isArchitect} onNavigateMap={onNavigateMap} />
+      </ProjectRoleContext.Provider>,
+    );
+    expect(await screen.findByTestId("schema")).toHaveAttribute("data-edit", "есть");
+    await userEvent.click(screen.getByTestId("schema-edit"));
+    expect(onNavigateMap).toHaveBeenCalledWith(null);
+  });
+
+  it.each([
+    { who: "читатель", role: "reader" as const, isArchitect: false },
+    { who: "редактор", role: "editor" as const, isArchitect: true },
+  ])("$who, пустой проект: onEdit нет", async ({ role, isArchitect }) => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+    render(
+      <ProjectRoleContext.Provider value={role}>
+        <ProjectHomePage {...props} isArchitect={isArchitect} />
+      </ProjectRoleContext.Provider>,
+    );
+    expect(await screen.findByTestId("schema")).toHaveAttribute("data-edit", "нет");
   });
 });
