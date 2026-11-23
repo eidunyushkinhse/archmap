@@ -1,100 +1,12 @@
-/* Бизнес-процессы — классы UI, портированы из дизайн-референса
-   (business-processes-mockups.html). Визуальный язык: system-ui, slate, синий
-   #2563eb, янтарь только для валидатора/фрагментов. */
+/* Экран «Процессы»: список, шапка процесса, диаграмма, панель шага, окна правки и импорта
+   (редизайн, фазы 3а, 3б и 13г). Хром экрана — на токенах языка (ui/tokens.css) и
+   примитивах ui/ds.css. Своя палитра (processes/tokens.ts) осталась только у содержимого
+   диаграммы: янтарь фрагментов и «повисших» шагов, полосы активации, цвета плеч по
+   статусу узла; её задают инлайн-стили SequenceDiagram, а не этот файл. */
 
 .bp,
 .bp * {
   box-sizing: border-box;
-}
-
-/* ── Кнопки ── */
-.bp-btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  background: #fff;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-.bp-btn-ghost:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
-}
-.bp-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 14px;
-  background: #2563eb;
-  color: #fff;
-  border: 1px solid #2563eb;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.12s;
-}
-.bp-btn-primary:hover {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
-}
-.bp-btn-primary:disabled,
-.bp-btn-ghost:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.bp-iconbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: #fff;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-.bp-iconbtn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
-}
-.bp-iconbtn.is-active {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #2563eb;
-}
-.bp-iconbtn:disabled {
-  opacity: 0.45;
-  cursor: default;
-  background: #fff;
-  border-color: #e2e8f0;
-  color: #475569;
-}
-/* ── Композитор сообщения ── */
-.bp-composer {
-  width: 360px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 13px;
-  box-shadow: 0 20px 56px rgba(15, 23, 42, 0.24);
-  overflow: hidden;
-}
-.bp-comphead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 12px 12px 16px;
-  border-bottom: 1px solid #eef2f6;
 }
 
 /* ── Ручки правки на шапке участника (SequenceDiagram) ──
@@ -132,66 +44,6 @@
 .bp-phead-open:hover {
   color: var(--c-accent);
   background: var(--c-hover);
-}
-
-.bp-channel {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  overflow: hidden;
-}
-.bp-channelhd {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 11px;
-  background: #f8fafc;
-  border-bottom: 1px solid #eef2f6;
-  font-size: 12px;
-  color: #1e293b;
-}
-.bp-channelhd b {
-  font-weight: 600;
-}
-.bp-legpick {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 8px 11px;
-  background: #fff;
-  border: none;
-  border-top: 1px solid #f1f5f9;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.12s;
-}
-.bp-legpick:first-of-type {
-  border-top: none;
-}
-.bp-legpick:hover {
-  background: #f8fafc;
-}
-.bp-legpick.is-sel {
-  background: #f4f1ff;
-}
-.bp-legradio {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 9px;
-  border: 2px solid #cbd5e1;
-  background: #fff;
-  position: relative;
-}
-.bp-legradio.is-on {
-  border-color: #7c5cff;
-}
-.bp-legradio.is-on::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 5px;
-  background: #7c5cff;
 }
 
 /* Область диаграммы процесса: белый фон без сетки. Ширина под полосой прокрутки
@@ -355,36 +207,6 @@ button.seq-doc:focus-visible {
   white-space: normal;
   overflow-wrap: normal;
 }
-
-/* Поле ввода композитора: связь достраивается прямо в окне сообщения, поэтому
-   поля живут в его же стилевой системе (не в общих ui/styles холста). */
-.bp-input {
-  width: 100%;
-  height: 32px;
-  padding: 0 9px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 12.5px;
-  color: #0f172a;
-  box-sizing: border-box;
-  transition: border-color 0.12s, box-shadow 0.12s;
-}
-.bp-input::placeholder { color: #94a3b8; }
-.bp-input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-.bp-input:disabled { background: #f8fafc; color: #94a3b8; }
-.bp-field-label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-}
-
 
 /* ── Окна правки поверх диаграммы (ProcessCanvas, MessageComposer) ──
    Окна — div-слои одного стека (useOverlayStack), не <dialog>: вложенный <dialog> здесь
@@ -1216,6 +1038,8 @@ button.seq-doc:focus-visible {
 }
 
 /* ── Список процессов (ProcessRail) ── */
+/* Список стоит вне области .ds: гарнитура, кегль, интерлиньяж, трекинг и цвет заданы
+   здесь, иначе названия наследовали бы трекинг корня (index.css, 0.18px). */
 .pr-rail {
   flex: none;
   width: 248px;
@@ -1226,6 +1050,7 @@ button.seq-doc:focus-visible {
   font-family: var(--font-ui);
   font-size: var(--fs-ui);
   line-height: var(--lh-ui);
+  letter-spacing: 0;
   color: var(--c-fg);
 }
 .pr-rail--collapsed {
@@ -1325,10 +1150,8 @@ button.seq-doc:focus-visible {
 }
 
 /* ── Окно «Импорт процессов» и «Заменить процесс» (ProcessImportModal) ──
-   Новый язык: класс ds на обёртке содержимого выводит окно из-под правила
-   «.ds dialog.app-modal» (ui/tokens.css), которое держит непереведённые окна на
-   прежних метриках корня. Каркас — общий (ui/ds.css, ds-win). Под черновиком только
-   проблемы (ImportDraftIssues). */
+   Каркас — общий (ui/ds.css, ds-win; корень каркаса сам несёт ds и метрики языка). Под
+   черновиком только проблемы (ImportDraftIssues). */
 .pim {
   /* Поля на 1px шире общих: до каркаса между краем окна и текстом стояла рамка
      перетаскивания (16px до рамки, 1px рамка, 8px после), и окно сохраняет прежнюю
