@@ -1,7 +1,8 @@
 /* Универсальное меню «+ Добавить» (разделы страницы объекта) и «Изменить»/«Описать»
    окна схемы/спецификации. Триггеры — общие примитивы ui/ds.css (ds-add у разделов,
-   ds-btn у окна), список окна — ds-menu; здесь — место списка и прежний вид списка
-   разделов. Свой файл: компонент общий для страницы и окна документации. */
+   ds-btn у окна), список окна — ds-menu; здесь — место списков и тихий список разделов
+   (adm-menu с модификатором --quiet, он стоит всегда). Свой файл: компонент общий для
+   страницы и окна документации. */
 .adm-wrap {
   position: relative;
   display: inline-block;
@@ -23,12 +24,10 @@
   position: absolute;
   left: 0;
   top: calc(100% + 4px);
-  min-width: 236px;
   padding: 4px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   z-index: 31;
 }
 /* Список окна (ds-menu): под кнопкой, ширина по самому длинному пункту. */
@@ -55,30 +54,22 @@
 .adm-menu button {
   display: block;
   width: 100%;
-  padding: 8px 12px;
   border: none;
   background: none;
   font: inherit;
   font-size: 13px;
-  color: #1e293b;
   text-align: left;
   cursor: pointer;
-  border-radius: 7px;
-}
-.adm-menu button:hover {
-  background: #f1f5f9;
 }
 
 .adm-sep {
   height: 1px;
-  background: #eef0f2;
   margin: 4px 6px;
 }
 
 /* Список тихой «+ Добавить» страницы объекта — в общем виде меню нового языка. */
 .adm-menu--quiet {
   min-width: 200px;
-  border-color: var(--c-line);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
     0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
 }

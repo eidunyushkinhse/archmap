@@ -1,27 +1,22 @@
 /* EmbeddedSchemaBlock — встроенный read-only блок схемы на странице.
-   Активация по клику, подсветка рамки, оверлей-пилюля. */
+   Активация по клику, подсветка рамки, оверлей-пилюля. Те же классы ставит живая схема
+   лендинга (embed/LandingSchema): токенов ui/tokens.css она не грузит, рамку и скругление
+   снимает своим правилом (.lp-wrap), кольцо активной рисует сама. */
 
 /* ── Обёртка схемы ───────────────────────────────────────────────── */
 .esb-wrap {
   position: relative;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: #f8fafc;
   transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.esb-wrap--active {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px #dbeafe;
 }
 
 /* Раздел «Схема» нового языка (редизайн, направление А): рамка 1px, радиус 10, высота
    окна от высоты экрана — схема видна целиком вместе со строкой заголовка. */
 .esb-wrap--page {
   height: clamp(380px, 56vh, 640px);
-  border-color: var(--c-line);
-  border-radius: var(--radius-lg);
 }
 .esb-wrap--page.esb-wrap--active {
   border-color: var(--c-accent);

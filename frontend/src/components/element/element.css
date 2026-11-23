@@ -5,7 +5,7 @@
   background: none;
   padding: 0;
   font: inherit;
-  color: #2563eb;
+  color: var(--c-accent);
   cursor: pointer;
 }
 .el-link:hover {
@@ -19,9 +19,10 @@
 }
 
 /* Поле «Тип» (element/TypeSelect): выпадашка из шести типов — окно «Новый объект»,
-   инспектор и «Свойства» страницы. Вид кнопки-значения задаёт место вызова
-   (triggerClass), меню — общее: пункты в две строки, серые — с причиной вместо
-   подсказки. */
+   панель объекта редактора и «Свойства» страницы. Вид кнопки-значения задаёт место вызова
+   (triggerClass). Здесь каркас меню: место, слой, сетка пунктов. Вид меню и пунктов на
+   новом языке (радиус, тень, поля, цвета) — nodePage/propRows.css: поле живёт только в
+   строке свойств (.np-prop) и в строке окна (.ds-prop). */
 .ts-wrap {
   position: relative;
   display: block;
@@ -47,9 +48,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ts-placeholder {
-  color: #94a3b8;
-}
 .ts-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -60,10 +58,8 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 9px;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   padding: 4px;
 }
 .ts-option {
@@ -71,36 +67,27 @@
   grid-template-columns: 1fr auto;
   column-gap: 8px;
   align-items: center;
-  padding: 7px 9px;
   border: none;
-  border-radius: 7px;
   background: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  color: #334155;
 }
 .ts-option:hover,
 .ts-option:focus-visible {
-  background: #f1f5f9;
   outline: none;
 }
 .ts-label {
   grid-column: 1;
-  font-size: 13.5px;
 }
 .ts-check {
   grid-column: 2;
   grid-row: 1;
   display: flex;
-  color: #2563eb;
 }
 /* Серый пункт: читается, но не выбирается. */
 .ts-option[aria-disabled="true"] {
   cursor: default;
-}
-.ts-option[aria-disabled="true"] .ts-label {
-  color: #94a3b8;
 }
 .ts-backdrop {
   position: fixed;
