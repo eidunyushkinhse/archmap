@@ -63,4 +63,20 @@ describe("LoadError", () => {
     render(<LoadError what="объект" error={new Error("сбой")} onRetry={vi.fn()} onBack={vi.fn()} />);
     for (const b of screen.getAllByRole("button")) expect(b).toHaveAttribute("type", "button");
   });
+
+  // Вид нового языка (фаза 13б): примитив ds-fail, корень сам несёт ds (метрики текста
+  // одинаковы на странице, в области холста и в окне), кнопки языка, без инлайн-стилей.
+  it("вид: блок ds-fail с корнем ds, «Повторить» главной кнопкой, выход вторичной", () => {
+    render(<LoadError what="объект" error={new Error("сбой")} onRetry={vi.fn()} onBack={vi.fn()} />);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveClass("ds", "ds-fail");
+    expect(screen.getByText("Не удалось загрузить объект")).toHaveClass("ds-fail-title");
+    expect(screen.getByText("Не удалось загрузить объект").nextElementSibling).toHaveClass("ds-fail-why");
+    expect(screen.getByRole("button", { name: "Повторить" })).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(screen.getByRole("button", { name: "К проекту" })).toHaveClass("ds-btn");
+    expect(screen.getByRole("button", { name: "К проекту" })).not.toHaveClass("ds-btn--primary");
+    expect(screen.getByRole("button", { name: "Повторить" }).parentElement).toHaveClass("ds-fail-acts");
+    expect(alert.querySelector("[style]")).toBeNull();
+    expect(alert).not.toHaveAttribute("style");
+  });
 });
