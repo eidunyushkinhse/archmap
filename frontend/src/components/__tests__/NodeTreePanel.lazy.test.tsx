@@ -79,6 +79,28 @@ describe("NodeTreePanel: ленивое дерево", () => {
     expect(nodesApi.getChildren).not.toHaveBeenCalledWith("leaf");
   });
 
+  // Редизайн, фаза 13в: раскрытие до текущего узла вспомогательное, отказ его чтения страница
+  // показывает сама. Здесь он гасится явно: раньше уходил необработанным отказом промиса.
+  it("текущий узел не читается: необработанного отказа нет, дерево раскрывается щелчком", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      vi.mocked(nodesApi.list).mockResolvedValue([node("root", { has_children: true, child_count: 1 })]);
+      vi.mocked(nodesApi.get).mockRejectedValue(new Error("Сервер недоступен"));
+      vi.mocked(nodesApi.getChildren).mockResolvedValue([node("kid", { parent_id: "root" })]);
+      render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} currentNodeId="leaf" />);
+      await screen.findByText("ROOT");
+      await waitFor(() => expect(nodesApi.get).toHaveBeenCalledWith("leaf"));
+      await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+      expect(unhandled).toEqual([]);
+      fireEvent.click(document.querySelector('[data-tour="tree-chev:root"]') as HTMLElement);
+      expect(await screen.findByText("KID")).toBeInTheDocument();
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("контейнер без детей помечается листом — шеврон не раскрывается в пустоту", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([node("box", { has_children: true, child_count: 1 })]);
     vi.mocked(nodesApi.getChildren).mockResolvedValue([]);
