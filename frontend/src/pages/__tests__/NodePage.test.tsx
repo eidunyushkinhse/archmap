@@ -1629,6 +1629,49 @@ describe("NodePage: кнопка вложенного объекта в пуст
   });
 });
 
+// ── Объект без внешних связей: совет про редактор — архитектору, вход — читателю ──
+// Редизайн, фаза 13в: читатель не правит схему, совет «Связи создаются в редакторе схемы» ему
+// не нужен; вместо него вторичная «Развернуть» — тот же вход, что пункт меню «⋯».
+describe("NodePage: пустая схема объекта у читателя и архитектора", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupEmpty(isArchitect: boolean) {
+    const n = node("n1", { parent_id: "sys" });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([node("sys", { name: "Система", has_children: true }), n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue({
+      nodes: [n], endpoints: [], edges: [], layout: {}, version: 1, graph_rev: 1, meta_rev: 1,
+    } as never);
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(
+      <ProjectRoleContext.Provider value={isArchitect ? "editor" : "reader"}>
+        <NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />
+      </ProjectRoleContext.Provider>,
+    );
+  }
+
+  it("читатель: совета про редактор нет, «Развернуть» открывает уровень родителя с подсветкой и возвратом", async () => {
+    setupEmpty(false);
+    const box = (await screen.findByText(/Внешних связей нет/)).closest(".np-schema-empty") as HTMLElement;
+    expect(within(box).queryByText("Связи создаются в редакторе схемы")).toBeNull();
+    const open = within(box).getByRole("button", { name: "Развернуть" });
+    expect(open).toHaveClass("ds-btn");
+    expect(open).not.toHaveClass("ds-btn--primary");
+    expect(within(box).getAllByRole("button")).toHaveLength(1);
+    await userEvent.click(open);
+    expect(nav.onNavigateMap).toHaveBeenCalledWith("sys", { locate: "n1", ret: "node:n1" });
+  });
+
+  it("архитектор: блок как раньше — совет и кнопки редактора, без «Развернуть»", async () => {
+    setupEmpty(true);
+    const box = (await screen.findByText(/Внешних связей нет/)).closest(".np-schema-empty") as HTMLElement;
+    expect(within(box).getByText("Связи создаются в редакторе схемы")).toBeInTheDocument();
+    expect(within(box).getAllByRole("button").map((b) => b.textContent)).toEqual(["Добавить вложенный объект", "Открыть в редакторе"]);
+    expect(within(box).queryByRole("button", { name: "Развернуть" })).toBeNull();
+  });
+});
+
 // ── Хвосты страницы Ф13а ─────────────────────────────────────────────────────
 describe("NodePage: контейнер компонента и пилюля системы без единиц", { timeout: 15_000 }, () => {
   beforeEach(() => vi.clearAllMocks());

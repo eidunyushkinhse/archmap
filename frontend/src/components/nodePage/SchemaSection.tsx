@@ -200,13 +200,30 @@ export default function SchemaSection({
   if (hasNoNeighbors(view, node.id) && !node.has_children) {
     // Пустое состояние: раздел не прячем (context.md X15, X17); архитектору — CTA в
     // редактор схемы (наполнить состав / создать связи — правка живёт только там).
-    // С редизайна тише: рамка-пунктир окна схемы, вторичные кнопки.
+    // С редизайна тише: рамка-пунктир окна схемы, вторичные кнопки. Читатель схему не
+    // правит: совета про редактор ему нет, а вход в большую схему — «Развернуть», тот же,
+    // что пункт меню «⋯» (редизайн, фаза 13в).
     return (
       <Section title="Схема">
         <div className="np-schema-empty">
           Внешних связей нет. Объект пока не взаимодействует с соседями.
-          <br />
-          <span className="np-schema-empty-note">Связи создаются в редакторе схемы</span>
+          {isArchitect && (
+            <>
+              <br />
+              <span className="np-schema-empty-note">Связи создаются в редакторе схемы</span>
+            </>
+          )}
+          {!isArchitect && onNavigateMap && (
+            <div className="np-schema-empty-acts">
+              <button
+                type="button"
+                className="ds-btn"
+                onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
+              >
+                Развернуть
+              </button>
+            </div>
+          )}
           {isArchitect && onNavigateMap && (
             <div className="np-schema-empty-acts">
               {/* Подпись называет, кем станет новый объект: компонентом — у контейнера (в
