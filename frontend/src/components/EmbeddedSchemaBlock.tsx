@@ -11,7 +11,6 @@ import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
 import SchemaLegend from "./SchemaLegend";
 import type { SchemaView } from "./schemaView";
-import { responsiveCanvasHeight } from "./pageSchema";
 import "./EmbeddedSchemaBlock.css";
 import "../ui/ds.css";
 
@@ -56,8 +55,6 @@ interface Props {
   // Токен мутации страницы (правка/создание/удаление связей и узлов): стрелки с
   // изменившейся геометрией перерисовываются анимированно, новые рисуются (AN28а).
   mutationToken?: number;
-  // Высота блока
-  height: number;
   // Показывать ли SchemaViewFilter (условие собирает showStatusControls: ведёт ли
   // переход ПРОЕКТ — состава одного уровня для этого мало)
   showViewFilter: boolean;
@@ -65,8 +62,8 @@ interface Props {
   empty?: React.ReactNode;
   // Заголовок раздела (редизайн, направление А «Документ»): блок живёт разделом страницы
   // нового языка: заголовок, вкладки вида и вход в экран схемы в одной строке, рамка 1px,
-  // высота окна — clamp от высоты экрана (CSS), а не от ширины. Запасной строки без
-  // заголовка нет (удалена в фазе 13б вместе с кнопкой прежнего вида).
+  // высота окна — clamp от высоты экрана (CSS, .esb-wrap--page), а не от ширины. Запасной
+  // строки без заголовка нет (удалена в фазе 13б вместе с кнопкой прежнего вида).
   title: string;
   // Тост поверх схемы («Схему только что изменили в другом окне»): текст или null. Блок
   // рисует его внутри рамки сверху по центру (ui/ds.css, ds-toast--frame), и у пустой
@@ -78,31 +75,10 @@ export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, ancestorElements, ancestorExternals, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
-  height, showViewFilter, empty, title, notice,
+  showViewFilter, empty, title, notice,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-
-  // Ширина блока → пропорциональная высота схемы (страница во всю ширину,
-  // схемы масштабируются вместе с доступным пространством).
-  const [measuredWidth, setMeasuredWidth] = useState(0);
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) setMeasuredWidth(entry.contentRect.width);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Высота = ширина × коэффициент, с ограничениями. До первого замера — height из пропсов.
-  // У раздела нового языка (title) высоту задаёт CSS (.esb-wrap--page).
-  const responsiveHeight = useMemo(() => {
-    if (title) return undefined;
-    if (measuredWidth <= 0) return height;
-    return responsiveCanvasHeight(measuredWidth);
-  }, [measuredWidth, height, title]);
 
   // Esc — деактивация
   useEffect(() => {
@@ -220,7 +196,6 @@ export default function EmbeddedSchemaBlock({
         ref={wrapRef}
         data-tour="schema-block"
         className={"esb-wrap esb-wrap--page" + (active ? " esb-wrap--active" : "")}
-        style={{ height: responsiveHeight }}
       >
         {empty ? (
           <div className="esb-empty">{empty}</div>

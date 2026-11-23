@@ -22,7 +22,8 @@ if (!window.matchMedia) {
     }) as unknown as MediaQueryList;
 }
 
-// ResizeObserver — EmbeddedSchemaBlock замеряет ширину контейнера.
+// ResizeObserver — холст React Flow и диаграмма процесса (processes/useDiagramFit,
+// processes/sequence/useSizes) замеряют свои рамки.
 if (!globalThis.ResizeObserver) {
   globalThis.ResizeObserver = class {
     observe() {}

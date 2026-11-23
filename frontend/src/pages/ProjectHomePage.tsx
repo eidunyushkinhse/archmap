@@ -15,7 +15,6 @@ import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
 import { useToast } from "./useToast";
 import { useRemoteSync } from "./useRemoteSync";
-import { projectSchemaHeight } from "../components/pageSchema";
 import VersionsPanel from "../components/nodePage/versions/VersionsPanel";
 import { DocRow, DocRowLabel } from "../components/docRow";
 import Section from "../ui/Section";
@@ -118,7 +117,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const hasNodes = graphNodes.length + endpoints.length > 0;
   // Признак проектный, с сервера: статусы обычно лежат не на корневом уровне.
   const hasStatusInfo = showStatusControls(lvl.hasStatusInfo, graphNodes, endpoints);
-  const height = projectSchemaHeight(graphNodes.length);
 
   return (
     <div className="np-page ds">
@@ -180,7 +178,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
           onNavigateNode={onNavigateNode}
           onRelayout={handleRelayout}
           relayoutToken={relayoutToken}
-          height={height}
           showViewFilter={hasStatusInfo}
           onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
           empty={

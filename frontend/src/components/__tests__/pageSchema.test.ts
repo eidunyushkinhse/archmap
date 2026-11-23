@@ -1,16 +1,11 @@
 // Чистые хелперы страничных схем (components/pageSchema.ts): маппинг графа
-// уровня, предикаты пустого состояния, формулы высот блоков.
+// уровня, предикаты пустого состояния.
 import { describe, it, expect } from "vitest";
 import {
   mergeViewLayout,
   toLevelEdges,
   outerGuests,
   hasNoNeighbors,
-  visibleEntityGuess,
-  schemaSectionHeight,
-  componentsSectionHeight,
-  projectSchemaHeight,
-  responsiveCanvasHeight,
   withOwnEdits,
 } from "../pageSchema";
 import type { GraphResponse, Node } from "../../types";
@@ -95,46 +90,6 @@ describe("outerGuests / hasNoNeighbors", () => {
       graph({ nodes: [node("f")], endpoints: [endpoint("outer")] }),
       "f",
     )).toBe(false);
-  });
-});
-
-describe("visibleEntityGuess", () => {
-  it("локалы + полностью внешние гости (без внутренних и внутрирамочных)", () => {
-    const g = graph({
-      nodes: [node("f"), node("rep")],
-      endpoints: [
-        endpoint("deep-in-rep", ["rep"]), // внутри рамки локала — отдельно не виден
-        endpoint("inner", ["f"]),         // внутри поддерева фокуса — не в счёт
-        endpoint("outer"),                // полностью внешний — виден
-      ],
-    });
-    expect(visibleEntityGuess(g)).toBe(3); // f + rep + outer
-  });
-});
-
-describe("формулы высот блоков", () => {
-  it("schemaSectionHeight: 90px/сущность, коридор 300–560", () => {
-    expect(schemaSectionHeight(0)).toBe(300);
-    expect(schemaSectionHeight(4)).toBe(360);
-    expect(schemaSectionHeight(10)).toBe(560);
-  });
-
-  it("componentsSectionHeight: 62px/узел, коридор 280–430", () => {
-    expect(componentsSectionHeight(0)).toBe(280);
-    expect(componentsSectionHeight(5)).toBe(310);
-    expect(componentsSectionHeight(50)).toBe(430);
-  });
-
-  it("projectSchemaHeight: 62px/узел, коридор 300–440", () => {
-    expect(projectSchemaHeight(0)).toBe(300);
-    expect(projectSchemaHeight(5)).toBe(310);
-    expect(projectSchemaHeight(50)).toBe(440);
-  });
-
-  it("responsiveCanvasHeight: ширина × 0.52, коридор 320–680", () => {
-    expect(responsiveCanvasHeight(100)).toBe(320);
-    expect(responsiveCanvasHeight(1000)).toBe(520);
-    expect(responsiveCanvasHeight(2000)).toBe(680);
   });
 });
 

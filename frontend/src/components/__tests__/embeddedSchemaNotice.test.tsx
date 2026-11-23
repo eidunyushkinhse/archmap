@@ -32,7 +32,6 @@ function mount(over: { notice?: string | null; empty?: ReactNode } = {}) {
       onSchemaViewChange={vi.fn()}
       onNavigateNode={vi.fn()}
       onEdit={vi.fn()}
-      height={400}
       showViewFilter
       empty={over.empty}
       notice={over.notice}
@@ -62,7 +61,7 @@ describe("EmbeddedSchemaBlock: тост внутри рамки схемы", () 
       <EmbeddedSchemaBlock
         title="Схема" nodes={nodes} endpoints={[]} edges={[]} viewLayout={{}} containerId={null}
         ancestorNames={[]} ancestorIds={[]} ancestorElements={[]} depth={0} isArchitect
-        schemaView="all" onSchemaViewChange={vi.fn()} onNavigateNode={vi.fn()} height={400} showViewFilter={false}
+        schemaView="all" onSchemaViewChange={vi.fn()} onNavigateNode={vi.fn()} showViewFilter={false}
       />,
     );
     expect(container.querySelector(".ds-toast")).toBeNull();

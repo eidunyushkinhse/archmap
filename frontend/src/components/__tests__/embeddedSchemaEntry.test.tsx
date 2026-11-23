@@ -32,7 +32,6 @@ function mount(over: { isArchitect: boolean; onEdit?: () => void; showViewFilter
       onSchemaViewChange={vi.fn()}
       onNavigateNode={vi.fn()}
       onEdit={over.onEdit}
-      height={400}
       showViewFilter={over.showViewFilter ?? true}
     />,
   );

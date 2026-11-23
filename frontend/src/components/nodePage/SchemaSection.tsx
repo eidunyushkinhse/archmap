@@ -14,7 +14,7 @@ import { useToast } from "../../pages/useToast";
 import EmbeddedSchemaBlock from "../EmbeddedSchemaBlock";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../schemaView";
 import type { LevelPersistenceProps, NavigateMap, ViewMetaRef } from "../graph/types";
-import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../pageSchema";
+import { hasNoNeighbors, mergeViewLayout, toLevelEdges, withOwnEdits } from "../pageSchema";
 import Section from "../../ui/Section";
 import "../../ui/ds.css";
 import "./schemaSection.css";
@@ -247,8 +247,6 @@ export default function SchemaSection({
     );
   }
 
-  // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
-  const height = schemaSectionHeight(visibleEntityGuess(view));
   // Признак проектный, с сервера: на схеме одного объекта статусов может не быть,
   // а в проекте переход идёт — переключатель вида нужен и здесь. Статусы читаем из
   // view: свежепоставленный «планируется» обязан включить фильтр сразу.
@@ -282,7 +280,6 @@ export default function SchemaSection({
       onRelayout={handleRelayout}
       relayoutToken={relayoutToken}
       mutationToken={mutationToken}
-      height={height}
       showViewFilter={hasStatusInfo}
       title="Схема"
       notice={remoteToast ? "Схему только что изменили в другом окне" : null}
