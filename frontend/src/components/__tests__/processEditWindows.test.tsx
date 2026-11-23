@@ -183,12 +183,14 @@ describe("окно ветки «иначе»", () => {
     noWrites();
   });
 
-  it("правка ветки: «Убрать ветку», «Сохранить», «Отмена»; Enter сохраняет условие", async () => {
+  it("правка ветки: «Сохранить», «Отмена», «Убрать ветку»; Enter сохраняет условие", async () => {
     await open();
     await userEvent.click(screen.getByText("edit-branch-0"));
     const win = windowOf(await screen.findByText("Ветка «иначе»"));
     expect(within(win).getByText("Ветка 2 у этого alt")).toBeInTheDocument();
-    expect(textButtons(win)).toEqual(["Убрать ветку", "Сохранить", "Отмена"]);
+    // Главная кнопка первой, «Отмена» за ней, «Убрать ветку» у правого края подвала
+    // (до фазы 13г она стояла первой, у левого края).
+    expect(textButtons(win)).toEqual(["Сохранить", "Отмена", "Убрать ветку"]);
     const input = within(win).getByDisplayValue("отказ");
     expect(input).toHaveFocus();
     await userEvent.type(input, " банка{Enter}");
@@ -268,5 +270,32 @@ describe("окно «Добавить шаг» на холсте", () => {
     await waitFor(() => expect(screen.queryByText("Добавить шаг")).toBeNull());
     expect(processesApi.directions).toHaveBeenCalledTimes(before + 2);
     noWrites();
+  });
+});
+
+// Вид окон «одно поле» на новом языке (фаза 13г): каркас ds-win карточкой, заголовок h2,
+// пояснение абзацем, поле ds-input, кнопки языка; крестика нет.
+describe("окна «одно поле»: каркас нового языка", () => {
+  it("шаг внутри участника: каркас, заголовок, поле и кнопки языка, крестика нет", async () => {
+    await open();
+    await userEvent.click(screen.getByText("self-pa"));
+    const title = await screen.findByRole("heading", { level: 2, name: "Шаг внутри «Покупатель»" });
+    const win = windowOf(title);
+    expect(win).toHaveClass("ds", "ds-win", "ds-win--card");
+    expect(title).toHaveClass("ds-win-title");
+    expect(within(win).getByText("Участник делает что-то сам, без связи с другими объектами.").tagName).toBe("P");
+    expect(within(win).getByPlaceholderText("напр. валидация заказа")).toHaveClass("ds-input");
+    expect(within(win).getByRole("button", { name: "Добавить" }).className).toBe("ds-btn ds-btn--primary");
+    expect(within(win).getByRole("button", { name: "Отмена" }).className).toBe("ds-btn");
+    expect(within(win).queryByRole("button", { name: "Закрыть" })).toBeNull();
+    expect(win.querySelectorAll("[style]")).toHaveLength(0);
+  });
+
+  it("правка ветки: «Убрать ветку» — тихая красная кнопка-текст (как «Удалить шаг»)", async () => {
+    await open();
+    await userEvent.click(screen.getByText("edit-branch-0"));
+    const win = windowOf(await screen.findByText("Ветка «иначе»"));
+    expect(within(win).getByRole("button", { name: "Убрать ветку" }).className).toBe("sp-delete");
+    expect(win.querySelectorAll("[style]")).toHaveLength(0);
   });
 });

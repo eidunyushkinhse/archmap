@@ -30,6 +30,7 @@ import { participantEdits } from "./participantEdits";
 import { useProcessHistory } from "./useProcessHistory";
 import { useOverlayStack, type Overlay, type OverlayKind } from "./useOverlayStack";
 import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
+import "../../ui/ds.css";
 import "./processes.css";
 import { noAutofill } from "../../ui/noAutofill";
 
@@ -302,7 +303,6 @@ export default function ProcessCanvas({
             value={o.caption}
             onChange={(caption) => updateOverlay("self", (x) => ({ ...x, caption }))}
             placeholder="напр. валидация заказа"
-            inputStyle={fragInput}
             submitLabel="Добавить"
             onSubmit={() => void createSelfMessage(o.pid, o.caption)}
             onCancel={() => closeOverlay("self")}
@@ -357,14 +357,13 @@ export default function ProcessCanvas({
             value={o.guard}
             onChange={(guard) => updateOverlay("branch", (x) => ({ ...x, guard }))}
             placeholder="условие ветки, напр. «отказ»"
-            inputClassName="bp-input"
             submitLabel={o.index == null ? "Добавить" : "Сохранить"}
             onSubmit={() => void saveBranch(o)}
             onCancel={() => closeOverlay("branch")}
             extra={o.index != null && (
               <button
-                className="bp-btn-ghost"
-                style={{ marginRight: "auto", color: "#dc2626" }}
+                type="button"
+                className="sp-delete"
                 onClick={() => {
                   const frag = fragById.get(o.fid);
                   closeOverlay("branch");
@@ -389,7 +388,6 @@ export default function ProcessCanvas({
             value={o.guard}
             onChange={(guard) => updateOverlay("frag", (x) => ({ ...x, guard }))}
             placeholder="напр. оплата прошла"
-            inputStyle={fragInput}
             submitLabel="Добавить"
             onSubmit={() => void createFragment(o.frag, o.fromRow, o.toRow, o.guard)}
             onCancel={() => closeOverlay("frag")}
@@ -701,11 +699,13 @@ const fragHintBar: CSSProperties = {
   color: "#92591a",
   whiteSpace: "nowrap",
 };
-// Карточка «одно поле» поверх холста: рефлексивное сообщение, ветка «иначе», условие
-// фрагмента (аудит F-2: три копии одной разметки). Enter — то же, что основная кнопка;
-// extra — кнопка у левого края (у ветки — «Убрать ветку»); главная — перед «Отмена».
+// Окно «одно поле» поверх холста: рефлексивное сообщение, ветка «иначе», условие
+// фрагмента (аудит F-2: три копии одной разметки). Каркас окна нового языка карточкой
+// (ds-win ds-win--card): заголовок, пояснение, поле на всю ширину с фокусом при открытии,
+// подвал — главная кнопка, «Отмена», extra у правого края (у ветки — «Убрать ветку»).
+// Крестика нет. Enter в поле — то же, что главная кнопка.
 function PromptCard({
-  title, hint, autofillKey, value, onChange, placeholder, inputStyle, inputClassName,
+  title, hint, autofillKey, value, onChange, placeholder,
   submitLabel, onSubmit, onCancel, extra,
 }: {
   title: string;
@@ -714,8 +714,6 @@ function PromptCard({
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
-  inputStyle?: CSSProperties;
-  inputClassName?: string;
   submitLabel: string;
   onSubmit: () => void;
   onCancel: () => void;
@@ -725,23 +723,26 @@ function PromptCard({
     <>
       <div className="proc-dim" onClick={onCancel} />
       <div className="proc-center">
-        <div style={confirmCard}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>{title}</div>
-          <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>{hint}</div>
-          <input
-            {...noAutofill(autofillKey)}
-            className={inputClassName}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            style={inputStyle}
-            autoFocus
-            onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
-          />
-          <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+        <div className="ds ds-win ds-win--card proc-win proc-win--plain">
+          <div className="ds-win-head">
+            <h2 className="ds-win-title">{title}</h2>
+          </div>
+          <div className="ds-win-body">
+            <p className="ds-win-lead">{hint}</p>
+            <input
+              {...noAutofill(autofillKey)}
+              className="ds-input"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
+            />
+          </div>
+          <div className="ds-win-foot">
+            <button type="button" className="ds-btn ds-btn--primary" onClick={onSubmit}>{submitLabel}</button>
+            <button type="button" className="ds-btn" onClick={onCancel}>Отмена</button>
             {extra}
-            <button className="bp-btn-primary" onClick={onSubmit}>{submitLabel}</button>
-            <button className="bp-btn-ghost" onClick={onCancel}>Отмена</button>
           </div>
         </div>
       </div>
@@ -758,16 +759,6 @@ const confirmCard: CSSProperties = {
   borderRadius: 13,
   boxShadow: "0 20px 56px rgba(15,23,42,.24)",
   padding: 16,
-};
-const fragInput: CSSProperties = {
-  width: "100%",
-  height: 34,
-  padding: "0 10px",
-  border: "1px solid " + BPT.line,
-  borderRadius: 8,
-  fontSize: 13,
-  outline: "none",
-  boxSizing: "border-box",
 };
 const partRow: CSSProperties = {
   display: "flex",

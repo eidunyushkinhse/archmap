@@ -412,6 +412,18 @@ button.seq-doc:focus-visible {
   transform: translate(-50%, -50%);
   z-index: 53;
 }
+/* Окно правки — ширина подтверждения; длинное имя в заголовке переносится. */
+.proc-win {
+  width: 440px;
+}
+.proc-win .ds-win-title {
+  overflow-wrap: anywhere;
+}
+/* Окно без крестика (шаг внутри участника, ветка, условие фрагмента): правое поле шапки
+   равно полю окна, как у подтверждения. */
+.proc-win--plain .ds-win-head {
+  padding-right: var(--win-pad);
+}
 
 /* ── Тело холста процесса: диаграмма и панель шага справа (ProcessCanvas) ──
    Панель — часть раскладки: открылась — область диаграммы сузилась и вписалась заново. */
@@ -674,10 +686,9 @@ button.seq-doc:focus-visible {
   font-size: var(--fs-caption);
   color: var(--c-fg-muted);
 }
-/* «Удалить шаг» — тихая красная кнопка внизу панели. */
+/* Тихая красная кнопка-текст: «Удалить шаг» внизу панели шага и «Убрать ветку» в подвале
+   окна ветки «иначе» (ProcessCanvas, PromptCard). Место задают правила ниже. */
 .sp-delete {
-  align-self: flex-start;
-  margin-top: auto;
   padding: 0;
   border: 0;
   background: none;
@@ -689,6 +700,15 @@ button.seq-doc:focus-visible {
 .sp-delete:focus-visible {
   text-decoration: underline;
   outline: none;
+}
+/* В панели шага — внизу колонки. */
+.sp-panel > .sp-delete {
+  align-self: flex-start;
+  margin-top: auto;
+}
+/* В подвале окна — у правого края ряда, после главной кнопки и «Отмена». */
+.ds-win-foot > .sp-delete {
+  margin-left: auto;
 }
 
 /* ── Шапка процесса (ProcessToolbar) ──
