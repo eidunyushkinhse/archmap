@@ -1,7 +1,8 @@
 // Вход в экран редактора схемы из строки заголовка раздела «Схема» (EmbeddedSchemaBlock,
-// проп onEdit). Страховочная сетка фазы 13д редизайна: кнопка стоит в блоке действий строки
-// справа от вкладок вида, несёт цель обучения data-tour="schema-edit" и зовёт onEdit; без
-// onEdit кнопки нет. Холст заглушён: здесь проверяется разметка строки заголовка.
+// проп onEdit). Фаза 13д редизайна: кнопка стоит в блоке действий строки справа от вкладок
+// вида у любой роли (архитектору «Редактировать», читателю «Развернуть»), несёт цель обучения
+// data-tour="schema-edit" и зовёт onEdit; без onEdit кнопки нет. Холст заглушён: здесь
+// проверяется разметка строки заголовка.
 import { render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -70,15 +71,33 @@ describe("EmbeddedSchemaBlock: вход в экран схемы из строк
     expect(head(container).querySelector(".ds-sec-acts")).toBeNull();
   });
 
-  it("читатель с onEdit: в строке заголовка только вкладки вида, кнопки нет", () => {
-    const { container } = mount({ isArchitect: false, onEdit: vi.fn() });
-    expect(head(container).querySelectorAll("button")).toHaveLength(0);
-    expect(within(head(container)).getByTestId("view-tabs")).toBeInTheDocument();
-    expect(container.querySelector('[data-tour="schema-edit"]')).toBeNull();
+  // Фаза 13д: читателю тот же вход в экран схемы (в режиме просмотра) под своей подписью.
+  it("читатель с onEdit: «Развернуть» после вкладок вида, тот же класс, место и цель обучения, зовёт onEdit", async () => {
+    const onEdit = vi.fn();
+    const { container } = mount({ isArchitect: false, onEdit });
+    const acts = head(container).querySelector(".ds-sec-acts") as HTMLElement;
+    const btn = within(acts).getByRole("button", { name: "Развернуть" });
+    expect(btn.className).toBe("ds-btn");
+    expect(btn).toHaveAttribute("type", "button");
+    expect(btn).toHaveAttribute("data-tour", "schema-edit");
+    expect(btn).not.toHaveAttribute("style");
+    expect(acts.lastElementChild).toBe(btn);
+    expect(within(acts).getByTestId("view-tabs").compareDocumentPosition(btn) & document.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(head(container)).queryByRole("button", { name: "Редактировать" })).toBeNull();
+    await userEvent.click(btn);
+    expect(onEdit).toHaveBeenCalledOnce();
   });
 
-  it("читатель с onEdit без вкладок вида: блока действий нет", () => {
+  it("читатель с onEdit без вкладок вида: в блоке действий одна кнопка «Развернуть»", () => {
     const { container } = mount({ isArchitect: false, onEdit: vi.fn(), showViewFilter: false });
-    expect(head(container).querySelector(".ds-sec-acts")).toBeNull();
+    const acts = head(container).querySelector(".ds-sec-acts") as HTMLElement;
+    expect(acts).not.toBeNull();
+    expect([...acts.children].map((e) => e.textContent)).toEqual(["Развернуть"]);
+  });
+
+  it("архитектор с onEdit без вкладок вида: в блоке действий одна кнопка «Редактировать»", () => {
+    const { container } = mount({ isArchitect: true, onEdit: vi.fn(), showViewFilter: false });
+    const acts = head(container).querySelector(".ds-sec-acts") as HTMLElement;
+    expect([...acts.children].map((e) => e.textContent)).toEqual(["Редактировать"]);
   });
 });

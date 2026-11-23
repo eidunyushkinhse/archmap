@@ -430,7 +430,8 @@ function NodePageInner({
                           // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
                           onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
                         }}>
-                          Открыть в редакторе
+                          {/* Читателю тот же экран открывается в режиме просмотра (фаза 13д). */}
+                          {isArchitect ? "Открыть в редакторе" : "Развернуть схему"}
                         </button>
                       )}
                       <button type="button" className="ds-menu-item" onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>

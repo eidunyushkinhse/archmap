@@ -44,7 +44,9 @@ interface Props {
   onSchemaViewChange: (v: SchemaView) => void;
   // Двойной клик по узлу → его страница
   onNavigateNode: (nodeId: string) => void;
-  // «Редактировать» → редактор-карта (архитектор)
+  // Вход в экран редактора схемы из строки заголовка: архитектору для правки
+  // («Редактировать»), читателю тот же экран в режиме просмотра («Развернуть»). Не передан —
+  // кнопки нет (пустой проект).
   onEdit?: () => void;
   // «Переразложить» → сброс раскладки вида фокуса (архитектор, только с персистом)
   onRelayout?: () => void;
@@ -62,7 +64,7 @@ interface Props {
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
   // Заголовок раздела (редизайн, направление А «Документ»): блок живёт разделом страницы
-  // нового языка: заголовок, вкладки вида и «Редактировать» в одной строке, рамка 1px,
+  // нового языка: заголовок, вкладки вида и вход в экран схемы в одной строке, рамка 1px,
   // высота окна — clamp от высоты экрана (CSS), а не от ширины. Запасной строки без
   // заголовка нет (удалена в фазе 13б вместе с кнопкой прежнего вида).
   title: string;
@@ -193,17 +195,21 @@ export default function EmbeddedSchemaBlock({
 
   return (
     <div className="ds-sec">
-      {/* Строка заголовка раздела: вкладки вида и «Редактировать» справа. «Переразложить»
-          живёт на холсте (кнопка LevelGraph в правом верхнем углу), как в редакторе-карте. */}
+      {/* Строка заголовка раздела: вкладки вида и вход в экран схемы справа, у любой роли.
+          Подпись по роли: архитектору «Редактировать», читателю «Развернуть» (тот же экран в
+          режиме просмотра). «Переразложить» живёт на холсте (кнопка LevelGraph в правом
+          верхнем углу), как в редакторе-карте. */}
       <div className="ds-sec-head">
         <h3 className="ds-sec-title">{title}</h3>
-        {(showViewFilter || (isArchitect && onEdit)) && (
+        {(showViewFilter || onEdit) && (
           <div className="ds-sec-acts">
             {showViewFilter && (
               <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} variant="tabs" />
             )}
-            {isArchitect && onEdit && (
-              <button type="button" className="ds-btn" data-tour="schema-edit" onClick={onEdit}>Редактировать</button>
+            {onEdit && (
+              <button type="button" className="ds-btn" data-tour="schema-edit" onClick={onEdit}>
+                {isArchitect ? "Редактировать" : "Развернуть"}
+              </button>
             )}
           </div>
         )}

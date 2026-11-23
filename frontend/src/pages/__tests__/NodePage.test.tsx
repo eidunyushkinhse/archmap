@@ -1481,7 +1481,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
 
 // ── ⋯-меню: история версий ────────────────────────────────────────────────────
 // Меню видно обеим ролям (docs/tasks/doc-versions.md §7): у читателя — пункты
-// просмотра («Открыть в редакторе», «Версии документации»), пункты правки — у редактора.
+// просмотра («Развернуть схему», «Версии документации»), пункты правки — у редактора.
 // Удалять версии может только владелец проекта — панель получает это по роли.
 describe("NodePage: ⋯-меню и версии документации", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -1502,7 +1502,8 @@ describe("NodePage: ⋯-меню и версии документации", () =
 
   it("читатель: меню есть, в нём только просмотр; пункт открывает панель без права правки", async () => {
     await openMenu(false, "reader");
-    expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Развернуть схему" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Открыть в редакторе" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Экспорт объекта с вложенными" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Удалить объект" })).toBeNull();
 
@@ -1535,7 +1536,7 @@ describe("NodePage: ⋯-меню и версии документации", () =
   // Вход в экран схемы пунктом меню (фаза 13д): уровень родителя, объект подсвечен, возврат
   // на страницу объекта. Обработчик один у обеих ролей; подпись — по роли.
   it.each([
-    { who: "читатель", isArchitect: false, role: "reader" as ProjectRole, label: "Открыть в редакторе" },
+    { who: "читатель", isArchitect: false, role: "reader" as ProjectRole, label: "Развернуть схему" },
     { who: "редактор", isArchitect: true, role: "editor" as ProjectRole, label: "Открыть в редакторе" },
   ])("$who: пункт «$label» первым, ведёт на уровень родителя с подсветкой и возвратом", async ({ isArchitect, role, label }) => {
     const n = node("n1", { parent_id: "sys" });
