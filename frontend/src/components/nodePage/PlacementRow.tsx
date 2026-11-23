@@ -70,7 +70,11 @@ export default function PlacementRow({ node, element, containerSites, isArchitec
   // Отказ загрузки площадок — текстом под значением, а не молчанием.
   const [error, setError] = useState<string | null>(null);
 
+  // Пока площадки читаются, кнопка не запирается: запертая теряла бы фокус ещё до открытия
+  // окна, и окно не знало бы, куда вернуть фокус после закрытия (ui/Modal). Повторное
+  // нажатие во время чтения гасится здесь.
   const openDialog = () => {
+    if (loading) return;
     setLoading(true);
     setError(null);
     deploymentApi.sites()
@@ -108,7 +112,7 @@ export default function PlacementRow({ node, element, containerSites, isArchitec
           type="button"
           className="ds-value-btn"
           onClick={openDialog}
-          disabled={loading}
+          aria-busy={loading}
           aria-label="Изменить размещение"
         >
           <SiteNames sites={node.sites} />
