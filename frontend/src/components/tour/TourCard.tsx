@@ -1,6 +1,8 @@
 // Карточка шага тура (аудит F-38): заголовок, текст, «Шаг N из M» и кнопки хода. Место
 // у цели считается по замеренному размеру (tourGeometry.placeCard); уход — копией,
-// которая гаснет или (пауза) сворачивается в пилюлю (tourGhost).
+// которая гаснет или (пауза) сворачивается в кнопку «Продолжить обучение» (tourGhost).
+// Кнопки хода — кнопки нового языка (ui/ds.css): «Начать», «Далее», «Завершить» главные,
+// «Назад» вторичная; «Пропустить» — тихая кнопка-текст (tour.css).
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { placeCard } from "./tourGeometry";
@@ -8,12 +10,14 @@ import { leaveGhost } from "./tourGhost";
 import { takeExitToPill } from "./tourStore";
 import type { TourStep } from "./tourSteps";
 import type { TourView } from "./tourView";
+import "../../ui/ds.css";
+import "./tour.css";
 
 interface TourCardProps {
   /** цель кадра: фаза и место карточки (якорь, что не заслонять) */
   view: TourView;
   step: TourStep;
-  /** body — абзацы через «\n»; note — абзац курсивом после текста (приветствие: о паузе);
+  /** body — абзацы через «\n»; note — абзац-примечание после текста (приветствие: о паузе);
    *  retry — мягкая подсказка: на шаге создания появился объект не того типа */
   texts: { title: string; body: string; note?: string; action?: string; retry?: string };
   /** «Шаг N из M» или null у приветствия и финалов */
@@ -44,7 +48,7 @@ export default function TourCard({
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && el.offsetWidth > 0) setSize({ w: el.offsetWidth, h: el.offsetHeight });
-    // ушла по клику на затемнение (пауза) — сворачивается в пилюлю, иначе гаснет
+    // ушла по клику на затемнение (пауза) — сворачивается в кнопку, иначе гаснет
     return () => { if (el) leaveGhost(el, "tour-card--ghost", takeExitToPill()); };
   }, []);
   useEffect(() => {
@@ -86,12 +90,12 @@ export default function TourCard({
         )}
         <div className="tour-btns">
           {canBack && !isEnd && (
-            <button type="button" className="tour-btn tour-btn--sec" onClick={onBack}>Назад</button>
+            <button type="button" className="ds-btn" onClick={onBack}>Назад</button>
           )}
-          {isStart && <button type="button" className="tour-btn tour-btn--pri" onClick={onNext}>Начать</button>}
-          {isEnd && <button type="button" className="tour-btn tour-btn--pri" onClick={onFinish}>Завершить</button>}
+          {isStart && <button type="button" className="ds-btn ds-btn--primary" onClick={onNext}>Начать</button>}
+          {isEnd && <button type="button" className="ds-btn ds-btn--primary" onClick={onFinish}>Завершить</button>}
           {step.kind === "info" && (
-            <button type="button" className="tour-btn tour-btn--pri" onClick={onNext}>Далее</button>
+            <button type="button" className="ds-btn ds-btn--primary" onClick={onNext}>Далее</button>
           )}
         </div>
       </div>
