@@ -1193,8 +1193,7 @@ button.seq-doc:focus-visible {
 .pim-text::placeholder {
   color: var(--c-fg-faint);
 }
-/* Фокус поля текста — кольцом нового языка, сильнее общего правила окон (ui/modal.css);
-   у ds-input и ds-field его задаёт каркас окна (ui/ds.css). */
+/* Фокус поля текста — кольцом нового языка, тем же, что у ds-input (ui/ds.css). */
 .app-modal .pim .pim-text:focus {
   outline: none;
   border-color: var(--c-accent);

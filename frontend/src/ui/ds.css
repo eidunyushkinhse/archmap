@@ -450,26 +450,9 @@ button.ds-sub:hover {
   align-items: center;
   gap: var(--space-1);
 }
-/* Фокус полей окна — кольцом нового языка, сильнее общего правила окон (ui/modal.css). */
-.app-modal .ds-win .ds-input:focus {
-  outline: none;
-  border-color: var(--c-accent);
-  box-shadow: 0 0 0 3px var(--c-accent-soft);
-}
-.app-modal .ds-win .ds-field:focus,
-.app-modal .ds-win .ds-grow-input:focus {
-  box-shadow: 0 0 0 1px var(--c-accent);
-}
-/* Список выбора в окне — тем же кольцом, что поле: правило окон (ui/modal.css) с той же
-   силой, что .ds-select select:focus, грузится позже и перекрывало его прежним кольцом. */
-.app-modal .ds-win .ds-select select:focus {
-  outline: none;
-  border-color: var(--c-accent);
-  box-shadow: 0 0 0 3px var(--c-accent-soft);
-}
 /* Галочка окна («Заменять уже описанное», «что обновлять»): флажок и текст на одной
    базовой линии, подсказка — в title. Фокус флажка — кольцом языка только с клавиатуры:
-   общее правило окон (ui/modal.css) рисует светлую рамку и после щелчка мышью. */
+   после щелчка мышью кольца нет. */
 .ds-check {
   display: flex;
   align-items: baseline;
@@ -484,9 +467,6 @@ button.ds-sub:hover {
   flex: none;
   margin: 0;
   font: inherit;
-}
-.app-modal .ds-win input[type="checkbox"]:focus {
-  box-shadow: none;
 }
 .app-modal .ds-win input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--c-accent);

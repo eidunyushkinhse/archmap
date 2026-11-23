@@ -138,8 +138,7 @@
   line-height: var(--lh-ui);
   color: var(--c-fg-muted);
 }
-/* Фокус полей — кольцом нового языка: общее правило окон (ui/modal.css) сильнее
-   правила примитива. */
+/* Фокус полей — кольцом нового языка, те же значения, что у примитивов (ui/ds.css). */
 .app-modal .doc-root .ds-input:focus,
 .app-modal .doc-root .ds-select select:focus {
   outline: none;
@@ -324,8 +323,7 @@
 .doc-edta::placeholder {
   color: var(--c-fg-faint);
 }
-/* Общее правило окон (ui/modal.css) обводит поле в фокусе: у поля кода рамки нет,
-   место ввода видно по каретке. */
+/* У поля кода в фокусе ни рамки, ни кольца: место ввода видно по каретке. */
 .app-modal .doc-edta:focus {
   border: 0;
   box-shadow: none;
