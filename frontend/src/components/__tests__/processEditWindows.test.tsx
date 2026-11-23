@@ -342,7 +342,8 @@ describe("окна выбора объектов: каркас нового яз
 });
 
 // Полоса «Протяните по шагам…» на новом языке (фаза 13г): тост языка с кнопкой, без
-// инлайн-стилей; место (верх по центру, z-index 7) — правило processes.css.
+// инлайн-стилей; место (верх по центру, z-index 9 над слоем выбора диапазона) — правило
+// processes.css.
 describe("полоса выбора диапазона под фрагмент", () => {
   it("тост языка с «Отмена»; «Отмена» гасит полосу без записи и без окна", async () => {
     await open();
@@ -362,8 +363,12 @@ describe("полоса выбора диапазона под фрагмент",
     noWrites();
   });
 
-  it("место полосы — верх области по центру, z-index 7, ширина до 580px", () => {
-    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "processes", "processes.css"), "utf8");
+  // z-index выше слоя выбора диапазона диаграммы: при равном или меньшем слой ловит щелчок
+  // мышью по «Отмена» и открывает окно условия (хвост приёмки 13г). Значение слоя берётся из
+  // исходника SequenceDiagram, а не константой: поднимут слой — тест покраснеет.
+  it("место полосы — верх области по центру, z-index 9 над слоем выбора, ширина до 580px", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(join(here, "..", "processes", "processes.css"), "utf8");
     const m = css.match(/\.ds-toast\.proc-frag-hint \{([^}]*)\}/);
     expect(m).not.toBeNull();
     const body = m?.[1] ?? "";
@@ -371,7 +376,15 @@ describe("полоса выбора диапазона под фрагмент",
     expect(body).toMatch(/top: 10px;/);
     expect(body).toMatch(/left: 50%;/);
     expect(body).toMatch(/transform: translateX\(-50%\);/);
-    expect(body).toMatch(/z-index: 7;/);
+    expect(body).toMatch(/z-index: 9;/);
     expect(body).toMatch(/max-width: min\(580px, calc\(100% - 32px\)\);/);
+
+    const src = readFileSync(join(here, "..", "processes", "SequenceDiagram.tsx"), "utf8");
+    const layer = src.match(/\{ position: "absolute", inset: 0, zIndex: (\d+), cursor: "crosshair" \}/g) ?? [];
+    expect(layer).toHaveLength(1);
+    const layerZ = Number(/zIndex: (\d+)/.exec(layer[0] ?? "")?.[1]);
+    const barZ = Number(/z-index: (\d+);/.exec(body)?.[1]);
+    expect(layerZ).toBeGreaterThan(0);
+    expect(barZ).toBeGreaterThan(layerZ);
   });
 });
