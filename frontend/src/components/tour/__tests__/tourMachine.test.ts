@@ -330,7 +330,7 @@ describe("тур — свой проект", () => {
 
   it("объекты создаются с явным типом: «Система» на схему, «Контейнер» в её рамку (Р41)", () => {
     expect(STEPS["create-system"].action)
-      .toBe("Перетащите «Систему» на схему и назовите её именем вашей системы.");
+      .toBe("Перетащите «Систему» на схему, назовите её именем вашей системы и нажмите «Создать».");
     expect(STEPS["create-system"].target).toMatchObject({ main: { kind: "tour", key: "palette:system" } });
     expect(STEPS["add-child"].target).toMatchObject({ main: { kind: "tour", key: "palette:container" } });
   });
@@ -338,9 +338,11 @@ describe("тур — свой проект", () => {
   it("имена созданных объектов подставляются в именительном падеже", () => {
     const vars = { ...OWN_VARS, childName: "Касса" };
     expect(stepTexts(STEPS.connect, vars).action)
-      .toBe("Потяните стрелку от объекта «Банк» и отпустите на объекте «Платёжный шлюз».");
-    expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
-    expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Контейнер» внутрь раскрытой системы «Платёжный шлюз».");
+      .toBe("Потяните стрелку от объекта «Банк», отпустите на объекте «Платёжный шлюз» и нажмите «Создать связь».");
+    expect(stepTexts(STEPS["enter-system"], vars).action)
+      .toBe("Нажмите кнопку «Войти» в правом верхнем углу системы «Платёжный шлюз».");
+    expect(stepTexts(STEPS["add-child"], vars).action)
+      .toBe("Перетащите «Контейнер» внутрь раскрытой системы «Платёжный шлюз», дайте ему имя и нажмите «Создать».");
     expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился контейнер.")).toBe(true);
     expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с системы на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)
@@ -352,7 +354,7 @@ describe("тур — свой проект", () => {
     );
     expect(stepTexts(STEPS.rehang, vars)).not.toHaveProperty("note");
     expect(stepTexts(STEPS["context-edge"], vars).body)
-      .toBe("Для слоя контекста это правда: «Банк» работает с системой «Платёжный шлюз» целиком.");
+      .toBe("Для уровня контекста это правда: «Банк» работает с системой «Платёжный шлюз» целиком.");
     expect(stepTexts(STEPS.inside, vars).body).toBe(
       "Внутри системы «Платёжный шлюз» связь приходит в контейнер «Касса». "
       + "Диаграмма контекста показывает систему целиком, а лупа показывает, что внутри.",
@@ -360,7 +362,8 @@ describe("тур — свой проект", () => {
   });
 
   it("без захваченных имён — имена прототипа", () => {
-    expect(stepTexts(STEPS["enter-system"], {}).action).toBe("Нажмите «Войти» на системе «Моя система».");
+    expect(stepTexts(STEPS["enter-system"], {}).action)
+      .toBe("Нажмите кнопку «Войти» в правом верхнем углу системы «Моя система».");
   });
 
   it("«Назад» со своего проекта перешагивает уже невыполнимое создание проекта", () => {

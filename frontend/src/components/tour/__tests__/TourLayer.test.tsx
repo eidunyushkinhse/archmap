@@ -102,7 +102,7 @@ describe("TourLayer", () => {
     expect(rings).toHaveLength(2);
     expect(rings[0]).toHaveClass("tour-ring--act");
     expect(rings[1]).not.toHaveClass("tour-ring--act");
-    const card = screen.getByRole("dialog", { name: "Перейдём на следующий слой архитектуры" });
+    const card = screen.getByRole("dialog", { name: "Перейдём на следующий уровень архитектуры" });
     // тело пустое — абзаца нет, есть только строка действия
     expect(card.querySelectorAll("p")).toHaveLength(1);
     expect(card.querySelector("p")).toHaveClass("tour-do");
