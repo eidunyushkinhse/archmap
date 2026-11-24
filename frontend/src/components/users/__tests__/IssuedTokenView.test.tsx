@@ -142,26 +142,90 @@ describe("вид «Токен выпущен»", () => {
     expect(screen.getByTestId("issued-cli").querySelector(".ud-stub")).toHaveTextContent("<cli>");
     for (const b of copyButtons()) expect(b.className).toBe("ds-btn");
     expect(screen.getByRole("button", { name: "Готово" }).className).toBe("ds-btn ds-btn--primary");
-    expect(document.querySelectorAll(".ds-win [style]")).toHaveLength(0);
+    // Инлайн-стиль только у строк блока: число ведущих пробелов строки (CodeLines), от него
+    // стили считают отступ продолжения.
+    const styled = [...document.querySelectorAll(".ds-win [style]")];
+    expect(styled.length).toBeGreaterThan(0);
+    for (const el of styled) {
+      expect(el).toHaveClass("ud-line");
+      expect(el.getAttribute("style")).toMatch(/^--ud-indent: \d+;$/);
+    }
   });
 
   // Находка 8 (2026-11-24): строка CLI и длинные строки задания CI уходили за край блока и
-  // читались только прокруткой вбок. jsdom раскладку не считает: правило читаем текстом, а
-  // что «Скопировать» берёт исходный текст без переносов, проверяем по буферу.
-  it("длинные строки блока переносятся внутри него, копируется исходный текст", async () => {
+  // читались только прокруткой вбок. Доработка того же дня: перенос по знакам рвал ключ
+  // --header после дефиса, а продолжение стояло у левого края. Теперь строка переносится
+  // только по пробелам между словами, продолжение с висячим отступом. jsdom раскладку не
+  // считает: правила читаем текстом, разметку строк и слов проверяем по DOM (раскладку и
+  // текст выделения мерит браузер на стенде), а что «Скопировать» берёт исходный текст без
+  // переносов, проверяем по буферу.
+  it("длинные строки блока переносятся по словам с отступом продолжения; правила стилей", () => {
     const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "userDialogs.css"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "");
-    const pre = css.split("}").find((chunk) => chunk.split("{")[0].trim() === ".ud-pre")?.split("{")[1] ?? "";
+    const rule = (sel: string) => css.split("}").find((chunk) => chunk.split("{")[0].trim() === sel)?.split("{")[1] ?? "";
+    const pre = rule(".ud-pre");
     expect(pre).toContain("white-space: pre-wrap");
-    expect(pre).toContain("overflow-wrap: anywhere");
     expect(pre).not.toContain("overflow-x");
+    // Перенос по знакам на весь блок снят: рвать можно только слово длиннее блока.
+    expect(pre).not.toContain("overflow-wrap");
+    expect(pre).not.toContain("word-break");
+    const line = rule(".ud-line");
+    expect(line).toContain("display: block");
+    expect(line).toContain("padding-left: calc((var(--ud-indent, 0) + 2) * 1ch)");
+    expect(line).toContain("text-indent: calc((var(--ud-indent, 0) + 2) * -1ch)");
+    const word = rule(".ud-word");
+    expect(word).toContain("display: inline-block");
+    expect(word).toContain("max-width: 100%");
+    expect(word).toContain("text-indent: 0");
+    expect(word).toContain("overflow-wrap: anywhere");
+    expect(word).toContain("line-break: anywhere");
+  });
+
+  // Разметка блока на каждой из пяти вкладок: текст блока равен исходному знак в знак;
+  // строка исходного текста — блок ud-line со своим числом ведущих пробелов; всё, что не
+  // пробел, лежит в словах ud-word по одному слову; «Скопировать» отдаёт исходный текст.
+  it("пять вкладок: текст блока исходный, строки и слова размечены, копируется исходный текст", async () => {
+    const indents = (text: string) => text.split("\n").map((l) => `--ud-indent: ${/^ */.exec(l)?.[0].length ?? 0};`);
+    const words = (text: string) => text.split(/[ \n]+/).filter((w) => w !== "");
+    async function check(id: string, label: string, text: string) {
+      await userEvent.click(screen.getByRole("tab", { name: label }));
+      const pre = screen.getByTestId(`issued-${id}`);
+      expect(pre).toHaveClass("ud-code", "ud-pre");
+      expect(pre.textContent).toBe(text);
+      const lines = [...pre.children];
+      expect(lines.every((l) => l.tagName === "SPAN" && l.className === "ud-line")).toBe(true);
+      expect(lines.map((l) => l.getAttribute("style"))).toEqual(indents(text));
+      expect([...pre.querySelectorAll(".ud-word")].map((w) => w.textContent)).toEqual(words(text));
+      await userEvent.click(copyButtons()[1]);
+      expect(copyText).toHaveBeenLastCalledWith(text);
+    }
+
+    const agent = render(<IssuedTokenView issued={{ token: token(), secret: SECRET }} onDone={vi.fn()} />);
+    const url = `${window.location.origin}/mcp`;
+    await check("cli", "CLI", `<cli> mcp add --transport http archmap ${url} --header "Authorization: Bearer ${SECRET}"`);
+    await check("desktop", "Desktop", JSON.stringify(
+      { mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${SECRET}` } } } },
+      null,
+      2,
+    ));
+    agent.unmount();
 
     render(<IssuedTokenView issued={{ token: token({ name: "CI", ci_only: true }), secret: SECRET }} onDone={vi.fn()} />);
-    const gitlab = ciSnippet("gitlab", window.location.origin);
-    expect(screen.getByTestId("issued-gitlab")).toHaveClass("ud-pre");
-    expect(screen.getByTestId("issued-gitlab").textContent).toBe(gitlab);
-    await userEvent.click(copyButtons()[1]);
-    expect(copyText).toHaveBeenLastCalledWith(gitlab);
+    for (const [id, label] of [["gitlab", "GitLab"], ["github", "GitHub"], ["curl", "curl"]] as const) {
+      await check(id, label, ciSnippet(id, window.location.origin));
+    }
+  });
+
+  it("ключ --header и «Authorization:» — целые слова; заглушка <cli> — первое слово тихим цветом", () => {
+    render(<IssuedTokenView issued={{ token: token(), secret: SECRET }} onDone={vi.fn()} />);
+    const pre = screen.getByTestId("issued-cli");
+    const words = [...pre.querySelectorAll(".ud-word")];
+    for (const w of ["--transport", "--header", '"Authorization:', `${SECRET}"`]) {
+      expect(words.filter((el) => el.textContent === w)).toHaveLength(1);
+    }
+    expect(words[0]).toHaveClass("ud-word", "ud-stub");
+    expect(words[0]).toHaveTextContent("<cli>");
+    expect(pre.querySelectorAll(".ud-stub")).toHaveLength(1);
   });
 
   it("отказ буфера — строкой предупреждения ds-warn", async () => {

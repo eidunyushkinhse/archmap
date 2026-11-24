@@ -4,6 +4,7 @@ import type { PersonalTokenCreated } from "../../types";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { CI_TABS, ciSnippet } from "./ciSignal";
+import CodeLines from "./CodeLines";
 import "../../ui/ds.css";
 import "./userDialogs.css";
 
@@ -19,9 +20,10 @@ import "./userDialogs.css";
  * Вид (редизайн, фаза 9д): каркас окна нового языка (ui/ds.css, ds-win). Секрет — блок
  * кода в одну строку (длинный переносится по символам) с «Скопировать» справа; блок
  * подключения — заголовок, вкладки-текст ds-tabs, пояснение вкладки с «Скопировать» в
- * одном ряду и блок кода того же вида, длинные строки которого переносятся внутри него
- * (users/userDialogs.css): весь текст виден без прокрутки вбок, «Скопировать» берёт
- * исходный текст. В подвале одна «Готово».
+ * одном ряду и блок кода того же вида, длинные строки которого переносятся внутри него по
+ * словам с висячим отступом продолжения (CodeLines.tsx, users/userDialogs.css): весь текст
+ * виден без прокрутки вбок, «Скопировать» и выделение берут исходный текст. В подвале одна
+ * «Готово».
  */
 
 interface Props {
@@ -124,7 +126,7 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
               {copyButton(view.id, view.text)}
             </div>
             <pre className="ud-code ud-pre" data-testid={`issued-${view.id}`}>
-              {view.id === "cli" ? <><span className="ud-stub">{CLI_STUB}</span> {cliArgs}</> : view.text}
+              <CodeLines text={view.text} stub={view.id === "cli" ? CLI_STUB : undefined} />
             </pre>
           </section>
           {copyError && <p className="ds-warn ud-flat">Браузер не дал скопировать. Выделите текст и скопируйте вручную.</p>}
