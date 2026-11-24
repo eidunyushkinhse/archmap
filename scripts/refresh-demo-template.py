@@ -10,6 +10,11 @@
 Пакет — СНИМОК, а не ссылка: правка живого проекта не меняет шаблон, пока не
 прогнан этот скрипт (и наоборот).
 
+Расстановка пакета (layout.yaml, раунд 5 обучения, docs/tasks/demo-tour-5.md) — не
+часть архива знания: архив раскладку не возит, а папка пакета пересоздаётся целиком.
+Поэтому скрипт сохраняет файл расстановки как есть и кладёт его обратно. Объекты, чьи
+пути разошлись с новым снимком, посев просто пропустит.
+
 Запуск (venv бэка — в нём настройки из backend/.env):
     cd backend && ./venv/bin/python ../scripts/refresh-demo-template.py
 
@@ -38,6 +43,8 @@ from app.models.project import Project  # noqa: E402
 
 DEFAULT_PROJECT = "Маркетплейс «Ярмарка» v2"
 DEFAULT_PACKAGE = BACKEND / "app" / "template_packages" / "demo-marketplace"
+# Файл расстановки пакета: в архиве его нет, пересоздание папки его сохраняет.
+LAYOUT_FILE = "layout.yaml"
 
 
 def main() -> int:
@@ -67,6 +74,8 @@ def main() -> int:
         db.close()
 
     pkg = Path(args.package)
+    layout = pkg / LAYOUT_FILE
+    kept_layout = layout.read_bytes() if layout.is_file() else None
     if pkg.exists():
         shutil.rmtree(pkg)
     pkg.mkdir(parents=True)
@@ -82,8 +91,12 @@ def main() -> int:
         dest.write_bytes(data)
         total += len(data)
 
+    if kept_layout is not None:
+        layout.write_bytes(kept_layout)
+
     print(f"пакет обновлён: {pkg.relative_to(REPO)}")
     print(f"файлов: {len(zf.namelist())}, распакованный размер: {total / 1024:.1f} КБ")
+    print(f"расстановка {LAYOUT_FILE}: " + ("сохранена" if kept_layout is not None else "не было"))
     return 0
 
 
