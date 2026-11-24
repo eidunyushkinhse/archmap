@@ -11,17 +11,31 @@
 • все семьи фактов на месте и не пусты — иначе демо перестало быть витриной продукта;
 • каждый шаг процесса привязан к схеме логики (AL34 по построению ноль);
 • жизненный цикл показан: в схеме есть и planned, и deprecated;
-• раскладку пакет НЕ везёт (решение Р3, docs/archive/plan-demo-template.md);
+• раскладку архив пакета НЕ везёт (решение Р3, docs/archive/plan-demo-template.md); своя
+  расстановка пакета (layout.yaml, раунд 5 обучения) ложится посевом строками раскладки
+  ЭТОГО проекта, объекта нет — позиция пропускается, битый файл посев не роняет;
 • неизвестный пакет не сеется и сирот не оставляет;
 • тип записан у каждого объекта с вложенными: разбор пакета не отказывает, и спора о
   типе (элементе архитектуры) превью не задаёт.
 """
 
+import io
+import zipfile
+
 import pytest
 from conftest import ensure_architect
 
+from app import demo_package
 from app.alerts import compute_alerts
-from app.demo_package import DEMO_PACKAGE, _package_zip, seed_package_template
+from app.demo_package import (
+    DEMO_PACKAGE,
+    LAYOUT_FILE,
+    LayoutPos,
+    _package_zip,
+    parse_layout,
+    read_layout,
+    seed_package_template,
+)
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -105,9 +119,121 @@ def test_алертов_ноль(db, посеянный):
     assert not непустые, f"демо-шаблон приехал с алертами: {непустые}"
 
 
-def test_раскладку_пакет_не_везёт(db, посеянный):
-    """Решение Р3: демо ведёт себя как импорт — раскладку строит движок."""
-    assert db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == посеянный.id).count() == 0
+def _пути(db, pid) -> dict:
+    """id объекта проекта → путь «Корень / … / Имя»."""
+    узлы = {n.id: n for n in db.query(Node).filter(Node.project_id == pid)}
+
+    def путь(n):
+        части = [n.name]
+        while n.parent_id is not None:
+            n = узлы[n.parent_id]
+            части.append(n.name)
+        return " / ".join(reversed(части))
+
+    return {str(i): путь(n) for i, n in узлы.items()}
+
+
+def _раскладка(db, pid) -> dict:
+    """(путь вида | None, путь объекта) → payload строк раскладки проекта."""
+    пути = _пути(db, pid)
+    return {
+        (пути[str(r.view_id)] if r.view_id else None, пути[r.item_id]): r.payload
+        for r in db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == pid)
+    }
+
+
+СИСТЕМА = "Маркетплейс «Ярмарка»"
+ЗАКАЗЫ = "Маркетплейс «Ярмарка» / Заказы"
+
+
+def test_посев_кладёт_расстановку_корня_и_двух_уровней(db, посеянный):
+    """Раунд 5 обучения: главная демо читается — объекты стоят, как их расставили руками."""
+    раскладка = _раскладка(db, посеянный.id)
+    виды = {вид for вид, _ in раскладка}
+    assert виды == {None, СИСТЕМА, ЗАКАЗЫ}
+    # Корень: система в центре, вокруг действующие лица и внешние системы.
+    assert раскладка[(None, СИСТЕМА)] == {"x": 460, "y": 0}
+    assert раскладка[(None, "Продавец")] == {"x": 0, "y": 0}
+    assert раскладка[(None, "Покупатель")] == {"x": 920, "y": 0}
+    # Уровень системы: свои объекты и объекты с других уровней (гости).
+    assert раскладка[(СИСТЕМА, ЗАКАЗЫ)] == {"x": 360, "y": 1164}
+    assert раскладка[(СИСТЕМА, "Покупатель")] == {"x": 672, "y": 30}
+    # Уровень «Заказы»: вложенные и соседи.
+    assert раскладка[(ЗАКАЗЫ, ЗАКАЗЫ + " / Оркестратор заказа")] == {"x": 371, "y": 408}
+    assert раскладка[(ЗАКАЗЫ, "Служба доставки")] == {"x": 30, "y": 1006}
+    # Только координаты: раскрытие файл не задаёт, ключей «Развёртывания» нет.
+    assert all(set(p) == {"x", "y"} for p in раскладка.values())
+    assert len(раскладка) == len(demo_package._package_layout(ДЕМО))
+
+
+def test_расстановка_не_едет_в_архив_пакета():
+    """Архив знания раскладку не возит (Р3): zip пакета — ровно файлы архива."""
+    имена = zipfile.ZipFile(io.BytesIO(_package_zip(ДЕМО))).namelist()
+    assert LAYOUT_FILE not in имена
+    assert "manifest.yaml" in имена
+
+
+def test_отсутствующий_объект_и_вид_пропускаются(db, monkeypatch):
+    """Пакет и файл расстановки могут разойтись: чего нет в проекте, то пропускается."""
+    свои = (
+        LayoutPos(None, "Продавец", 1.5, 2.5),
+        LayoutPos(None, "Нет такого объекта", 10, 10),
+        LayoutPos("Нет такого вида", "Продавец", 20, 20),
+        LayoutPos(СИСТЕМА, "Маркетплейс «Ярмарка» / Нет такого", 30, 30),
+    )
+    monkeypatch.setattr(demo_package, "_package_layout", lambda _pid: свои)
+    user = ensure_architect(db)
+    проект = seed_package_template(db, ДЕМО, "Демо", None, user.id)
+    assert проект is not None
+    db.commit()
+    assert _раскладка(db, проект.id) == {(None, "Продавец"): {"x": 1.5, "y": 2.5}}
+
+
+def test_строк_чужого_проекта_не_появляется(db):
+    """Две песочницы: строки каждой ссылаются только на свои объекты, первая не тронута."""
+    user = ensure_architect(db)
+    первый = seed_package_template(db, ДЕМО, "Первый", None, user.id)
+    db.commit()
+    assert первый is not None
+    было = sorted((str(r.view_id), r.item_id) for r in
+                  db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == первый.id))
+    второй = seed_package_template(db, ДЕМО, "Второй", None, user.id)
+    db.commit()
+    assert второй is not None
+    for проект in (первый, второй):
+        свои = {str(n.id) for n in db.query(Node).filter(Node.project_id == проект.id)}
+        строки = db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == проект.id).all()
+        assert строки
+        assert all(r.item_id in свои for r in строки)
+        assert all(r.view_id is None or str(r.view_id) in свои for r in строки)
+    стало = sorted((str(r.view_id), r.item_id) for r in
+                   db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == первый.id))
+    assert стало == было
+
+
+@pytest.mark.parametrize(
+    "текст",
+    ["views: [", "просто строка", "views: 5", "views:\n- view: 3\n  items: {a: {x: 1, y: 2}}",
+     "views:\n- view: null\n  items: {a: {x: true, y: 2}, b: {x: .inf, y: 1}, c: 7}"],
+)
+def test_битая_расстановка_пуста(текст):
+    assert parse_layout(текст) == []
+
+
+def test_нет_файла_нет_расстановки(tmp_path):
+    assert read_layout(tmp_path / LAYOUT_FILE) == []
+    (tmp_path / LAYOUT_FILE).write_bytes(b"\xff\xfe\x00")
+    assert read_layout(tmp_path / LAYOUT_FILE) == []
+
+
+def test_битый_файл_не_роняет_посев(db, monkeypatch):
+    monkeypatch.setattr(demo_package, "_package_layout", lambda _pid: tuple(parse_layout("views: [")))
+    user = ensure_architect(db)
+    проект = seed_package_template(db, ДЕМО, "Демо", None, user.id)
+    assert проект is not None
+    db.commit()
+    assert db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == проект.id).count() == 0
+    assert db.query(Node).filter(Node.project_id == проект.id).count() >= 30
 
 
 def test_сидер_создаёт_проект_с_описанием_из_манифеста(db):

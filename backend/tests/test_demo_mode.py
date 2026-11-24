@@ -29,6 +29,7 @@ from app.models.node import Node
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.user import User
+from app.models.view_layout import ViewLayoutItem
 from app.rate_limit import AddressLimiter
 
 START = "/api/v1/demo/start"
@@ -134,6 +135,29 @@ def test_песочницы_гостей_изолированы(client, db, demo
     # Чужая песочница недоступна вовсе.
     [pid] = ids_b
     assert client.get(f"{PROJECTS}/{pid}", headers=_auth(a)).status_code == 404
+
+
+def test_песочница_с_расстановкой_в_пределах_демо(client, db, demo_on):
+    """Раунд 5 обучения: песочница сеется с расстановкой демо-пакета (layout.yaml), главная
+    и карточка проекта показывают её, а пределы демо расстановка не задевает: строки
+    раскладки в размер проекта не входят, старт с ними проходит под слушателями пределов."""
+    token = _start(client)
+    [card] = client.get(PROJECTS, headers=_auth(token)).json()
+    pid = uuid.UUID(card["id"])
+    rows = db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == pid).all()
+    assert len(rows) >= 20
+    assert {r.view_id for r in rows if r.view_id is not None}, "уровни системы и «Заказов» без расстановки"
+    # Превью карточки повторяет расстановку корня: у его объектов есть координаты.
+    assert card["preview"]["nodes"]
+    assert all(n["x"] is not None and n["y"] is not None for n in card["preview"]["nodes"])
+
+    size = demo_limits.measure(db, pid)
+    assert demo_limits.find_excess(size) is None
+    for r in rows:
+        db.delete(r)
+    db.flush()
+    assert demo_limits.measure(db, pid) == size
+    db.rollback()
 
 
 def test_старт_вне_демо_404(client, db):
