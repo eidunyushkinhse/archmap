@@ -13,6 +13,10 @@ main он сообщает ArchMap адрес репозитория (POST /api/
 
 Репозиторий сравнивается без порта: CI шлёт https-адрес, а у агента remote бывает
 ssh://git@host:2222/org/repo, и normalize_repo оставляет порт в адресе.
+
+Напоминание появляется и снимается и у тех, у кого проект уже открыт (находка 6,
+2026-11-24): сигнал и каждое снятие сдвигают курсор меты проекта (meta_rev), а оболочка
+проекта, заметив сдвиг в обычном опросе изменений, перечитывает рекомендации.
 """
 
 import re
@@ -30,6 +34,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.alerts import CodeChangeAlert, CodeChangeNode
 from app.schemas.code_changes import CodeChangeIn, CodeChangeOut, CodeChangeProject
+from app.view_state import bump_meta_rev
 
 EMPTY_REPO = "Не назван репозиторий: поле repo пустое"
 NOT_FOUND = "Напоминания об изменениях в коде в этом проекте нет"
@@ -114,6 +119,7 @@ def record_merge(db: Session, user: User, payload: CodeChangeIn) -> CodeChangeOu
             row.last_at = now
             row.last_commit = commit
             row.branch = branch
+        bump_meta_rev(db, p)
         out.append(CodeChangeProject(id=p.id, name=p.name, objects=objects))
     db.flush()
     return CodeChangeOut(repo=repo, projects=out)
@@ -172,6 +178,7 @@ def clear_for_sources(db: Session, project_id: uuid.UUID, keys: Iterable[str]) -
     )
     for row in rows:
         db.delete(row)
+    _bump(db, project_id, bool(rows))
     return sorted(row.repo for row in rows)
 
 
@@ -182,3 +189,12 @@ def dismiss(db: Session, project_id: uuid.UUID, change_id: uuid.UUID) -> None:
     if row is None or row.project_id != project_id:
         raise CodeChangeError(NOT_FOUND)
     db.delete(row)
+    _bump(db, project_id, True)
+
+
+def _bump(db: Session, project_id: uuid.UUID, changed: bool) -> None:
+    """Напоминание снято: сдвинуть курсор меты проекта, чтобы открытые у людей страницы
+    перечитали рекомендации. Ничего не снято — курсор на месте."""
+    project = db.get(Project, project_id) if changed else None
+    if project is not None:
+        bump_meta_rev(db, project)

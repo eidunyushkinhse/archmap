@@ -18,6 +18,7 @@ import type { LocateTarget } from "../components/SchemaAlerts";
 import ProjectShellHeader from "./ProjectShellHeader";
 import CodeChangeNotice from "../components/project/CodeChangeNotice";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
+import { useProjectCursorMove } from "./projectCursors";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import "../components/NodeTreePanel.css";
 import { safeSession } from "../lib/safeStorage";
@@ -114,6 +115,10 @@ export default function ProjectShell({
   // Освежаем по двум поводам: явный сигнал мутации от содержимого (ниже) и смена
   // страницы/режима — дешёвая страховка для правок, у которых своего канала нет.
   useEffect(() => { reloadAlerts(); }, [mode, nodeId, reloadAlerts]);
+  // Третий повод — чужая правка и сигнал CI (находка 6, 2026-11-24): обычный опрос
+  // страницы увидел, что курсоры проекта сдвинулись. Своего таймера нет, в покое запросов
+  // не прибавляется; строка «Документацию пора обновить» появляется и гаснет сама.
+  useProjectCursorMove(reloadAlerts);
 
   // Подтверждение «Открыть редактор схемы?» — для алертов про несколько объектов
   // (связь/группа), по которым одну страницу выбрать невозможно.

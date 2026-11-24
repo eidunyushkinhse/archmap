@@ -6,7 +6,7 @@
 // Вынесен из TreePage, чтобы не раздувать и без того большой компонент страницы.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { viewsApi } from "../../api/nodes";
+import { pollViewState } from "../../pages/projectCursors";
 import { processesApi } from "../../api/processes";
 import { startPollLoop, type RemoteSyncTick } from "../../pages/useRemoteSync";
 import { isConnectionError } from "../../lib/connection";
@@ -128,9 +128,9 @@ export default function ProcessWorkspace({
       // Не врываемся в открытую модалку (все модалки проекта — нативные <dialog>);
       // оверлеи холста — div-ы, но их рефетч не рушит: детали заменяются по id.
       if (disposed || document.hidden || document.querySelector("dialog[open]") != null) return "skipped";
-      let s: Awaited<ReturnType<typeof viewsApi.state>>;
+      let s: Awaited<ReturnType<typeof pollViewState>>;
       try {
-        s = await viewsApi.state(null);
+        s = await pollViewState(null);
       } catch (e) {
         return isConnectionError(e) ? "offline" : "error"; // следующий тик попробует снова
       }

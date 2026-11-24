@@ -5,7 +5,7 @@
 // право правки по роли в проекте (my_role через контекст гейта), а не по глобальной.
 // Тяжёлые потомки (дерево, страницы, ProcessWorkspace, модалки) замоканы —
 // тестируем оркестрацию оболочки, а не внутренности детей.
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -13,8 +13,9 @@ import ProjectShell from "../ProjectShell";
 import { ProjectRoleContext } from "../projectRole";
 import type { ProjectRole } from "../../types";
 import { getIsGuest, getUserRole } from "../../api/auth";
-import { exportApi } from "../../api/nodes";
+import { exportApi, viewsApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
+import { pollViewState } from "../projectCursors";
 
 vi.mock("../../api/auth", () => ({
   getUserRole: vi.fn(() => "architect"),
@@ -23,16 +24,20 @@ vi.mock("../../api/auth", () => ({
 }));
 vi.mock("../../api/nodes", () => ({
   exportApi: { all: vi.fn(), subtree: vi.fn() },
+  // Опрос страниц (projectCursors.pollViewState): курсоры проекта для рекомендаций.
+  viewsApi: { state: vi.fn() },
 }));
 // Экспорт процесса — ручка бэка (Ф2 архива): конвертер с фронта переехал целиком.
 vi.mock("../../api/processes", () => ({ processesApi: { exportMermaid: vi.fn() } }));
 
 // Алерты шапки: хук отдаёт пустой набор, ключ sessionStorage — настоящая константа.
+// Перечитывание — один шпион на все рендеры: тест курсоров считает его вызовы.
+const reloadAlerts = vi.hoisted(() => vi.fn());
 vi.mock("../useSchemaAlerts", () => ({
   useSchemaAlerts: () => ({
     alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], code_changes: [] },
     loaded: true,
-    reload: vi.fn(),
+    reload: reloadAlerts,
   }),
   PENDING_ALERT_LOCATE_KEY: "archmap.pendingAlertLocate",
   PENDING_PROCESS_KEY: "archmap.pendingProcess",
@@ -517,5 +522,22 @@ describe("ProjectShell", () => {
   it("роль не загрузилась: только чтение", () => {
     setup(null, null);
     expect(screen.getByTestId("tree-panel")).toHaveAttribute("data-can-edit", "false");
+  });
+
+  // Находка 6 (2026-11-24): сигнал CI и чужая правка у открытого проекта доезжали только
+  // после перезагрузки. Опрос страниц (pollViewState) отдаёт курсоры проекта, и оболочка
+  // перечитывает рекомендации, когда они сдвинулись; в покое лишних запросов нет.
+  it("рекомендации перечитываются, когда опрос видит сдвиг курсоров проекта", async () => {
+    setup(null);
+    const onMount = reloadAlerts.mock.calls.length;
+    const state = (graph_rev: number, meta_rev: number) => ({ version: 0, graph_rev, meta_rev, process_rev: 0 });
+    vi.mocked(viewsApi.state).mockResolvedValueOnce(state(4, 10)).mockResolvedValueOnce(state(4, 10));
+    await act(() => pollViewState(null));
+    await act(() => pollViewState(null));
+    expect(reloadAlerts).toHaveBeenCalledTimes(onMount);
+    // Сигнал CI сдвинул курсор меты: строка «Документацию пора обновить» придёт с рекомендациями.
+    vi.mocked(viewsApi.state).mockResolvedValueOnce(state(4, 11));
+    await act(() => pollViewState(null));
+    expect(reloadAlerts).toHaveBeenCalledTimes(onMount + 1);
   });
 });

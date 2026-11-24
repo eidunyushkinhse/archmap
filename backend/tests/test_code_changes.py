@@ -199,6 +199,58 @@ def test_документация_актуальна_снимает_вручну
     assert db.query(CodeChange).filter_by(project_id=s.p.id).count() == 0
 
 
+
+# Находка 6 (2026-11-24): у открытого проекта напоминание появлялось только после
+# перезагрузки страницы. Сигнал и каждое снятие сдвигают курсор меты проекта (meta_rev),
+# по которому оболочка проекта в обычном опросе изменений перечитывает рекомендации.
+def _meta(db, *projects) -> list[int]:
+    db.expire_all()
+    return [db.get(type(p), p.id).meta_rev for p in projects]
+
+
+def test_сигнал_сдвигает_курсор_меты_проектов_с_напоминанием(client, db, s):
+    before = _meta(db, s.p, s.film, s.alien, s.archived)
+    assert client.post(SIGNAL, headers=_bearer(s.ci), json={"repo": SHOP}).status_code == 200
+    # «Ярмарка» и «Плёнка» получили напоминание; чужой и архивный проекты не тронуты
+    assert _meta(db, s.p, s.film, s.alien, s.archived) == [
+        before[0] + 1, before[1] + 1, before[2], before[3]]
+    # повторное слияние — снова сдвиг: строка «пора обновить» показывает новый коммит
+    client.post(SIGNAL, headers=_bearer(s.ci), json={"repo": SHOP, "commit": "abcdef1"})
+    assert _meta(db, s.p, s.film) == [before[0] + 2, before[1] + 2]
+    # репозиторий без объектов курсоры не двигает
+    client.post(SIGNAL, headers=_bearer(s.ci), json={"repo": "git@github.com:org/none.git"})
+    assert _meta(db, s.p, s.film) == [before[0] + 2, before[1] + 2]
+
+
+def test_снятие_вручную_сдвигает_курсор_меты(client, db, s):
+    from app.auth import create_access_token
+
+    client.post(SIGNAL, headers=_bearer(s.ci), json={"repo": SHOP})
+    row = db.query(CodeChange).filter_by(project_id=s.p.id).one()
+    before = _meta(db, s.p, s.film)
+    jwt = {"Authorization": f"Bearer {create_access_token({"sub": s.arch.username, "role": s.arch.role})}",
+           "X-Project-Id": str(s.p.id)}
+    assert client.delete(f"{SIGNAL}/{row.id}", headers=jwt).status_code == 204
+    # у «Плёнки» своё напоминание, её курсор на месте
+    assert _meta(db, s.p, s.film) == [before[0] + 1, before[1]]
+
+
+def test_снятие_обновлением_из_кода_сдвигает_курсор_меты(client, db, s):
+    client.post(SIGNAL, headers=_bearer(s.ci), json={"repo": SHOP})
+    run = (
+        "nodes:\n- name: Ярмарка\n  element: system\n  children:\n"
+        "  - name: Заказы\n    element: container\n"
+        "    source: {repo: 'ssh://git@gitlab.example.org:2222/market/shop.git', path: orders}\n"
+    )
+    [before] = _meta(db, s.p)
+    out = sync_apply(s.p.id, SyncApplyIn(contents=[run]), db=db, user=s.arch)
+    assert out.code_changes_cleared == ["gitlab.example.org/market/shop"]
+    assert _meta(db, s.p) == [before + 1]
+    # снимать больше нечего: повторное обновление курсор меты не двигает
+    sync_apply(s.p.id, SyncApplyIn(contents=[run]), db=db, user=s.arch)
+    assert _meta(db, s.p) == [before + 1]
+
+
 def test_ключ_репозитория():
     assert code_changes.repo_key("git@GitLab.example.org:Market/Shop.git") == (
         "gitlab.example.org/market/shop")

@@ -8,7 +8,7 @@
 // (максимум ~2×POLL_MS задержки). Фоновая вкладка (document.hidden) не поллит —
 // возврат фокуса сверяет немедленно. Поллят обе роли (наблюдателю — живость).
 import { useEffect, useRef } from "react";
-import { viewsApi } from "../api/nodes";
+import { pollViewState } from "./projectCursors";
 import type { ViewMetaRef } from "../components/graph/types";
 import { isConnectionError, setOffline } from "../lib/connection";
 
@@ -140,7 +140,8 @@ export function useRemoteSync(opts: {
   useEffect(() => {
     let disposed = false;
     const tick = createRemoteSyncTick({
-      fetchState: () => viewsApi.state(currentParentId),
+      // Через pollViewState: курсоры ответа видит и оболочка проекта (рекомендации).
+      fetchState: () => pollViewState(currentParentId),
       knownRev: () => viewMeta.current.graphRev,
       knownMeta: () => viewMeta.current.metaRev,
       canRefetch: () =>
