@@ -258,6 +258,22 @@
   white-space: pre;
 }
 
+/* Текст диаграммы процесса на стороне версии (VersionMermaid): пояснение тихим текстом и
+   «Скопировать» в одном ряду над блоком кода vp-code, как в окне «Токен выпущен». */
+.vp-mmd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.vp-mmd-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+
 /* Таблица (свойства, связи, колонки, поля, параметры, шаги процесса) — ds-table; широкая
    и длинная прокручивается внутри своей обёртки, а не всё окно. */
 .vp-scrollx {

@@ -9,8 +9,13 @@
 //
 // Ячейка «было → стало» рисуется по частям из row.changed (зачёркнутое «было» и
 // «стало»), а не разбором текста: стрелка могла стоять и в самом значении.
+//
+// У процесса на стороне «было» и «стало» под таблицей шагов — текст его диаграммы с
+// «Скопировать» (view.mermaid, VersionMermaid): им прежний вариант возвращают через
+// «Заменить из Mermaid» (находка 2, 2026-11-24).
 import type { ReactNode } from "react";
 import type { DiffMark, VersionView } from "../../../types";
+import VersionMermaid from "./VersionMermaid";
 import "../../../ui/ds.css";
 import "./versions.css";
 
@@ -75,35 +80,41 @@ export default function VersionViewBlock({ view }: { view: VersionView }) {
     return <pre className="vp-code">{view.text}</pre>;
   }
   if (view.columns !== null && view.rows !== null) {
-    if (view.rows.length === 0) return <p className="ds-empty vp-flat">Пусто</p>;
-    // Колонка меток — только когда есть что помечать: в «было» и «стало» метки пусты.
-    const marked = view.rows.some((r) => r.mark !== "");
-    return (
-      <div className="vp-scrollx">
-        <table className="ds-table">
-          <thead>
-            <tr>
-              {marked && <th className="vp-mark-col" aria-label="Изменение" />}
-              {view.columns.map((c, i) => <th key={i}>{c}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {view.rows.map((row, i) => (
-              <tr key={i}>
-                {marked && (
-                  <td className="vp-mark-col">
-                    {row.mark !== "" && (
-                      <span className={`vp-tag vp-tag--${TAG[row.mark].cls}`}>{TAG[row.mark].text}</span>
-                    )}
-                  </td>
-                )}
-                {rowCells(row).map((cell, j) => <td key={j} className={cellClass(row, j)}>{cell}</td>)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
+    const table = <ViewTable columns={view.columns} rows={view.rows} />;
+    // Процесс на стороне версии: таблица шагов и под ней текст диаграммы этого варианта.
+    return view.mermaid ? <>{table}<VersionMermaid text={view.mermaid} /></> : table;
   }
   return <p className="ds-empty vp-flat">На этой стороне элемента нет</p>;
+}
+
+function ViewTable({ columns, rows }: { columns: string[]; rows: Row[] }) {
+  if (rows.length === 0) return <p className="ds-empty vp-flat">Пусто</p>;
+  // Колонка меток — только когда есть что помечать: в «было» и «стало» метки пусты.
+  const marked = rows.some((r) => r.mark !== "");
+  return (
+    <div className="vp-scrollx">
+      <table className="ds-table">
+        <thead>
+          <tr>
+            {marked && <th className="vp-mark-col" aria-label="Изменение" />}
+            {columns.map((c, i) => <th key={i}>{c}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              {marked && (
+                <td className="vp-mark-col">
+                  {row.mark !== "" && (
+                    <span className={`vp-tag vp-tag--${TAG[row.mark].cls}`}>{TAG[row.mark].text}</span>
+                  )}
+                </td>
+              )}
+              {rowCells(row).map((cell, j) => <td key={j} className={cellClass(row, j)}>{cell}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }

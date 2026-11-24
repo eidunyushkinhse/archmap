@@ -204,3 +204,91 @@ def test_удаление_процесса_пачкой_с_версией_про
     [row] = db.query(NodeVersion).filter(NodeVersion.project_id == s.p.id).all()
     assert row.comment == "Перед удалением агентом: «Заказ». Причина: черновик"
     assert versions.process_text(versions.snapshot_of(row), proc_id) is not None
+
+
+# Находка 2 (2026-11-24): после «Заменить из Mermaid» строка обещала «Прежний вариант
+# сохранён в версии N», но взять его человеку было нечем: элемент-процесс версии показывал
+# только таблицы шагов. Теперь «было» и «стало» несут текст диаграммы этого варианта тем же
+# преобразованием, что экспорт процесса, из состояния на своей стороне.
+def _steps(client, s, pid: str) -> dict[str, list]:
+    """Процесс по шагам из выдачи процесса: участники (имя, объект, порядок), шаги (кто,
+    кому, подпись, вид, связь, плечо, схема) и фрагменты; id участников сменились при
+    замене, поэтому концы шагов — именами."""
+    d = client.get(f"{PROCESSES}/{pid}", headers=_h(s)).json()
+    names = {p["id"]: p["name"] for p in d["participants"]}
+    return {
+        "participants": [(p["name"], p["node_id"], p["order"]) for p in d["participants"]],
+        "steps": [
+            (m["order"], names[m["from_participant_id"]], names[m["to_participant_id"]], m["caption"],
+             m["kind"], m["edge_id"], m["leg"], m["doc_id"])
+            for m in sorted(d["messages"], key=lambda m: m["order"])
+        ],
+        "fragments": [
+            (f["kind"], f["from_order"], f["to_order"], f["guard"], [(b["start_order"], b["guard"]) for b in f["branches"]])
+            for f in sorted(d["fragments"], key=lambda f: (f["from_order"], f["to_order"]))
+        ],
+    }
+
+
+def _auto(client, s, text: str) -> dict[str, str | None]:
+    """Сопоставление участников, которое окно ввоза предлагает само (однозначные имена)."""
+    prev = client.post(f"{PROCESSES}/import/preview", headers=_h(s), json={"text": text}).json()
+    return {p["alias"]: p["node_id"] for p in prev["participants"]}
+
+
+def _item(client, s, number: int, pid: str, base: str = "live") -> dict:
+    r = client.get(f"/api/v1/versions/{number}/diff/process:{pid}", headers=_h(s), params={"base": base})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_версия_отдаёт_текст_диаграммы_прежнего_варианта(client, db, s):
+    created = client.post(f"{PROCESSES}/import", headers=_h(s), json={"text": DIAGRAM, "name": "Заказ"})
+    pid = created.json()["process_id"]
+    old_text = client.get(f"{PROCESSES}/{pid}/export", headers=_h(s)).json()["content"]
+    новый = "sequenceDiagram\n    Витрина->>Заказы: оформить\n    Заказы-->>Витрина: принят\n"
+    r = client.post(f"{PROCESSES}/{pid}/import", headers=_h(s), json={"text": новый, "mapping": {}})
+    number = r.json()["version_number"]
+    new_text = client.get(f"{PROCESSES}/{pid}/export", headers=_h(s)).json()["content"]
+
+    detail = _item(client, s, number, pid)
+    # «Было в vN» — прежний вариант тем же текстом, что выгрузил бы экспорт до замены;
+    # «Стало сейчас» — текущий. Таблица шагов на месте, у «изменений» текста нет.
+    assert detail["before"]["mermaid"] == old_text
+    assert detail["after"]["mermaid"] == new_text
+    assert detail["before"]["columns"] is not None and detail["before"]["rows"]
+    assert detail["changes"]["mermaid"] is None
+    # Сравнение «с начала» у первой версии: «было» пусто, «стало» — вариант версии.
+    first = _item(client, s, number, pid, base="prev")
+    assert first["before"]["mermaid"] is None and first["after"]["mermaid"] == old_text
+    # Прочие элементы текста диаграммы не несут.
+    doc_items = [i["item_id"] for i in client.get(
+        f"/api/v1/versions/{number}/diff", headers=_h(s), params={"base": "prev"}).json()["items"]
+        if not i["item_id"].startswith("process:")]
+    other = client.get(f"/api/v1/versions/{number}/diff/{doc_items[0]}", headers=_h(s),
+                       params={"base": "prev"}).json()
+    assert all(other[side].get("mermaid") is None for side in ("changes", "before", "after"))
+
+
+def test_текст_из_версии_восстанавливает_процесс(client, db, s):
+    # В диаграмме есть всё, что текст обязан пронести: шаг на связи и повисший, ответ,
+    # внутренний шаг, участник без объекта («Касса»), привязка шага к схеме логики.
+    # Сопоставление участников — как предлагает окно ввоза.
+    created = client.post(f"{PROCESSES}/import", headers=_h(s),
+                          json={"text": DIAGRAM, "name": "Заказ", "mapping": _auto(client, s, DIAGRAM)})
+    pid = created.json()["process_id"]
+    original = _steps(client, s, pid)
+    assert any(st[7] is not None for st in original["steps"])
+    assert ("Касса", None, 3) in original["participants"]
+    новый = "sequenceDiagram\n    Витрина->>Заказы: оформить\n    Заказы-->>Витрина: принят\n"
+    r = client.post(f"{PROCESSES}/{pid}/import", headers=_h(s), json={"text": новый, "mapping": {}})
+    assert _steps(client, s, pid) != original
+    number = r.json()["version_number"]
+
+    # Человек берёт текст с вкладки «Было в vN» и вставляет его в «Заменить процесс»;
+    # сопоставление участников — как предлагает окно ввоза.
+    text = _item(client, s, number, pid)["before"]["mermaid"]
+    back = client.post(f"{PROCESSES}/{pid}/import", headers=_h(s),
+                       json={"text": text, "mapping": _auto(client, s, text)})
+    assert back.status_code == 200, back.text
+    assert _steps(client, s, pid) == original

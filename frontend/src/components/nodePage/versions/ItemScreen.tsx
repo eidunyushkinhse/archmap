@@ -53,7 +53,8 @@ export default function ItemScreen({ nodeId, num, base, item, labels, onBack, on
         ) : detail.data === null ? (
           <p className="ds-empty vp-flat">Загрузка</p>
         ) : (
-          <VersionViewBlock view={detail.data[view]} />
+          // Ключ — вкладка: «Скопировано» у текста диаграммы одной стороны не переходит на другую.
+          <VersionViewBlock key={view} view={detail.data[view]} />
         )}
       </div>
     </>

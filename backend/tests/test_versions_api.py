@@ -252,7 +252,8 @@ def test_элемент_дельты_три_представления(client, d
     assert body["item"]["category"] == "doc" and body["item"]["summary"] == "+1 −1"
     marks = [ln["mark"] for ln in body["changes"]["lines"]]
     assert marks[0] == "mod" and "add" in marks and "del" in marks
-    assert body["before"] == {"text": DOC, "lines": None, "columns": None, "rows": None}
+    # mermaid — только у процесса (находка 2, 2026-11-24), у схемы логики его нет.
+    assert body["before"] == {"text": DOC, "lines": None, "columns": None, "rows": None, "mermaid": None}
     assert body["after"]["text"] == DOC.replace("проверить", "зарезервировать")
 
     props = client.get(f"{s.orders_url}/2/diff/props:{s.orders.id}", headers=s.h).json()

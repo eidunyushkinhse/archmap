@@ -35,6 +35,7 @@ from app.domain_types import (
 )
 from app.element import Elements
 from app.element_marks import ElementRow, build_elements
+from app.process_export import detail_to_mermaid
 from app.schemas.process import FragmentOut, MessageOut, ParticipantOut
 from app.schemas.restore import (
     BrokerChannelSnapshot,
@@ -1245,10 +1246,14 @@ def _proc_members(old: ProcessVersion | None, new: ProcessVersion | None) -> lis
 
 
 def _proc_full(proc: ProcessVersion | None) -> VersionView:
+    """Процесс на стороне: таблица шагов и текст диаграммы этого варианта. Текст — тем же
+    преобразованием, что экспорт процесса, из detail на этой стороне (не из живого
+    процесса): его вставляют в «Заменить из Mermaid», чтобы вернуть вариант (находка 2)."""
     if proc is None:
         return _ABSENT
     cells = _step_cells(proc)
-    return _table(_STEP_COLUMNS, _plain(cells(m) for m in proc.detail.messages))
+    view = _table(_STEP_COLUMNS, _plain(cells(m) for m in proc.detail.messages))
+    return view.model_copy(update={"mermaid": detail_to_mermaid(proc.detail)})
 
 
 def _proc_summary(old: ProcessVersion, new: ProcessVersion, members: list[_Members]) -> str:
