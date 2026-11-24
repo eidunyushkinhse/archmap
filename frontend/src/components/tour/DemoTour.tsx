@@ -30,6 +30,7 @@ import {
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
+import { SectionScroll } from "./tourScroll";
 import { HIDDEN_VIEW, type TourView } from "./tourView";
 
 /** Сколько ждать цель после входа в шаг или смены экрана, прежде чем считать, что
@@ -291,13 +292,14 @@ function TourRuntime({ userId }: { userId: string }) {
   // тоже вход в шаг: режим, прокрутка и подводка к цели делаются заново, а пока тур на
   // паузе, он никуда не уводит.
   const navForRef = useRef<StepId | null>(raw.step);
-  // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
-  // раскрытый узел засчитан, камера отведена ко всему слою (fit) и подведена к цели
-  // (focus); treeClosed — ветка дерева была свёрнутой на этом шаге; treeOpened — ветку,
-  // на чьи вложенные строки смотрит шаг, тур раскрыл сам (или она уже была раскрыта).
+  // Разовые действия входа в шаг: режим оболочки выставлен, страница прокручена к цели
+  // (scroll — прокрутка этого входа, tourScroll.ts), уже раскрытый узел засчитан, камера
+  // отведена ко всему слою (fit) и подведена к цели (focus); treeClosed — ветка дерева
+  // была свёрнутой на этом шаге; treeOpened — ветку, на чьи вложенные строки смотрит
+  // шаг, тур раскрыл сам (или она уже была раскрыта).
   const freshEntry = () => ({
-    mode: false, scroll: false, expanded: false, treeClosed: false, treeOpened: false, reveals: 0, revealAt: 0,
-    fit: false, focus: false,
+    mode: false, scroll: null as SectionScroll | null, expanded: false, treeClosed: false, treeOpened: false,
+    reveals: 0, revealAt: 0, fit: false, focus: false,
   });
   const doneForRef = useRef(freshEntry());
   useLayoutEffect(() => {
@@ -378,9 +380,19 @@ function TourRuntime({ userId }: { userId: string }) {
           }
         }
         const tctx = { yarProjectId: en.yarProjectId, yarObjects: en.yarObjects, vars: st.vars };
-        const res = screenOk && step.target ? resolveTarget(step.target, tctx) : null;
+        // Блок страницы (scroll): прокручиваем так, чтобы он встал верхом под шапку, и ждём,
+        // пока страница встанет, — до тех пор цели как бы нет (затемнение держится без
+        // выреза), но и «карточки сбоку» нет: цель на месте, страница едет к ней.
+        const scrollEl = screenOk && !dialog && step.target?.kind === "tour" && step.target.scroll
+          ? document.querySelector(`[data-tour="${step.target.key}"]`)
+          : null;
+        if (scrollEl) done.scroll ??= new SectionScroll(!prefersReducedMotion());
+        const scrolling = !!scrollEl && !!done.scroll && !done.scroll.frame(now, scrollEl);
+        if (scrolling) foundAt = now;
+        const res = screenOk && step.target && !scrolling ? resolveTarget(step.target, tctx) : null;
         // Цель есть, но не видна (за краем холста, ниже сгиба страницы) — подводим к ней.
-        if (!res && screenOk && step.target && !dialog && done.reveals < REVEAL_TRIES && now - done.revealAt > REVEAL_EVERY_MS) {
+        // Блок страницы подводит прокрутка выше.
+        if (!res && !scrollEl && screenOk && step.target && !dialog && done.reveals < REVEAL_TRIES && now - done.revealAt > REVEAL_EVERY_MS) {
           const hidden = hiddenTarget(step.target, tctx);
           if (hidden) {
             done.reveals += 1;
@@ -397,13 +409,6 @@ function TourRuntime({ userId }: { userId: string }) {
           // Пара нашлась без зоны (холст ещё монтируется) — держим прежний кадр с зоной.
           next = held && found.holes.length < held.holes.length ? held : found;
           foundAt = now;
-          // Секции страницы объекта — к середине экрана, один раз на вход в шаг.
-          if (step.target?.kind === "tour" && step.target.scroll && !doneForRef.current.scroll) {
-            doneForRef.current.scroll = true;
-            const el = res.elements[0];
-            const tall = el.getBoundingClientRect().height > window.innerHeight * 0.6;
-            el.scrollIntoView({ block: tall ? "start" : "center", behavior: "smooth" });
-          }
         } else if (held) {
           // Только что открылось окно, а шаг ещё прежний (окно и есть следующий шаг) —
           // тоже держим: затемнение не проседает на кадр.
