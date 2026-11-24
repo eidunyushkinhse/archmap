@@ -103,7 +103,7 @@ describe("IssuedTokenView", () => {
     expect(screen.getByText("Задание в .gitlab-ci.yml, токен в переменной ARCHMAP_TOKEN")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "curl" }));
     expect(screen.getByRole("tab", { name: "curl" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Для другого CI: подставьте адрес репозитория и коммит")).toBeInTheDocument();
+    expect(screen.getByText("Для другого CI: подставьте адрес репозитория, коммит и ветку")).toBeInTheDocument();
     expect(screen.getByTestId("issued-curl").textContent).toBe(ciSnippet("curl", window.location.origin));
     await userEvent.click(copyButtons()[1]);
     expect(copyText).toHaveBeenLastCalledWith(ciSnippet("curl", window.location.origin));

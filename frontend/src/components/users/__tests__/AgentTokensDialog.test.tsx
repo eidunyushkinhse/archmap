@@ -126,7 +126,7 @@ describe("AgentTokensDialog", () => {
 
     expect(await screen.findByText("Сигнал из CI после слияния в main")).toBeInTheDocument();
     const gitlab = screen.getByTestId("issued-gitlab").textContent ?? "";
-    expect(gitlab).toContain(`curl -fsS -X POST "${window.location.origin}/api/v1/code-changes"`);
+    expect(gitlab).toContain(`curl -sS -o /dev/stderr -w "%{http_code}" -X POST "${window.location.origin}/api/v1/code-changes"`);
     expect(gitlab).toContain("$CI_PROJECT_URL");
     // секрет в строки CI не вписан: он лежит в переменной CI
     expect(gitlab).not.toContain(SECRET);
