@@ -190,7 +190,7 @@ interface LevelGraphProps {
 function LevelGraphInner({
   nodes,
   endpoints,
-  viewLayout = EMPTY_VIEW_LAYOUT,
+  viewLayout: serverLayout = EMPTY_VIEW_LAYOUT,
   edges,
   depth,
   containerId,
@@ -394,8 +394,11 @@ function LevelGraphInner({
   // view_id записи раскладки: ключ ВИДА (layoutViewId), а не структурный containerId.
   // На странице объекта раскладка персистится в вид фокуса (node.id), тогда как
   // containerId (= parent_id) продолжает ключить структуру/предков/глубину ниже.
-  const { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed } = useLevelPersistence({
-    containerId: layoutViewId ?? containerId, isArchitect, canArrange, viewLayout,
+  // viewLayout ниже — ДЕЙСТВУЮЩАЯ раскладка: серверная (проп), у читателя — с его слоем
+  // расстановки поверх (задание П2, view.md V25 v2). Её читают конвейер, раскрытия и
+  // «Переразложить»; у архитектора это та же ссылка, что пришла пропом.
+  const { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed, layout: viewLayout } = useLevelPersistence({
+    containerId: layoutViewId ?? containerId, isArchitect, canArrange, viewLayout: serverLayout,
     onPersistError, onPersistConflict, onLayoutChanged, viewMeta, retryPatch,
   });
 
@@ -469,7 +472,7 @@ function LevelGraphInner({
   // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
   // кладёт в историю, обязаны коммитить через СВЕЖЕЕ зеркало (см. commitLayoutStable).
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, disabled: !canArrange,
+    rfNodes, onNodesChange, setGuides, disabled: !canArrange,
     ancestorIds, ancestorNames, commitLayout: commitLayoutStable, push: history.push,
     noteGesture, // флаш клавиатурной серии открывает окно жеста, как отпускание драга
   });

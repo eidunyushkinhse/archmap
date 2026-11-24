@@ -10,7 +10,7 @@
 // свой уровень) и справа значки «Площадки», «Переразложить» (архитектор) и тумблер
 // «Подписи связей» (CV32: холст в управляемом режиме, свой тумблер в углу не рисует).
 // Архитектору — расстановка (драг, персист ключами deploy:…, undo), «Переразложить» и
-// размещение; читателю — просмотр. Связи — как на холсте объектов: двойной клик по стрелке
+// размещение; читателю — расстановка на время просмотра без записи (задание П2). Связи — как на холсте объектов: двойной клик по стрелке
 // (или клик по плашке) подсвечивает её и оба конца, несколько связей в пучке — окно
 // выбора (useEdgeChoice).
 // Вид (редизайн, фаза 11): корень страницы — область нового языка (ds), холст на весь
@@ -184,19 +184,18 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     onToast: showToast,
   });
 
-  // Персист раскладки (архитектор): зеркало, ресинк при отказе, переигровка 409.
+  // Канал раскладки: зеркало, ресинк при отказе, переигровка 409. Обеим ролям: пишет
+  // вид только архитектор, читатель расставляет на время просмотра без записи (задание
+  // П2; роль решает холст, флаг жеста нужен поллингу и читателю).
   const host = usePersistenceHost(dep.reload);
-  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
-    if (!isArchitect) return undefined;
-    return {
-      onLayoutChanged: dep.mergeLayout,
-      onPersistError: host.resync,
-      onPersistConflict: host.onConflict,
-      retryPatch: host.retryPatch,
-      viewMeta: dep.viewMetaRef,
-      gestureActiveRef: dep.gestureActiveRef,
-    };
-  }, [isArchitect, dep.mergeLayout, dep.viewMetaRef, dep.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: dep.mergeLayout,
+    onPersistError: host.resync,
+    onPersistConflict: host.onConflict,
+    retryPatch: host.retryPatch,
+    viewMeta: dep.viewMetaRef,
+    gestureActiveRef: dep.gestureActiveRef,
+  }), [dep.mergeLayout, dep.viewMetaRef, dep.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
 
   // «Скрыть подписи связей» (CV32) — тумблер в тулбаре страницы (управляемый режим
   // холста, как в редакторе-карте): настройка на проект, общая со схемой объектов.
@@ -205,13 +204,14 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
 
   const mode = useMemo<LevelModeFlags>(() => ({
     readOnly: true,
-    arrangeOnly: isArchitect,
+    // расстановка — обеим ролям (читателю на время просмотра, задание П2)
+    arrangeOnly: true,
     // связи инспектируются и в просмотре: подсветка пути и окно выбора у пучка
     edgesInspectable: true,
     fitOnLoad: true,
     ignorePersistedExpanded: false,
     edgeLabelsHidden,
-  }), [isArchitect, edgeLabelsHidden]);
+  }), [edgeLabelsHidden]);
 
   const projection = useMemo<LevelProjectionProps | undefined>(() => (proj
     ? {

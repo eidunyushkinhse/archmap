@@ -1,6 +1,7 @@
 // Режим холста страничной схемы (EmbeddedSchemaBlock → LevelGraph): структура только для
-// чтения у обеих ролей; «Переразложить» в углу холста — команда самого холста
-// (mode.relayoutButton, history.md U26), хозяину своего сброса не нужно. Холст заглушён:
+// чтения у обеих ролей, расстановка — тоже у обеих (читателю на время просмотра, задание
+// П2); «Переразложить» в углу холста — команда самого холста (mode.relayoutButton,
+// history.md U26), хозяину своего сброса не нужно. Холст заглушён:
 // здесь проверяются пропсы, которые блок ему отдаёт.
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -36,5 +37,13 @@ describe("EmbeddedSchemaBlock: режим холста", () => {
     });
     expect(graphProps.current).not.toHaveProperty("onRelayout");
     expect(graphProps.current).not.toHaveProperty("relayoutToken");
+  });
+
+  it("читатель: расстановка без записи (роль решает холст), стартует свёрнутым", () => {
+    mount(false, { onLayoutChanged: vi.fn() });
+    expect(graphProps.current?.isArchitect).toBe(false);
+    expect(graphProps.current?.mode).toMatchObject({
+      readOnly: true, arrangeOnly: true, ignorePersistedExpanded: true, relayoutButton: true,
+    });
   });
 });

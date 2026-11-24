@@ -401,10 +401,14 @@ describe("DeploymentPage", () => {
     expect(onNavigateLevel).not.toHaveBeenCalled();
   });
 
-  it("читатель: ни панели выделения, ни «Переразложить», расстановки нет", async () => {
+  // С задания П2 (решение владельца 2026-11-24) читатель расставляет карточки на время
+  // просмотра: расстановка включена, канал холсту передан (писать вид холст ему не даст —
+  // levelGraph.reader.test.tsx). Панели выделения и размещения у читателя нет.
+  it("читатель: расстановка без записи, ни панели выделения, ни «Переразложить»", async () => {
     await setup(false);
-    expect(props().mode).toMatchObject({ readOnly: true, arrangeOnly: false });
-    expect(props().persistence).toBeUndefined();
+    expect(props().mode).toMatchObject({ readOnly: true, arrangeOnly: true });
+    expect(props().isArchitect).toBe(false);
+    expect(props().persistence).toBeDefined();
     act(() => { props().drill.onSelectionChange?.(["deploy:a@s1"]); });
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("button", { name: "Переразложить" })).toBeNull();

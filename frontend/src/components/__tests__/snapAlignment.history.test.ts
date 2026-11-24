@@ -2,7 +2,8 @@
 // и клавиатурная серия пишут позицию через канал раскладки и кладут ОДНУ команду, чьи
 // undo/redo переигрывают commitLayout со старой и новой абсолютной позицией. Раньше это
 // держалось только кодом (известное ограничение history.md) — страховка перед правкой
-// канала (задание П2). Хук настоящий, канал и история — vi.fn.
+// канала (задание П2). Роли хук не знает (с задания П2): пишет ли канал на сервер или
+// кладёт слой читателя, решает useLevelPersistence. Хук настоящий, канал и история — vi.fn.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import type { Node as RFNode } from "@xyflow/react";
@@ -11,12 +12,12 @@ import type { HistoryCommand } from "../graph/interaction/useHistory";
 
 const block = (id: string, x: number, y: number): RFNode => ({ id, type: "block", position: { x, y }, data: {} });
 
-function setup(rfNodes: RFNode[], over: { disabled?: boolean; isArchitect?: boolean } = {}) {
+function setup(rfNodes: RFNode[], over: { disabled?: boolean } = {}) {
   const commitLayout = vi.fn((_items: Record<string, { x: number; y: number }>) => true);
   const push = vi.fn((_cmd: HistoryCommand) => {});
   const onNodesChange = vi.fn();
   const { result } = renderHook(() => useSnapAlignment({
-    rfNodes, onNodesChange, setGuides: vi.fn(), isArchitect: over.isArchitect ?? true,
+    rfNodes, onNodesChange, setGuides: vi.fn(),
     disabled: over.disabled ?? false, ancestorIds: [], ancestorNames: [], commitLayout, push,
   }));
   return { result, commitLayout, push };
@@ -86,16 +87,6 @@ describe("useSnapAlignment: перемещение — одна команда �
   it("расстановка выключена (disabled): ни записи, ни команды", () => {
     const a = block("a", 0, 0);
     const { result, commitLayout, push } = setup([a], { disabled: true });
-    act(() => { result.current.noteDragStart([a]); });
-    const moved = { ...a, position: { x: 120, y: 40 } };
-    act(() => { result.current.handleNodeDragStop(null, moved, [moved]); });
-    expect(commitLayout).not.toHaveBeenCalled();
-    expect(push).not.toHaveBeenCalled();
-  });
-
-  it("читатель: ни записи, ни команды (сдвиг эфемерен)", () => {
-    const a = block("a", 0, 0);
-    const { result, commitLayout, push } = setup([a], { isArchitect: false });
     act(() => { result.current.noteDragStart([a]); });
     const moved = { ...a, position: { x: 120, y: 40 } };
     act(() => { result.current.handleNodeDragStop(null, moved, [moved]); });

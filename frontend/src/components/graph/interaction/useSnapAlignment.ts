@@ -21,7 +21,6 @@ interface Params {
   rfNodes: RFNode[];
   onNodesChange: (changes: NodeChange<RFNode>[]) => void;
   setGuides: Dispatch<SetStateAction<Guides>>;
-  isArchitect: boolean;
   disabled: boolean;
   // breadcrumb-предки уровня — нужны для запрета задвинуть гостя в чужую родную рамку
   ancestorIds: string[];
@@ -44,7 +43,7 @@ interface Params {
 const KB_FLUSH_MS = 500;
 
 export function useSnapAlignment({
-  rfNodes, onNodesChange, setGuides, isArchitect, disabled,
+  rfNodes, onNodesChange, setGuides, disabled,
   ancestorIds, ancestorNames, commitLayout, push, noteGesture,
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
@@ -72,7 +71,7 @@ export function useSnapAlignment({
     const next = kbNext.current;
     kbStart.current = new Map();
     kbNext.current = new Map();
-    if (next.size === 0 || !isArchitect || disabled) return;
+    if (next.size === 0 || disabled) return;
     type Move = { id: string; old: { x: number; y: number }; next: { x: number; y: number } };
     const moves: Move[] = [];
     for (const [id, pos] of next) {
@@ -92,7 +91,7 @@ export function useSnapAlignment({
         redo: () => apply("next"),
       });
     }
-  }, [isArchitect, disabled, commitLayout, push, noteGesture]);
+  }, [disabled, commitLayout, push, noteGesture]);
   // Латест-реф: таймер и cleanup зовут свежий флаш (commitLayout меняет идентичность).
   const flushKeyboardRef = useRef(flushKeyboard);
   useEffect(() => { flushKeyboardRef.current = flushKeyboard; });
@@ -201,8 +200,9 @@ export function useSnapAlignment({
   // Оптимизация (2026-07-21): byId создаётся один раз на группу.
   const persistGroup = useCallback(
     (group: RFNode[]): boolean => {
-      if (disabled) return false; // read-only — перетаскивания не сохраняем
-      if (!isArchitect) return false;
+      // Расстановка выключена — перетаскивания не сохраняем. Роль здесь не гейт: канал
+      // раскладки пишет за архитектора и кладёт слой читателя (задание П2).
+      if (disabled) return false;
       const single = group.length === 1;
       const byId = new Map(rfNodes.map((n) => [n.id, n]));
       // нативные рамки считаем один раз на группу — нужны гостям/контейнерам/
@@ -308,7 +308,7 @@ export function useSnapAlignment({
       }
       return wrote;
     },
-    [isArchitect, disabled, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, clampOutOfNodes, rfNodes, push],
+    [disabled, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, clampOutOfNodes, rfNodes, push],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт

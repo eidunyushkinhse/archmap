@@ -41,4 +41,16 @@ describe("SchemaSection: «Переразложить»", () => {
     expect(schemaProps.current).not.toHaveProperty("relayoutToken");
     expect(nodesApi.getContextGraph).toHaveBeenCalledTimes(1);
   });
+
+  it("читатель: тот же канал блоку схемы — расстановка на время просмотра (пишет только архитектор)", async () => {
+    render(
+      <SchemaSection
+        node={node("n1", "Заказы")} ancestors={[]} isArchitect={false} onNavigateNode={vi.fn()}
+        viewMeta={{ current: { version: 1, graphRev: 1, metaRev: 1 } }} mutationToken={0}
+      />,
+    );
+    await screen.findByTestId("schema");
+    expect(schemaProps.current?.isArchitect).toBe(false);
+    expect(schemaProps.current?.persistence).toBeDefined();
+  });
 });

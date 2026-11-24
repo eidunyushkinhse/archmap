@@ -61,28 +61,24 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     },
   });
 
-  // ── Персист раскладки корневого уровня (архитектор) ────────────────
-  // Корень — тот же level-конвейер, что и страница объекта: архитектору доступна
-  // расстановка (драг + запись вида view_id=null), наблюдателю — read-only.
+  // ── Канал раскладки корневого уровня ────────────────────────────────
+  // Корень — тот же level-конвейер, что и страница объекта: расстановка у обеих ролей —
+  // архитектор пишет вид view_id=null, читатель двигает на время просмотра без записи
+  // (задание П2; роль решает холст, бандл нужен ему и ради флага жеста для поллинга).
   // Зеркало записанных батчей держит useLevelSchema (mergeLayout). Ресинк при
   // ошибке персиста и переигровка 409 (корневой вид изменён другой сессией) —
   // перезагрузка уровня из БД.
   const host = usePersistenceHost(lvl.reload);
 
-  // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
-  // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
   // layoutViewId НЕ задаём: корень персистится в вид view_id=null (containerId=null).
-  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
-    if (!isArchitect) return undefined;
-    return {
-      onLayoutChanged: lvl.mergeLayout,
-      onPersistError: host.resync,
-      onPersistConflict: host.onConflict,
-      retryPatch: host.retryPatch,
-      viewMeta: lvl.viewMetaRef,
-      gestureActiveRef: lvl.gestureActiveRef,
-    };
-  }, [isArchitect, lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: lvl.mergeLayout,
+    onPersistError: host.resync,
+    onPersistConflict: host.onConflict,
+    retryPatch: host.retryPatch,
+    viewMeta: lvl.viewMetaRef,
+    gestureActiveRef: lvl.gestureActiveRef,
+  }), [lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
 
 
   const loadFailure = meta.error ?? lvl.error;

@@ -132,19 +132,17 @@ export default function SchemaSection({
   // сессией): перечитать контекст — курсоры и раскладка к истине.
   const host = usePersistenceHost(refetch);
 
-  // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
-  // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
-  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
-    if (!isArchitect) return undefined;
-    return {
-      onLayoutChanged: handleLayoutChanged,
-      onPersistError: host.resync,
-      onPersistConflict: host.onConflict,
-      retryPatch: host.retryPatch,
-      viewMeta: metaCursorRef,
-      gestureActiveRef,
-    };
-  }, [isArchitect, handleLayoutChanged, host.resync, host.onConflict, host.retryPatch, metaCursorRef]);
+  // Бандл канала — обеим ролям: расстановка у обеих, пишет вид только архитектор, у
+  // читателя — слой на время просмотра (задание П2; роль решает холст, флаг жеста
+  // нужен поллингу и читателю).
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: handleLayoutChanged,
+    onPersistError: host.resync,
+    onPersistConflict: host.onConflict,
+    retryPatch: host.retryPatch,
+    viewMeta: metaCursorRef,
+    gestureActiveRef,
+  }), [handleLayoutChanged, host.resync, host.onConflict, host.retryPatch, metaCursorRef]);
 
 
   // ДАННЫЕ СХЕМЫ = ответ сервера + СВОИ правки меты, влитые точечно (withOwnEdits,

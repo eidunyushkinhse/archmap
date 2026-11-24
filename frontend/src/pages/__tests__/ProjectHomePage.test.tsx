@@ -302,4 +302,15 @@ describe("ProjectHomePage: «Переразложить» схемы корня"
     expect(schemaProps.current).not.toHaveProperty("relayoutToken");
     expect(nodesApi.getGraph).toHaveBeenCalledTimes(1);
   });
+
+  it("читатель: тот же канал блоку схемы — расстановка на время просмотра (пишет только архитектор)", async () => {
+    render(
+      <ProjectRoleContext.Provider value="reader">
+        <ProjectHomePage {...props} />
+      </ProjectRoleContext.Provider>,
+    );
+    await screen.findByTestId("schema");
+    expect(schemaProps.current?.isArchitect).toBe(false);
+    expect(schemaProps.current?.persistence).toBeDefined();
+  });
 });
