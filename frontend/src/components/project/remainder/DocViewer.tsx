@@ -3,11 +3,12 @@
 // показать целиком — «Выбрать этот вариант» отвечает на вопрос прямо отсюда.
 //
 // Пан/зум — ОБЩИЙ хук usePanZoom, тот же, что у превью схемы в инспекторе и у
-// полноэкранной ER-диаграммы: колёсико зумит к курсору, перетаскивание панорамит,
-// пилюля «− / % / + / вписать» стоит в углу сцены. Своего зума здесь нет
-// принципиально — жесты обязаны совпадать с оверлеем доков, иначе одна и та же
-// диаграмма ведёт себя в двух местах по-разному. Колёсико над сценой не
-// прокручивает окно под ней: хук вешает wheel с passive:false и гасит дефолт.
+// полноэкранной ER-диаграммы: открывается видом для чтения (текст не мельче 0,9, верх
+// схемы у поля), колёсико прокручивает, Ctrl или ⌘ с колёсиком зумят к курсору,
+// перетаскивание панорамит, пилюля «− / % / + / вписать» стоит в углу сцены. Своего зума
+// здесь нет принципиально — жесты обязаны совпадать с оверлеем доков, иначе одна и та же
+// диаграмма ведёт себя в двух местах по-разному. Колёсико над сценой не прокручивает
+// окно под ней: хук вешает wheel с passive:false и гасит дефолт.
 //
 // ⚠️ Вьюер НЕ <dialog>: вложенные диалоги в проекте запрещены (их cancel всплывает
 // и гасит соседа — ui/Modal.tsx, memory native-dialog-gotchas). Поэтому обычный
@@ -19,22 +20,31 @@
 // Портал целится в ОТКРЫТЫЙ <dialog>, если он есть: showModal поднимает окно в
 // top-layer и делает остальной документ инертным — оверлей, положенный в body,
 // оказался бы под подложкой и не нажимался.
+//
+// Вид — новый язык (фаза 8а редизайна): корень в области .ds (портал уходит из области
+// окна .imp-res, поэтому стили просмотра свои, в remainder.css на токенах), в шапке
+// название и тихая подпись источника рядом, крестик — кнопка-значок; в подвале «Выбрать
+// этот вариант» первой, «Закрыть» за ней. Тега формата нет.
+//
+// Размер (фаза 8б): схема — во весь экран, как окно документа (до 1120px в ширину, высота
+// экрана без 64px), сцена занимает всё между шапкой и подвалом. Текст (таблица, канал,
+// параметр, спецификация) — прежней ширины, высотой по содержимому до экрана без 64px,
+// тело прокручивается.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import MermaidRenderer from "../../MermaidRenderer";
 import type { MmdStatus } from "../../MermaidRenderer";
 import { pinSvgSize, usePanZoom } from "../../usePanZoom";
 import { CloseIcon } from "../../../ui/icons";
+import "../../../ui/ds.css";
 import "../../inspector/docOverlay.css";
 import "./remainder.css";
 
 interface Props {
-  /** Ключ тела: имя схемы, путь спеки, имя канала или параметра. */
+  /** Ключ тела: имя схемы, путь спецификации, имя канала или параметра. */
   title: string;
   /** Источник кандидата: «Из файла grafana.yaml», «Из архива plugin-a.zip», «Из проекта». */
   source: string;
-  /** Тег справа от заголовка: «mermaid · flowchart», «openapi», «канал»… */
-  tag: string;
   body: string;
   /** Рисовать диаграмму (схема логики) или показать текстом. */
   diagram: boolean;
@@ -42,7 +52,7 @@ interface Props {
   onClose: () => void;
 }
 
-export default function DocViewer({ title, source, tag, body, diagram, onPick, onClose }: Props) {
+export default function DocViewer({ title, source, body, diagram, onPick, onClose }: Props) {
   const [host] = useState<HTMLElement>(() => {
     const dialogs = document.querySelectorAll<HTMLElement>("dialog[open]");
     return dialogs[dialogs.length - 1] ?? document.body;
@@ -55,7 +65,7 @@ export default function DocViewer({ title, source, tag, body, diagram, onPick, o
   const fitted = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Первый удачный рендер вписываем один раз; дальше масштаб — дело пользователя.
+  // Первый удачный рендер ставит вид для чтения один раз; дальше масштаб — дело пользователя.
   const onStatus = useCallback((s: MmdStatus) => {
     setError(s.kind === "error" ? s.message : null);
     if (s.kind !== "ok") return;
@@ -79,15 +89,15 @@ export default function DocViewer({ title, source, tag, body, diagram, onPick, o
 
   return createPortal(
     <div
-      className="rq-root rq-ov"
+      className="ds rq-ov"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="rq-ov-w" role="dialog" aria-label={title}>
+      <div className={"rq-ov-w" + (diagram ? " rq-ov-w--diagram" : "")} role="dialog" aria-label={title}>
         <div className="rq-ov-hd">
-          <div className="rq-ov-t">{title}<span> · {source}</span></div>
-          <span className="rq-ov-tag">{tag}</span>
-          <button type="button" className="rq-ov-x" aria-label="Закрыть" onClick={onClose}>
-            <CloseIcon size={17} />
+          <span className="rq-ov-t" title={title}>{title}</span>
+          <span className="rq-ov-src">{source}</span>
+          <button type="button" className="ds-icon-btn rq-ov-x" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
           </button>
         </div>
         {diagram ? (
@@ -121,10 +131,10 @@ export default function DocViewer({ title, source, tag, body, diagram, onPick, o
         ) : (
           <div className="rq-ov-bd"><pre className="rq-ov-pre">{body}</pre></div>
         )}
+        {/* Главная кнопка первой, «Закрыть» за ней (правило окон владельца). */}
         <div className="rq-ov-ft">
-          <button type="button" className="rq-soft" onClick={onClose}>Закрыть</button>
-          <span className="rq-sp" />
-          <button type="button" className="rq-pri" onClick={onPick}>Выбрать этот вариант</button>
+          <button type="button" className="ds-btn ds-btn--primary" onClick={onPick}>Выбрать этот вариант</button>
+          <button type="button" className="ds-btn" onClick={onClose}>Закрыть</button>
         </div>
       </div>
     </div>,

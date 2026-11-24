@@ -3,7 +3,7 @@ import type { DeletionSnapshot, Node, NodeEdgeInfo } from "../types";
 import { nodesApi } from "../api/nodes";
 import { plural } from "../ui/plural";
 import ConfirmDialog from "../ui/ConfirmDialog";
-import { confirmListBox, confirmList } from "../ui/styles";
+import "../ui/ds.css";
 
 /**
  * Подтверждение удаления узла со списком того, что исчезнет вместе с ним: связи
@@ -48,6 +48,14 @@ function docsSummary(snap: DeletionSnapshot): string | null {
     parts.push(`${channels} ${plural(channels, ["канал брокера", "канала брокера", "каналов брокера"])}${flds}`);
   }
   return parts.length > 0 ? `Вместе с ним удалится документация: ${parts.join("; ")}.` : null;
+}
+
+// Строка перечня связей: подпись (или технология) в кавычках и второй конец. У связи без
+// подписи и технологии кавычек нет: «связь» здесь слово, а не подпись.
+function edgeLine(e: NodeEdgeInfo): string {
+  const lbl = e.label || e.technology;
+  const dir = e.direction === "outgoing" ? "к" : "от";
+  return lbl ? `«${lbl}» ${dir} ${e.other_node_name}` : `связь ${dir} ${e.other_node_name}`;
 }
 
 export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) {
@@ -115,24 +123,16 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
       busy={deleting}
       onConfirm={() => { if (snapshot) void confirmDelete(snapshot); }}
       onCancel={onCancel}
-      scroll
     >
       {edges !== null && edges.length > 0 && (
-        <div style={confirmListBox}>
-          <ul style={confirmList}>
-            {edges.map((e) => {
-              const lbl = e.label || e.technology || "связь";
-              const dir = e.direction === "outgoing" ? "к" : "от";
-              return (
-                <li key={e.id} style={{ marginBottom: 4 }}>
-                  «{lbl}» {dir} {e.other_node_name}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <ul className="ds-confirm-list">
+          {edges.map((e) => {
+            const text = edgeLine(e);
+            return <li key={e.id} title={text}>{text}</li>;
+          })}
+        </ul>
       )}
-      {docsLine && <p style={{ color: "#475569", margin: "8px 0 0", fontSize: 14, lineHeight: 1.5 }}>{docsLine}</p>}
+      {docsLine && <p className="ds-confirm-note">{docsLine}</p>}
     </ConfirmDialog>
   );
 }

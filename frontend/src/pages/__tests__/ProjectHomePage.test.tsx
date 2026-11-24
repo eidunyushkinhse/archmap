@@ -1,7 +1,8 @@
 // ProjectHomePage: отказ загрузки меты проекта или схемы корня — экран с причиной и
 // «Повторить», а не вечная «Загрузка» (аудит R-2, R-10). Тяжёлый блок схемы и
 // поллинг замоканы: проверяется оркестрация загрузки страницы.
-import { render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectHomePage from "../ProjectHomePage";
@@ -10,12 +11,21 @@ import { processesApi } from "../../api/processes";
 import { nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
 import { ProjectRoleContext } from "../projectRole";
+import { useRemoteSync } from "../useRemoteSync";
 
 vi.mock("../../api/projects", () => ({ projectsApi: { get: vi.fn() } }));
 vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
-vi.mock("../../components/EmbeddedSchemaBlock", () => ({ default: () => <div data-testid="schema" /> }));
+// onEdit блока (вход в экран схемы из строки заголовка) — маркером: передан ли и куда ведёт.
+vi.mock("../../components/EmbeddedSchemaBlock", () => ({
+  default: ({ title, notice, empty, onEdit }: { title: string; notice?: string | null; empty?: ReactNode; onEdit?: () => void }) => (
+    <div data-testid="schema" data-title={title} data-notice={notice ?? ""} data-edit={onEdit ? "есть" : "нет"}>
+      {empty}
+      {onEdit && <button type="button" data-testid="schema-edit" onClick={onEdit} />}
+    </div>
+  ),
+}));
 // Панель версий — маркер с пропсами: здесь проверяется вход из ⋯-меню проекта, сама
 // панель покрыта своим тестом (VersionsPanel.test).
 vi.mock("../../components/nodePage/versions/VersionsPanel", () => ({
@@ -104,5 +114,159 @@ describe("ProjectHomePage: версии документации проекта"
     const panel = screen.getByTestId("versions-panel");
     expect(panel).toHaveAttribute("data-can-edit", "true");
     expect(panel).toHaveAttribute("data-can-delete", "true");
+  });
+});
+
+// Редизайн (направление А «Документ»): шапка — название, ⋯ справа и описание, без
+// подписи «Проект», глифа и чипов-счётчиков; раздел «Схема»; «Процессы» строками и
+// только когда процессы есть.
+describe("ProjectHomePage: шапка и разделы", () => {
+  const proc = (id: string, name: string) => ({
+    id, name, scope_node_id: null, scope_name: null, message_count: 7, statuses: [],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({
+      id: "p1", name: "Ярмарка", description: "Маркетплейс для продавцов и покупателей",
+      object_count: 12, edge_count: 30,
+    } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+  });
+
+  it("шапка: название заголовком и описание; ни «Проект», ни счётчиков", async () => {
+    render(<ProjectHomePage {...props} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Ярмарка" })).toBeInTheDocument();
+    expect(screen.getByText("Маркетплейс для продавцов и покупателей")).toHaveClass("np-desc");
+    expect(screen.queryByText("Проект")).toBeNull();
+    expect(screen.queryByText(/12 объектов/)).toBeNull();
+    expect(screen.queryByText(/30 связей/)).toBeNull();
+    expect(screen.getByTestId("schema")).toHaveAttribute("data-title", "Схема");
+  });
+
+  it("без процессов раздела «Процессы» нет", async () => {
+    render(<ProjectHomePage {...props} />);
+    await screen.findByTestId("schema");
+    expect(screen.queryByRole("heading", { name: "Процессы" })).toBeNull();
+  });
+
+  it("процессы — строками с именем; клик ведёт в процесс", async () => {
+    vi.mocked(processesApi.list).mockResolvedValue([proc("a", "Оформление заказа"), proc("b", "Оплата")] as never);
+    const onNavigateProcesses = vi.fn();
+    render(<ProjectHomePage {...props} onNavigateProcesses={onNavigateProcesses} />);
+    expect(await screen.findByRole("heading", { name: "Процессы" })).toBeInTheDocument();
+    expect(screen.queryByText(/сообщени/)).toBeNull();
+    expect(screen.queryByText(/открыть/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Оплата" }));
+    expect(onNavigateProcesses).toHaveBeenCalledWith("b");
+  });
+});
+
+// Механика тоста чужой правки (редизайн, фазы 13а и 13б): страница передаёт текст тоста
+// блоку схемы (notice), сам тост рисует блок внутри своей рамки (embeddedSchemaNotice.test);
+// своей разметки тоста у страницы нет, срок ровно 4 с.
+describe("ProjectHomePage: тост «Схему только что изменили в другом окне»", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+  });
+
+  it("чужая правка схемы: текст тоста уходит блоку схемы, через 4 с — пусто", async () => {
+    render(<ProjectHomePage {...props} />);
+    await screen.findByTestId("schema");
+    expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "");
+    const sync = vi.mocked(useRemoteSync).mock.calls.at(-1)?.[0] as { onRemoteChange: () => void };
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => { sync.onRemoteChange(); });
+      expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "Схему только что изменили в другом окне");
+      // Своей разметки тоста у страницы нет: ни плашки, ни обёртки с тостом над блоком.
+      expect(document.querySelector(".ds-toast")).toBeNull();
+      expect(screen.queryByText("Схему только что изменили в другом окне")).toBeNull();
+      act(() => { vi.advanceTimersByTime(3999); });
+      expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "Схему только что изменили в другом окне");
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByTestId("schema")).toHaveAttribute("data-notice", "");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// Пустой проект: «Схема пуста» и у архитектора «Начать наполнение» главной кнопкой языка
+// (редизайн, фаза 13б), отступ сверху классом; ведёт в редактор-карту корня.
+describe("ProjectHomePage: пустая схема", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+  });
+
+  it("архитектор: «Начать наполнение» — ds-btn ds-btn--primary без инлайн-стиля, ведёт в редактор", async () => {
+    const onNavigateMap = vi.fn();
+    render(
+      <ProjectRoleContext.Provider value="editor">
+        <ProjectHomePage {...props} isArchitect onNavigateMap={onNavigateMap} />
+      </ProjectRoleContext.Provider>,
+    );
+    const btn = await screen.findByRole("button", { name: "Начать наполнение" });
+    expect(screen.getByTestId("schema")).toHaveTextContent("Схема пуста");
+    expect(btn).toHaveClass("ds-btn", "ds-btn--primary", "esb-empty-act");
+    expect(btn).not.toHaveAttribute("style");
+    expect(btn).toHaveAttribute("type", "button");
+    await userEvent.click(btn);
+    expect(onNavigateMap).toHaveBeenCalledWith(null);
+  });
+
+  it("читатель: только «Схема пуста», без кнопки", async () => {
+    render(<ProjectHomePage {...props} />);
+    await waitFor(() => expect(screen.getByTestId("schema")).toHaveTextContent("Схема пуста"));
+    expect(screen.queryByRole("button", { name: "Начать наполнение" })).toBeNull();
+  });
+});
+
+// Вход в экран схемы из строки заголовка «Схема» (фаза 13д): страница отдаёт блоку onEdit
+// любой роли, когда в проекте есть объекты, и ведёт он на корневой уровень. Подпись кнопки
+// по роли рисует блок (embeddedSchemaEntry.test). В пустом проекте onEdit нет ни у кого.
+describe("ProjectHomePage: вход в экран схемы", () => {
+  const withNodes = { ...graph, nodes: [{ id: "a", name: "Заказы", shape: "service" }] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+  });
+
+  it.each([
+    { who: "читатель", role: "reader" as const, isArchitect: false },
+    { who: "редактор", role: "editor" as const, isArchitect: true },
+  ])("$who, объекты есть: onEdit передан и ведёт на корневой уровень", async ({ role, isArchitect }) => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(withNodes as never);
+    const onNavigateMap = vi.fn();
+    render(
+      <ProjectRoleContext.Provider value={role}>
+        <ProjectHomePage {...props} isArchitect={isArchitect} onNavigateMap={onNavigateMap} />
+      </ProjectRoleContext.Provider>,
+    );
+    expect(await screen.findByTestId("schema")).toHaveAttribute("data-edit", "есть");
+    await userEvent.click(screen.getByTestId("schema-edit"));
+    expect(onNavigateMap).toHaveBeenCalledWith(null);
+  });
+
+  it.each([
+    { who: "читатель", role: "reader" as const, isArchitect: false },
+    { who: "редактор", role: "editor" as const, isArchitect: true },
+  ])("$who, пустой проект: onEdit нет", async ({ role, isArchitect }) => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph as never);
+    render(
+      <ProjectRoleContext.Provider value={role}>
+        <ProjectHomePage {...props} isArchitect={isArchitect} />
+      </ProjectRoleContext.Provider>,
+    );
+    expect(await screen.findByTestId("schema")).toHaveAttribute("data-edit", "нет");
   });
 });

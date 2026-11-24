@@ -5,10 +5,12 @@
 // живут они здесь; знак же — отдельный экземпляр useSchemaAlerts в ProjectShell,
 // который грузится один раз на маунте. Мутация канваса обновляла только список
 // процессов в рейле и наверх не всплывала.
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ProcessWorkspace from "../processes/ProcessWorkspace";
 import { processesApi } from "../../api/processes";
+import { ApiError } from "../../api/client";
 import type { ProcessListItem } from "../../types";
 
 // Канвас подменяем кнопкой, дёргающей его onChanged: тестируем проводку, а не
@@ -58,5 +60,103 @@ describe("ProcessWorkspace: сигнал мутации наверх", () => {
     await screen.findByTestId("canvas");
 
     expect(() => canvasChanged.fire?.()).not.toThrow();
+  });
+});
+
+// Редизайн, фаза 3а: «Новый процесс» больше не создаёт запись сразу. В рейле появляется
+// строка с полем имени; до Enter в базе ничего нет.
+describe("ProcessWorkspace: новый процесс — только после ввода имени", () => {
+  async function startCreate() {
+    vi.mocked(processesApi.list).mockResolvedValue([PROCESS]);
+    vi.mocked(processesApi.create).mockReset();
+    vi.mocked(processesApi.create).mockResolvedValue({ id: "p2", name: "Возврат" } as never);
+    render(<ProcessWorkspace isArchitect />);
+    await screen.findByTestId("canvas");
+    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    const items = screen.getAllByRole("menuitem").map((b) => b.textContent);
+    // «Импорт из Mermaid» — первым: главный путь процесса — черновик от агента.
+    expect(items).toEqual(["Импорт из Mermaid", "Новый процесс"]);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Новый процесс" }));
+    return screen.getByRole("textbox", { name: "Имя нового процесса" });
+  }
+
+  it("Enter с именем создаёт процесс с этим именем", async () => {
+    const field = await startCreate();
+    expect(processesApi.create).not.toHaveBeenCalled();
+    await userEvent.type(field, "  Возврат {Enter}");
+    await waitFor(() => expect(processesApi.create).toHaveBeenCalledWith({ name: "Возврат" }));
+    expect(screen.queryByRole("textbox", { name: "Имя нового процесса" })).toBeNull();
+  });
+
+  it("Escape отменяет: ничего не создано, строки нет", async () => {
+    const field = await startCreate();
+    await userEvent.type(field, "Возв");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("textbox", { name: "Имя нового процесса" })).toBeNull();
+    expect(processesApi.create).not.toHaveBeenCalled();
+  });
+
+  it("уход с пустым полем отменяет", async () => {
+    const field = await startCreate();
+    fireEvent.blur(field);
+    expect(screen.queryByRole("textbox", { name: "Имя нового процесса" })).toBeNull();
+    expect(processesApi.create).not.toHaveBeenCalled();
+  });
+});
+
+// Редизайн, фаза 3в: отказ операции над процессом виден после загрузки списка. Раньше он
+// уходил в строку, которая рисуется только вместо ещё не загруженного списка.
+describe("ProcessWorkspace: отказы операций тостом", () => {
+  async function openMenu() {
+    vi.mocked(processesApi.list).mockResolvedValue([PROCESS]);
+    render(<ProcessWorkspace isArchitect />);
+    await screen.findByTestId("canvas");
+    await userEvent.click(screen.getByTitle("Действия"));
+  }
+
+  it("удаление не прошло: тост «Не удалось удалить процесс.» с причиной от сервера", async () => {
+    vi.mocked(processesApi.remove).mockRejectedValue(new ApiError(404, "Процесс не найден"));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Удалить" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Удалить процесс?" }));
+
+    const toast = await screen.findByRole("status");
+    expect(toast.textContent).toBe("Не удалось удалить процесс. Процесс не найден");
+    expect(toast.querySelector("b")?.textContent).toBe("Не удалось удалить процесс.");
+    expect(screen.getByTestId("canvas")).toBeInTheDocument(); // список и холст на месте
+  });
+
+  it("дублирование не прошло: тост «Не удалось дублировать процесс.»", async () => {
+    vi.mocked(processesApi.duplicate).mockRejectedValue(new ApiError(500, "Внутренняя ошибка"));
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Дублировать" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Не удалось дублировать процесс. Внутренняя ошибка");
+  });
+});
+
+describe("ProcessWorkspace: читатель", () => {
+  it("в рейле нет «Добавить» и меню строки; пустой проект — одна строка", async () => {
+    vi.mocked(processesApi.list).mockResolvedValue([PROCESS]);
+    const { unmount } = render(<ProcessWorkspace isArchitect={false} />);
+    await screen.findByTestId("canvas");
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+    expect(screen.queryByTitle("Действия")).toBeNull();
+    // Строка процесса — одно название, полное имя в подсказке.
+    expect(screen.getByTitle("Оформление заказа").textContent).toBe("Оформление заказа");
+    unmount();
+
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    render(<ProcessWorkspace isArchitect={false} />);
+    expect(await screen.findByText("Процессов пока нет.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+  });
+
+  it("редактору пустой проект предлагает «Добавить»", async () => {
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    render(<ProcessWorkspace isArchitect />);
+    expect(await screen.findByText("Процессов пока нет.")).toBeInTheDocument();
+    // Две «Добавить»: сверху рейла и в строке пустого экрана.
+    expect(screen.getAllByRole("button", { name: "Добавить" })).toHaveLength(2);
   });
 });

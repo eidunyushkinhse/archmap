@@ -4,7 +4,7 @@
 // «Объекты», приёмка 2026-10-31).
 // Страницы — заглушки: проверяем оркестрацию App, настоящие api/auth и client
 // работают поверх подменённого fetch.
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import App, { SESSION_EXPIRED_NOTICE } from "../App";
 import { clearToken, getIsAdmin, getUserRole, saveToken } from "../api/auth";
@@ -113,6 +113,32 @@ describe("App", () => {
     window.location.hash = `/p/${PID}`;
     await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none"));
     expect(window.location.hash).toBe(`#/p/${PID}`);
+  });
+
+  // Редизайн, фаза 13в: не администратора адрес «Пользователей» уводит на «Все проекты»
+  // (#/projects), как гостя демо-стенда. Признак администратора приходит только с /auth/me:
+  // до ответа экран не рисуется, чтобы не мелькнуть заголовком и кнопками администратора.
+  it("#/admin/users не администратору: до ответа «кто я» пусто, потом «Все проекты» и #/projects", async () => {
+    saveToken(jwt("viewer"));
+    let ответитьMe: () => void = () => {};
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("/auth/me")) {
+        return new Promise<Response>((res) => { ответитьMe = () => res(json({ id: "u2", username: "olga", role: "viewer", is_admin: false })); });
+      }
+      return Promise.resolve(json({ demo_mode: false, demo_limits: null }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.location.hash = "/admin/users";
+    render(<App />);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/auth/me"))).toBe(true));
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(screen.queryByTestId("users-page")).toBeNull();
+    expect(screen.queryByTestId("projects")).toBeNull();
+    await act(async () => { ответитьMe(); });
+    expect(await screen.findByTestId("projects")).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe("#/projects"));
+    expect(screen.queryByTestId("users-page")).toBeNull();
   });
 
   it("#/admin/users открывает экран «Пользователи»", async () => {

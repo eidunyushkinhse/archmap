@@ -1,35 +1,29 @@
-// Модалка «Обновить из кода» — синхронизация ЖИВОГО проекта со свежим
-// прогоном ИИ-агента (docs/plan-arch-sync.md, Фаза 3).
+// Окно «Обновить из кода» — синхронизация ЖИВОГО проекта со свежим ответом ИИ-агента
+// (docs/plan-arch-sync.md, Фаза 3). Отличие от импорта: импорт создаёт проект с нуля,
+// здесь схема уже живёт — с раскладкой, схемами логики, спецификациями и ручными
+// правками. Поэтому центр окна — ПЛАН: что появится, что изменится, что пропало.
 //
-// Отличие от импорта: импорт создаёт проект с нуля, здесь схема уже живёт — с
-// раскладкой, схемами логики, спеками и ручными правками. Поэтому центр окна не
-// «сводка документа», а ПЛАН: что появится, что изменится, что пропало. Ничего не
-// записывается, пока пользователь не нажмёт «Применить», и применение отправляет
-// курсор схемы из превью — если схема успела измениться, бэк ответит 409, а не
-// применит вслепую не то, что человек видел.
-//
-// Слева — тот же промпт «Из репозитория» (его запускают в каждом репозитории
-// системы), справа — файлы прогона, политики и план.
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { PromptVariant, SyncApplyOut, SyncPolicies, SyncPreviewOut } from "../../types";
+// Вид — новый язык (редизайн, фаза 6а): одна колонка в порядке действий. «Задание
+// агенту» (язык описаний и подсказки строками «подпись — значение», кнопка копирования)
+// → «Ответы агента» (зона файлов, галочки «что обновлять», план) → «Применить». Каркас
+// окна, блоки и строки общие (ui/ds.css: ds-win, ds-win-block, ds-prop), выбор языка и
+// зона файлов — общие части окон ввоза с «Новым проектом» (LangChoice, FileZone).
+// Состояние ввоза — useSyncImport, зона файлов этого окна — SyncFiles, план — SyncPlan.
+import { useEffect, useId, useState } from "react";
+import type { PromptVariant } from "../../types";
 import { projectsApi } from "../../api/projects";
-import { ApiError, isDemoLimit } from "../../api/client";
-import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
-import { useFileDrop } from "./useFileDrop";
-import { planSections, planSummary, applySummary } from "./syncPlanView";
-import { NoteList } from "./agentModalReport";
+import { useSyncImport } from "./useSyncImport";
 import PromptCopyButton from "./PromptCopyButton";
-import {
-  head, sub, cols, leftCol, rightCol, hintsArea, leftNote,
-  chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
-} from "./agentModalShared";
+import LangChoice from "./LangChoice";
+import SyncFiles from "./SyncFiles";
+import SyncPlan from "./SyncPlan";
 import Modal from "../../ui/Modal";
+import GrowField from "../../ui/GrowField";
 import { CloseIcon } from "../../ui/icons";
-import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
-import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
-import { firstTooBig, textBytes } from "../demo/demoLimits";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyText } from "../../lib/copyText";
+import "../../ui/ds.css";
+import "./syncRepo.css";
 
 interface Props {
   projectId: string;
@@ -38,78 +32,14 @@ interface Props {
   onApplied: (message: string) => void;
 }
 
-// Подсказки описывают ЭФФЕКТ для пользователя, а не механику: в интерфейс не
-// должны попадать наши рабочие слова («прогон», «политика», «якорь», «слой»).
-const POLICY_LABELS: { key: keyof SyncPolicies; title: string; hint: string }[] = [
-  {
-    key: "update_descriptions",
-    title: "Заменить описания",
-    hint: "Описания объектов будут заменены на те, что в YAML. Если вы правили описания вручную, эти правки пропадут. По умолчанию выключено, потому что агент каждый раз описывает объекты немного по-разному.",
-  },
-  {
-    key: "update_names",
-    title: "Переименовать объекты",
-    hint: "Объекты получат имена из YAML. Без этой галочки имена в схеме останутся прежними, а расхождение будет просто показано в списке ниже.",
-  },
-  {
-    key: "sync_components",
-    title: "Обновлять компоненты контейнеров",
-    hint: "Обновление затронет и компоненты внутри контейнеров. Без галочки всё, что лежит внутри контейнеров, остаётся как есть. По умолчанию выключено, потому что компоненты агент описывает менее надёжно и такие изменения обычно только мешают увидеть главное.",
-  },
-  {
-    key: "mark_missing_deprecated",
-    title: "Помечать выводимыми то, чего нет в файлах",
-    hint: "Объекты, которых в файлах больше нет, получат статус «Выводится». Удалять их ArchMap не будет ни при каких настройках.",
-  },
-  {
-    key: "restore_returned",
-    title: "Снимать статус «Выводится» с объектов, которые снова есть в файлах",
-    hint: "Объекты со статусом «Выводится», которые снова есть в файлах, получат статус «Существует». По умолчанию выключено, потому что статус могли поставить вы вручную, и снимать его без спроса неправильно. План обновления показывает вернувшиеся объекты в любом случае.",
-  },
-];
-
 export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) {
-  // Имя системы в промпте = имя проекта: грузим здесь, а не тащим пропом через
+  // Имя системы в задании = имя проекта: грузим здесь, а не тащим пропом через
   // оболочку — она его тоже не знает (в шапке имя рисует ProjectSwitcher).
   const [projectName, setProjectName] = useState("");
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  const pkg = useDocsFiles();
-  const [policies, setPolicies] = useState<SyncPolicies>({
-    update_descriptions: false,
-    update_names: false,
-    sync_components: false,
-    mark_missing_deprecated: false,
-    restore_returned: false,
-  });
-  const [rawPreview, setRawPreview] = useState<SyncPreviewOut | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [applyError, setApplyError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const seqRef = useRef(0);
-  // Перетаскивание в ту же зону, что и кнопка «Загрузить файлы»: список
-  // расширений держим одинаковым с input accept ниже.
-  const drop = useFileDrop({
-    accept: [".yaml", ".yml", ".txt"],
-    onFiles: pkg.pickFiles,
-    disabled: pkg.files.length >= MAX_FILES,
-  });
-
-  // Демо-стенд (docs/tasks/demo-mode.md): файл больше предела не отправляем — сервер
-  // ответил бы 413; отказ видно сразу, план не считается.
-  const tooBig = useMemo(
-    () => firstTooBig(
-      pkg.files.filter((f) => f.content.trim() !== "")
-        .map((f) => ({ name: f.name, size: textBytes(f.content) })),
-    ),
-    [pkg.files],
-  );
-
-  // Файлы убрали — план прячем ПРОИЗВОДНО, без зеркалящего эффекта.
-  const preview = pkg.hasContent && !tooBig ? rawPreview : null;
-  // Демо-стенд: после синка проект выйдет за предел (считает сервер в превью).
-  const excess = preview?.ok ? (preview.demo_excess ?? null) : null;
+  const imp = useSyncImport(projectId);
+  const uid = useId();
 
   useEffect(() => {
     let alive = true;
@@ -124,36 +54,11 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
     };
   }, [projectId]);
 
-  // Дебаунс-превью по файлам и политикам: план пересчитывается на бэке, здесь
-  // только показ. seq отбрасывает устаревшие ответы при быстрой правке.
-  useEffect(() => {
-    const nonEmpty = pkg.files.filter((f) => f.content.trim() !== "");
-    if (nonEmpty.length === 0 || tooBig) return;
-    const seq = ++seqRef.current;
-    // Все setState — асинхронно, внутри таймера/ответа (react-hooks/set-state-in-effect).
-    // Побочно полезно: индикатор не мигает на каждом нажатии клавиши в редакторе.
-    const t = window.setTimeout(() => {
-      setChecking(true);
-      projectsApi
-        .syncPreview(projectId, nonEmpty.map((f) => f.content), policies)
-        .then((res) => {
-          if (seq === seqRef.current) setRawPreview(res);
-        })
-        .catch(() => {
-          if (seq === seqRef.current) setRawPreview(null);
-        })
-        .finally(() => {
-          if (seq === seqRef.current) setChecking(false);
-        });
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [pkg.files, policies, projectId, tooBig]);
-
-  // Запрос задания + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
-  // трёх вариантов показывает PromptCopyButton по разрешению этого обещания.
-  // Глубина у агента всегда просится одна — два слоя, как и при создании проекта
-  // (решение пользователя 2026-08-16): синк и создание обязаны просить одно и то же,
-  // иначе прогон синка предложит план по более дробной схеме, чем построенная.
+  // Запрос задания + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «Скопировано» показывает
+  // PromptCopyButton по разрешению этого обещания. Глубина у агента всегда просится одна
+  // — два слоя, как и при создании проекта (решение пользователя 2026-08-16): синк и
+  // создание обязаны просить одно и то же, иначе ответ агента предложит план по более
+  // дробной схеме, чем построенная.
   const copyPrompt = (variant: PromptVariant): Promise<void> =>
     copyText(projectsApi
       .importPrompt({
@@ -164,233 +69,68 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
       })
       .then((r) => r.prompt));
 
-  const apply = () => {
-    if (!preview?.ok || preview.is_noop) return;
-    setApplying(true);
-    setApplyError(null);
-    projectsApi
-      .syncApply(projectId, pkg.nonEmpty.map((f) => f.content), policies, preview.graph_rev)
-      .then((r: SyncApplyOut) => {
-        onApplied(applySummary(r));
-        onClose();
-      })
-      .catch((e: unknown) => {
-        setApplyError(
-          // Отказ по пределу демо-стенда — тоже 409, но не устаревший план.
-          isDemoLimit(e)
-            ? `Не сохранилось. ${e.message}`
-            : e instanceof ApiError && e.status === 409
-            ? "Схему изменили в другом окне или другим пользователем, и список ниже устарел. Закройте это окно и откройте снова."
-            : "Не удалось сохранить изменения. Проверьте соединение и повторите.",
-        );
-      })
-      .finally(() => setApplying(false));
-  };
-
-  const sections = preview?.ok ? planSections(preview) : [];
-  const canApply = !!preview?.ok && !preview.is_noop && !applying && !checking && excess === null;
-
   return (
-    <Modal
-      onClose={onClose}
-      closeButton={false}
-      boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}
-    >
-      <div style={head}>
-        <h3 style={{ margin: 0, fontSize: 16.5 }}>Обновить из кода</h3>
-        <button className="modal-close" onClick={onClose} aria-label="Закрыть">
-          <CloseIcon />
-        </button>
-      </div>
-      <p style={sub}>
-        Скопируйте задание, выполните его своим ИИ-агентом в каждом репозитории системы и
-        вставьте полученные YAML сюда. ArchMap сверит их со схемой и покажет, что изменится,
-        прежде чем что-либо записать. Расположение объектов, схемы логики, спецификации и
-        бизнес-процессы останутся на месте, удалять ArchMap ничего не будет.
-      </p>
-
-      <div style={cols}>
-        {/* ── Слева: промпт ─────────────────────────────────── */}
-        <div style={leftCol}>
-          <label style={labelStyle}>Язык описаний</label>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            {(["ru", "en"] as const).map((l) => (
-              <button
-                key={l}
-                type="button"
-                style={lang === l ? chipOn : chip}
-                onClick={() => setLang(l)}
-              >
-                {l === "ru" ? "Русский" : "Английский"}
-              </button>
-            ))}
-          </div>
-          <label style={labelStyle}>Подсказки агенту (необязательно)</label>
-          <textarea
-            {...noAutofill("sync-repo-modal-1")}
-            style={hintsArea}
-            value={hints}
-            onChange={(e) => setHints(e.target.value)}
-            placeholder="Например: игнорируй каталог legacy/"
-          />
-          <PromptCopyButton
-            label="Скопировать задание для агента"
-            copiedLabel="Скопировано"
-            kind="secondary"
-            buttonStyle={{ marginTop: 10 }}
-            disabled={!projectName}
-            copy={copyPrompt}
-          />
-          <p style={leftNote}>
-            В задании система названа «{projectName}». Одно и то же задание выполняется в каждом
-            репозитории: объекты узнаются по источнику, то есть коду (репозиторий и путь в нём) или
-            имени зависимости, поэтому переименованный сервис не превратится в новый объект.
-          </p>
+    <Modal onClose={onClose} boxStyle={{ width: 640, padding: 0 }}>
+      <div className="ds ds-win sync-win" {...imp.drop.bind}>
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Обновить из кода</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
         </div>
 
-        {/* ── Справа: файлы, политики, план ─────────────────── */}
-        <div style={rightCol}>
-          <div style={chipsRow}>
-            {pkg.files.map((f, i) => (
-              <span key={f.name + i} style={i === pkg.active ? chipOn : chip}>
-                <button type="button" style={chipBtn} onClick={() => pkg.setActive(i)}>
-                  {f.name}
-                </button>
-                <button
-                  type="button"
-                  style={chipX}
-                  onClick={() => pkg.removeFile(i)}
-                  aria-label={`Убрать ${f.name}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {pkg.files.length < MAX_FILES && (
-              <>
-                <button type="button" className="btn-soft" onClick={() => fileRef.current?.click()}>
-                  Загрузить файлы
-                </button>
-                <button type="button" className="btn-soft" onClick={pkg.addPaste}>
-                  Вставить текст
-                </button>
-              </>
-            )}
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              accept=".yaml,.yml,.txt"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                pkg.pickFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-          </div>
-
-          {/* Редактор показывается, как только файл ЗАВЕДЁН (в том числе пустой,
-              созданный кнопкой «Вставить текст»), а не когда в нём уже есть текст:
-              иначе вставлять было некуда — чип есть, поля нет. */}
-          <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
-            {pkg.files.length === 0 ? (
-              <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда YAML-ответы агента (по файлу на репозиторий) или нажмите,
-                чтобы выбрать их на диске. Можно и вставить текстом, план обновления
-                появится сразу.
-              </button>
-            ) : (
-              <textarea
-                {...noAutofill("sync-repo-modal-2")}
-                style={fileArea}
-                value={pkg.files[pkg.active]?.content ?? ""}
-                onChange={(e) => pkg.setText(pkg.active, e.target.value)}
-                placeholder="Вставьте сюда YAML от агента"
-                spellCheck={false}
-              />
-            )}
-          </div>
-          {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
-          {pkg.sizeError && <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>}
-
-          {pkg.files.length > 0 && (
-            <>
-              <div style={{ margin: "12px 0 6px" }}>
-                {POLICY_LABELS.map((p) => (
-                  <label
-                    key={p.key}
-                    style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}
-                    title={p.hint}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={policies[p.key]}
-                      onChange={(e) => setPolicies((s) => ({ ...s, [p.key]: e.target.checked }))}
-                    />
-                    <span style={{ fontSize: 12.5, color: "#334155" }}>{p.title}</span>
-                  </label>
-                ))}
+        <div className="ds-win-body">
+          <section className="ds-win-block">
+            <h3 className="ds-win-block-title">Задание агенту</h3>
+            <dl className="ds-props">
+              <div className="ds-prop">
+                <dt className="ds-prop-term" id={`${uid}-lang`}>Язык описаний</dt>
+                <dd className="ds-prop-value">
+                  <LangChoice value={lang} onChange={setLang} labelId={`${uid}-lang`} />
+                </dd>
               </div>
+              <div className="ds-prop">
+                <dt className="ds-prop-term"><label htmlFor={`${uid}-hints`}>Подсказки агенту</label></dt>
+                <dd className="ds-prop-value">
+                  <GrowField
+                    {...noAutofill("sync-repo-hints")}
+                    id={`${uid}-hints`}
+                    multiline
+                    initial=""
+                    onCommit={setHints}
+                    placeholder="например: игнорируй каталог legacy/"
+                  />
+                </dd>
+              </div>
+            </dl>
+            <PromptCopyButton
+              label="Скопировать задание"
+              copiedLabel="Скопировано"
+              kind="secondary"
+              disabled={!projectName}
+              copy={copyPrompt}
+            />
+          </section>
 
-              {checking && <p style={grayLine}>Сверяем со схемой</p>}
-              {tooBig && <div style={{ marginBottom: 10 }}><FileTooBigNotice {...tooBig} /></div>}
-              {/* Не помещается в демо: вместо плана — отказ с полоской. */}
-              {excess && (
-                <div style={{ marginBottom: 10 }}><DemoExcessNotice excess={excess} scope="project" /></div>
-              )}
-              {preview && !preview.ok && (
-                <NoteList title="YAML не читается" items={preview.errors ?? []} />
-              )}
-              {preview?.ok && !excess && (
-                <>
-                  <p style={{ ...grayLine, color: "#0f172a", fontWeight: 600 }}>
-                    {planSummary(preview)}
-                  </p>
-                  {sections.map((s) => (
-                    <div key={s.key} style={{ marginBottom: 10 }}>
-                      <p
-                        style={{
-                          margin: "0 0 4px",
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: s.attention ? "#b45309" : "#334155",
-                        }}
-                      >
-                        {s.title} · {s.rows.length}
-                      </p>
-                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "#475569" }}>
-                        {s.rows.map((r) => (
-                          <li key={r.path}>
-                            {r.path}
-                            {r.note && <span style={{ color: "#94a3b8" }}>: {r.note}</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                  {!!preview.conflicts?.length && (
-                    <NoteList title="Есть нюанс" items={preview.conflicts} />
-                  )}
-                  {!!preview.warnings?.length && (
-                    <NoteList title="Стоит проверить глазами" items={preview.warnings} />
-                  )}
-                </>
-              )}
-              {applyError && (
-                <p style={{ ...grayLine, color: "#b91c1c" }}>{applyError}</p>
-              )}
-            </>
-          )}
+          <section className="ds-win-block">
+            <h3 className="ds-win-block-title">Ответы агента</h3>
+            <SyncFiles pkg={imp.pkg} over={imp.drop.over} dropError={imp.drop.error} />
+            {imp.pkg.files.length > 0 && <SyncPlan imp={imp} />}
+          </section>
         </div>
-      </div>
 
-      <div style={footRow}>
-        <button type="button" style={primaryBtn} onClick={apply} disabled={!canApply}>
-          {applying ? "Применяем" : "Применить"}
-        </button>
-        <button type="button" style={secondaryBtn} onClick={onClose}>
-          Отмена
-        </button>
+        <div className="ds-win-foot">
+          {imp.applyError && <p className="ds-danger ds-win-err" role="alert">{imp.applyError}</p>}
+          <button
+            type="button"
+            className="ds-btn ds-btn--primary"
+            disabled={!imp.canApply}
+            onClick={() => imp.apply((message) => { onApplied(message); onClose(); })}
+          >
+            {imp.applying ? "Применяем" : "Применить"}
+          </button>
+          <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
+        </div>
       </div>
     </Modal>
   );

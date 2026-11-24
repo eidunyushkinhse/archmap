@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type {
   SchemaAlerts as Alerts,
   UnresolvedChannelRefAlert,
@@ -9,6 +9,7 @@ import type {
 import { plural } from "../ui/plural";
 import { BulbIcon } from "../ui/icons";
 import "./schemaAlerts.css";
+import "../ui/ds.css";
 import { useDismiss } from "../ui/useDismiss";
 
 /**
@@ -20,11 +21,12 @@ import { useDismiss } from "../ui/useDismiss";
  *  • Кнопка-иконка «Рекомендации» (лампочка) того же вида, что «три точки»
  *    (SchemaActions), видна ВСЕГДА, в том числе при нуле рекомендаций. Пока
  *    рекомендации есть, в углу кнопки маленькая серая точка; числа нет.
- *  • Клик раскрывает панель: разделы подписями с числом, пункты обычным текстом.
- *    Все рекомендации равнозначны — ни деления по важности, ни выделения цветом.
- *    Пункт кликабелен и ведёт к объекту/связи на схеме (через onLocate — поведение
- *    перехода реализует вызывающая сторона); стрелка «→» появляется у пункта под
- *    курсором. Пустая панель говорит «Рекомендаций нет».
+ *  • Клик раскрывает панель нового языка (вид меню ds-menu, редизайн, фаза 10): разделы
+ *    тихими подписями без числа, пункты обычным текстом. Все рекомендации равнозначны —
+ *    ни деления по важности, ни выделения цветом. Пункт кликабелен и ведёт к
+ *    объекту/связи на схеме (через onLocate — поведение перехода реализует вызывающая
+ *    сторона); под курсором и в фокусе у него подложка, стрелки перехода нет. Пустая
+ *    панель говорит «Рекомендаций нет».
  *
  * Разделы (формулировки на «объект», не «узел»):
  *  1) Объекты без связей — атомарные объекты без единой связи;
@@ -78,11 +80,6 @@ interface Props {
   // Переход к проблемному объекту/связи на схеме (pan + подсветка) — реализуется
   // вызывающей стороной (MapEditorPage). Если не передан — пункты не кликабельны.
   onLocate?: (target: LocateTarget) => void;
-  // Размер кнопки — как у соседних «трёх точек» (SchemaActions): в шапке оболочки
-  // 34, на холсте редактора 32.
-  size?: number;
-  // Где стоит кнопка: на холсте она висит над схемой и получает лёгкую тень.
-  placement?: "header" | "canvas";
 }
 
 // Почему пометка не срослась. Текст обязан подсказывать действие: неоднозначность
@@ -176,8 +173,10 @@ function section<T>(spec: SectionSpec<T>): AlertSection {
     },
     render: (a, { locate, openProcess }) => {
       const items = spec.items(a);
+      // Пустые разделы не показываем.
+      if (items.length === 0) return null;
       return (
-        <Section key={spec.title} title={spec.title} count={items.length}>
+        <Section key={spec.title} title={spec.title}>
           {items.map((item, i) => {
             const go = spec.go(item, i);
             const onClick = "locate" in go
@@ -213,6 +212,8 @@ const ALERT_SECTIONS: AlertSection[] = [
   // Сигнал CI: в основную ветку репозитория слиты изменения, а обновления из кода с тех
   // пор не было (AL37, app/code_changes.py). Строка на репозиторий, переход к верхнему
   // объекту из него; гаснет обновлением из кода или «Документация актуальна» на плашке.
+  // Строка — имя репозитория и тихо число слияний; сколько объектов ждут обновления,
+  // говорит плашка сигнала (CodeChangeNotice).
   section({
     title: "Документацию пора обновить",
     items: (a: Alerts) => a.code_changes,
@@ -220,11 +221,8 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (c) => toNode(c.nodes[0]?.node_id ?? ""),
     body: (c) => (
       <span className="sa-row">
-        <span className="sa-strong">{c.repo}</span>
-        <span className="sa-muted">
-          {c.merges} {plural(c.merges, ["слияние", "слияния", "слияний"])} · {c.nodes.length}{" "}
-          {plural(c.nodes.length, ["объект", "объекта", "объектов"])}
-        </span>
+        <span>{c.repo}</span>{" "}
+        <span className="sa-muted">{c.merges} {plural(c.merges, ["слияние", "слияния", "слияний"])}</span>
       </span>
     ),
   }),
@@ -300,8 +298,8 @@ const ALERT_SECTIONS: AlertSection[] = [
     ),
   }),
   // Факты процесса у компонента (AL36): спецификацию отдаёт, конфигурацию читает и на
-  // площадках стоит контейнер целиком. Строка называет, что осталось, и контейнер —
-  // куда перенести; ведёт к самому компоненту.
+  // площадках стоит контейнер целиком. Строка называет компонент и тихо то, что осталось,
+  // ниже контейнер — куда перенести; ведёт к самому компоненту.
   section({
     title: "Конфигурация и спецификации у компонентов",
     items: (a: Alerts) => a.component_facts,
@@ -309,7 +307,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (c) => toNode(c.node_id),
     body: (c) => (
       <>
-        <span className="sa-line">{c.node_name} · {componentFacts(c)}</span>
+        <span className="sa-line">{c.node_name} <span className="sa-muted">{componentFacts(c)}</span></span>
         <span className="sa-hint">{componentFactsHint(c)}</span>
       </>
     ),
@@ -325,7 +323,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (r) => toNode(r.node_id),
     body: (r) => (
       <span className="sa-line">
-        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-where">{r.node_name} / {r.doc_name}:</span>{" "}
         <span className="sa-strong">«{r.ref}»</span>: {REF_REASON[r.reason]}
       </span>
     ),
@@ -340,7 +338,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (r) => toNode(r.node_id),
     body: (r) => (
       <span className="sa-line">
-        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-where">{r.node_name} / {r.doc_name}:</span>{" "}
         <span className="sa-strong">«{r.ref}»</span>: {CHANNEL_REASON[r.reason]}
       </span>
     ),
@@ -358,7 +356,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     go: (r) => toNode(r.node_id),
     body: (r) => (
       <span className="sa-line">
-        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-where">{r.node_name} / {r.doc_name}:</span>{" "}
         <span className="sa-strong">«{r.ref}»</span>: {configReason(r)}
       </span>
     ),
@@ -407,7 +405,7 @@ const ALERT_SECTIONS: AlertSection[] = [
         {stepLine(m)}
         <span className="sa-hint">
           {m.from_name} → {m.to_name}
-          {m.edge_label ? ` · канал «${m.edge_label}»` : ""}
+          {m.edge_label ? `, канал «${m.edge_label}»` : ""}
         </span>
       </>
     ),
@@ -466,7 +464,7 @@ const ALERT_SECTIONS: AlertSection[] = [
   }),
 ];
 
-export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 32, placement = "header" }: Props) {
+export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const total = ALERT_SECTIONS.reduce((n, s) => n + s.problems(alerts), 0);
@@ -481,11 +479,12 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
   };
 
   return (
-    <div ref={ref} style={wrap}>
+    <div ref={ref} className="sa-anchor">
+      {/* Тихая кнопка-значок нового языка (ui/ds.css) в обеих шапках, как её сосед
+          «Действия со схемой» (редизайн, фазы 4б и 5). */}
       <button
         type="button"
-        className={"sa-btn" + (placement === "canvas" ? " sa-btn--canvas" : "")}
-        style={{ width: size, height: size }}
+        className="ds-icon-btn"
         onClick={() => setOpen((o) => !o)}
         title="Рекомендации"
         aria-label="Рекомендации"
@@ -496,15 +495,16 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
         {total > 0 && <span className="sa-dot" aria-hidden="true" />}
       </button>
 
+      {/* Панель — своя область нового языка (ds): метрики текста не зависят от шапки, в
+          которой она открыта. */}
       {open && (
-        <div className="sa-panel" role="dialog" aria-label="Рекомендации">
+        <div className="sa-panel ds" role="dialog" aria-label="Рекомендации">
           <div className="sa-head">
             <h3 className="sa-title">Рекомендации</h3>
-            {total > 0 && <p className="sa-sub">Что ещё можно дополнить в схеме.</p>}
           </div>
 
           {/* Пустые разделы не рендерятся, поэтому при нуле ниже ничего нет. */}
-          {total === 0 && <div className="sa-empty">Рекомендаций нет. Схема описана полностью.</div>}
+          {total === 0 && <p className="sa-empty ds-empty">Рекомендаций нет</p>}
 
           {ALERT_SECTIONS.map((s) => s.render(alerts, nav))}
         </div>
@@ -513,21 +513,18 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
   );
 }
 
-/* раздел: подпись с числом + строки */
-function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
-  if (count === 0) return null; // пустые разделы не показываем
+/* раздел: тихая подпись без числа и строки */
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="sa-sec">
-      <div className="sa-sec-head">
-        <span>{title}</span>
-        <span className="sa-sec-count">{count}</span>
-      </div>
+      <div className="sa-sec-head">{title}</div>
       {children}
     </div>
   );
 }
 
-/* строка-пункт: обычный текст, стрелка перехода — у пункта под курсором. Кликабельна, если есть onClick */
+/* строка-пункт: обычный текст. Кликабельна, если есть onClick: тогда под курсором и в
+   фокусе у неё подложка (schemaAlerts.css) */
 // hint — подсказка перехода: к объекту на схеме или (у пунктов процессов) в процесс.
 function Item({ children, onClick, hint = "Показать на схеме" }: {
   children: ReactNode; onClick?: (() => void) | false | undefined; hint?: string;
@@ -541,13 +538,7 @@ function Item({ children, onClick, hint = "Показать на схеме" }: 
       title={onClick ? hint : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
     >
-      <span className="sa-text">{children}</span>
-      {onClick && <span className="sa-go" aria-hidden="true">→</span>}
+      {children}
     </div>
   );
 }
-
-// Якорь выпадающей панели (relative). pointerEvents возвращаем: рейл холста
-// (MapEditorPage.toastRail) прозрачен для мыши, а кнопка и панель — интерактивные.
-// flex, а не блок: иначе строчный бокс кнопки добавил бы снизу зазор под строку.
-const wrap: CSSProperties = { position: "relative", display: "flex", pointerEvents: "auto" };

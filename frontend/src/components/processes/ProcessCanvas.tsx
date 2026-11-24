@@ -3,37 +3,45 @@
 // роли: тумблер «Редактировать/Готово» (только архитектор) переключает inline-правку.
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import { processesApi } from "../../api/processes";
 import type { FragmentKind, NodeStatus } from "../../types";
 import MessageComposer from "../MessageComposer";
 import DocOverlay from "../inspector/DocOverlay";
 import { stepDoc } from "./stepDoc";
-import MessageCard from "./MessageCard";
+import StepPanel from "./StepPanel";
 import ConfirmDialog from "../../ui/ConfirmDialog";
 import ParticipantDeleteConfirm, { type DelLink } from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
 import { C4Glyph, IcoBrokenLink, IcoClose } from "./icons";
-import { ViewHint } from "./SchemaViewChrome";
+import { CloseIcon } from "../../ui/icons";
 import ProcessToolbar from "./ProcessToolbar";
 import SequenceDiagram from "./SequenceDiagram";
 import { deriveActivations } from "./sequence/layout";
 import { detailToSeq } from "./sequence/fromDetail";
-import { BPT, BROKEN } from "./tokens";
 import { useProcessDetail } from "./useProcessDetail";
+import { useDiagramFit } from "./useDiagramFit";
+import { revealDelta } from "./reveal";
 import type { ProcessEditCtx } from "./editCtx";
 import { fragmentEdits } from "./fragmentEdits";
 import { messageEdits } from "./messageEdits";
 import { participantEdits } from "./participantEdits";
 import { useProcessHistory } from "./useProcessHistory";
 import { useOverlayStack, type Overlay, type OverlayKind } from "./useOverlayStack";
+import { useOverlayFocus } from "./useOverlayFocus";
 import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
+import "../../ui/ds.css";
 import "./processes.css";
 import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   id: string;
+  // Название — из списка процессов воркспейса (переименование видно сразу и в рейле, и
+  // в шапке); пока список не пришёл — из самого процесса.
+  name?: string;
+  // Переименование из шапки (только редактору).
+  onRename?: (name: string) => void;
   isArchitect: boolean;
   editing: boolean;
   onToggleEditing: (v: boolean) => void;
@@ -46,13 +54,18 @@ interface Props {
   // Счётчик чужих правок (Д9): поллинг воркспейса заметил рост process_rev —
   // канвас перечитывает процесс. Растёт только на ЧУЖИЕ изменения.
   syncRev?: number;
+  // Пришли чинить (строка алерта в редакторе-карте): сразу выбран первый сломанный шаг —
+  // его панель открыта, а сам он прокручен в поле зрения.
+  fixOnOpen?: boolean;
 }
 
-export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev }: Props) {
+export default function ProcessCanvas({
+  id, name, onRename, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev, fixOnOpen,
+}: Props) {
   const proc = useProcessDetail(id, onChanged, syncRev);
   const {
     detail, error, reload,
-    msgById, fragById, partById, nodeOfPart, nextOrder,
+    msgById, fragById, partById, nodeOfPart, nextOrder, sortedMessages,
   } = proc;
   // Куда можно завести сообщение — ключи «откуда>куда». Ответ БЭКА: проекция
   // концов связи через предков живёт там, и вторая реализация на клиенте
@@ -65,17 +78,41 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Итог подхвата каналов — показываем строкой: молча подхватить и промолчать значит
   // скрыть, что часть шагов осталась сломанной.
   const [bindNote, setBindNote] = useState<string | null>(null);
-  // Ревизия каталога схем карточки: правка в оверлее меняет имена/состав схем.
+  // Ревизия каталога схем панели шага: правка в окне схемы меняет имена/состав схем.
   const [docCatalogRev, setDocCatalogRev] = useState(0);
-  // Окна поверх холста — одним стеком в порядке открытия (композитор, карточки шага,
-  // ветки, фрагмента, подтверждения, привязка, панель участников, схема логики).
-  // Провал из карточки шага в схему логики (У7) ложится выше карточки: закрывается
-  // схема, карточка остаётся.
-  const { stack: overlayStack, get: overlay, open: openOverlay, close: closeOverlay, update: updateOverlay } =
+  // Выбранный шаг — его панель справа (StepPanel), в обоих режимах. Панель — часть
+  // раскладки, а не окно: в стек оверлеев не входит. undefined — выбора ещё не было:
+  // при входе «чинить» выбран первый сломанный шаг (производно, без эффекта); null —
+  // панель закрыта. Шаг пропал (удалили, чужая правка) — панель закрывается сама.
+  const [pickedStep, setPickedStep] = useState<string | null | undefined>(undefined);
+  const firstBroken = fixOnOpen ? (sortedMessages.find((m) => !m.valid)?.id ?? null) : null;
+  const selectedStep = pickedStep === undefined ? firstBroken : pickedStep;
+  const selectedMsg = selectedStep ? (msgById.get(selectedStep) ?? null) : null;
+  // Окна поверх холста — одним стеком в порядке открытия (композитор, карточки ветки,
+  // фрагмента, шага внутри участника, подтверждения, привязка, панель участников, схема
+  // логики). Провал из панели шага в схему логики (У7) — окно поверх: закрывается
+  // схема, панель остаётся.
+  const { stack: overlayStack, get: overlay, open: pushOverlay, close: closeOverlay, update: updateOverlay } =
     useOverlayStack();
   // Вид схемы — общий с C4-схемой ключ ЭТОГО проекта (в другом проекте свой).
   const [view, setView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(view); }, [view]);
+
+  // Вписывание в окно (useDiagramFit): подписи переносятся под ширину окна в обоих
+  // режимах; не влезло — в чтении масштаб, но не ниже 0,9, дальше прокрутка вбок. В
+  // правке масштаб всегда 1. Ширина окна — без панели шага: панель раскладку не меняет.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Фокус окон стека (редизайн, фаза 13в): при открытии внутрь окна, Tab по кругу внутри
+  // верхнего, при закрытии туда, откуда окно открыли (processes/useOverlayFocus). Окна лежат
+  // в области прокрутки; открытие сначала запоминает, где был фокус.
+  const rememberOpener = useOverlayFocus(scrollRef, overlayStack);
+  const openOverlay = useCallback((o: Overlay) => {
+    rememberOpener(o.kind);
+    pushOverlay(o);
+  }, [rememberOpener, pushOverlay]);
+  const [diagramW, setDiagramW] = useState<number | null>(null);
+  const { fitWidth, scale } = useDiagramFit(bodyRef, scrollRef, diagramW, !editing);
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
@@ -125,7 +162,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         const other = outgoing ? m.to_participant_id : m.from_participant_id;
         return {
           id: m.id,
-          label: m.caption || m.technology || "сообщение",
+          label: m.caption || m.technology || "шаг",
           dir: outgoing ? "к" : "от",
           other: partById[other]?.name ?? other,
         };
@@ -181,6 +218,61 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     return () => document.removeEventListener("keydown", onEsc);
   }, [topOverlay, dismiss]);
 
+  // Escape закрывает панель шага — только когда сверху нет окна: верхнее окно закрывает
+  // свой обработчик выше, а схема логики и прочие ui/Modal — нативный <dialog> со своим
+  // Escape (его не гасим: preventDefault здесь не зовём). Свёрнутое внутри панели (меню,
+  // выбор схемы) клавишу до сюда не пускает.
+  const panelOpen = !!selectedMsg;
+  const overlayOpen = overlayStack.length > 0;
+  useEffect(() => {
+    if (!panelOpen || overlayOpen) return;
+    function onEsc(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.isComposing || e.defaultPrevented) return;
+      if (document.querySelector("dialog[open]")) return;
+      setPickedStep(null);
+    }
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [panelOpen, overlayOpen]);
+
+  // Выбранный шаг — в поле зрения: панель сужает окно прокрутки, и шаг у правого края
+  // уходил под неё. Кратчайшим путём по обеим осям и только само окно прокрутки
+  // (scrollIntoView прокрутил бы и предков). Видимая область — без полос прокрутки и
+  // без липкой полосы шапок; шаг — подпись и стрелка под ней. Срабатывает на выбор
+  // (открытие панели и смену шага); закрытие панели (null) прокрутку не трогает, вход
+  // «чинить» (undefined) центрирует шаг своим эффектом ниже.
+  const revealStep = useEffectEvent((mid: string) => {
+    const sc = scrollRef.current;
+    const label = sc?.querySelector(`[data-mid="${mid}"]`);
+    if (!sc || !label || sc.clientWidth === 0) return;
+    const box = sc.getBoundingClientRect();
+    const heads = sc.querySelector(".seq-heads")?.getBoundingClientRect().height ?? 0;
+    const x0 = box.left + sc.clientLeft;
+    const y0 = box.top + sc.clientTop;
+    const r = label.getBoundingClientRect();
+    // Стрелка шага может быть шире подписи (шаг через несколько колонок).
+    const a = sc.querySelector(`[data-arrow="${mid}"]`)?.getBoundingClientRect() ?? r;
+    const { dx, dy } = revealDelta(
+      { left: x0 + REVEAL_PAD, right: x0 + sc.clientWidth - REVEAL_PAD, top: y0 + heads + REVEAL_PAD / 2, bottom: y0 + sc.clientHeight - REVEAL_PAD },
+      { left: Math.min(r.left, a.left), right: Math.max(r.right, a.right), top: r.top, bottom: Math.max(r.bottom, a.bottom) },
+    );
+    if (dx) sc.scrollLeft += dx;
+    if (dy) sc.scrollTop += dy;
+  });
+  useLayoutEffect(() => {
+    if (pickedStep) revealStep(pickedStep);
+  }, [pickedStep]);
+
+  // Вход «чинить»: сломанный шаг — в поле зрения (один раз, когда он нарисован).
+  const fixScrolled = useRef(false);
+  useEffect(() => {
+    if (!firstBroken || pickedStep !== undefined || fixScrolled.current) return;
+    const el = document.querySelector(`[data-mid="${firstBroken}"]`);
+    if (!el) return;
+    fixScrolled.current = true;
+    el.scrollIntoView?.({ block: "center", inline: "center" });
+  });
+
   const { handleMessageAdded, createSelfMessage, saveCaption, linkDoc, setChannelSync, removeMessage, reorderMessages } =
     messageEdits(editCtx);
   const { createFragment, resizeFragment, patchBranches, moveBranch, saveBranch, removeFragment } =
@@ -195,8 +287,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         if (!detail) return null;
         return (
           <>
-            <div style={overlayDim} onClick={() => dismiss("composer")} />
-            <div style={overlayCenter}>
+            <div className="proc-dim" onClick={() => dismiss("composer")} />
+            <div className="proc-center">
               <MessageComposer
                 processId={id}
                 participants={detail.participants}
@@ -214,48 +306,17 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         if (!detail) return null;
         return (
           <PromptCard
-            title={`Сообщение самому себе · ${partById[o.pid]?.name ?? o.pid}`}
+            title={`Шаг внутри «${partById[o.pid]?.name ?? o.pid}»`}
             hint="Участник делает что-то сам, без связи с другими объектами."
             autofillKey="process-canvas-1"
             value={o.caption}
             onChange={(caption) => updateOverlay("self", (x) => ({ ...x, caption }))}
             placeholder="напр. валидация заказа"
-            inputStyle={fragInput}
             submitLabel="Добавить"
             onSubmit={() => void createSelfMessage(o.pid, o.caption)}
             onCancel={() => closeOverlay("self")}
           />
         );
-      // Карточка шага — свой модуль: у неё есть состояние (каталог схем, поиск), а холст
-      // и без того велик.
-      case "msg": {
-        const m = msgById.get(o.mid);
-        if (!detail || !m) return null;
-        return (
-          <>
-            <div style={overlayDim} onClick={() => closeOverlay("msg")} />
-            <div style={overlayCenter}>
-              <MessageCard
-                processId={id}
-                msg={m}
-                participants={detail.participants}
-                returnLegs={detail.messages.filter(
-                  (x) => x.edge_id === m.edge_id && x.leg === "return",
-                ).length}
-                caption={o.caption}
-                onCaptionChange={(caption) => updateOverlay("msg", (x) => ({ ...x, caption }))}
-                onSaveCaption={() => void saveCaption(o.mid, o.caption)}
-                onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
-                onLinkDoc={(docId) => void linkDoc(o.mid, docId)}
-                onOpenDoc={(doc) => openOverlay({ kind: "doc", ...doc })}
-                catalogRev={docCatalogRev}
-                onRemove={() => void removeMessage(o.mid)}
-                onClose={() => closeOverlay("msg")}
-              />
-            </div>
-          </>
-        );
-      }
       // Провал в схему логики (У7/У8): окно открывается просмотром, правка — его же
       // «Изменить» (Вручную | Через ИИ-агента). Колбэки настоящие, не заглушки (ловушка
       // У8): onDocEvent и onApplied перечитывают процесс (имя схемы в шаге, SET NULL при
@@ -279,8 +340,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       case "delPart":
         return (
           <>
-            <div style={overlayDim} onClick={() => { if (!o.busy) closeOverlay("delPart"); }} />
-            <div style={overlayCenter}>
+            <div className="proc-confirm-dim" onClick={() => { if (!o.busy) closeOverlay("delPart"); }} />
+            <div className="proc-confirm-center">
               <ParticipantDeleteConfirm
                 name={o.part.name}
                 links={delLinks}
@@ -305,14 +366,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             value={o.guard}
             onChange={(guard) => updateOverlay("branch", (x) => ({ ...x, guard }))}
             placeholder="условие ветки, напр. «отказ»"
-            inputClassName="bp-input"
             submitLabel={o.index == null ? "Добавить" : "Сохранить"}
             onSubmit={() => void saveBranch(o)}
             onCancel={() => closeOverlay("branch")}
             extra={o.index != null && (
               <button
-                className="bp-btn-ghost"
-                style={{ marginRight: "auto", color: "#dc2626" }}
+                type="button"
+                className="sp-delete"
                 onClick={() => {
                   const frag = fragById.get(o.fid);
                   closeOverlay("branch");
@@ -331,13 +391,12 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           <PromptCard
             title={`Фрагмент «${o.frag}»`}
             hint={`${o.fromRow === o.toRow
-              ? `Сообщение ${o.fromRow + 1}`
-              : `Сообщения ${o.fromRow + 1}–${o.toRow + 1}`} · условие (показывается в заголовке фрагмента)`}
+              ? `Шаг ${o.fromRow + 1}`
+              : `Шаги ${o.fromRow + 1}–${o.toRow + 1}`}. Условие будет в заголовке фрагмента.`}
             autofillKey="process-canvas-3"
             value={o.guard}
             onChange={(guard) => updateOverlay("frag", (x) => ({ ...x, guard }))}
             placeholder="напр. оплата прошла"
-            inputStyle={fragInput}
             submitLabel="Добавить"
             onSubmit={() => void createFragment(o.frag, o.fromRow, o.toRow, o.guard)}
             onCancel={() => closeOverlay("frag")}
@@ -347,8 +406,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       case "delFrag":
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("delFrag")} />
-            <div style={overlayCenter}>
+            <div className="proc-confirm-dim" onClick={() => closeOverlay("delFrag")} />
+            <div className="proc-confirm-center">
               <ConfirmDialog
                 variant="card"
                 title="Удалить фрагмент?"
@@ -364,8 +423,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       case "bindConfirm":
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("bindConfirm")} />
-            <div style={overlayCenter}>
+            <div className="proc-confirm-dim" onClick={() => closeOverlay("bindConfirm")} />
+            <div className="proc-confirm-center">
               <ConfirmDialog
                 variant="card"
                 tone="neutral"
@@ -388,25 +447,25 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         if (!detail) return null;
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("bindPart")} />
-            <div style={overlayCenter}>
-              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>
-                    Привязать «{partById[o.pid]?.name ?? "участника"}»
-                  </div>
-                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => closeOverlay("bindPart")}>
-                    <IcoClose s={14} />
+            <div className="proc-dim" onClick={() => closeOverlay("bindPart")} />
+            <div className="proc-center">
+              <div className="ds ds-win ds-win--card proc-win">
+                <div className="ds-win-head">
+                  <h2 className="ds-win-title">Привязать «{partById[o.pid]?.name ?? "участника"}»</h2>
+                  <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={() => closeOverlay("bindPart")}>
+                    <CloseIcon />
                   </button>
                 </div>
-                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  Участник пришёл из импорта, или его объект удалили со схемы. Выберите, какому
-                  объекту он соответствует.
+                <div className="ds-win-body">
+                  <p className="ds-win-lead">
+                    Участник пришёл из импорта, или его объект удалили со схемы. Выберите, какому
+                    объекту он соответствует.
+                  </p>
+                  <ParticipantPicker
+                    added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                    onAdd={(ids) => { if (ids[0]) void requestBind(o.pid, ids[0]); }}
+                  />
                 </div>
-                <ParticipantPicker
-                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
-                  onAdd={(ids) => { if (ids[0]) void requestBind(o.pid, ids[0]); }}
-                />
               </div>
             </div>
           </>
@@ -416,39 +475,42 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         if (!detail) return null;
         return (
           <>
-            <div style={overlayDim} onClick={() => closeOverlay("parts")} />
-            <div style={overlayCenter}>
-              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Участники</div>
-                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => closeOverlay("parts")}>
-                    <IcoClose s={14} />
+            <div className="proc-dim" onClick={() => closeOverlay("parts")} />
+            <div className="proc-center">
+              <div className="ds ds-win ds-win--card proc-win">
+                <div className="ds-win-head">
+                  <h2 className="ds-win-title">Участники</h2>
+                  <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={() => closeOverlay("parts")}>
+                    <CloseIcon />
                   </button>
                 </div>
-                {detail.participants.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10, maxHeight: 140, overflow: "auto" }}>
-                    {[...detail.participants]
-                      .sort((a, b) => a.order - b.order)
-                      .map((p) => (
-                        <div key={p.id} style={partRow}>
-                          <span style={{ color: p.node_id ? (p.is_external ? BPT.mut : BPT.sec) : BROKEN.ink, display: "inline-flex" }}>
-                            {p.shape ? <C4Glyph shape={p.shape} s={15} /> : <IcoBrokenLink s={13} />}
-                          </span>
-                          <span style={{ fontSize: 13, color: BPT.head, flex: 1 }}>{p.name}</span>
-                          <button style={partX} title="Убрать" onClick={() => requestRemoveParticipant(p)}>
-                            <IcoClose s={13} />
-                          </button>
-                        </div>
-                      ))}
+                <div className="ds-win-body">
+                  {detail.participants.length > 0 && (
+                    <div className="proc-parts">
+                      {[...detail.participants]
+                        .sort((a, b) => a.order - b.order)
+                        .map((p) => (
+                          <div key={p.id} className="proc-part">
+                            {/* Без объекта (разорванная связь) — значок цветом предупреждения. */}
+                            <span className={"proc-part-glyph" + (p.node_id ? "" : " is-broken")}>
+                              {p.shape ? <C4Glyph shape={p.shape} s={15} /> : <IcoBrokenLink s={13} />}
+                            </span>
+                            <span className="proc-part-name">{p.name}</span>
+                            <button type="button" className="ds-icon-btn proc-part-x" title="Убрать" onClick={() => requestRemoveParticipant(p)}>
+                              <IcoClose s={13} />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  <div className="ds-win-block">
+                    <h3 className="ds-win-block-title">Добавить из дерева схемы</h3>
+                    <ParticipantPicker
+                      added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                      onAdd={(ids) => void addParticipants(ids)}
+                    />
                   </div>
-                )}
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: BPT.mut, marginBottom: 6 }}>
-                  Добавить из дерева схемы
                 </div>
-                <ParticipantPicker
-                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
-                  onAdd={(ids) => void addParticipants(ids)}
-                />
               </div>
             </div>
           </>
@@ -457,9 +519,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   }
 
   // Колбэки диаграммы по режиму (аудит F-39): в правке — правки, в просмотре их нет вовсе
-  // (по их отсутствию диаграмма прячет ручки, «призраков» и перетаскивания), зато шаг со
-  // схемой логики открывает её — тем же оверлеем, что провал из карточки шага в правке.
-  // Раньше — четырнадцать тернарников `editing ? cb : undefined`, по одному на проп.
+  // (по их отсутствию диаграмма прячет ручки, «призраков» и перетаскивания). Общее обоим
+  // режимам — выбор шага (панель справа) и значок схемы логики у шага (то же окно, что
+  // провал из панели). Раньше — четырнадцать тернарников `editing ? cb : undefined`.
   const diagramModeProps: Partial<ComponentProps<typeof SequenceDiagram>> = editing ? {
     selectMode: fragSelect,
     onSelectRange: (from, to) => {
@@ -490,8 +552,6 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       return !!from && !!to && directions.has(`${from}>${to}`);
     },
     onSelfConnect: (pid) => openOverlay({ kind: "self", pid, caption: "" }),
-    // Карточка шага: правка подписи и удаление.
-    onMessageClick: (mid) => openOverlay({ kind: "msg", mid, caption: msgById.get(mid)?.caption ?? "" }),
     onBindParticipant: (pid) => openOverlay({ kind: "bindPart", pid }),
     onDeleteParticipant: (pid) => {
       const p = partById[pid];
@@ -499,22 +559,22 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     },
     onReorderParticipants: (ids) => void reorderParticipants(ids),
     onReorderMessages: (ids) => void reorderMessages(ids),
-  } : {
-    onOpenDoc: (mid) => {
-      const m = msgById.get(mid);
-      const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
-      if (doc) openOverlay({ kind: "doc", ...doc });
-    },
+  } : {};
+  const openStepDoc = (mid: string) => {
+    const m = msgById.get(mid);
+    const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
+    if (doc) openOverlay({ kind: "doc", ...doc });
   };
 
   // ── Тулбар над диаграммой ─────────────────────────────────────────
   const toolbar = (
     <ProcessToolbar
-      name={detail?.name ?? "Процесс"}
-      scopeName={detail?.scope_name ?? "Вся схема"}
+      name={name || detail?.name || "Процесс"}
+      scopeName={detail?.scope_name ?? null}
       isArchitect={isArchitect}
       editing={editing}
       onToggleEditing={onToggleEditing}
+      onRename={onRename}
       danglingCount={danglingCount}
       onReattach={() => void reattachChannels()}
       fragSelect={fragSelect}
@@ -529,31 +589,36 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   );
 
   return (
-    <div style={canvasShell} className="bp">
+    <div style={canvasShell} className="bp ds">
       {toolbar}
-      {hasStatus && <ViewHint view={view} />}
-      <div className="bp-canvas" style={{ flex: 1, overflow: "auto", position: "relative" }}>
-        {error && <div style={{ padding: "8px 14px 0", color: "#dc2626", fontSize: 12 }}>{error}</div>}
+      <div className="proc-body" ref={bodyRef}>
+      <div
+        className="proc-scroll"
+        ref={scrollRef}
+        // Пустое поле вокруг диаграммы — тоже «пустое место»: панель шага закрывается.
+        onClick={(e) => {
+          const t = e.target as Element;
+          if (t === e.currentTarget || t.classList.contains("proc-diagram")) setPickedStep(null);
+        }}
+      >
+        {error && <div className="proc-error">{error}</div>}
         {/* Итог подхвата каналов: гасится кликом — это не ошибка, а сводка. */}
         {bindNote && (
-          <div
-            onClick={() => setBindNote(null)}
-            style={{ padding: "8px 14px 0", color: BROKEN.ink, fontSize: 12, cursor: "pointer" }}
-          >
+          <p className="proc-note" onClick={() => setBindNote(null)}>
             {bindNote}
-          </div>
+          </p>
         )}
         {!detail || !seq ? (
-          <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>Загрузка</div>
+          <div className="proc-blank">Загрузка</div>
         ) : seq.participants.length === 0 ? (
-          <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>
-            {editing
-              ? "Добавьте участников (объекты схемы) кнопкой «Участник», затем сообщения между ними."
-              : "В процессе пока нет участников и сообщений."}
+          <div className="proc-blank">
+            {editing ? "Добавьте первого участника кнопкой «Добавить участника»." : "Процесс пуст."}
           </div>
         ) : (
-          // data-tour: диаграмма процесса — вторая цель шага «Бизнес-процессы» тура демо
-          <div style={{ padding: "8px 12px 18px", width: "max-content" }} data-tour="process-diagram">
+          // data-tour: диаграмма процесса — вторая цель шага «Бизнес-процессы» тура демо.
+          // zoom, а не transform: он меняет раскладку — прокрутка знает настоящий размер,
+          // а шапки участников держатся сверху (sticky под transform отставал бы).
+          <div className="proc-diagram" style={scale !== 1 ? { zoom: scale } : undefined} data-tour="process-diagram">
             <SequenceDiagram
               participants={seq.participants}
               messages={seq.messages}
@@ -563,19 +628,25 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               ghost={editing}
               // Переход на страницу объекта — не правка: доступен и в просмотре.
               onOpenNode={onOpenNode}
+              fitWidth={fitWidth}
+              onLayout={setDiagramW}
+              selectedId={selectedMsg?.id ?? null}
+              onMessageClick={(mid) => setPickedStep(mid)}
+              onOpenDoc={openStepDoc}
+              onBackgroundClick={() => setPickedStep(null)}
               {...diagramModeProps}
             />
           </div>
         )}
 
-        {/* Подсказка режима выбора диапазона под фрагмент */}
+        {/* Подсказка режима выбора диапазона под фрагмент: тост языка с кнопкой. */}
         {editing && fragSelect && (
-          <div style={fragHintBar}>
+          <div className="ds-toast ds-toast--action proc-frag-hint">
             <span>
-              Протяните по сообщениям, чтобы выделить диапазон для фрагмента{" "}
-              <b style={{ color: BPT.amber }}>«{fragSelect}»</b>
+              Протяните по шагам, чтобы выделить диапазон для фрагмента{" "}
+              <b>«{fragSelect}»</b>
             </span>
-            <button className="bp-btn-ghost" style={{ height: 26, padding: "0 10px" }} onClick={() => setFragSelect(null)}>
+            <button type="button" className="ds-btn" onClick={() => setFragSelect(null)}>
               Отмена
             </button>
           </div>
@@ -584,9 +655,33 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         {/* Окна поверх холста — в порядке открытия: открытое позже ложится сверху. */}
         {overlayStack.map((o) => <Fragment key={o.kind}>{renderOverlay(o)}</Fragment>)}
       </div>
+      {detail && selectedMsg && (
+        <StepPanel
+          processId={id}
+          msg={selectedMsg}
+          n={sortedMessages.findIndex((m) => m.id === selectedMsg.id) + 1}
+          participants={detail.participants}
+          editing={editing}
+          returnLegs={detail.messages.filter(
+            (x) => x.edge_id === selectedMsg.edge_id && x.leg === "return",
+          ).length}
+          onSaveCaption={(caption) => void saveCaption(selectedMsg.id, caption)}
+          onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
+          onLinkDoc={(docId) => void linkDoc(selectedMsg.id, docId)}
+          onOpenDoc={(doc) => openOverlay({ kind: "doc", ...doc })}
+          onOpenNode={onOpenNode}
+          catalogRev={docCatalogRev}
+          onRemove={() => void removeMessage(selectedMsg.id)}
+          onClose={() => setPickedStep(null)}
+        />
+      )}
+      </div>
     </div>
   );
 }
+
+// Поле между выбранным шагом и краем окна прокрутки, когда шаг доводится до видимости.
+const REVEAL_PAD = 16;
 
 const canvasShell: CSSProperties = {
   flex: 1,
@@ -595,29 +690,14 @@ const canvasShell: CSSProperties = {
   flexDirection: "column",
   minHeight: 0,
 };
-const fragHintBar: CSSProperties = {
-  position: "absolute",
-  top: 10,
-  left: "50%",
-  transform: "translateX(-50%)",
-  zIndex: 7,
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  padding: "7px 8px 7px 14px",
-  background: "#fffbeb",
-  border: "1px solid #fcd9a8",
-  borderRadius: 10,
-  boxShadow: "0 6px 20px rgba(15,23,42,.12)",
-  fontSize: 12.5,
-  color: "#92591a",
-  whiteSpace: "nowrap",
-};
-// Карточка «одно поле» поверх холста: рефлексивное сообщение, ветка «иначе», условие
-// фрагмента (аудит F-2: три копии одной разметки). Enter — то же, что основная кнопка;
-// extra — кнопка у левого края (у ветки — «Убрать ветку»); главная — перед «Отмена».
+
+// Окно «одно поле» поверх холста: рефлексивное сообщение, ветка «иначе», условие
+// фрагмента (аудит F-2: три копии одной разметки). Каркас окна нового языка карточкой
+// (ds-win ds-win--card): заголовок, пояснение, поле на всю ширину с фокусом при открытии,
+// подвал — главная кнопка, «Отмена», extra у правого края (у ветки — «Убрать ветку»).
+// Крестика нет. Enter в поле — то же, что главная кнопка.
 function PromptCard({
-  title, hint, autofillKey, value, onChange, placeholder, inputStyle, inputClassName,
+  title, hint, autofillKey, value, onChange, placeholder,
   submitLabel, onSubmit, onCancel, extra,
 }: {
   title: string;
@@ -626,8 +706,6 @@ function PromptCard({
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
-  inputStyle?: CSSProperties;
-  inputClassName?: string;
   submitLabel: string;
   onSubmit: () => void;
   onCancel: () => void;
@@ -635,25 +713,28 @@ function PromptCard({
 }) {
   return (
     <>
-      <div style={overlayDim} onClick={onCancel} />
-      <div style={overlayCenter}>
-        <div style={confirmCard}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>{title}</div>
-          <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>{hint}</div>
-          <input
-            {...noAutofill(autofillKey)}
-            className={inputClassName}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            style={inputStyle}
-            autoFocus
-            onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
-          />
-          <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+      <div className="proc-dim" onClick={onCancel} />
+      <div className="proc-center">
+        <div className="ds ds-win ds-win--card proc-win proc-win--plain">
+          <div className="ds-win-head">
+            <h2 className="ds-win-title">{title}</h2>
+          </div>
+          <div className="ds-win-body">
+            <p className="ds-win-lead">{hint}</p>
+            <input
+              {...noAutofill(autofillKey)}
+              className="ds-input"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
+            />
+          </div>
+          <div className="ds-win-foot">
+            <button type="button" className="ds-btn ds-btn--primary" onClick={onSubmit}>{submitLabel}</button>
+            <button type="button" className="ds-btn" onClick={onCancel}>Отмена</button>
             {extra}
-            <button className="bp-btn-primary" onClick={onSubmit}>{submitLabel}</button>
-            <button className="bp-btn-ghost" onClick={onCancel}>Отмена</button>
           </div>
         </div>
       </div>
@@ -661,45 +742,5 @@ function PromptCard({
   );
 }
 
-const overlayDim: CSSProperties = { position: "fixed", inset: 0, background: "rgba(15,23,42,.06)", zIndex: 50 };
-const overlayCenter: CSSProperties = {
-  position: "fixed",
-  top: "50%",
-  left: "50%",
-  transform: "translate(-50%,-50%)",
-  zIndex: 51,
-};
-const confirmCard: CSSProperties = {
-  width: 300,
-  background: "#fff",
-  border: "1px solid " + BPT.line,
-  borderRadius: 13,
-  boxShadow: "0 20px 56px rgba(15,23,42,.24)",
-  padding: 16,
-};
-const fragInput: CSSProperties = {
-  width: "100%",
-  height: 34,
-  padding: "0 10px",
-  border: "1px solid " + BPT.line,
-  borderRadius: 8,
-  fontSize: 13,
-  outline: "none",
-  boxSizing: "border-box",
-};
-const partRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "5px 6px",
-  borderRadius: 7,
-  background: "#f8fafc",
-};
-const partX: CSSProperties = {
-  border: "none",
-  background: "none",
-  cursor: "pointer",
-  color: "#94a3b8",
-  display: "inline-flex",
-  padding: 2,
-};
+// Подложка и центр окон и подтверждений — классы processes.css (proc-dim, proc-center,
+// proc-confirm-dim, proc-confirm-center): там же, почему подтверждение лежит выше окна.

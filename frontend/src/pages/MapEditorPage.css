@@ -1,0 +1,68 @@
+/* Редактор-карта (pages/MapEditorPage): холст на весь экран — от левой панели до правого
+   края окна (или до панели объекта) и от шапки до низа окна, без поля и рамки.
+   Рамку и скругление холста рисует инлайн-стилем components/LevelGraph.tsx (.lg-canvas).
+   Этот файл принадлежит движку и в редизайне не правится, а инлайн-стиль перебивается
+   только !important. Правило действует лишь внутри редактора: на страницах объекта и
+   проекта холст остаётся в рамке. */
+.map-editor .lg-canvas {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* ── Крошки шапки (pages/MapEditorHeader) ─────────────────────────────────
+   Каркас шапки — общий с оболочкой проекта (ui/ds.css, ds-head*). Логотип, разделитель
+   и корневая крошка («Контекст» / «Проект») не сжимаются; сжимаются только звенья пути.
+   Крошки уровней: 13px, звенья тихие, текущий уровень — 600 и не нажимается.
+   Нехватка места сжимает имена многоточием, сначала у звеньев-предков. Сжатие во флексе
+   делится пропорционально коэффициентам, приоритета у него нет: при отношении 1000 к 1
+   текущему уровню доставались сотые доли пикселя, и этого хватало на многоточие
+   («Зака…» на окне 900). При миллионе к одному его доля меньше единицы раскладки
+   (1/64 px), и он начинает сжиматься, только когда предки дошли до своего минимума.
+   Минимум звена — шеврон и «…» (40px): шеврон не наезжает на соседа. */
+.me-crumb-step {
+  display: flex;
+  align-items: center;
+  min-width: 40px;
+}
+.ds-head-left > .me-crumb-step {
+  flex: 0 1000000 auto;
+}
+.ds-head-left > .me-crumb-step--current {
+  flex: 0 1 auto;
+}
+.me-crumb {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.me-crumb:hover:not(:disabled) {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.me-crumb:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.me-crumb--current,
+.me-crumb--current:disabled {
+  font-weight: 600;
+  color: var(--c-fg);
+  cursor: default;
+}
+.me-crumb-chev {
+  flex: none;
+  display: inline-flex;
+  margin: 0 1px;
+  color: var(--c-fg-faint);
+}

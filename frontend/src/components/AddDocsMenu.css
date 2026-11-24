@@ -1,56 +1,17 @@
-/* Универсальное меню «+ Добавить» (разделы «Логика» и «OpenAPI»): триггер —
-   стиль np-addbtn, выпадающий список — стиль np-dropdown. Свой файл:
-   компонент общий для страницы узла и правой панели редактора. */
+/* Универсальное меню «+ Добавить» (разделы страницы объекта) и «Изменить»/«Описать»
+   окна схемы/спецификации. Триггеры — общие примитивы ui/ds.css (ds-add у разделов,
+   ds-btn у окна), список окна — ds-menu; здесь — место списков и тихий список разделов
+   (adm-menu с модификатором --quiet, он стоит всегда). Свой файл: компонент общий для
+   страницы и окна документации. */
 .adm-wrap {
   position: relative;
   display: inline-block;
-  margin-top: 10px;
 }
 
-.adm-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
-  border: 1px dashed #bfdbfe;
-  border-radius: 8px;
-  background: #f5f9ff;
-  color: #2563eb;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.adm-btn:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
-}
-
-/* Залитый триггер действия (шапка окна схемы/спеки, «Описать» у заглушки) —
-   тон кнопки .btn.primary прототипа вьюера. */
-.adm-wrap--inline {
-  margin-top: 0;
-}
-.adm-btn--primary {
-  padding: 7px 13px;
-  border: 1px solid #2563eb;
-  background: #2563eb;
-  color: #fff;
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-.adm-btn--primary:hover {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
-}
-
+/* Шеврон кнопки меню окна («Изменить ▾», «Описать ▾»): цвет подписи кнопки. */
 .adm-chev {
   display: inline-flex;
-  transition: transform 0.12s;
-}
-.adm-chev--open {
-  transform: rotate(180deg);
+  margin-right: -2px;
 }
 
 .adm-backdrop {
@@ -63,13 +24,18 @@
   position: absolute;
   left: 0;
   top: calc(100% + 4px);
-  min-width: 236px;
   padding: 4px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   z-index: 31;
+}
+/* Список окна (ds-menu): под кнопкой, ширина по самому длинному пункту. */
+.adm-dsmenu {
+  top: calc(100% + 4px);
+  left: 0;
+  width: max-content;
+  max-width: 360px;
 }
 .adm-menu--right {
   left: auto;
@@ -88,22 +54,33 @@
 .adm-menu button {
   display: block;
   width: 100%;
-  padding: 8px 12px;
   border: none;
   background: none;
   font: inherit;
   font-size: 13px;
-  color: #1e293b;
   text-align: left;
   cursor: pointer;
-  border-radius: 7px;
-}
-.adm-menu button:hover {
-  background: #f1f5f9;
 }
 
 .adm-sep {
   height: 1px;
-  background: #eef0f2;
   margin: 4px 6px;
+}
+
+/* Список тихой «+ Добавить» страницы объекта — в общем виде меню нового языка. */
+.adm-menu--quiet {
+  min-width: 200px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.adm-menu--quiet button {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  color: var(--c-fg);
+}
+.adm-menu--quiet button:hover {
+  background: var(--c-hover);
+}
+.adm-menu--quiet .adm-sep {
+  background: var(--c-line);
 }

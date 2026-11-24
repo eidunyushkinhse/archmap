@@ -1,11 +1,11 @@
 import { useState } from "react";
-import type { CSSProperties } from "react";
 import type { Node } from "../types";
 import { treeNesting } from "../types";
-import { input } from "../ui/styles";
 import { CloseIcon } from "../ui/icons";
 import { ShapeGlyph } from "./nodeTree.shared";
 import "./NodeTreePanel.css";
+import "../ui/ds.css";
+import "./nodeSearchPicker.css";
 import { noAutofill } from "../ui/noAutofill";
 import { useNodeSearch } from "./useNodeSearch";
 
@@ -13,6 +13,10 @@ import { useNodeSearch } from "./useNodeSearch";
  * Поиск узла по имени среди всех уровней. Используется для выбора концов связи —
  * в т.ч. сквозной (узел с другого уровня). value — id выбранного узла ("" = нет).
  * initialLabel — подпись для предзаполненного выбора (при редактировании).
+ *
+ * Вид нового языка (редизайн, фаза 9в): поле окна ds-input, под ним список найденного
+ * слоем меню — строки со значком формы объекта и тихой ролью справа (nodeSearchPicker.css).
+ * Выбора с клавиатуры у списка нет: Enter в поле гасит место вызова (inspector/EdgeFields).
  */
 export default function NodeSearchPicker({
   value,
@@ -27,14 +31,13 @@ export default function NodeSearchPicker({
   const [selected, setSelected] = useState<{ id: string; label: string } | null>(
     value ? { id: value, label: initialLabel ?? value } : null,
   );
-  // Подсветка пункта под курсором (инлайн-стилями :hover недоступен).
-  const [hovered, setHovered] = useState<string | null>(null);
 
-  // Дебаунс-поиск (общий с деревом объектов). Компонент используется лишь в
-  // EdgeInspector с value-UUID существующей связи, а очистку (clear) сам же зануляет
-  // локально — поэтому зеркалящего value→selected эффекта нет.
+  // Дебаунс-поиск (общий с деревом объектов). Компонент стоит под строкой конца связи в
+  // панели связи редактора-карты и в окне «Связь» страницы объекта (inspector/EdgeFields,
+  // value там всегда пустой), а очистку (clear) сам же зануляет локально — поэтому
+  // зеркалящего value→selected эффекта нет.
   const search = useNodeSearch(query, 300);
-  // Что показываем в дропдауне: при пустом query — ничего (производное, не стейт).
+  // Что показываем в списке: при пустом query — ничего (производное, не стейт).
   const shown = query.trim() ? (search.found ?? []) : [];
 
   function select(node: Node) {
@@ -52,9 +55,9 @@ export default function NodeSearchPicker({
 
   if (selected) {
     return (
-      <div style={selectedRow}>
-        <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: "#1d4ed8" }}>{selected.label}</span>
-        <button onClick={clear} style={clearBtn} aria-label="Снять выбор">
+      <div className="nsp-selected">
+        <span className="nsp-selected-name">{selected.label}</span>
+        <button type="button" className="ds-icon-btn nsp-clear" onClick={clear} aria-label="Снять выбор">
           <CloseIcon size={15} />
         </button>
       </div>
@@ -62,28 +65,22 @@ export default function NodeSearchPicker({
   }
 
   return (
-    <div style={{ position: "relative", marginBottom: 10 }}>
+    <div className="nsp">
       <input
         {...noAutofill("node-search-picker-1")}
+        className="ds-input"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Поиск по имени"
-        style={input}
         autoFocus
       />
       {shown.length > 0 && (
-        <div style={dropdown}>
+        <div className="nsp-list">
           {shown.map((n) => (
-            <div
-              key={n.id}
-              onClick={() => select(n)}
-              onMouseEnter={() => setHovered(n.id)}
-              onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}
-              style={{ ...dropdownItem, background: hovered === n.id ? "#eff6ff" : "#fff" }}
-            >
+            <div key={n.id} className="nsp-row" onClick={() => select(n)}>
               <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
-              <span style={{ flex: 1, minWidth: 0 }}>{n.name}</span>
-              {n.role && <span style={{ color: "#94a3b8", fontSize: 12 }}>({n.role})</span>}
+              <span className="nsp-name">{n.name}</span>
+              {n.role && <span className="nsp-role">{n.role}</span>}
             </div>
           ))}
         </div>
@@ -91,46 +88,3 @@ export default function NodeSearchPicker({
     </div>
   );
 }
-
-const selectedRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  marginBottom: 10,
-  padding: "8px 11px",
-  border: "1px solid #bfdbfe",
-  borderRadius: 8,
-  background: "#dbeafe",
-};
-const clearBtn: CSSProperties = {
-  border: "none",
-  background: "none",
-  cursor: "pointer",
-  color: "#94a3b8",
-  display: "inline-flex",
-  padding: 0,
-};
-const dropdown: CSSProperties = {
-  position: "absolute",
-  top: "100%",
-  left: 0,
-  right: 0,
-  background: "#fff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 10,
-  boxShadow: "0 16px 40px rgba(15,23,42,.16)",
-  zIndex: 10,
-  maxHeight: 200,
-  overflowY: "auto",
-  marginTop: 4,
-};
-const dropdownItem: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 9,
-  padding: "8px 12px",
-  cursor: "pointer",
-  fontSize: 14,
-  color: "#0f172a",
-  borderBottom: "1px solid #eef2f6",
-};

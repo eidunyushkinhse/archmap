@@ -1,9 +1,11 @@
-// Карточка «Свойства» страницы объекта: одна строка «Тип» (Р40 раздела 13
-// docs/plan-c4-elements.md) у любого объекта, у термина — справка «?»; у компонента имя
-// контейнера — ссылка на его страницу (контейнер берётся из крошек страницы); невозможные
-// пункты серые с причиной; сводная технология только у системы (Р15), у остальных своя и
-// правится; плейсхолдер роли без слов форм. Хук правки свойств — настоящий (useNodePatch).
-import { render, screen, waitFor } from "@testing-library/react";
+// Свойства страницы объекта: одна строка «Тип» (Р40 раздела 13 docs/plan-c4-elements.md)
+// у любого объекта, подпись без справки «?» (она живёт в инспекторе редактора); у
+// компонента контейнер не называется (его называют крошки страницы; строка «Входит в
+// контейнер» — только в инспекторе); невозможные пункты серые; сводная технология только
+// у системы (Р15), у остальных своя и правится; две колонки в порядке обхода Tab;
+// принадлежность — выпадашкой; читателю пустые строки не рисуются. Хук правки свойств —
+// настоящий (useNodePatch).
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NodeProperties from "../nodePage/NodeProperties";
@@ -87,32 +89,29 @@ describe("NodeProperties: строка «Тип»", () => {
     expect(terms().filter((t) => t === "Тип")).toHaveLength(1);
   });
 
-  it("«?» у термина — справка о системе, контейнере и компоненте", async () => {
+  it("справки «?» у подписи «Тип» на странице нет", () => {
     setup({}, { isArchitect: false });
-    await userEvent.click(screen.getByRole("button", { name: "Что такое система, контейнер и компонент" }));
-    expect(screen.getByRole("dialog")).toHaveTextContent("Компонент. Вложенный объект контейнера");
+    expect(screen.queryByRole("button", { name: "Что такое система, контейнер и компонент" })).toBeNull();
   });
 
-  it("компонент у архитектора: «Компонент» в выпадашке, имя контейнера ведёт на его страницу", async () => {
+  it("компонент у архитектора: «Компонент» в выпадашке, второй строки с контейнером нет", () => {
     setup(
       { element_effective: "component", container_name: "orders", parent_id: "c" },
       { ancestors: [ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")] },
     );
     expect(typeButton()).toHaveTextContent("Компонент");
-    // Первая ссылка — строка «Тип», вторая — «как у контейнера» в размещении.
-    const [link] = screen.getAllByRole("button", { name: "«orders»" });
-    expect(link.parentElement).toHaveTextContent("Входит в контейнер «orders»");
-    await userEvent.click(link);
-    expect(onNavigateNode).toHaveBeenCalledWith("c");
+    expect(screen.queryByText(/Входит в контейнер/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "«orders»" })).toBeNull();
   });
 
-  it("компонент у читателя — «Компонент контейнера «orders»»", () => {
+  it("компонент у читателя — просто «Компонент», без имени контейнера", () => {
     setup(
       { element_effective: "component", container_name: "orders", parent_id: "c" },
       { isArchitect: false, ancestors: [ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")] },
     );
-    const [link] = screen.getAllByRole("button", { name: "«orders»" });
-    expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
+    const value = screen.getByText("Тип").nextElementSibling as HTMLElement;
+    expect(value).toHaveTextContent(/^Компонент$/);
+    expect(screen.queryByRole("button", { name: "«orders»" })).toBeNull();
   });
 
   it("лист — «Контейнер», пустая система — «Система», внешние — «Внешняя система» / «Внешний контейнер»", () => {
@@ -154,8 +153,114 @@ describe("NodeProperties: строка «Тип»", () => {
     expect(screen.queryByDisplayValue("Go")).not.toBeInTheDocument();
   });
 
-  it("поле «Роль» подсказывает роли, а не формы", () => {
+  it("пустые роль и технология у редактора — тихое «не указана» в поле", () => {
+    setup({ technology: null });
+    expect(screen.getByRole("textbox", { name: "Роль" })).toHaveAttribute("placeholder", "не указана");
+    expect(screen.getByRole("textbox", { name: "Технология" })).toHaveAttribute("placeholder", "не указана");
+  });
+
+  it("читателю пустые роль, технология, источник и размещение не рисуются", () => {
+    setup({ role: null, technology: null, source: null, sites: [] }, { isArchitect: false });
+    expect(terms()).toEqual(["Тип", "Статус", "Принадлежность"]);
+    expect(screen.queryByText("не указана")).toBeNull();
+    expect(screen.queryByText("не задан")).toBeNull();
+    expect(screen.queryByText("не указано")).toBeNull();
+  });
+
+  it("читателю заполненные строки видны; у системы без сводной технологии её строки нет", () => {
+    const { unmount } = setup(
+      { role: "шлюз", technology: "Kong", source: { repo: "github.com/org/gw", path: null, host: null }, sites: [{ id: "k", name: "Кластер prod", kind: "kubernetes", partial: false }] },
+      { isArchitect: false },
+    );
+    expect(terms()).toEqual(["Тип", "Статус", "Принадлежность", "Роль", "Технология", "Источник", "Размещение"]);
+    unmount();
+    setup({ ...GROUP, element: null, element_effective: "system", technology: null }, { isArchitect: false, isSystem: true, aggTech: "" });
+    expect(terms()).not.toContain("Технология");
+  });
+
+  it("редактору пустые строки видны: их значение задают здесь", () => {
+    setup({ role: null, technology: null, source: null, sites: [] });
+    expect(terms()).toEqual(["Тип", "Статус", "Принадлежность", "Роль", "Технология", "Источник", "Размещение"]);
+    expect(screen.getByRole("button", { name: "Задать источник" })).toHaveTextContent("не задан");
+  });
+
+  it("две колонки: тип, статус, принадлежность, роль — потом технология, источник, размещение", () => {
     setup();
-    expect(screen.getByPlaceholderText("например, API или шлюз")).toBeInTheDocument();
+    const cols = [...document.querySelectorAll(".np-props-col")];
+    expect(cols).toHaveLength(2);
+    const termsOf = (col: Element) => [...col.querySelectorAll(".np-term")].map((t) => t.textContent);
+    expect(termsOf(cols[0])).toEqual(["Тип", "Статус", "Принадлежность", "Роль"]);
+    expect(termsOf(cols[1])).toEqual(["Технология", "Источник", "Размещение"]);
+    // Описание — не строка свойств: оно стоит под названием.
+    expect(terms()).not.toContain("Описание");
+  });
+
+  it("принадлежность — выпадашка из двух пунктов, запись только при реальной смене", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node({ is_external: true, version: 2 }));
+    setup();
+    const menu = () => document.querySelector(".np-menu") as HTMLElement;
+    await userEvent.click(screen.getByRole("button", { name: "Внутренний" }));
+    await userEvent.click(within(menu()).getByRole("button", { name: "Внутренний" }));
+    // повторный выбор того же значения меню закрывает, но не пишет
+    expect(menu()).toBeNull();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Внутренний" }));
+    await userEvent.click(within(menu()).getByRole("button", { name: "Внешний" }));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ is_external: true, base_version: 1 });
+  });
+
+  it("читатель видит принадлежность текстом, без выпадашки", () => {
+    setup({ is_external: true }, { isArchitect: false });
+    expect(screen.getByText("Внешний")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Внешний" })).toBeNull();
+  });
+});
+
+// Escape в строках свойств (общие строки PropRows, страница и панель редактора): поле с
+// несохранённой правкой возвращает сохранённое и клавишу дальше не пускает (в редакторе
+// она закрыла бы панель); поле без правки и закрытое меню клавишу пропускают; открытое
+// меню закрывается само, и тоже без выхода выше.
+describe("строки свойств: Escape", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // Слушатель выше строк — как Escape редактора-карты.
+  function withOuterEscape(over: Partial<Node> = {}) {
+    const outer = vi.fn();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") outer(); };
+    window.addEventListener("keydown", onKey);
+    setup(over);
+    return { outer, done: () => window.removeEventListener("keydown", onKey) };
+  }
+
+  it("роль с правкой: Escape возвращает сохранённое, записи нет, выше не уходит", async () => {
+    const { outer, done } = withOuterEscape({ role: "шлюз" });
+    const role = screen.getByRole("textbox", { name: "Роль" });
+    await userEvent.clear(role);
+    await userEvent.type(role, "агент");
+    await userEvent.keyboard("{Escape}");
+    expect(role).toHaveValue("шлюз");
+    expect(outer).not.toHaveBeenCalled();
+    await userEvent.tab();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    // В поле без правки Escape идёт выше.
+    await userEvent.click(screen.getByRole("textbox", { name: "Технология" }));
+    await userEvent.keyboard("{Escape}");
+    expect(outer).toHaveBeenCalledOnce();
+    done();
+  });
+
+  it("открытое меню статуса: Escape закрывает только меню, фокус на значении", async () => {
+    const { outer, done } = withOuterEscape();
+    const value = screen.getByRole("button", { name: "Существует" });
+    await userEvent.click(value);
+    expect(document.querySelector(".np-menu")).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".np-menu")).toBeNull();
+    expect(value).toHaveFocus();
+    expect(outer).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(outer).toHaveBeenCalledOnce();
+    done();
   });
 });

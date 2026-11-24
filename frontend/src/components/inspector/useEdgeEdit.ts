@@ -23,6 +23,13 @@ export interface EdgeEditInitial {
   target_name: string;
 }
 
+// Записанные тексты связи (пустая строка — значения нет).
+interface SavedTexts {
+  label: string;
+  technology: string;
+  channel: string;
+}
+
 // Минимальные данные существующей связи — для проверки дублей при коммите.
 export interface EdgeDuplicateRef {
   id: string;
@@ -66,6 +73,13 @@ export function useEdgeEdit(
   const [srcLabel, setSrcLabel] = useState(initial.source_name);
   const [tgtLabel, setTgtLabel] = useState(initial.target_name);
   const [error, setError] = useState<string | null>(null);
+  // Тексты, записанные последними (после успешной правки или 409-ресинка): к ним
+  // возвращает поле Escape в панели связи редактора.
+  const [saved, setSaved] = useState<SavedTexts>({
+    label: initial.label ?? "",
+    technology: initial.technology ?? "",
+    channel: initial.channel ?? "",
+  });
 
   // Состояние ДО последней правки — для обратимой записи в историю (undoPayload).
   // Хэндлов в контракте связи больше нет (R3): геометрия живёт на пучке в view_layout.
@@ -120,6 +134,7 @@ export function useEdgeEdit(
         source_id: updated.source_id,
         target_id: updated.target_id,
       };
+      setSaved({ label: updated.label ?? "", technology: updated.technology ?? "", channel: updated.channel ?? "" });
       return true;
     } catch (e: unknown) {
       if (isConflict(e)) {
@@ -138,6 +153,7 @@ export function useEdgeEdit(
           setLabelText(fresh.label ?? "");
           setTechnology(fresh.technology ?? "");
           setChannel(fresh.channel ?? "");
+          setSaved({ label: fresh.label ?? "", technology: fresh.technology ?? "", channel: fresh.channel ?? "" });
           setSourceId(fresh.source_id);
           setTargetId(fresh.target_id);
           const [s, t] = await Promise.all([
@@ -208,6 +224,7 @@ export function useEdgeEdit(
     technology, setTechnology,
     channel, setChannel,
     sourceId, targetId, srcLabel, tgtLabel,
+    saved,
     error, setError,
     commit,
     invert,

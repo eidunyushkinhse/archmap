@@ -1,7 +1,7 @@
 // Окно последствий смены элемента архитектуры и переноса (Р18): шесть видов текстов
 // прототипа v2, секции «Площадки» и «Документация» — только когда им есть что показать.
 // Решение «нужно ли окно» (hasConsequences) — чистая функция рядом.
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import type { ElementChangePreview } from "../../types";
 import ElementChangeDialog from "../element/ElementChangeDialog";
@@ -12,6 +12,10 @@ const row = (name: string, sites: string[]) => ({ node_id: `id-${name}`, name, s
 function preview(over: Partial<ElementChangePreview>): ElementChangePreview {
   return { kind: "none", before: [], after: [], docs_names: [], container_name: null, ...over };
 }
+
+// Строки группы площадок: [имя, площадки].
+const cells = (label: string) => within(screen.getByRole("list", { name: label })).getAllByRole("listitem")
+  .map((r) => [...r.children].map((c) => c.textContent));
 
 function show(p: ElementChangePreview, name: string, targetName?: string) {
   const onConfirm = vi.fn();
@@ -31,7 +35,10 @@ describe("окно последствий", () => {
     expect(screen.getByText("Сделать «orders» контейнером?")).toBeInTheDocument();
     expect(screen.getByText("Объекты внутри станут частями «orders» и перестанут считаться отдельными приложениями.")).toBeInTheDocument();
     expect(screen.getByText("Площадки")).toBeInTheDocument();
-    expect(screen.getAllByText("prod-eu")).toHaveLength(3);
+    // Площадки обычным текстом через запятую: строки «Сейчас» и «Станет» (было: пилюли,
+    // три пилюли «prod-eu»).
+    expect(cells("Площадки до")).toEqual([["api", "prod-eu, prod-ru"], ["scheduler", "prod-eu"]]);
+    expect(cells("Площадки после")).toEqual([["orders", "prod-eu, prod-ru"]]);
     expect(screen.getByText("«orders» займёт все площадки, где сейчас стоят его части.")).toBeInTheDocument();
     expect(screen.getByText("Документация")).toBeInTheDocument();
     expect(screen.getByText(
@@ -153,13 +160,38 @@ describe("окно последствий", () => {
     expect(screen.getByText("Сделать «orders» системой?")).toBeInTheDocument();
     expect(screen.getByText("Система сама не запускается, поэтому площадки и документацию ведут объекты внутри неё.")).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Площадки до" })).toBeInTheDocument();
-    // Площадки отдать некому — строки «после» и стрелки нет.
+    // Площадки отдать некому: строк «после» и подписи «Станет» нет, подпись «Сейчас» есть.
     expect(screen.queryByRole("list", { name: "Площадки после" })).not.toBeInTheDocument();
+    expect(screen.getByText("Сейчас")).toBeInTheDocument();
+    expect(screen.queryByText("Станет")).not.toBeInTheDocument();
     expect(screen.getByText("Площадки «orders» перейдут первому вложенному контейнеру, базе данных или брокеру.")).toBeInTheDocument();
     expect(screen.getByText(/^Документация самого «orders» останется у него/)).toBeInTheDocument();
     expect(screen.getByText("Сделать системой")).toBeInTheDocument();
     expect(hasConsequences(preview({ kind: "empty_system", before: [row("orders", ["prod-eu"])] }))).toBe(true);
     expect(hasConsequences(preview({ kind: "empty_system" }))).toBe(false);
+  });
+
+  it("вид: блоки с заголовком h3, подписи групп, имя с подсказкой, без стрелки и пилюль", () => {
+    show(preview({
+      kind: "container_to_system",
+      before: [row("Оркестратор заказа", ["Кластер prod"])],
+      after: [row("Приём событий", ["Кластер prod"]), row("Шаги саги", ["Кластер prod"])],
+      docs_names: ["Оркестратор заказа"],
+    }), "Оркестратор заказа");
+    const places = screen.getByRole("heading", { level: 3, name: "Площадки" });
+    expect(places).toHaveClass("ds-win-block-title");
+    expect(places.closest("section")).toHaveClass("ds-win-block");
+    expect(screen.getByRole("heading", { level: 3, name: "Документация" })).toHaveClass("ds-win-block-title");
+    expect(screen.getByText("Сейчас")).toHaveClass("ds-confirm-cap");
+    expect(screen.getByText("Станет")).toHaveClass("ds-confirm-cap");
+    const name = screen.getByText("Оркестратор заказа", { selector: ".ds-confirm-row-name" });
+    expect(name).toHaveAttribute("title", "Оркестратор заказа");
+    expect(screen.getByText("Каждый получит площадки «Оркестратор заказа». Лишние можно убрать на холсте «Развёртывание».")).toHaveClass("ds-confirm-note");
+    expect(screen.getByText(/^Документация самого «Оркестратор заказа» останется у него/)).toHaveClass("ds-confirm-note");
+    expect(screen.queryByText("↓")).not.toBeInTheDocument();
+    const root = document.querySelector(".ds-confirm") as HTMLElement;
+    expect(root.querySelectorAll("[style]")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Сделать системой" }).className).toBe("ds-btn ds-btn--primary");
   });
 
   it("площадки не переезжают — секции «Площадки» нет, документация есть", () => {

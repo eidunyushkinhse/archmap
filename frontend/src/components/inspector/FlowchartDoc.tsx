@@ -2,19 +2,22 @@
 // Две роли: просмотр (isArchitect=false — только рендер, код по «Показать код»
 // наблюдателя) и ручная правка (isArchitect=true — код и превью рядом). Пишет в БД
 // не он: правка уходит наверх черновиком (onDraft), сохраняет окно кнопкой
-// «Сохранить» в шапке.
+// «Сохранить» в подвале.
 // Превью перерисовывается по вводу с дебаунсом; при ошибке держит последний
 // удачный svg (при правке) или показывает заглушку с текстом ошибки (в просмотре
-// код не меняется, держать нечего). Пан/зум — usePanZoom.
+// код не меняется, держать нечего). Пан/зум и вид для чтения — usePanZoom. Сцена
+// одного вида при чтении и при правке (редизайн, фаза 7б): ровный фон, пилюля
+// масштаба на токенах.
 import { useCallback, useEffect, useRef, useState } from "react";
 import MermaidRenderer from "../MermaidRenderer";
 import type { MmdStatus } from "../MermaidRenderer";
 import { dataRefsApi } from "../../api/dataRefs";
 import type { DataRefPreviewItem } from "../../types";
 import { pinSvgSize, usePanZoom } from "../usePanZoom";
-import { DocEditorColumn, StatusError, StatusNote, StatusOk, StatusReadOnly } from "./docShared";
+import { DocEditorColumn, StatusError, StatusNote } from "./docShared";
 import { unfenceMermaid } from "./docValidate";
-import { MODE_LABEL, REF_MARKER, reasonOf } from "./docRefs";
+import { REF_MARKER, refLine } from "./docRefs";
+import "./docOverlay.css";
 
 interface Props {
   initial: string; // текст схемы на момент открытия (черновик живёт внутри)
@@ -26,40 +29,29 @@ interface Props {
   onDraft?: (value: string) => void;
 }
 
-// ── плашка «Обращения» ───────────────────────────────────────────────────────
+// ── строки обращений при правке ─────────────────────────────────────────────
 // Пометка «читает:/пишет:» в подписи шага — ЕДИНСТВЕННЫЙ ввод обращений к данным
 // (пивот §9 plan-db-docs.md), поэтому её распознавание обязано быть видно прямо во
 // время письма: иначе конвенцию не выучить, а промах именем обнаружится когда-то
-// потом в панели алертов. Наблюдателю плашка не нужна — пометки он читает в самой
+// потом в панели алертов. Наблюдателю строки не нужны — пометки он читает в самой
 // диаграмме, а исправить всё равно не может.
 // События («публикует:/потребляет:» → канал брокера) и конфигурация («зависит от:»
-// → параметр самого узла) плашка понимает тем же механизмом: резолвер на бэке един,
-// здесь дописаны только слова.
+// → параметр самого узла) понимаются тем же механизмом: резолвер на бэке един.
+// Новый язык (редизайн, фаза 7б): без заголовка, пилюль и знаков; разрешённое — тихой
+// строкой «пишет orders → БД заказов», неразрешённое — строкой цвета предупреждения.
+// Слова собирает docRefs.refLine; список не выше пяти строк, дальше прокручивается.
 
 function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
   return (
     <div className="doc-refs">
-      <div className="doc-refshead">Обращения</div>
-      {refs.map((r, i) => (
-        <div key={`${r.mode}:${r.ref}:${i}`} className="doc-refrow">
-          <span className={`doc-refmode doc-refmode--${r.mode}`}>{MODE_LABEL[r.mode]}</span>
-          <span className="doc-reftext">
-            <span className="doc-refname">{r.ref}</span>{" "}
-            {r.status === "ok" ? (
-              <span className="doc-refok">→ {r.target} ✓</span>
-            ) : (
-              // unknown_column / unknown_field: таблица (канал) нашлась — называем
-              // её, иначе непонятно, куда смотреть, чтобы свериться с содержимым.
-              <span className="doc-refbad">
-                ⚠ {reasonOf(r.status, r.mode)}
-                {(r.status === "unknown_column" || r.status === "unknown_field") && r.target
-                  ? ` (${r.target})`
-                  : ""}
-              </span>
-            )}
-          </span>
-        </div>
-      ))}
+      {refs.map((r, i) => {
+        const line = refLine(r);
+        return (
+          <p key={`${r.mode}:${r.ref}:${i}`} className={"doc-refrow" + (line.ok ? "" : " doc-refrow--bad")}>
+            {line.lead}<span className="doc-refname">{line.name}</span>{line.tail}
+          </p>
+        );
+      })}
     </div>
   );
 }
@@ -105,8 +97,9 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
       setStatus(s);
       if (s.kind === "ok") {
         pinSvgSize(pzRef.current);
-        // Первый удачный рендер вписываем (не раздувая мелкие диаграммы сверх 100%);
-        // дальше пан/зум пользователя не сбрасываем — превью живёт при печати.
+        // Первый удачный рендер ставит вид для чтения (usePanZoom.readingView: текст не
+        // мельче 0,9, верх схемы у поля); дальше пан/зум пользователя не сбрасываем —
+        // превью живёт при печати.
         if (!fittedRef.current) {
           fittedRef.current = true;
           fitInitial();
@@ -116,17 +109,16 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
     [fitInitial],
   );
 
-  // «Показать/Скрыть код» наблюдателя меняет ширину превью — вписываем заново
-  // (кадром позже, после релейаута), иначе диаграмма уезжает под колонку.
-  const { fit } = pz;
+  // «Показать/Скрыть код» наблюдателя меняет ширину превью — ставим вид для чтения
+  // заново (кадром позже, после релейаута), иначе диаграмма уезжает под колонку.
   const prevShowCode = useRef(showCode);
   useEffect(() => {
     if (prevShowCode.current === showCode) return;
     prevShowCode.current = showCode;
     if (!fittedRef.current) return;
-    const raf = requestAnimationFrame(() => fit());
+    const raf = requestAnimationFrame(() => fitInitial());
     return () => cancelAnimationFrame(raf);
-  }, [showCode, fit]);
+  }, [showCode, fitInitial]);
 
   // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
   // правки: как только в поле что-то меняется, статус снова про разбор схемы.
@@ -145,10 +137,9 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
   const showRefs = isArchitect && hasRefMarker && refs.length > 0;
 
   // Отказ по файлу перекрывает статус разбора: пока он висит, в поле лежит не то,
-  // что пользователь выбрал, и сообщать про синтаксис старой схемы — врать.
-  const statusRow = !isArchitect ? (
-    <StatusReadOnly />
-  ) : fileError ? (
+  // что пользователь выбрал, и сообщать про синтаксис старой схемы — врать. Ошибки нет —
+  // слева пусто. У читателя строки состояния нет вовсе (колонка readOnly).
+  const statusRow = !isArchitect ? null : fileError ? (
     <StatusError text={fileError} />
   ) : shown.kind === "error" ? (
     <StatusError
@@ -158,30 +149,19 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
     />
   ) : shown.kind === "loading" ? (
     <StatusNote text="Открываем схему" />
-  ) : (
-    <StatusOk />
-  );
+  ) : null;
 
-  return (
-    <>
-      {(isArchitect || showCode) && (
+  const column = (isArchitect || showCode) && (
         <DocEditorColumn
           width={440}
-          title="Код · mermaid flowchart"
           placeholder={"graph TD\n  A[Старт] --> B[Конец]"}
           value={code}
           readOnly={!isArchitect}
           onChange={isArchitect ? handleChange : undefined}
-          // Плашка едет ФРАГМЕНТОМ в слот статуса: DocEditorColumn кладёт status
-          // последним ребёнком своей flex-колонки, так что второй элемент встаёт
-          // ровно под статус-строкой — новый проп общего компонента ничего бы не
-          // добавил, а в режиме OpenAPI обращений не бывает вовсе.
-          status={
-            <>
-              {statusRow}
-              {showRefs && <DataRefsPlate refs={refs} />}
-            </>
-          }
+          status={statusRow}
+          // Строки обращений — под строкой состояния: у неё теперь две части (слева
+          // ошибка, справа «Загрузить файл»), и обращения в неё не помещаются.
+          after={showRefs && <DataRefsPlate refs={refs} />}
           taRef={taRef}
           // .md в маске не случайно: схемы чаще всего лежат кусочком markdown —
           // обёртку ```mermaid снимаем при загрузке (prepareFile).
@@ -190,7 +170,11 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
           onFileError={setFileError}
           prepareFile={unfenceMermaid}
         />
-      )}
+  );
+
+  return (
+    <>
+      {column}
       <div className="doc-pv">
         <div
           ref={stageRef}

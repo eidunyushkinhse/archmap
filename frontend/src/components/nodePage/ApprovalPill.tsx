@@ -1,12 +1,14 @@
-// Пилюля статуса СТРАНИЦЫ объекта у имени в шапке (docs/tasks/page-status.md): «В работе»
-// или «Согласовано». Это не жизненный цикл узла (status existing/planned/deprecated).
+// Статус СТРАНИЦЫ объекта у имени в шапке (docs/tasks/page-status.md): «В работе» или
+// «Согласовано». Это не жизненный цикл узла (status existing/planned/deprecated). С
+// редизайна (направление А) это не пилюля, а тихий текст с точкой; шеврон выпадашки
+// виден при наведении. Имена классов np-approval* остались прежними.
 //
 // Кто ставит статус, решает элемент архитектуры (Р14 эпика docs/plan-c4-elements.md):
 // у контейнера (в том числе с компонентами), компонента и «Пользователя» он свой, у
 // системы складывается из вложенных объектов. Три вида:
 // • не система + редактор — кнопка со стрелкой, выпадашка из двух значений, выбор зовёт onPick;
 // • не система + читатель — неинтерактивная пилюля: статус меняет редактор проекта;
-// • система (обе роли) — пилюля со счётчиком «N из M», выпадашка-список единиц (вложенные
+// • система (обе роли) — «Согласовано N из M», выпадашка-список единиц (вложенные
 //   объекты любой глубины, кроме систем) с точками статуса, клик по строке открывает его
 //   страницу.
 // Элемент (element_effective) и вычисленный статус системы (approval_effective) приходят
@@ -15,6 +17,7 @@
 import { useEffect, useState } from "react";
 import type { Node, NodeApproval } from "../../types";
 import { APPROVAL_HINT, APPROVAL_LABEL, APPROVAL_ORDER } from "../nodeTerms";
+import "../../ui/ds.css";
 
 interface Props {
   node: Node;
@@ -61,7 +64,10 @@ export default function ApprovalPill({ node, isArchitect, units, onNavigateNode,
   }
 
   const approvedCount = units ? units.filter((c) => c.approval_effective === "approved").length : 0;
-  const counter = isSystem && units && units.length > 0 ? ` · ${approvedCount} из ${units.length}` : "";
+  // Система с единицами говорит счётом согласованных, без точки-разделителя.
+  const label = isSystem && units && units.length > 0
+    ? `Согласовано ${approvedCount} из ${units.length}`
+    : APPROVAL_LABEL[shown];
   const close = () => setOpen(false);
 
   return (
@@ -74,44 +80,44 @@ export default function ApprovalPill({ node, isArchitect, units, onNavigateNode,
         onClick={() => setOpen((o) => !o)}
       >
         <Dot value={shown} />
-        <span>{APPROVAL_LABEL[shown]}{counter}</span>
-        <span className="np-approval-chev" aria-hidden="true">▾</span>
+        <span>{label}</span>
+        <span className="np-approval-chev" aria-hidden="true">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9 L12 15 L18 9" /></svg>
+        </span>
       </button>
       {open && (
         <>
           <div className="np-backdrop" onClick={close} />
-          <div className="np-approval-menu">
+          <div className="np-approval-menu ds-menu">
             {isSystem ? (
               units === null ? (
-                <div className="np-approval-head">Загрузка</div>
+                <div className="ds-menu-head">Загрузка</div>
               ) : units.length === 0 ? (
-                <div className="np-approval-head">Согласовывать пока нечего</div>
+                <div className="ds-menu-head">Согласовывать пока нечего</div>
               ) : (
-                <>
-                  <div className="np-approval-head">Согласовано {approvedCount} из {units.length}</div>
-                  {units.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className="np-approval-row"
-                      onClick={() => { close(); onNavigateNode(c.id); }}
-                    >
-                      <Dot value={c.approval_effective} />
-                      <span>{c.name}</span>
-                    </button>
-                  ))}
-                </>
+                units.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="np-approval-row ds-menu-item"
+                    onClick={() => { close(); onNavigateNode(c.id); }}
+                  >
+                    <Dot value={c.approval_effective} />
+                    <span>{c.name}</span>
+                  </button>
+                ))
               )
             ) : (
               <>
-                <div className="np-approval-head">Статус страницы</div>
+                <div className="ds-menu-head">Статус страницы</div>
                 {APPROVAL_ORDER.map((v) => {
                   const current = v === node.approval;
                   return (
                     <button
                       key={v}
                       type="button"
-                      className={`np-approval-row${current ? " is-current" : ""}`}
+                      className={`np-approval-row ds-menu-item${current ? " is-current" : ""}`}
                       onClick={() => { close(); if (!current) onPick(v); }}
                     >
                       <Dot value={v} />

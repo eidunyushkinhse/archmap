@@ -1,0 +1,1480 @@
+/* Общие примитивы нового языка (редизайн, направление А «Документ»), по порядку файла: шапка
+   экрана и аватар; раздел, подгруппа и строка списка; кнопки (тихая «Добавить», вторичная,
+   основная, необратимого действия, кнопка-значок); каркас окна с блоками и галочка окна; поле
+   ввода и список выбора формы; вкладки-текст; меню; предупреждение, отказ загрузки, «Что-то
+   сломалось», пределы демо-стенда; тихая таблица; поле в виде текста, значение-кнопка, строки
+   «подпись — значение», поле, растущее по тексту; тихий крестик удаления, шеврон раскрывашки,
+   свёрнутый блок под чертой, вложенный список; окно карточкой, подтверждение, окна правки
+   схемы; подпись для скринридера, тихая красная кнопка-текст, тост. Значения — токены
+   ui/tokens.css (белый текст на основных кнопках — числом). Класс ставит переведённый экран
+   (корень с .ds); этот файл импортирует каждый модуль, который ставит его классы: стили
+   чужого ленивого чанка на странице могут быть не загружены. */
+
+/* ── Шапка экрана: оболочка проекта и редактор-карта ──────────────────────
+   Один каркас на обе шапки (редизайн, фаза 5): высота, поля и линия одинаковые, поэтому
+   вход в редактор и выход из него не двигают логотип. Своя плоскость наложения выше тела
+   страницы: меню и панель «Рекомендации» раскрываются из шапки поверх тела.
+   Всегда одна строка: когда места мало, сжимается только то, что место вызова пометило
+   сжимаемым внутри левой части (название проекта, имена крошек); логотип, вкладки и
+   правая группа не сжимаются. */
+.ds-head {
+  position: relative;
+  z-index: 50;
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  height: 59px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-bg);
+}
+.ds-head-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ds-head-left > * {
+  flex: none;
+}
+.ds-head-sep {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  margin: 0 var(--space-1);
+  background: var(--c-line);
+}
+/* Справа: группа значков, дальше остальное через 16px. */
+.ds-head-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.ds-head-icons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ds-head-btns {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ── Аватар профиля: кружок 28px с инициалом ─────────────────────────── */
+.ds-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--c-accent-soft);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--c-accent);
+  cursor: pointer;
+}
+.ds-avatar:hover,
+.ds-avatar[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--c-accent) 16%, var(--c-bg));
+}
+.ds-avatar:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* ── Раздел: заголовок 16px/600, справа действия раздела ─────────────── */
+.ds-sec {
+  margin-top: 40px;
+}
+.ds-sec-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-height: 30px;
+  margin-bottom: 8px;
+}
+.ds-sec-title {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  color: var(--c-fg);
+}
+.ds-sec-acts {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+/* Подгруппа внутри раздела («Операции», «Воркеры», имя компонента): подпись без
+   рамок, счётчиков и верхнего регистра. Отступ между подгруппами держит обёртка
+   .ds-subgroup; первая подгруппа сразу под заголовком раздела — ближе к нему. */
+.ds-subgroup {
+  margin-top: 16px;
+}
+.ds-sec-head + * > .ds-subgroup:first-child {
+  margin-top: 4px;
+}
+.ds-sub {
+  margin: 0 0 4px;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Подпись-ссылка (имя компонента ведёт на его страницу). */
+button.ds-sub {
+  display: inline-block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.ds-sub:hover {
+  color: var(--c-fg);
+  text-decoration: underline;
+}
+
+/* ── Строка списка: вся строка — одна кнопка ─────────────────────────────
+   Сверху волосяная линия, при наведении подложка с выходом на 8px за колонку
+   (отрицательные поля у списка, свои поля у кнопок строки). Строка из двух частей
+   (главная и тихая справа) — две кнопки в одной строке: вложенная кнопка невалидна. */
+.ds-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+.ds-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  border-radius: var(--radius);
+}
+.ds-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  border-top: 1px solid var(--c-line);
+}
+.ds-row:hover {
+  background: var(--c-hover);
+}
+/* Подложка наведения сама отделяет строку: линии над ней и под ней гаснут. */
+.ds-row:hover::before,
+.ds-row:hover + .ds-row::before {
+  border-top-color: transparent;
+}
+.ds-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ds-row-side {
+  flex: none;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-row-side:hover {
+  color: var(--c-fg);
+  text-decoration: underline;
+}
+.ds-row-main:focus-visible,
+.ds-row-side:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.ds-row-name {
+  font-weight: 500;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+/* Машинный текст строки (операция, путь): моноширинный, тихий. */
+.ds-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+/* Тихий текст у правого края строки (вид схемы, «не описана»). */
+.ds-row-quiet {
+  margin-left: auto;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+
+/* ── Кнопки ──────────────────────────────────────────────────────────── */
+/* «Добавить»: тихая текстовая кнопка акцентного цвета в строке заголовка раздела. */
+.ds-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-accent);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-add:hover {
+  background: var(--c-accent-soft);
+}
+.ds-add svg {
+  display: block;
+  flex: none;
+}
+/* Вторичная кнопка: белая, рамка, 30px. */
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font: inherit;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--c-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-btn:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+/* Основная кнопка: фон акцента, белый текст. Одна на форму. */
+.ds-btn--primary {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: #fff;
+}
+.ds-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-accent) 88%, var(--c-fg));
+}
+/* Основная кнопка необратимого действия («Удалить», «Принять переход» с удалением): фон
+   цвета опасности. Запертая — как любая запертая .ds-btn, кольцо фокуса общее. */
+.ds-btn--danger {
+  border-color: var(--c-danger);
+  background: var(--c-danger);
+  color: #fff;
+}
+.ds-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-danger) 88%, var(--c-fg));
+}
+.ds-add:focus-visible,
+.ds-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+/* Кнопка-значок: тихая, без рамки, подложка при наведении, 28px. Одна на все экраны:
+   шапка редактора-карты, сворачивание дерева и списка процессов, отмена и повтор в шапке
+   процесса, заголовок панели объекта. Открытое меню держит подложку (aria-expanded).
+   Фокус с клавиатуры — кольцом, как у остальных кнопок языка: подложка значит «под
+   мышью» или «открыто», и фокус от неё должен отличаться.
+   position: relative — для точки-признака у значка («Рекомендации»). Шрифт от корня, а не
+   гарнитура кнопки браузера: размеры кнопки от него не зависят. */
+.ds-icon-btn {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.ds-icon-btn:hover:not(:disabled),
+.ds-icon-btn[aria-expanded="true"] {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.ds-icon-btn:focus-visible {
+  color: var(--c-fg);
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+/* Нажатый тумблер (aria-pressed, «Подписи связей» в тулбаре «Развёртывания»): подложка и
+   значок основным цветом, как под мышью. Состояние видно и без наведения. */
+.ds-icon-btn[aria-pressed="true"] {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.ds-icon-btn:disabled {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+
+/* ── Окно: заголовок, тело с прокруткой, футер ─────────────────────────────
+   Каркас содержимого ui/Modal у окон нового языка (boxStyle padding 0): корень .ds-win
+   (вместе с классом ds) не выше экрана без 48px, прокручивается только тело, заголовок и
+   футер видны всегда. Поля окна задаёт --win-pad: ими отступают заголовок, тело и футер,
+   поэтому прокрутка тела не срезает строки с выходом за колонку (ds-rows). Тело выходит на 4px вверх и вниз за свой шаг: кольцо фокуса поля у края
+   прокрутки остаётся видно. Крестик — кнопка-значок в правом верхнем углу, на месте
+   крестика прежних окон. В футере главная кнопка первой, «Отмена» за ней, ряд слева;
+   строка отказа над кнопками — на всю ширину футера. */
+.ds-win {
+  --win-pad: 24px;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: calc(100vh - 48px);
+  box-sizing: border-box;
+}
+.ds-win-head {
+  flex: none;
+  padding: var(--win-pad) calc(var(--win-pad) + 32px) 0 var(--win-pad);
+}
+.ds-win-title {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  /* Глобальное правило h2 (index.css) даёт отрицательный трекинг — в новом языке его нет. */
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.ds-win-close {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+}
+.ds-win-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: -4px 0;
+  padding: 4px var(--win-pad);
+  overflow-y: auto;
+}
+/* Окно без подвала («Выберите связь»): нижнее поле — поле окна, как сверху и с боков.
+   Выхода тела на 4px вниз здесь нет: снизу место кольцу фокуса даёт само поле, а выход
+   за окно давал окну лишние 4px прокрутки. У окон с подвалом тело последним не бывает. */
+.ds-win-body:last-child {
+  margin-bottom: 0;
+  padding-bottom: var(--win-pad);
+}
+.ds-win-foot {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--win-pad) var(--win-pad);
+}
+/* Отказ над кнопками футера: строка на всю ширину футера, кнопки ниже. */
+.ds-win-err {
+  flex: 1 0 100%;
+  margin: 0;
+}
+/* Блок тела окна («Задание агенту», «Ответы агента»): заголовок 13px/600, между блоками
+   24px (12px отступа и 12px шага тела). */
+.ds-win-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ds-win-block + .ds-win-block {
+  margin-top: var(--space-3);
+}
+.ds-win-block-title {
+  margin: 0;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+/* Заголовок блока со знаком «?» справа (InfoPopover): механика блока — за знаком. */
+.ds-win-block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+/* Галочка окна («Заменять уже описанное», «что обновлять»): флажок и текст на одной
+   базовой линии, подсказка — в title. Фокус флажка — кольцом языка только с клавиатуры:
+   после щелчка мышью кольца нет. */
+.ds-check {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.ds-check input {
+  flex: none;
+  margin: 0;
+  font: inherit;
+}
+.app-modal .ds-win input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+
+/* ── Поле ввода формы: рамка на токенах, фокус акцентом ──────────────────── */
+.ds-input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font: inherit;
+  font-size: var(--fs-ui);
+  color: var(--c-fg);
+}
+.ds-input::placeholder {
+  color: var(--c-fg-faint);
+}
+.ds-input:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
+/* Поле в несколько строк того же вида («Описание» площадки): высота по строкам (rows),
+   поля сверху и снизу вместо высоты 30px, тянется только по высоте. */
+textarea.ds-input {
+  display: block;
+  height: auto;
+  padding: 5px 8px;
+  line-height: var(--lh-ui);
+  resize: vertical;
+}
+
+/* ── Список выбора формы: того же вида и высоты, что .ds-input ───────────────
+   Обёртка .ds-select несёт шеврон (ChevronDownIcon) поверх правого края списка, у самого
+   списка системной стрелки нет. Высота, рамка, кегль и поля те же, что у .ds-input,
+   поэтому текст списка и соседнего поля стоит на одной базовой линии. */
+.ds-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ds-select select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  padding: 0 28px 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font: inherit;
+  font-size: var(--fs-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.ds-select select:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
+.ds-select svg {
+  position: absolute;
+  right: 9px;
+  color: var(--c-fg-muted);
+  pointer-events: none;
+}
+/* Запертый список: тихая подложка, текст и шеврон тише, курсор обычный. Прозрачность
+   браузера у запертого списка (0,7) снята: вид задают цвета (редизайн, фаза 13в). */
+.ds-select select:disabled {
+  background: var(--c-bg-subtle);
+  color: var(--c-fg-faint);
+  cursor: default;
+  opacity: 1;
+}
+.ds-select:has(select:disabled) svg {
+  color: var(--c-fg-faint);
+}
+
+/* ── Вкладки-текст: активная с подчёркиванием, без подложки-сегмента ─────── */
+.ds-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+}
+.ds-tab {
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.ds-tab:hover {
+  color: var(--c-fg);
+}
+.ds-tab.is-active {
+  color: var(--c-fg);
+  border-bottom-color: var(--c-fg);
+}
+/* Фокус с клавиатуры — кольцом языка, как у кнопок (иначе браузер рисует своё). */
+.ds-tab:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ── Меню ────────────────────────────────────────────────────────────── */
+/* Корень меню (кнопка и список): от него отсчитывается место абсолютного списка. */
+.ds-menu-root {
+  position: relative;
+}
+.ds-menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 200px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+/* Меню под кнопкой у её правого края (шапка: «Действия со схемой», профиль). Ширина по
+   самому длинному пункту: у меню без левого края доступная ширина — ширина кнопки, и
+   пункты переносились бы. */
+.ds-menu--end {
+  top: calc(100% + 4px);
+  right: 0;
+  width: max-content;
+  max-width: 360px;
+}
+.ds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ds-menu-item:hover,
+.ds-menu-item:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+.ds-menu-item--danger {
+  color: var(--c-danger);
+}
+.ds-menu-head {
+  padding: 6px 10px 2px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.ds-menu-item:disabled {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+.ds-menu-item:disabled:hover {
+  background: none;
+}
+/* Черта между группами пунктов. */
+.ds-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--c-line);
+}
+/* Подложка открытого меню: клик мимо закрывает его. Ниже меню (z-index 20). */
+.ds-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+}
+
+/* ── Предупреждение: текст без коробки ───────────────────────────────── */
+.ds-warn {
+  margin: 0 0 8px;
+  max-width: 68ch;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-warn);
+}
+.ds-danger {
+  margin: 0 0 8px;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-danger);
+}
+
+/* ── Отказ загрузки (ui/LoadError) ──────────────────────────────────────────
+   Блок без коробки вместо того, что не загрузилось: заголовок «Не удалось загрузить …»,
+   причина тихим цветом, кнопки в ряд («Повторить» главной, выход назад вторичной). Корень
+   несёт ds, а гарнитура, кегль, интерлиньяж, трекинг и цвет заданы здесь явно: блок стоит
+   и в области нового языка, и в области холста (legacy-root, прежние метрики корня), и вне
+   любой области (оболочка проекта до загрузки страницы), и везде выглядит одинаково. Поля
+   24px на странице и в области холста; в теле окна своих полей нет: заголовок отказа стоит
+   на вертикали заголовка окна. Ширина текста не больше 520px. */
+.ds-fail {
+  max-width: 520px;
+  padding: var(--space-6);
+  font: 400 var(--fs-ui) / var(--lh-ui) var(--font-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.ds-win-body .ds-fail {
+  padding: 0;
+}
+.ds-fail-title {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+.ds-fail-why {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Кнопки отказа (и «Что-то сломалось» ниже): в ряд с шагом 8px. */
+.ds-fail-acts {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* ── «Что-то сломалось» (ui/ErrorBoundary) ──────────────────────────────────
+   Вместо упавшего поддерева: белая область, по центру колонка до 460px без коробки (рамки,
+   радиуса и тени нет). Заголовок h2 со своими полями (глобальное правило h2 из index.css
+   перебито), пояснение тихим цветом, строка с текстом ошибки моноширинным на тихой подложке,
+   кнопки как у отказа загрузки. Метрики текста заданы явно по той же причине, что у ds-fail:
+   граница стоит и вокруг всего приложения, вне любой области нового языка. */
+.ds-crash {
+  flex: 1;
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--c-bg);
+  font: 400 var(--fs-ui) / var(--lh-ui) var(--font-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.ds-crash-col {
+  width: 460px;
+  max-width: 100%;
+}
+.ds-crash-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.ds-crash-lead {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Глобального стиля code нет (index.css): вид строки ошибки целиком здесь. Длинное слово
+   без пробелов переносится, а не растягивает колонку. */
+.ds-crash-code {
+  display: block;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  background: var(--c-bg-subtle);
+  color: var(--c-fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ds-crash .ds-fail-acts {
+  margin-top: var(--space-4);
+}
+
+/* ── Пределы демо-стенда (components/demo/DemoLimitNotice) ───────────────────
+   Сообщение — абзац ds-danger без коробки, начало выделено <strong> тем же цветом. В окнах
+   ввоза у сообщения своих отступов нет (шаг задаёт блок окна), под ним полоска «142 из 100»:
+   подпись и цифры 12px тихим цветом (цифры табличные), дорожка 4px цвета линии, заполнение
+   цветом опасности. Отказ записи в разделах страницы объекта — тот же абзац с отступом 10px
+   снизу. */
+.ds-limit {
+  display: grid;
+  gap: var(--space-3);
+}
+.ds-limit-msg {
+  margin: 0;
+}
+.ds-limit-note {
+  margin: 0 0 10px;
+}
+.ds-limit-msg strong,
+.ds-limit-note strong {
+  font-weight: 600;
+  color: inherit;
+}
+.ds-limit-meter {
+  display: grid;
+  gap: var(--space-1);
+}
+.ds-limit-meter-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ds-limit-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-line);
+  overflow: hidden;
+}
+.ds-limit-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--c-danger);
+}
+
+/* ── Тихая таблица: шапка 12px, строки с волосяной линией сверху ─────────── */
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-ui);
+}
+.ds-table th {
+  padding: 0 12px 6px 0;
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--c-fg-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+/* Перенос по словам (редизайн, фаза 13в): колонка не уже своего самого длинного слова,
+   поэтому короткие значения (статус, роль, «да», дата, имя параметра) не рвутся посреди
+   слова, когда соседняя ячейка длинная. Слово шире ячейки (таблица с постоянной сеткой)
+   переносится всё равно. Ячейка с длинным значением без пробелов (логин, адрес базы) —
+   ds-td-long: переносится в любом месте и своей длины колонке не навязывает, поэтому
+   таблица не шире своего блока. */
+.ds-table td {
+  padding: 8px 12px 8px 0;
+  border-top: 1px solid var(--c-line);
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+.ds-table td.ds-td-long {
+  overflow-wrap: anywhere;
+}
+
+/* ── Поле в виде текста: рамка-фон при наведении, обводка при фокусе ───────
+   Поля 3px 6px и такой же отрицательный отступ слева: текст поля стоит ровно там,
+   где стоял бы голый текст значения. */
+.ds-field {
+  display: block;
+  width: calc(100% + 6px);
+  box-sizing: border-box;
+  margin: 0 0 0 -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  outline: none;
+}
+.ds-field:hover {
+  background: var(--c-hover);
+}
+.ds-field:focus {
+  background: var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.ds-field::placeholder {
+  color: var(--c-fg-faint);
+  opacity: 1;
+}
+
+/* ── Значение-кнопка: правка по клику на значении ───────────────────────
+   Выглядит текстом: те же поля и отрицательный отступ, что у .ds-field, поэтому текст
+   кнопки, поля и голого значения начинается с одного x. Шеврон выпадающего значения
+   виден при наведении, фокусе и открытом меню (строка свойств показывает его и при
+   наведении на всю строку — правило места вызова). */
+.ds-value-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% + 6px);
+  box-sizing: border-box;
+  margin: 0 0 0 -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  color: var(--c-fg);
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ds-value-btn:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-value-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.ds-value-chev {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+  opacity: 0;
+}
+.ds-value-btn:hover .ds-value-chev,
+.ds-value-btn:focus-visible .ds-value-chev,
+.ds-value-btn[aria-expanded="true"] .ds-value-chev {
+  opacity: 1;
+}
+/* Пустое значение («не указана», «не задан»). */
+.ds-empty {
+  color: var(--c-fg-faint);
+}
+/* Тихая строка состояния в области холста («Загрузка» редактора-карты): поле 24px. Область
+   холста стоит под legacy-root (прежние метрики корня), поэтому кегль, интерлиньяж и трекинг
+   заданы здесь явно. */
+.ds-pane-note {
+  margin: 0;
+  padding: var(--space-6);
+  font: 400 var(--fs-ui) / var(--lh-ui) var(--font-ui);
+  letter-spacing: 0;
+}
+
+/* ── Строки «подпись — значение» окна ─────────────────────────────────────
+   Того же вида, что строки свойств на странице объекта (nodePage/propRows.css): тихая
+   подпись фиксированной ширины, текст значения с одного x (у ds-value-btn и поля
+   GrowField поля 3px 6px и такой же отрицательный отступ), шаг строк 30px, базовые линии
+   подписи и значения совпадают. Окна «Обновить из кода», «Новый проект» и «Описать схемы
+   логики с помощью ИИ-агента». */
+.ds-props {
+  margin: 0;
+}
+.ds-prop {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  column-gap: var(--space-4);
+  align-items: baseline;
+  min-height: 30px;
+  padding: 2px 0;
+  box-sizing: border-box;
+}
+.ds-prop-term,
+.ds-prop-value {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.ds-prop-term {
+  padding: 3px 0;
+  color: var(--c-fg-muted);
+}
+.ds-prop-term label {
+  cursor: default;
+}
+.ds-prop-value {
+  min-width: 0;
+  color: var(--c-fg);
+}
+.ds-prop:hover .ds-value-chev {
+  opacity: 1;
+}
+
+/* ── Поле, растущее по тексту (ui/GrowField) ─────────────────────────────
+   Обёртка — сетка с одной ячейкой: невидимая копия текста (::after из data-value) и
+   само поле лежат друг на друге, высоту ячейки задаёт копия. Поля, шрифт и перенос у
+   копии и поля одинаковые, иначе высота разойдётся с текстом. */
+.ds-grow {
+  display: grid;
+  min-width: 0;
+  margin-left: -6px;
+}
+.ds-grow::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+  white-space: pre-wrap;
+}
+.ds-grow::after,
+.ds-grow-input {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 6px;
+  border: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  overflow-wrap: anywhere;
+}
+.ds-grow-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  resize: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  outline: none;
+}
+.ds-grow-input:hover {
+  background: var(--c-hover);
+}
+.ds-grow-input:focus {
+  background: var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.ds-grow-input::placeholder {
+  color: var(--c-fg-faint);
+  opacity: 1;
+}
+
+/* ── Удаление записи: тихий крестик ──────────────────────────────────────
+   Скрыт, пока строку не навели и не поставили в неё фокус: какой элемент считать
+   строкой, решает место вызова (.cfg-row:hover .ds-del и т. п.). */
+.ds-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--c-fg-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+.ds-del:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.ds-del:hover {
+  color: var(--c-danger);
+  background: var(--c-hover);
+}
+
+/* ── Шеврон раскрывашки: вниз — раскрыто, вправо — свёрнуто ──────────────── */
+.ds-chev {
+  display: inline-flex;
+  color: var(--c-fg-muted);
+  transition: transform 0.12s;
+}
+.ds-chev.is-closed {
+  transform: rotate(-90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-chev {
+    transition: none;
+  }
+}
+
+/* ── Свёрнутый блок под чертой («Не описано» в «Логике») ──────────────────
+   Заголовок — тихий текст с шевроном и числом в скобках, как макрос Expand в
+   Confluence: бэклог, а не ещё одна подгруппа. */
+.ds-expand-block {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-line);
+}
+.ds-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.ds-expand:hover {
+  color: var(--c-fg);
+}
+.ds-expand:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+}
+.ds-expand-count {
+  font-weight: 400;
+  color: var(--c-fg-faint);
+}
+.ds-expand-body {
+  margin-top: 4px;
+}
+
+/* ── Вложенный список под строкой (в каких процессах используется схема) ── */
+.ds-nested {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 4px 16px;
+}
+.ds-nested-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ds-nested-row:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-nested-row:disabled {
+  color: var(--c-fg-muted);
+  cursor: default;
+}
+.ds-nested-note {
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+
+/* ── Окно карточкой: каркас .ds-win поверх диаграммы процесса ──────────────────
+   Окна правки процесса и подтверждения в его оверлее — div-слои, а не ui/Modal (вложенный
+   <dialog> там нельзя), поэтому коробку окна рисует сам каркас: радиус и тень как у окна
+   ui/Modal, рамка отделяет карточку от схемы под ней. Ширину задаёт место вызова. */
+.ds-win--card {
+  max-width: calc(100vw - 32px);
+  border: 1px solid var(--c-line);
+  border-radius: 12px;
+  background: var(--c-bg);
+  box-shadow: var(--shadow-window);
+}
+
+/* ── Подтверждение: окно-вопрос на каркасе .ds-win (ui/ConfirmDialog) ─────────
+   Заголовок-вопрос, пояснение, перечень того, что затронет действие, кнопки. Крестика
+   нет, поэтому правое поле шапки равно полю окна; длинное имя в заголовке переносится,
+   а не вылезает. Вид card — тот же каркас карточкой (.ds-win--card) в оверлее редактора
+   процесса; своя у него только ширина. */
+.ds-confirm .ds-win-head {
+  padding-right: var(--win-pad);
+}
+.ds-confirm .ds-win-title {
+  overflow-wrap: anywhere;
+}
+.ds-confirm--card {
+  width: 440px;
+}
+/* Пояснение под заголовком и пояснение под перечнем — обычный текст окна. */
+.ds-confirm-lead,
+.ds-confirm-note {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+/* Ожидание («Считаем, что изменится») — тихим цветом. */
+.ds-confirm-muted {
+  color: var(--c-fg-muted);
+}
+/* Предупреждение или отказ в теле окна без своего нижнего поля: шаг задают тело и блок. */
+.ds-confirm-flat {
+  margin: 0;
+}
+/* Перечень (связи, имена, шаги, пути): строки без маркеров и коробки, каждая в одну
+   линию с многоточием; полный текст — в title строки. */
+.ds-confirm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ds-confirm-list > li {
+  overflow: hidden;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Тихая подпись группы строк («Сейчас», «Станет») и сама группа: подпись ближе к своим
+   строкам, чем к соседней группе. */
+.ds-confirm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ds-confirm-cap {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Строки «объект и его площадки» окна последствий: имя в колонке шириной 40% строки, с
+   многоточием; значение обычным текстом тихим цветом, с одного x во всех строках. */
+.ds-confirm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ds-confirm-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.ds-confirm-row-name {
+  flex: none;
+  width: 40%;
+  overflow: hidden;
+  color: var(--c-fg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ds-confirm-row-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--c-fg-muted);
+}
+/* Тихое число у заголовка блока («Будут удалены 2»), без склейки «·». Перед числом в
+   разметке настоящий пробел (имя заголовка читается «Будут удалены 2»); пробел 13px/600
+   шириной 3px, вместе с полем видимый зазор 6px. */
+.ds-confirm-count {
+  margin-left: 3px;
+  font-size: var(--fs-ui);
+  font-weight: 400;
+  color: var(--c-fg-muted);
+}
+
+/* ── Окна правки схемы: «Новый объект», «Новая связь», «Выберите связь» ─────
+   (фаза 9б редизайна; components/NodeModal, EdgeQuickCreate, EdgeChoiceModal) */
+/* Тихая строка под заголовком окна: пара концов связи «источник → цель». */
+.ds-win-lead {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+/* Отказ загрузки значения строки окна («Тип» в «Новом объекте»): текст опасности,
+   причина строкой ниже, «Повторить» под ними. */
+.ds-prop-fail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.ds-prop-fail .ds-danger {
+  margin: 0;
+}
+.ds-prop-fail-why {
+  display: block;
+  font-size: var(--fs-caption);
+}
+/* Строка списка в две строчки: имя и под ним тихая вторая строчка (настоящий конец
+   связи в «Выберите связь»). Столбец забирает ширину строки с нулевой основы: длинное
+   имя переносится внутри него, а тихий текст справа (ds-row-quiet) остаётся на первой
+   строчке, а не уходит отдельной строкой вниз. */
+.ds-row-text {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ds-row-sub {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+/* «Добавить» под списком в теле окна: по ширине текста, а не во всю строку тела. */
+.ds-win-body > .ds-add {
+  align-self: flex-start;
+}
+/* Окно прижато к верху экрана (Modal: boxStyle margin «8vh auto auto», как «Новый проект»
+   — project/createProject.css, .cp-win): не выше экрана без этого отступа и 24px снизу.
+   Высота окна меняется при смене содержимого («Пользователь» без двух строк в «Новом
+   объекте»), а верх и поля остаются на месте. */
+.ds-win.ds-win--top {
+  max-height: calc(92vh - 24px);
+}
+
+/* ── Подпись только для скринридера ──────────────────────────────────────
+   Поле без видимой подписи (логин в строке добавления окна «Доступ к проекту») держит
+   свой label: имя поля для скринридера и щелчок по подписи остаются, на экране её нет. */
+.ds-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Тихая красная кнопка-текст ──────────────────────────────────────────
+   «Удалить версию» в подвале окна версий, «Удалить» участника в окне «Доступ к проекту»,
+   «Отозвать» в окне «Токены для MCP»: текст цвета опасности без рамки и фона, подложка при
+   наведении, поля и отрицательный отступ как у .ds-add. Положение в строке задаёт место
+   вызова. */
+.ds-text-danger {
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-danger);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ds-text-danger:hover:not(:disabled) {
+  background: var(--c-hover);
+}
+.ds-text-danger:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.ds-text-danger:disabled {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+
+/* ── Тост: всплывающее сообщение ─────────────────────────────────────────
+   Один вид для итога действия, чужой правки и отказа: отказ отличают текст и role="alert",
+   а не цвет. Тёмная плашка видна и на белой странице, и на холсте. Гарнитура, кегль,
+   интерлиньяж, трекинг и цвет заданы явно: тост стоит и в области нового языка, и внутри
+   области холста редактора (legacy-root, прежние метрики корня), и вне любой области
+   (служебные плашки в main.tsx) и везде выглядит одинаково. Сам тост места не знает: его
+   ставит модификатор места ниже. Ширина по тексту, не больше 420px и не шире окна;
+   длинный текст переносится. */
+.ds-toast {
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--c-fg);
+  color: var(--c-bg);
+  font: 400 var(--fs-ui) / var(--lh-ui) var(--font-ui);
+  letter-spacing: 0;
+  text-align: left;
+  overflow-wrap: break-word;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 18%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 12%, transparent);
+}
+/* Выделенное начало (что случилось: «Не получилось добавить объект.»). */
+.ds-toast b {
+  font-weight: 600;
+  color: inherit;
+}
+/* Тост с кнопкой («Обновить» у «Вышла новая версия»): текст и кнопка в строку. Кнопка —
+   ds-btn, на тёмной плашке она читается белой; кольцо фокуса отодвинуто от неё наружу,
+   чтобы между кнопкой и кольцом была видна тёмная плашка. */
+.ds-toast--action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ds-toast--action .ds-btn {
+  flex: none;
+}
+.ds-toast--action .ds-btn:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Места тоста. Значения и z-index — прежние места каждого тоста (фаза 13а меняла только
+   вид; тост рамки схемы переехал в фазе 13б). Шкала: тосты страниц 50 и 60, панель
+   «Рекомендации» 50, служебные плашки 10000; внутри холста и рамки схемы 6 и 7 (слой
+   «кликните, чтобы взаимодействовать» 4, кнопки холста 5, легенда 6). */
+/* Низ окна по центру: итог действия на «Проектах», «Пользователях» и в «Развёртывании».
+   Щелчки проходят сквозь тост к тому, что под ним. */
+.ds-toast--bottom {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  pointer-events: none;
+}
+/* Низ окна справа: итог «Обновить из кода» и «Догрузить архив», отказ архива. */
+.ds-toast--bottom-end {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+}
+/* Под шапкой у правого края окна: «Объект только что изменили в другом окне». */
+.ds-toast--top-end {
+  position: fixed;
+  top: 74px;
+  right: 24px;
+  z-index: 60;
+}
+/* Верх рамки встроенной схемы по центру (внутри .esb-wrap, у неё position: relative): «Схему
+   только что изменили в другом окне» на главной проекта и на странице объекта. Ширина по
+   тексту, не шире рамки без 24px. Щелчки проходят сквозь тост к слою «кликните, чтобы
+   взаимодействовать» и кнопкам холста под ним, а рисуется тост над ними. */
+.ds-toast--frame {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  max-width: min(420px, calc(100% - 24px));
+  pointer-events: none;
+}
+/* Низ холста по центру (у родителя position: relative): отказ по пределу демо-стенда и
+   заметки холста процессов. Ширина своя: шире обычного тоста, но не шире холста. */
+.ds-toast--canvas {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  width: min(520px, calc(100% - 32px));
+  max-width: none;
+}
+/* Служебные плашки поверх всего: «Нет связи с сервером» вверху окна по центру, «Вышла новая
+   версия» внизу. */
+.ds-toast--service-top {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+}
+.ds-toast--service-bottom {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+}
+/* Колонка тостов холста редактора (правый верхний угол области холста): чужая правка, итог
+   «Принять переход», отказ — друг под другом с шагом 8px. Колонка прозрачна для мыши,
+   щелчки ловят только сами тосты. */
+.ds-toast-rail {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.ds-toast-rail > .ds-toast {
+  pointer-events: auto;
+}

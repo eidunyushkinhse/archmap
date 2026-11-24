@@ -1,13 +1,12 @@
-// Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
-// (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
-// связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
+// Страница объекта (single-schema; редизайн, направление А «Документ»): читается как
+// документ. Шапка (крошки, название, статус страницы, меню), описание, свойства одной
+// ровной сеткой (inline CAS), схема (контекст объекта виртуальным корневым уровнем —
+// SchemaSection), дальше только разделы с содержимым. Правка — по клику на значении.
 import { Fragment, useCallback, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
-import { nodeNesting, shapeDocs, treeNesting } from "../types";
+import { nodeNesting, shapeDocs } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict, isDemoLimit } from "../api/client";
-import { getNodeColors } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
@@ -28,18 +27,20 @@ import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import type { NavigateMap, ViewMetaState } from "../components/graph/types";
 import "./NodePage.css";
+import "../ui/ds.css";
 import { noAutofill } from "../ui/noAutofill";
 import NodeProperties from "../components/nodePage/NodeProperties";
 import LogicSection from "../components/nodePage/LogicSection";
 import OpenApiSection from "../components/nodePage/OpenApiSection";
 import type { DocTarget } from "../components/nodePage/docTarget";
 import EdgesSection from "../components/nodePage/EdgesSection";
-import HeaderGlyph from "../components/nodePage/HeaderGlyph";
+import DescriptionField from "../components/nodePage/DescriptionField";
 import ApprovalPill from "../components/nodePage/ApprovalPill";
 import ProcessesSection from "../components/nodePage/ProcessesSection";
 import SchemaSection from "../components/nodePage/SchemaSection";
 import VersionsPanel from "../components/nodePage/versions/VersionsPanel";
 import { useProjectRole } from "./projectRole";
+import { useMenu } from "../ui/useMenu";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -67,14 +68,6 @@ const nodeSig = (n: Node): string => JSON.stringify([
 // Единиц статуса нет (лист, пустая система) — общий пустой список, без «Загрузки…».
 const NO_UNITS: Node[] = [];
 
-// Тост «Объект только что изменили в другом окне» — поверх страницы (fixed).
-const metaToastStyle: CSSProperties = {
-  position: "fixed", top: 74, right: 24, zIndex: 60,
-  background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3",
-  borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600,
-  boxShadow: "0 4px 12px rgba(30,41,59,.12)",
-};
-
 interface Props {
   nodeId: string;
   isArchitect: boolean;
@@ -83,7 +76,7 @@ interface Props {
   onNavigateProject: () => void;
   // Навигация в редактор-карту
   onNavigateMap?: NavigateMap;
-  // Навигация в режим «Процессы» с выбором процесса (секция «Участвует в процессах»)
+  // Навигация в режим «Процессы» с выбором процесса (раздел «Процессы»)
   onNavigateProcesses?: (processId: string) => void;
   // Удаление узла со страницы → редирект на родителя
   onNodeDeleted?: (parentId: string | null) => void;
@@ -203,8 +196,11 @@ function NodePageInner({
     () => (containerId ? nodesApi.get(containerId) : Promise.resolve(null)),
   );
   const containerNode = componentContainer.data;
-  const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
+  // ⋯-меню: Escape, стрелки и возврат фокуса на кнопку — общим хуком ui/useMenu; щелчок мимо
+  // ловит своя подложка np-backdrop (она внутри обёртки меню).
+  const { wrapRef: menuWrapRef, triggerRef: menuBtnRef, menuRef, onKeyDown: onMenuKey, pick } =
+    useMenu(menuOpen, setMenuOpen);
   const [confirming, setConfirming] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   // Панель «Версии документации» (⋯-меню, обе роли). Удаляет версии только владелец
@@ -368,36 +364,32 @@ function NodePageInner({
   }, [container]);
 
   return (
-    <div className="np-page">
-      {metaToast && <div style={metaToastStyle}>Объект только что изменили в другом окне</div>}
+    <div className="np-page ds">
+      {/* Чужая правка объекта: тост поверх страницы под шапкой у правого края (ui/ds.css). */}
+      {metaToast && <div className="ds-toast ds-toast--top-end">Объект только что изменили в другом окне</div>}
       <div className="np-inner">
-        {/* ── Шапка ─────────────────────────────────────────────── */}
-        <div className="np-header">
-          {/* Breadcrumb предков */}
-          <div className="np-breadcrumb">
-            <button onClick={onNavigateProject}>Проект</button>
+        {/* ── Шапка: крошки, название, статус страницы и меню, описание ── */}
+        <header className="np-header">
+          <nav className="np-breadcrumb" aria-label="Путь к объекту">
+            <button type="button" onClick={onNavigateProject}>Проект</button>
             {ancestors.map((a) => (
-              <span key={a.id} style={{ display: "inline-flex", alignItems: "center" }}>
-                <span className="np-bc-sep">›</span>
-                <button onClick={() => onNavigateNode(a.id)}>{a.name}</button>
-              </span>
+              <Fragment key={a.id}>
+                <span className="np-bc-sep" aria-hidden="true">/</span>
+                <button type="button" onClick={() => onNavigateNode(a.id)}>{a.name}</button>
+              </Fragment>
             ))}
-          </div>
+          </nav>
 
-          {/* Глиф + имя + бейджи */}
           <div className="np-title-row">
-            <span className="np-glyph" style={{ background: colors.bg }}>
-              <HeaderGlyph shape={shape} nesting={treeNesting(node)} />
-            </span>
-
             {isArchitect ? (
               // Поле имени — по ширине самого имени, но не уже слова «api» (обёртка
               // np-name-fit: невидимые копии текста в той же ячейке задают ширину):
-              // длинное имя не обрезается, пилюля статуса стоит рядом с коротким.
+              // длинное имя не обрезается, статус стоит справа в той же строке.
               <span className="np-name-fit" data-value={patch.name}>
                 <input
                   {...noAutofill("node-page-1")}
                   className="np-name-input"
+                  aria-label="Название"
                   value={patch.name}
                   onChange={(e) => patch.setName(e.target.value)}
                   onBlur={patch.commitName}
@@ -405,63 +397,77 @@ function NodePageInner({
                 />
               </span>
             ) : (
-              <span className="np-name">{node.name}</span>
+              <h1 className="np-name">{node.name}</h1>
             )}
 
-            {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор
-                редактора; у внешней системы (Р42) статус не ведётся — пилюли нет */}
-            {element.kind !== "external" && (
-              <ApprovalPill
-                node={node}
-                isArchitect={isArchitect}
-                units={loadDescendants ? container.units : NO_UNITS}
-                onNavigateNode={onNavigateNode}
-                onPick={patch.pickApproval}
-              />
-            )}
-
-            {/* ⋯-меню: пункты просмотра — обеим ролям (история версий нужна и
-                читателю, docs/tasks/doc-versions.md §7), пункты правки — редактору */}
-            <div className="np-menu-wrap">
-              <button
-                className="np-menu-btn"
-                onClick={() => setMenuOpen((o) => !o)}
-                title="Действия"
-              >
-                ⋯
-              </button>
-              {menuOpen && (
-                <>
-                  <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
-                  <div className="np-dropdown">
-                    {onNavigateMap && (
-                      <button onClick={() => {
-                        setMenuOpen(false);
-                        // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
-                        onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
-                      }}>
-                        Открыть в редакторе
-                      </button>
-                    )}
-                    <button onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
-                      Версии документации
-                    </button>
-                    {isArchitect && (
-                      <>
-                        <button onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
-                          Экспорт объекта с вложенными
-                        </button>
-                        <button className="np-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
-                          Удалить объект
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
+            <div className="np-title-aside">
+              {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор
+                  редактора; у внешней системы (Р42) статус не ведётся — его нет */}
+              {element.kind !== "external" && (
+                <ApprovalPill
+                  node={node}
+                  isArchitect={isArchitect}
+                  units={loadDescendants ? container.units : NO_UNITS}
+                  onNavigateNode={onNavigateNode}
+                  onPick={patch.pickApproval}
+                />
               )}
+
+              {/* ⋯-меню: пункты просмотра — обеим ролям (история версий нужна и
+                  читателю, docs/tasks/doc-versions.md §7), пункты правки — редактору */}
+              <div ref={menuWrapRef} className="np-menu-wrap">
+                <button
+                  ref={menuBtnRef}
+                  type="button"
+                  className="np-menu-btn"
+                  onClick={() => setMenuOpen((o) => !o)}
+                  title="Действия"
+                  aria-expanded={menuOpen}
+                  onKeyDown={onMenuKey}
+                >
+                  ⋯
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
+                    <div ref={menuRef} className="np-dropdown ds-menu" onKeyDown={onMenuKey}>
+                      {onNavigateMap && (
+                        <button type="button" className="ds-menu-item" onClick={() => pick(() => {
+                          // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
+                          onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
+                        })}>
+                          {/* Читателю тот же экран открывается в режиме просмотра (фаза 13д). */}
+                          {isArchitect ? "Открыть в редакторе" : "Развернуть схему"}
+                        </button>
+                      )}
+                      <button type="button" className="ds-menu-item" onClick={() => pick(() => setVersionsOpen(true))}>
+                        Версии документации
+                      </button>
+                      {isArchitect && (
+                        <>
+                          <button type="button" className="ds-menu-item" onClick={() => pick(() => setExportOpen(true))}>
+                            Экспорт объекта с вложенными
+                          </button>
+                          <button type="button" className="ds-menu-item ds-menu-item--danger" onClick={() => pick(() => setConfirming(true))}>
+                            Удалить объект
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* Описание — сразу под названием, а не строкой свойств */}
+          <DescriptionField
+            value={isArchitect ? patch.description : (node.description ?? "")}
+            editable={isArchitect}
+            onChange={patch.setDescription}
+            onCommit={patch.commitDesc}
+          />
+        </header>
 
         {/* Конфликт CAS */}
         {patch.conflict && <p className="np-conflict">{patch.conflict}</p>}
@@ -500,60 +506,22 @@ function NodePageInner({
         />
 
         {/* ── Схема (single-schema: контекст объекта виртуальным корневым уровнем) ── */}
-        <div className="np-card">
-          <h3 className="np-card-title">Схема</h3>
-          <SchemaSection
-            node={node}
-            ancestors={ancestors}
-            isArchitect={isArchitect}
-            onNavigateNode={onNavigateNode}
-            onNavigateMap={onNavigateMap}
-            onNodeChanged={handleNodeChanged}
-            viewMeta={viewMetaRef}
-            mutationToken={mutationToken}
-          />
-        </div>
+        <SchemaSection
+          node={node}
+          ancestors={ancestors}
+          isArchitect={isArchitect}
+          onNavigateNode={onNavigateNode}
+          onNavigateMap={onNavigateMap}
+          onNodeChanged={handleNodeChanged}
+          viewMeta={viewMetaRef}
+          mutationToken={mutationToken}
+        />
 
         {/* ── Документация под схемой — одним блоком: на него смотрит обучающий тур
-            (шаг «Не только схема»), раскладка та же, что у колонки карточек ── */}
+            (шаг «Не только схема»). Порядок разделов (редизайн, направление А):
+            Логика, OpenAPI, Конфигурация, Структура/Каналы, Связи, Процессы; раздел,
+            которому нечего показать и нечего предложить, не рисуется вовсе ── */}
         <div className="np-docs" data-tour="node-docs">
-          {/* ── Связи (одноимённые — строкой со счётчиком, карточка сворачивается) ── */}
-          <EdgesSection
-            edges={edges}
-            nodeName={node.name}
-            isArchitect={isArchitect}
-            onNavigateNode={onNavigateNode}
-            onEdit={setEdgeEditId}
-          />
-
-          {/* ── Участвует в процессах ─────────────────────────────── */}
-          <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
-
-          {/* ── Структура (таблицы БД) ────────────────────────────── */}
-          {allow.structure && (
-            <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
-          )}
-
-          {/* ── Каналы (структура брокера) ────────────────────────── */}
-          {allow.channels && (
-            <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
-          )}
-
-          {/* ── Конфигурация (параметры сервиса) ──────────────────── */}
-          {/* Монтируется ВСЕГДА, в отличие от двух секций выше: параметров нет в теле
-              узла, и узнать про легаси-записи у неподходящей формы можно только
-              запросом. Секция сама промолчит, если их нет (спрятать применённое было
-              бы хуже, чем показать с предупреждением). */}
-          <ConfigParamsSection
-            nodeId={node.id}
-            element={element}
-            isArchitect={isArchitect}
-            allowed={allow.config}
-            onTransfer={isSystem ? facts.openTransfer : undefined}
-            onCollect={facts.collectParams}
-            onNavigateNode={onNavigateNode}
-          />
-
           {/* ── Логика (node_docs) ────────────────────────────────── */}
           <LogicSection
             node={node}
@@ -562,7 +530,6 @@ function NodePageInner({
             allowed={allow.logic}
             legacy={legacyLogic}
             groups={container.docGroups}
-            loading={container.loading}
             onOpen={setDoc}
             onTransfer={facts.openTransfer}
             onDocsAgent={openDocsAgent}
@@ -574,20 +541,53 @@ function NodePageInner({
           {/* ── OpenAPI ───────────────────────────────────────────── */}
           <OpenApiSection
             spec={node.openapi_spec}
-            docs={node.docs}
             element={element}
-            containerHasSpec={containerNode ? (containerNode.openapi_spec ?? "").trim() !== "" : null}
             isArchitect={isArchitect}
             allowed={allow.spec}
             legacy={legacySpec}
             groups={container.specGroups}
-            loading={container.loading}
             onOpen={setDoc}
             onOpenChildSpec={openChildSpec}
             onTransfer={isSystem ? facts.openTransfer : undefined}
             onCollect={facts.collectSpec}
             onNavigateNode={onNavigateNode}
           />
+
+          {/* ── Конфигурация (параметры сервиса) ──────────────────── */}
+          {/* Монтируется ВСЕГДА, в отличие от двух разделов ниже: параметров нет в теле
+              узла, и узнать про легаси-записи у неподходящей формы можно только
+              запросом. Раздел сам промолчит, если их нет (спрятать применённое было
+              бы хуже, чем показать с предупреждением). */}
+          <ConfigParamsSection
+            nodeId={node.id}
+            element={element}
+            isArchitect={isArchitect}
+            allowed={allow.config}
+            onTransfer={isSystem ? facts.openTransfer : undefined}
+            onCollect={facts.collectParams}
+          />
+
+          {/* ── Структура (таблицы БД) ────────────────────────────── */}
+          {allow.structure && (
+            <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+          )}
+
+          {/* ── Каналы (структура брокера) ────────────────────────── */}
+          {allow.channels && (
+            <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+          )}
+
+          {/* ── Связи (одноимённые — одной строкой с тихим счётчиком) ── */}
+          <EdgesSection
+            edges={edges}
+            nodeName={node.name}
+            isArchitect={isArchitect}
+            onNavigateNode={onNavigateNode}
+            onEdit={setEdgeEditId}
+          />
+
+          {/* ── Процессы ──────────────────────────────────────────── */}
+          <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
         </div>
         </Fragment>
       </div>
@@ -656,7 +656,6 @@ function NodePageInner({
       {docsAgent && (
         <DocsAgentModal
           nodeId={node.id}
-          nodeName={node.name}
           onClose={() => setDocsAgent(false)}
           // Дозаливка изменила мету доков узла — свежий узел целиком (секция «Логика»).
           onApplied={refreshNode}
@@ -669,7 +668,6 @@ function NodePageInner({
       {reconAgent && (
         <ReconAgentModal
           nodeId={node.id}
-          nodeName={node.name}
           onClose={() => setReconAgent(false)}
           // Заглушки — те же схемы логики: свежий узел целиком, и секция «Логика»
           // показывает их сразу.

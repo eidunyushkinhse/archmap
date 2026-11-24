@@ -337,6 +337,8 @@ export type ProcessImportIn = Schemas["ProcessImportPreviewIn"];
 export type ProcessImportApply = Schemas["ProcessImportApply"];
 export type ProcessImportPreview = Schemas["ProcessImportPreview"];
 export type ProcessImportResult = Schemas["ProcessImportResult"];
+// Замена содержимого процесса диаграммой: итог импорта плюс номер версии перед заменой.
+export type ProcessReplaceResult = Schemas["ProcessReplaceResult"];
 export type BranchIn = Schemas["BranchIn"];
 // Стиль стрелки сообщения (производный от плеча) — Literal из контракта.
 export type MessageKind = Schemas["MessageOut"]["kind"];

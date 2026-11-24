@@ -1,6 +1,8 @@
 // Воркспейс режима «Процессы» — композиция рейла (список процессов) и холста
 // (диаграмма выбранного). Владеет списком processesApi.list(), выбором, флагами
-// railOpen/editing (персист в localStorage) и операциями новый/дублировать/удалить.
+// railOpen/editing (персист в localStorage) и операциями новый/дублировать/удалить/
+// переименовать/импортировать/заменить из Mermaid. Новый процесс создаётся только после
+// ввода имени (строка в рейле).
 // Вынесен из TreePage, чтобы не раздувать и без того большой компонент страницы.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -8,12 +10,13 @@ import { viewsApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 import { startPollLoop, type RemoteSyncTick } from "../../pages/useRemoteSync";
 import { isConnectionError } from "../../lib/connection";
-import type { ProcessListItem } from "../../types";
+import { useMessageToast } from "../../pages/useToast";
+import type { ProcessListItem, ProcessReplaceResult } from "../../types";
 import ProcessCanvas from "./ProcessCanvas";
 import ProcessImportModal from "./ProcessImportModal";
 import ProcessRail from "./ProcessRail";
-import { IcoFlow } from "./icons";
-import { BPT } from "./tokens";
+import AddDocsMenu from "../AddDocsMenu";
+import "../../ui/ds.css";
 import "./processes.css";
 import DemoLimitToast from "../demo/DemoLimitToast";
 import { useDemoLimitToast } from "../demo/useDemoLimitToast";
@@ -58,14 +61,37 @@ export default function ProcessWorkspace({
   isArchitect, initialProcessId, openForFix, onSelectedChange, onChanged, onOpenNode,
 }: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
+  // Отказ загрузки списка: рисуется вместо холста, пока списка нет. Отказы операций над
+  // процессами (создать, дублировать, переименовать, удалить) идут тостом (fail ниже):
+  // после загрузки списка эта строка не видна.
   const [error, setError] = useState<string | null>(null);
   // Демо-стенд (docs/tasks/demo-mode.md, экран 4): «Новый процесс» и дубль упёрлись в
   // предел — тост внизу холста процессов.
   const [limitToast, showLimit] = useDemoLimitToast();
   // Явно выбранный процесс. null → берём первый из списка (derived ниже), без эффекта.
   const [picked, setPicked] = useState<string | null>(initialProcessId ?? null);
-  // Импорт из mermaid: заводит НОВЫЙ процесс (слияние с существующим — отдельная задача).
+  // Импорт из Mermaid: заводит новые процессы (пачкой из файлов или вставленным текстом).
   const [importing, setImporting] = useState(false);
+  // Замена процесса из Mermaid: какой процесс заменяют (окно импорта в режиме замены).
+  const [replacing, setReplacing] = useState<{ id: string; name: string } | null>(null);
+  // Поколение холста открытого процесса. Замена пишет шаги и участников заново (новые
+  // id): холст перемонтируется, его история отмены и панель шага со старым id уходят.
+  const [canvasGen, setCanvasGen] = useState(0);
+  // Итог замены и отказы операций — тем же тостом внизу холста, что и отказ по пределу
+  // демо-стенда: жирное начало (что случилось) и текст (подробности). Последний показ
+  // заменяет прежний.
+  const [noteText, showNoteText] = useMessageToast(6000);
+  const [noteHead, setNoteHead] = useState("");
+  const showNote = useCallback((head: string, text: string) => {
+    setNoteHead(head);
+    showNoteText(text);
+  }, [showNoteText]);
+  // Отказ операции: что не удалось и причина из ответа сервера одной строкой.
+  const fail = useCallback((what: string, e: unknown) => {
+    showNote(`Не удалось ${what}.`, e instanceof Error ? e.message : "");
+  }, [showNote]);
+  // Ввод имени нового процесса в рейле: до Enter в базе ничего нет.
+  const [creating, setCreating] = useState(false);
   const [railOpen, setRailOpen] = useState<boolean>(() => readPrefs().railOpen ?? true);
   // Пришли ЧИНИТЬ (строка алерта в редакторе-карте) — открываемся сразу в правке:
   // иначе человек попадает на диаграмму, где ничего не кликается, и сломанный шаг
@@ -146,18 +172,25 @@ export default function ProcessWorkspace({
   // Защита от гонок: held токен последней операции, чтобы не перетереть выбор.
   const opSeq = useRef(0);
 
-  async function onNew() {
+  // «Новый процесс» из меню «Добавить» (рейла или пустого экрана): строка с полем имени
+  // в рейле, рейл при этом разворачивается.
+  function startCreate() {
+    setRailOpen(true);
+    setCreating(true);
+  }
+
+  async function onCreate(name: string) {
+    setCreating(false);
     const myOp = ++opSeq.current;
     try {
-      const created = await processesApi.create({ name: "Новый процесс" });
+      const created = await processesApi.create({ name });
       await reload();
       if (opSeq.current === myOp) {
         setPicked(created.id);
         setEditingPref(true); // новый процесс сразу в правке (как было в BusinessProcessSection)
       }
     } catch (e: unknown) {
-      if (showLimit(e, "process")) return;
-      setError(e instanceof Error ? e.message : "Не удалось создать процесс");
+      if (!showLimit(e, "process")) fail("создать процесс", e);
     }
   }
 
@@ -168,8 +201,7 @@ export default function ProcessWorkspace({
       await reload();
       if (opSeq.current === myOp) setPicked(copy.id);
     } catch (e: unknown) {
-      if (showLimit(e, "process")) return;
-      setError(e instanceof Error ? e.message : "Не удалось дублировать процесс");
+      if (!showLimit(e, "process")) fail("дублировать процесс", e);
     }
   }
 
@@ -179,9 +211,19 @@ export default function ProcessWorkspace({
     try {
       await processesApi.update(id, { name });
     } catch (e: unknown) {
-      if (!showLimit(e, "save")) setError(e instanceof Error ? e.message : "Не удалось переименовать процесс");
+      if (!showLimit(e, "save")) fail("переименовать процесс", e);
     }
     await reload();
+  }
+
+  // Процесс заменён текстом Mermaid: имя в рейле сразу, холст открытого перечитан с нуля.
+  function onReplaced(id: string, res: ProcessReplaceResult, name: string) {
+    setReplacing(null);
+    setItems((cur) => cur && cur.map((p) => (p.id === id ? { ...p, name } : p)));
+    if (id === selectedId) setCanvasGen((g) => g + 1);
+    showNote("Процесс заменён.", res.version_number != null ? `Прежний вариант сохранён в версии ${res.version_number}` : "");
+    void reload();
+    onChanged?.(); // участники и шаги новые — знак алертов протух
   }
 
   async function onDelete(id: string) {
@@ -191,7 +233,7 @@ export default function ProcessWorkspace({
       if (picked === id) setPicked(null);
       await reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось удалить процесс");
+      fail("удалить процесс", e);
     }
   }
 
@@ -200,60 +242,86 @@ export default function ProcessWorkspace({
       {importing && (
         <ProcessImportModal
           onClose={() => setImporting(false)}
-          onImported={(pid) => {
-            setImporting(false);
-            setPicked(pid);
+          onImported={(ids, all) => {
+            // Прошли все — окно закрывается и открывается первый импортированный;
+            // часть упала — окно остаётся с упавшими, рейл уже знает новые.
+            if (all) {
+              setImporting(false);
+              setPicked(ids[0]);
+            }
             void reload();
             onChanged?.();  // импорт создал участников/шаги — знак алертов протух
           }}
+        />
+      )}
+      {replacing && (
+        <ProcessImportModal
+          replace={replacing}
+          onClose={() => setReplacing(null)}
+          onReplaced={(res, name) => onReplaced(replacing.id, res, name)}
         />
       )}
       <ProcessRail
         processes={items}
         selectedId={selectedId}
         onSelect={(id) => setPicked(id)}
-        onNew={() => void onNew()}
         onImport={() => setImporting(true)}
+        creating={creating}
+        onStartCreate={startCreate}
+        onCreate={(name) => void onCreate(name)}
+        onCancelCreate={() => setCreating(false)}
         expanded={railOpen}
         onToggle={() => setRailOpen((o) => !o)}
         isArchitect={isArchitect}
         onDuplicate={(id) => void onDuplicate(id)}
+        onReplace={(id) => {
+          const p = items?.find((x) => x.id === id);
+          if (p) setReplacing({ id, name: p.name });
+        }}
         onDelete={(id) => void onDelete(id)}
         onRename={(id, name) => void onRename(id, name)}
       />
       {error && items === null ? (
-        <div style={emptyWrap}>
-          <div style={{ color: "#dc2626", fontSize: 13 }}>{error}</div>
+        <div className="proc-empty ds">
+          <span className="proc-empty-err">{error}</span>
         </div>
       ) : items !== null && items.length === 0 ? (
-        <div style={emptyWrap}>
-          <span style={emptyGlyph}>
-            <IcoFlow s={26} />
-          </span>
-          <div style={{ fontSize: 15, fontWeight: 600, color: BPT.head }}>Пока ни одного процесса</div>
-          {!isArchitect && (
-            <div style={{ fontSize: 13, color: BPT.mut, maxWidth: 360, textAlign: "center" }}>
-              Архитектор ещё не создал ни одного бизнес-процесса.
-            </div>
+        // Пустой проект — одна строка; редактору рядом «Добавить» с тем же меню, что в рейле.
+        <div className="proc-empty ds">
+          <span>Процессов пока нет.</span>
+          {isArchitect && (
+            <AddDocsMenu
+              groups={[[
+                { label: "Импорт из Mermaid", onSelect: () => setImporting(true) },
+                { label: "Новый процесс", onSelect: startCreate },
+              ]]}
+            />
           )}
         </div>
       ) : selectedId ? (
         <ProcessCanvas
-          key={selectedId}
+          key={`${selectedId}:${canvasGen}`}
           id={selectedId}
+          // Имя — из списка: переименование в рейле или в шапке видно сразу в обоих местах.
+          name={selName ?? ""}
+          onRename={(name) => void onRename(selectedId, name)}
           isArchitect={isArchitect}
           editing={editing}
           syncRev={syncRev}
+          // Чинить пришли именно этот процесс: холст сразу открывает его сломанный шаг.
+          fixOnOpen={!!openForFix && selectedId === initialProcessId}
           onToggleEditing={(v) => setEditingPref(v)}
           onChanged={() => { void reload(); onChanged?.(); }}
           onOpenNode={onOpenNode}
         />
       ) : (
-        <div style={emptyWrap}>
-          <div style={{ fontSize: 13, color: BPT.mut }}>Загрузка</div>
+        <div className="proc-empty ds">
+          <span>Загрузка</span>
         </div>
       )}
-      <DemoLimitToast message={limitToast} />
+      <DemoLimitToast
+        message={limitToast ?? (noteText !== null ? { head: noteHead, text: noteText } : null)}
+      />
     </div>
   );
 }
@@ -264,26 +332,4 @@ const workspace: CSSProperties = {
   display: "flex",
   minHeight: 0,
   minWidth: 0,
-};
-const emptyWrap: CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 10,
-  background: BPT.canvas,
-};
-const emptyGlyph: CSSProperties = {
-  width: 52,
-  height: 52,
-  borderRadius: 14,
-  background: "#fff",
-  border: "1px solid " + BPT.line,
-  color: BPT.accent,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  marginBottom: 4,
 };

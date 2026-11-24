@@ -1,7 +1,8 @@
 # ArchMap — CLAUDE.md
 
 Стек (проверено 2026-10-30 по package.json / requirements-prod.txt / pyproject.toml)
-- Frontend: React 19 + Vite 8 + TypeScript 6; холст — @xyflow/react 12 + elkjs, схемы логики — mermaid 12
+- Frontend: React 19 + Vite 8 + TypeScript 6; холст — @xyflow/react 12 + elkjs, схемы логики — mermaid 12;
+  шрифт интерфейса Inter вшит в сборку (@fontsource-variable/inter, подключён в main.tsx)
 - Backend: Python 3.12 + FastAPI 0.143 (Starlette 1.8, Pydantic 2.14, uvicorn 0.54); SDK MCP (mcp 1.30) —
   в рантайме бэкенда: удалённый MCP-сервер /mcp живёт в его процессе
 - БД: PostgreSQL 15+ (localhost:5432, БД `archmap`; второй экземпляр в демо-режиме — `archmap_demo`)
@@ -23,7 +24,8 @@
   ОТДЕЛЬНЫЙ репозиторий github.com/eidunyushkinhse/archmap-docs (docs.archmap.tech; вынесена из
   docs-site/ 2026-10-16, локально — ../archmap-docs; у него свои CLAUDE.md и README.md)
 
-Структура проекта (проверено 2026-10-14; счётчики и модули элемента архитектуры — 2026-10-30)
+Структура проекта (проверено 2026-10-14; модули элемента архитектуры — 2026-10-30;
+счётчики и фронт — 2026-11-24)
 archmap/
 ├── frontend/              # React + Vite
 │   ├── src/
@@ -32,36 +34,45 @@ archmap/
 │   │   │                  # codeChanges («Документация актуальна»: снять напоминание о слиянии из CI)
 │   │   ├── lib/           # общие механизмы без разметки: lazyOnce, useAsyncLoad, safeStorage, copyText,
 │   │   │                  # connection (признак «нет связи»), motion (prefers-reduced-motion)
-│   │   ├── ui/            # общие UI-примитивы: Modal, ConfirmDialog, ErrorBoundary, LoadError, UpdateNotice,
-│   │   │                  # ConnectionNotice, InfoPopover, ProfileMenu, icons, styles, plural
+│   │   ├── ui/            # язык интерфейса (редизайн 2026-11, docs/plan-redesign.md): tokens.css (цвета,
+│   │   │                  # шкала шрифта, тени) и ds.css (примитивы ds-*: кнопки, поля, окна, меню, вкладки,
+│   │   │                  # таблицы, тосты, отказы); общие UI-примитивы: Modal, ConfirmDialog, ErrorBoundary,
+│   │   │                  # LoadError, UpdateNotice, ConnectionNotice, InfoPopover, ProfileMenu, BrandLink,
+│   │   │                  # Section, GrowField, icons, plural; useDismiss (закрытие щелчком мимо и Escape) и
+│   │   │                  # useMenu (меню у кнопки: клавиатура и возврат фокуса), useBusyAction, noAutofill
 │   │   ├── components/
 │   │   │   ├── graph/     # движок холста: layout/ (конвейер в Web Worker, роутер стрелок, раскладка, VPSC, ELK),
 │   │   │   │              # interaction/ (хуки useLevel*, драг, снап, анимации, undo), узлы, рёбра, проекция
 │   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, ObjectInspector, DocOverlay
-│   │   │   ├── processes/ # бизнес-процессы: sequence-диаграммы, рейл, композитор, импорт из mermaid
+│   │   │   ├── processes/ # бизнес-процессы: экран процесса для чтения и проверки (рейл со списком,
+│   │   │   │              # диаграмма, панель шага), окна правки поверх неё на стеке useOverlayStack
+│   │   │   │              # с фокусом useOverlayFocus, импорт процессов и замена из mermaid
+│   │   │   │              # (композитор шага — components/MessageComposer)
 │   │   │   ├── project/   # создание и правка проектов, ввоз (ImportPane), догрузка, доступ, превью схемы,
 │   │   │   │              # плашка «Документацию пора обновить» по сигналу CI (CodeChangeNotice)
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
 │   │   │   ├── anchor/    # поле и тексты источника объекта (source_ref; в коде понятие зовётся anchor)
-│   │   │   ├── element/   # элемент архитектуры: строка «Тип» (TypeSelect, useTypePick) и справка «?»,
+│   │   │   ├── element/   # элемент архитектуры: строка «Тип» (TypeSelect, useTypePick),
 │   │   │   │              # варианты поля «Тип» по контексту (typeOptions), смена элемента с
 │   │   │   │              # последствиями, «Перенести документацию» / «Собрать с компонентов»
 │   │   │   ├── users/     # меню профиля (смена пароля, «Токены для MCP»), окна экрана «Пользователи»
 │   │   │   ├── login/     # анимированное превью схемы на странице входа
-│   │   │   ├── demo/      # демо-режим: плашки и тосты пределов проекта
-│   │   │   ├── tour/      # обучающий тур демо: шаги, машина состояний, слой подсказок, пилюля «Обучение»
+│   │   │   ├── demo/      # демо-режим: сообщения и тосты пределов проекта
+│   │   │   ├── tour/      # обучающий тур демо: шаги, машина состояний, слой подсказок, кнопка «Обучение»
 │   │   │   ├── nodePage/  # части страницы объекта: свойства (в т.ч. строка «Размещение»), секции «Логика»/«OpenAPI»/«Схема» по элементу, группы потомков
 │   │   │   ├── deployment/# режим «Развёртывание»: проекция графа площадок на холст, окна «Размещение» и «Площадки»,
 │   │   │   │              # конфликты размещения контейнера целиком (placementConflicts, PlacementConflictList)
-│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 271 тестовый файл)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 317 тестовых файлов)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
 │   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel; режимы
 │   │   │                  # карта / страницы / развёртывание — nodeTree.mode), алерты, фильтр вида
-│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), DeploymentPage
-│   │   │                  # (холст «Развёртывание»: дерево слева, режим размещения — useDeploymentPlacing), MapEditorPage
-│   │   │                  # (редактор-карта), ProjectsPage, UsersPage, LoginPage, DemoLoginPage; хуки страниц:
+│   │   ├── pages/         # ProjectShell (оболочка; шапка — ProjectShellHeader), ProjectHomePage, NodePage (страница
+│   │   │                  # объекта), DeploymentPage (холст «Развёртывание»: дерево слева, режим размещения —
+│   │   │                  # useDeploymentPlacing), MapEditorPage (редактор-карта; шапка — MapEditorHeader;
+│   │   │                  # читателю открывается в режиме просмотра), ProjectsPage, UsersPage, LoginPage,
+│   │   │                  # DemoLoginPage; хуки страниц:
 │   │   │                  # useLevelSchema, useRemoteSync (поллинг и startPollLoop), useNodePatch, useToast;
 │   │   │                  # workMode — режим оболочки «Объекты · Процессы · Развёртывание» (памяти нет: проект открывается в «Объектах»)
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
@@ -179,6 +190,7 @@ archmap/
 │   ├── tasks-archive.md   # журнал закрытых задач
 │   ├── docs-delta.md      # что изменилось в продукте относительно docs.archmap.tech (пополнять в коммите фичи)
 │   ├── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
+│   ├── plan-redesign.md # редизайн интерфейса 2026-11: язык, решения владельца, записи приёмки фаз
 │   └── plan-audit-2026-10.md # аудит 2026-10-13: реестр находок (безопасность, надёжность, зависимости, дубли) и план фаз 0–8
 ├── .claude/               # LSP-серверы (mcp-servers/), агент-исполнитель (agents/), строка статуса, settings.json
 ├── .github/               # CI (workflows/ci.yml) и Dependabot (dependabot.yml)
@@ -461,8 +473,19 @@ BusinessProcess / ProcessParticipant / ProcessMessage / ProcessFragment
 - N параллельных классов (разделы алертов, семьи фактов) — одна запись на класс в одном
   списке, сумма и разметка — по нему же (SchemaAlerts.ALERT_SECTIONS); три параллельных
   списка расходятся незаметно.
-- CSS-класс импортирует каждый модуль, который его ставит (ui/smallButton.css): стили
-  чужого ленивого чанка на этой странице могут быть не загружены.
+- Токены ui/tokens.css подключаются один раз (main.tsx); ui/ds.css и местный файл стилей
+  импортирует каждый модуль, который ставит их классы (ProjectCard.tsx: ../../ui/ds.css и
+  ./projectCard.css): стили чужого ленивого чанка на этой странице могут быть не загружены.
+- Вид собирается из примитивов ui/ds.css и токенов ui/tokens.css (направление «Документ»,
+  docs/plan-redesign.md): цвет, тень и размер шрифта мимо токенов не пишутся. Холст
+  (graph/**, LevelGraph) живёт на прежнем виде и без слова владельца не перекрашивается.
+- Экран без шума (бриф владельца 2026-11-21): необязательные пилюли, подзаголовки,
+  примечания и служебные строки «X · Y» не заводятся. Каждый элемент проверяется от пути
+  пользователя: что человек делает на экране и зачем ему этот элемент.
+- Меню у кнопки делается на ui/useMenu (стрелки, Home/End, Escape возвращает фокус на
+  кнопку); окна поверх экрана процесса — div-слои стека processes/useOverlayStack с фокусом
+  processes/useOverlayFocus; нативное окно ui/Modal само возвращает фокус туда, откуда его
+  открыли.
 - Эффект, которому нужно свежее состояние на момент события, — useEffectEvent, а не
   eslint-disable exhaustive-deps (nodeTree.useLazyTree).
 
@@ -544,3 +567,5 @@ LSP-навигация
 - docs/plan-refactoring.md — план рефакторинга (аудит 2026-08-01: метрики, риски, фазы)
 - docs/plan-audit-2026-10.md — план исправлений по аудиту 2026-10-13 (уязвимости, 500/зависания,
   зависимости, мёртвый код, дубли, god-компоненты): реестр с местами в коде и фазы 0–8
+- docs/plan-redesign.md — редизайн интерфейса 2026-11 (направление «Документ»): язык
+  интерфейса, решения владельца, записи приёмки фаз

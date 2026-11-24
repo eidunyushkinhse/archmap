@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import type { Node } from "../types";
 import { nodeNesting, treeNesting } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
 import { PlaceButton, TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { offDeployCanvas, placeable, treeRowTitle } from "./nodeTree.mode";
-import { CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
+import { CloseIcon, CollapseIcon } from "../ui/icons";
+import "../ui/ds.css";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
 import { PaletteSection, TrashOverlay } from "./nodeTree.Palette";
@@ -26,6 +26,10 @@ import type { PaletteTile } from "./element/paletteTiles";
  * (система → onOpenLevel, прочие → onPickObject; иконка строки → onPlace). Выбор узла с
  * детьми попутно раскрывает его ветку. Персоны стоят в общей иерархии наравне с прочими.
  * Только в редакторе — перенос строк и секция-палитра «Добавить объект».
+ *
+ * Вид — на новом языке (редизайн, фаза 4б): корень панели — область .ds, кегли, цвета,
+ * радиусы и отступы из токенов (NodeTreePanel.css). Панель одинакова в редакторе-карте,
+ * в оболочке проекта и в «Развёртывании», где бы её ни нарисовали.
  */
 
 type ModeProps =
@@ -101,16 +105,6 @@ export default function NodeTreePanel(props: Props) {
   const [collapsed, setCollapsed] = useState(false); // свёрнута ли вся панель
   // Драг шаблона из палитры: на это время панель накрывается «корзиной».
   const paletteDrag = usePaletteDrag(editor?.onTemplateDrag);
-  // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
-  const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(["tree", "add"]),
-  );
-  const toggleSection = (key: string) =>
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
 
   // ── Поиск (pages_pivot) ──────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
@@ -170,37 +164,17 @@ export default function NodeTreePanel(props: Props) {
   };
 
   return (
-    <aside style={{ ...panel, width: collapsed ? PANEL_COLLAPSED_W : PANEL_W }}>
-      {/* Свёрнутая панель — рейл с иконками секций: клик разворачивает панель и
-          открывает соответствующую секцию (а не пустая полоса). */}
-      {collapsed ? (
-        <div style={rail}>
-          <button
-            className="nt-railbtn"
-            title="Дерево объектов"
-            onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("tree")); }}
-          >
-            <TreeIcon />
-          </button>
-          {isArchitect && !deploy && (
-            <button
-              className="nt-railbtn"
-              title="Добавить объект"
-              onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("add")); }}
-            >
-              <PlusIcon />
-            </button>
-          )}
-        </div>
-      ) : (
-      <div style={content}>
+    <aside className={"ds nt-panel" + (collapsed ? " nt-panel--collapsed" : "")}>
+      {/* Свёрнутая панель — узкая полоса с одной кнопкой «Развернуть панель» внизу. */}
+      {!collapsed && (
+      <div className="nt-content">
           <>
             {/* Поиск — а на время переноса ВМЕСТО него полоса «в корень проекта»:
                 единственный способ вынести объект на верхний уровень (строки, которая
                 представляла бы корень, в дереве нет), а поиск в разгар жеста не нужен.
                 Подмена в том же слоте — список под ней не съезжает. */}
             {reparent.moving && reparent.canDropInto(reparent.moving, null) ? (
-              <div style={searchWrap}>
+              <div className="nt-search">
                 <div
                   className={"nt-rootzone" + (reparent.rootActive ? " nt-rootzone--active" : "")}
                   onDragOver={reparent.onRootDragOver}
@@ -211,28 +185,32 @@ export default function NodeTreePanel(props: Props) {
                 </div>
               </div>
             ) : (
-              <div style={searchWrap}>
-                <input
-                  {...noAutofill("node-tree-panel-1")}
-                  style={searchInput}
-                  type="text"
-                  placeholder="Поиск по имени"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                {searchQuery && (
-                  <button style={searchClear} onClick={() => setSearchQuery("")} title="Очистить">×</button>
-                )}
+              <div className="nt-search">
+                <div className="nt-search-field">
+                  <input
+                    {...noAutofill("node-tree-panel-1")}
+                    className="ds-input nt-search-input"
+                    type="text"
+                    placeholder="Поиск по имени"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button type="button" className="nt-search-clear" onClick={() => setSearchQuery("")} title="Очистить" aria-label="Очистить">
+                      <CloseIcon size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
             {/* Результаты поиска или дерево */}
-            <div ref={treeScrollRef} data-tour="tree" style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <div ref={treeScrollRef} data-tour="tree" className="nt-tree">
               {searchResults !== null ? (
                 searching ? (
-                  <div style={hint}>Ищем</div>
+                  <div className="nt-hint">Ищем</div>
                 ) : searchResults.length === 0 ? (
-                  <div style={hint}>Ничего не найдено</div>
+                  <div className="nt-hint">Ничего не найдено</div>
                 ) : (
                   searchResults.map((n) => (
                     <div
@@ -254,23 +232,18 @@ export default function NodeTreePanel(props: Props) {
                   ))
                 )
               ) : loadingRoots ? (
-                <div style={hint}>Загрузка</div>
+                <div className="nt-hint">Загрузка</div>
               ) : shownRoots.length === 0 ? (
-                <div style={hint}>Нет объектов</div>
+                <div className="nt-hint">Нет объектов</div>
               ) : (
                 shownRoots.map((n) => <TreeRow key={n.id} node={n} ctx={rowCtx} />)
               )}
             </div>
 
             {/* Палитра «Добавить объект» — только в редакторе; ЕДИНСТВЕННОЕ
-                отличие плоского дерева редактора от дерева страниц. */}
+                отличие плоского дерева редактора от дерева страниц. Всегда раскрыта. */}
             {editor && isArchitect && (
-              <PaletteSection
-                open={openSections.has("add")}
-                onToggle={() => toggleSection("add")}
-                drag={paletteDrag}
-                tiles={editor.paletteTiles ?? null}
-              />
+              <PaletteSection drag={paletteDrag} tiles={editor.paletteTiles ?? null} />
             )}
           </>
       </div>
@@ -281,88 +254,21 @@ export default function NodeTreePanel(props: Props) {
           размонтирование плитки-источника во время нативного drag отменяет драг. */}
       {paletteDrag.dragging && <TrashOverlay drag={paletteDrag} />}
 
-      {/* Футер сворачивания — вне скролла контента, виден и в свёрнутом состоянии. */}
+      {/* Сворачивание — тихая кнопка-значок внизу, вне скролла контента, как у списка
+          процессов; видна и в свёрнутой полосе. На подсказку «Свернуть панель» опирается
+          зонд холста (scripts/dump-levels.mjs). */}
       <button
-        className="nt-collapse"
+        type="button"
+        className="ds-icon-btn nt-collapse"
         onClick={() => setCollapsed((c) => !c)}
         title={collapsed ? "Развернуть панель" : "Свернуть панель"}
+        aria-label={collapsed ? "Развернуть панель" : "Свернуть панель"}
       >
-        <CollapseIcon dir={collapsed ? "right" : "left"} />
-        {!collapsed && <span>Свернуть панель</span>}
+        <CollapseIcon size={15} dir={collapsed ? "right" : "left"} />
       </button>
     </aside>
   );
 }
 
-const PANEL_W = 320;          // ширина развёрнутой панели (симметрично правой панели схемы)
-const PANEL_COLLAPSED_W = 48; // узкий рейл с иконками секций в свёрнутом виде
-
-const panel: CSSProperties = {
-  position: "relative",
-  flexShrink: 0,
-  borderRight: "1px solid #e2e8f0",
-  background: "#fbfcfd",
-  display: "flex",
-  flexDirection: "column",
-  overflow: "hidden",
-  transition: "width 0.22s ease",
-};
-// Рейл свёрнутой панели: вертикальный ряд иконочных кнопок секций.
-const rail: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: 6,
-  paddingTop: 12,
-  flex: 1,
-};
-const content: CSSProperties = {
-  width: PANEL_W,            // фиксированная ширина — без переноса текста при анимации
-  flex: 1,
-  minHeight: 0,
-  display: "flex",
-  flexDirection: "column",
-  transition: "opacity 0.18s ease",
-  overflowY: "auto",
-};
-const treeList: CSSProperties = {
-  padding: "0 0 6px",
-};
-const hint: CSSProperties = {
-  padding: "8px 14px",
-  fontSize: 13,
-  color: "#9ca3af",
-};
-
-// ── Стили pages_pivot (поиск, персоны, «+») ────────────────────────
-const searchWrap: CSSProperties = {
-  position: "relative",
-  padding: "10px 12px 6px",
-  flexShrink: 0,
-};
-const searchInput: CSSProperties = {
-  display: "block",
-  width: "100%",
-  padding: "7px 28px 7px 10px",
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-  fontSize: 13,
-  color: "#0f172a",
-  background: "#fff",
-  outline: "none",
-  boxSizing: "border-box",
-  fontFamily: "inherit",
-};
-const searchClear: CSSProperties = {
-  position: "absolute",
-  right: 18,
-  top: "50%",
-  transform: "translateY(-50%)",
-  background: "none",
-  border: "none",
-  fontSize: 16,
-  color: "#94a3b8",
-  cursor: "pointer",
-  padding: "2px 4px",
-  lineHeight: 1,
-};
+// Ширина панели (320px, симметрично правой панели схемы) и свёрнутой полосы (48px) —
+// в NodeTreePanel.css (.nt-panel, .nt-panel--collapsed).

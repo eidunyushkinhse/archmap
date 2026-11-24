@@ -1,12 +1,20 @@
-// Варианты ответа текущего вопроса (§4 ТЗ). Шапка, прогресс, подвал и навигация —
+// Варианты ответа текущего вопроса (§4 ТЗ). Счётчик, заголовок, подвал и навигация —
 // в RemainderBlock; здесь только тело: что именно выбирают.
 //
-// Ничего не предвыбрано — в том числе дефолт бэка: он назван сноской «Если не
-// отвечать», а предвыбор превратил бы вопрос в согласие с уже сделанным выбором.
+// Ничего не предвыбрано — в том числе дефолт бэка: вариант, который действует без ответа,
+// помечен тегом «по умолчанию» (фаза 8а), а предвыбор превратил бы вопрос в согласие с
+// уже сделанным выбором.
+//
+// Двухшаговые вопросы (группа без связей, похожие имена) после ответа остаются вопросом
+// (фаза 8б): первый шаг всегда показывает оба варианта, ответ виден выбранным вариантом и
+// его подписью («под именем «…»», проведённые связи), а вариант по умолчанию заменяет его
+// одним щелчком. Второй шаг (форма связей, шаг имени) открыт, только пока его открыл человек.
 import type { Answer, Answers, NewEdgesAnswer, Question, Resolutions } from "./questions";
 import type { EdgesDraft, MergeDraft } from "./drafts";
 import { draftFromAnswer, mergeDraftFor } from "./drafts";
-import { endIsSystem, humanValue, lastSegment, pairEdges, VIEWER_TAG } from "./questionText";
+import {
+  ADD_ALL, DIFF_PAIR, KEEP_GROUP, humanValue, keepEdgeLabel, lastSegment, pairEdges,
+} from "./questionText";
 import DocViewer from "./DocViewer";
 import MergeNameStep from "./MergeNameStep";
 import NewEdgeForm from "./NewEdgeForm";
@@ -47,20 +55,25 @@ export default function QuestionBody(p: Props) {
             const общее = {
               main: <b>{k.source_label}</b>,
               selected: choice === value,
+              byDefault: c.default === value,
               onSelect: () => p.onResolve(q.id, value),
             };
-            // Сплит-кнопка только у схем логики: их тела длинные, и «Открыть»
-            // показывает диаграмму. Спека, таблица, канал и параметр коротки.
+            // «Открыть» только у схем логики: их тела длинные, и просмотр показывает
+            // диаграмму. Спецификация, таблица, канал и параметр коротки.
             return c.family === "doc" ? (
               <SplitOption key={i} {...общее} open={p.viewer === i} onOpen={() => p.onViewer(i)} />
             ) : (
-              <Option key={i} main={общее.main} selected={общее.selected} onClick={общее.onSelect} />
+              <Option
+                key={i} main={общее.main} selected={общее.selected} byDefault={общее.byDefault}
+                onClick={общее.onSelect}
+              />
             );
           })}
           {c.allow_all && (
             <Option
-              main={<b>Добавить все</b>}
+              main={<b>{ADD_ALL}</b>}
               selected={choice === "all"}
+              byDefault={c.default === "all"}
               onClick={() => p.onResolve(q.id, "all")}
             />
           )}
@@ -69,7 +82,6 @@ export default function QuestionBody(p: Props) {
           <DocViewer
             title={c.key}
             source={открытый.source_label}
-            tag={VIEWER_TAG[c.family]}
             body={открытый.body}
             diagram={c.family === "doc"}
             onPick={() => { p.onResolve(q.id, `cand:${p.viewer}`); p.onViewer(null); }}
@@ -90,6 +102,7 @@ export default function QuestionBody(p: Props) {
             main={<b>{humanValue(q.source.field, k.value)}</b>}
             sub={k.source_label}
             selected={a?.kind === "field" && a.index === i}
+            byDefault={i === q.source.default}
             onClick={() => p.onAnswer(q.id, { kind: "field", index: i })}
           />
         ))}
@@ -108,11 +121,10 @@ export default function QuestionBody(p: Props) {
           value={a?.kind === "edge" ? a.toPath : null}
           onPick={(path) => p.onAnswer(q.id, { kind: "edge", toPath: path })}
         />
-        <div className="rq-opts" style={{ marginTop: 6 }}>
+        <div className="rq-opts">
           <Option
-            main={`Оставить на ${endIsSystem(q.source) ? "системе" : "контейнере"} «${q.source.container_path}»`}
-            tag="как сейчас"
-            keep
+            main={`${keepEdgeLabel(q.source)} «${q.source.container_path}»`}
+            byDefault
             selected={a?.kind === "keep"}
             onClick={() => p.onAnswer(q.id, { kind: "keep" })}
           />
@@ -123,7 +135,6 @@ export default function QuestionBody(p: Props) {
 
   if (q.kind === "group") {
     const a = p.answers[q.id];
-    const готовые: NewEdgesAnswer | null = a?.kind === "new_edges" ? a : null;
     if (p.stage2) {
       return (
         <NewEdgeForm
@@ -135,46 +146,36 @@ export default function QuestionBody(p: Props) {
         />
       );
     }
-    if (готовые !== null && готовые.edges.length > 0) {
-      // Ответ виден одной карточкой: «изменить» открывает ту же форму
-      // заполненной, и ответ переписывается только кнопкой «Провести связи».
-      const видимые = готовые.edges.slice(0, 3);
-      const ещё = готовые.edges.length - видимые.length;
-      return (
-        <div className="rq-opts">
-          <Option
-            main={
-              <>
-                {видимые.map((e, i) => (
-                  <span key={i} style={{ display: "block" }}>
-                    <b>{lastSegment(e.fromPath)} → {lastSegment(e.toPath)}</b>
-                  </span>
-                ))}
-                {ещё > 0 && <span className="rq-opt-m">и ещё {ещё}</span>}
-              </>
-            }
-            tag="изменить"
-            selected
-            onClick={() => {
-              p.onEdgeDraft(draftFromAnswer(готовые, q.source.node_paths));
-              p.onStage2(true);
-            }}
-          />
-        </div>
-      );
-    }
+    const готовые: NewEdgesAnswer | null = a?.kind === "new_edges" && a.edges.length > 0 ? a : null;
+    const видимые = готовые?.edges.slice(0, 3) ?? [];
+    const ещё = (готовые?.edges.length ?? 0) - видимые.length;
     return (
       <div className="rq-opts">
         <Option
           main={<b>Провести связь</b>}
-          sub="указать, с чем связан каждый объект"
-          onClick={() => p.onStage2(true)}
+          // Проведённые связи — подписью выбранного варианта, по строке на связь.
+          sub={готовые === null ? "указать, с чем связан каждый объект" : (
+            <>
+              {видимые.map((e, i) => (
+                <span key={i} className="rq-opt-line">
+                  {lastSegment(e.fromPath)} → {lastSegment(e.toPath)}
+                </span>
+              ))}
+              {ещё > 0 && <span className="rq-opt-line">и ещё {ещё}</span>}
+            </>
+          )}
+          selected={готовые !== null}
+          onClick={() => {
+            // С ответом форма открывается заполненной им; без ответа — текущим черновиком.
+            if (готовые !== null) p.onEdgeDraft(draftFromAnswer(готовые, q.source.node_paths));
+            p.onStage2(true);
+          }}
         />
         <Option
-          main="Оставить как есть"
-          tag="как сейчас"
-          keep
+          main={KEEP_GROUP}
+          byDefault
           selected={a?.kind === "keep"}
+          // Черновик формы не стирается: «Провести связь» откроет его снова.
           onClick={() => p.onAnswer(q.id, { kind: "keep" })}
         />
       </div>
@@ -182,30 +183,32 @@ export default function QuestionBody(p: Props) {
   }
 
   const a = p.answers[q.id];
-  const имя = a?.kind === "merge" ? a.name : null;
-  if (p.stage2 || имя !== null) {
+  if (p.stage2) {
     return (
       <MergeNameStep
         pair={q.source}
         draft={p.mergeDraft}
         onDraft={p.onMergeDraft}
         onApply={(name) => { p.onAnswer(q.id, { kind: "merge", name }); p.onStage2(false); }}
-        // Ответ уже дан — возвращаться некуда: шаг 2 и есть вопрос (§4.5).
-        onBack={имя === null ? () => p.onStage2(false) : undefined}
+        onBack={() => p.onStage2(false)}
       />
     );
   }
+  const имя = a?.kind === "merge" ? a.name : null;
   return (
     <div className="rq-opts">
       <Option
         main={<b>Один объект</b>}
-        sub={`связи обоих (${pairEdges(q.source)}) перейдут на объединённый`}
-        onClick={() => { p.onMergeDraft(mergeDraftFor(q.source, null)); p.onStage2(true); }}
+        sub={имя === null
+          ? `связи обоих (${pairEdges(q.source)}) перейдут на объединённый`
+          : `под именем «${имя}»`}
+        selected={имя !== null}
+        // Шаг имени открывается на уже выбранном имени; без ответа — на первом из двух.
+        onClick={() => { p.onMergeDraft(mergeDraftFor(q.source, имя)); p.onStage2(true); }}
       />
       <Option
-        main="Разные объекты"
-        tag="как сейчас"
-        keep
+        main={DIFF_PAIR}
+        byDefault
         selected={a?.kind === "diff"}
         onClick={() => p.onAnswer(q.id, { kind: "diff" })}
       />

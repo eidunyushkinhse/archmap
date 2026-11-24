@@ -1,5 +1,5 @@
-// Панель импорта YAML: пропавшие между попытками объекты названы поимённо, а не
-// молчат (полевой QA docs/qa-zabbix-7.md, раунд 2 — «ампутация» 31→27, 30→14).
+// Панель ввоза окна «Новый проект»: пропавшие между попытками объекты названы поимённо, а
+// не молчат (полевой QA docs/qa-zabbix-7.md, раунд 2 — «ампутация» 31→27, 30→14).
 //
 // Правка Ф2г: панель НЕ ЗНАЕТ, откуда файлы, — в ней нет ни карточки «Замечания к
 // файлу N», ни кнопки «Скопировать замечания для агента», ни заметки о повторном
@@ -7,15 +7,18 @@
 // ошибки разбора — только в красном статусе.
 //
 // С Ф-E панель говорит о ввозе одной СТРОКОЙ СТАТУСА вместо сводки счётчиков, а
-// остаток слияния показывает вопросами: строки «Готово к импорту: … объектов»,
-// «Корневые», «Склеено узлов», «Без якоря», «Из архивов», секции «Замечания к
-// слитой схеме» и «Споры содержимого» с экрана ушли.
+// остаток слияния показывает вопросами.
+//
+// Редизайн (фаза 6б): входы — общая зона файлов (FileZone) и список имён вместо чипов.
+// YAML с диска подписан именем, вставленный текстом — «Файл N» (его номер входа, им же
+// бэк подписывает источник: «Из файла N»), архив — именем; одинаковые имена различаются
+// номером. Имя YAML открывает его текст в поле, у архива открывать нечего.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import ImportPane from "../project/ImportPane";
-import type { ArchiveInputs, RemainderInputs } from "../project/ImportPane";
+import type { RemainderInputs } from "../project/ImportPane";
+import { useImportInputs } from "../project/useImportInputs";
 import { buildQuestions } from "../project/remainder";
 import type { FamilyConflictOut, ImportPreviewOut, RemainderOut } from "../../types";
 
@@ -57,13 +60,36 @@ function разбор(over: {
   };
 }
 
-// Сводку приносит родитель (дебаунс dry-run живёт в CreateProjectDialog) — здесь
-// попытки агента моделируются перерисовкой с новой сводкой.
-function paint(summary: ImportPreviewOut | null) {
-  const view = render(<ImportPane docs={["nodes:"]} onDocs={vi.fn()} summary={summary} />);
-  return (next: ImportPreviewOut | null) =>
-    view.rerender(<ImportPane docs={["nodes:"]} onDocs={vi.fn()} summary={next} />);
+// Входами владеет родитель (useImportInputs в окне) — здесь его роль играет обёртка.
+// Вставленные тексты — входы без имени; порядок входов превью виден строкой «входы».
+function Harness({ initial = [], summary, remainder }: {
+  initial?: string[]; summary: ImportPreviewOut | null; remainder?: RemainderInputs;
+}) {
+  const inputs = useImportInputs(initial.map((text) => ({ text, name: null })));
+  return (
+    <>
+      <ImportPane
+        inputs={inputs}
+        text="Перетащите сюда файлы YAML или архивы .zip"
+        pastePlaceholder="Вставьте сюда YAML"
+        summary={summary}
+        remainder={remainder ?? разбор()}
+      />
+      <output data-testid="входы">{inputs.files.map((f) => f.name || "без имени").join(", ")}</output>
+    </>
+  );
 }
+
+// Сводку приносит родитель (дебаунс dry-run живёт в useUnifiedImport) — здесь попытки
+// агента моделируются перерисовкой с новой сводкой.
+function paint(summary: ImportPreviewOut | null) {
+  const view = render(<Harness initial={["nodes:"]} summary={summary} />);
+  return (next: ImportPreviewOut | null) => view.rerender(<Harness initial={["nodes:"]} summary={next} />);
+}
+
+const файлы = () => document.querySelector('input[type="file"]') as HTMLInputElement;
+const имя = (name: string | RegExp) => screen.getByRole("button", { name });
+const входы = () => screen.getByTestId("входы").textContent;
 
 describe("дифф попыток", () => {
   it("исчезнувшие объекты названы поимённо", () => {
@@ -93,10 +119,6 @@ describe("дифф попыток", () => {
 });
 
 // ── мульти-файловый режим: без карточки файла и копии для агента (Ф2г) ──────
-//
-// Раньше под панелью жили замечания АКТИВНОГО файла с кнопкой копирования его
-// агенту (Ф6). Панель не знает, был ли агент, — поэтому карточки больше нет, а
-// пофайловые замечания бэк кладёт в свёртку «Придется подправить вручную».
 
 const Ф1 = "связь «orders → kafka»: конец — брокер «kafka», а канал не указан";
 const Ф2 = "связь «payments → orders»: в channel перечень «a, b» — разделите";
@@ -115,29 +137,6 @@ const двухфайловая = (over: Partial<ImportPreviewOut> = {}): ImportP
     ...over,
   });
 
-// Документами и их именами владеет родитель (CreateProjectDialog) — в тестах его
-// роль играет эта обёртка: без неё чипы не переключались бы и файлы не добавлялись.
-function Harness({ initial, summary, archives, remainder }: {
-  initial: string[]; summary: ImportPreviewOut | null; archives?: ArchiveInputs;
-  remainder?: RemainderInputs;
-}) {
-  const [docs, setDocs] = useState(initial);
-  const [names, setNames] = useState<(string | null)[]>([]);
-  return (
-    <ImportPane
-      docs={docs}
-      onDocs={setDocs}
-      names={names}
-      onNames={setNames}
-      summary={summary}
-      archives={archives}
-      remainder={remainder}
-    />
-  );
-}
-
-const chip = (name: string | RegExp) => screen.getByRole("button", { name });
-
 describe("мульти-файловый импорт: замечания не адресуются агенту файла", () => {
   it("ни карточки «Замечания к файлу N», ни строки «замечаний нет», ни копии", async () => {
     render(<Harness initial={["nodes: a", "nodes: b"]} summary={двухфайловая()} />);
@@ -148,13 +147,13 @@ describe("мульти-файловый импорт: замечания не а
     expect(screen.queryByText(СХЕМА)).toBeNull();
     expect(screen.queryByRole("button", { name: /Скопировать замечания/ })).toBeNull();
 
-    // Смена активного чипа ничего такого не показывает.
-    await userEvent.click(chip("Файл 2"));
+    // Открытие другого входа ничего такого не показывает.
+    await userEvent.click(имя("Файл 2"));
     expect(screen.queryByText(/Замечания к файлу/)).toBeNull();
     expect(screen.queryByText(Ф2)).toBeNull();
   });
 
-  it("пофайловые замечания — пунктами свёртки, а не списком под чипом", async () => {
+  it("пофайловые замечания — пунктами свёртки, а не списком под файлом", async () => {
     render(
       <Harness
         initial={["nodes: a", "nodes: b"]}
@@ -171,21 +170,48 @@ describe("мульти-файловый импорт: замечания не а
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Придется подправить вручную (1)" }));
-    expect(screen.getByRole("listitem")).toHaveTextContent(
+    expect(within(document.querySelector(".rq-uf") as HTMLElement).getByRole("listitem")).toHaveTextContent(
       "У связи «orders → kafka» с брокером «kafka» не указан канал.");
   });
 
-  it("имя файла с диска попадает в чип", async () => {
-    render(<Harness initial={[""]} summary={двухфайловая()} />);
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-
-    await userEvent.upload(input, [
+  it("имена файлов с диска — в списке, текст открывается по имени", async () => {
+    render(<Harness summary={двухфайловая()} />);
+    await userEvent.upload(файлы(), [
       new File(["nodes: a"], "billing.yaml", { type: "text/plain" }),
       new File(["nodes: b"], "orders.yaml", { type: "text/plain" }),
     ]);
 
-    await waitFor(() => expect(chip("1 · billing.yaml")).toBeInTheDocument());
-    expect(chip("2 · orders.yaml")).toBeInTheDocument();
+    await waitFor(() => expect(имя("billing.yaml")).toBeInTheDocument());
+    // Поля нет, пока файл не открыт: принесённый файл читают, а не правят.
+    expect(screen.queryByRole("textbox")).toBeNull();
+    await userEvent.click(имя("orders.yaml"));
+    expect(screen.getByRole("textbox", { name: "Текст orders.yaml" })).toHaveValue("nodes: b");
+    expect(имя("orders.yaml")).toHaveAttribute("aria-pressed", "true");
+    expect(входы()).toBe("billing.yaml, orders.yaml");
+  });
+
+  it("одинаковые имена различаются номером входа", async () => {
+    render(<Harness summary={null} />);
+    await userEvent.upload(файлы(), [
+      new File(["nodes: a"], "schema.yaml"),
+      new File(["nodes: b"], "schema.yaml"),
+    ]);
+    await waitFor(() => expect(имя("schema.yaml (1)")).toBeInTheDocument());
+    expect(имя("schema.yaml (2)")).toBeInTheDocument();
+  });
+
+  it("вставка текстом: запись «Файл N» с полем, пустая в превью не едет", async () => {
+    render(<Harness summary={null} />);
+    await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
+    const поле = screen.getByRole("textbox", { name: "Текст Файл 1" });
+    expect(поле).toHaveAttribute("placeholder", "Вставьте сюда YAML");
+    expect(входы()).toBe("");
+    await userEvent.type(поле, "nodes: a");
+    // Вставленный текстом вход уезжает без имени (Ф2г).
+    expect(входы()).toBe("без имени");
+    await userEvent.click(screen.getByRole("button", { name: "Убрать Файл 1" }));
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(входы()).toBe("");
   });
 });
 
@@ -206,26 +232,17 @@ describe("одно-файловый режим", () => {
   });
 
   it("повторный тот же документ — без заметки про агента", () => {
-    const view = render(<ImportPane docs={["nodes: a"]} onDocs={vi.fn()} summary={green(["Система"])} />);
-    view.rerender(<ImportPane docs={["nodes: a"]} onDocs={vi.fn()} summary={green(["Система"])} />);
+    const again = paint(green(["Система"]));
+    again(green(["Система"]));
     expect(screen.queryByText(/Содержимое не изменилось/)).toBeNull();
     expect(screen.queryByText(/агент/)).toBeNull();
   });
 });
 
-// ── единая панель: архивные входы (Ф2б) ──────────────────────────────────────
+// ── архивные входы (Ф2б) ─────────────────────────────────────────────────────
 //
-// Архив знания — такой же вход, как YAML: свой чип в той же полосе и свой номер
-// (нумерация входов сплошная — на неё ссылаются ошибки бэка). Тело архива не
-// редактируется — вместо textarea карточка.
-
-const ЗАМ_АРХИВА = "docs/orders.mmd: узел «Нет такого» не найден — файл пропущен";
-
-const архивы = (over: Partial<ArchiveInputs> = {}): ArchiveInputs => ({
-  files: [new File(["zip"], "archmap.zip", { type: "application/zip" })],
-  onFiles: vi.fn(),
-  ...over,
-});
+// Архив знания — такой же вход, как YAML: своё имя в том же списке и свой номер (нумерация
+// входов сплошная: непустые YAML, затем архивы — на неё ссылаются ошибки бэка).
 
 const СПЕКА_СПОР: FamilyConflictOut = {
   id: "spec|Ярмарка / orders|openapi",
@@ -240,42 +257,40 @@ const СПЕКА_СПОР: FamilyConflictOut = {
   allow_all: false,
 };
 
-describe("архивные входы единой панели", () => {
-  it("чип архива помечен «zip» и продолжает нумерацию входов", () => {
-    render(<Harness initial={["nodes: a"]} summary={двухфайловая()} archives={архивы()} />);
+describe("архивные входы", () => {
+  it("архив — в списке после YAML и в превью после них, открывать у него нечего", async () => {
+    render(<Harness initial={["nodes: a"]} summary={двухфайловая()} />);
+    await userEvent.upload(файлы(), [
+      new File(["zip"], "archmap.zip", { type: "application/zip" }),
+      new File(["nodes: b"], "b.yaml"),
+    ]);
 
-    // Один непустой YAML — архив занимает вход 2 (им же подписаны его замечания).
-    expect(chip("zip 2 · archmap.zip")).toBeInTheDocument();
-    // Счётчиков приезжающего знания в панели больше нет (Ф-E): статус говорит о
-    // вопросах, а «3 схемы логики · 1 спека» решению не помогали.
+    await waitFor(() => expect(входы()).toBe("без имени, b.yaml, archmap.zip"));
+    const список = within(screen.getByRole("list", { name: "Файлы" }));
+    expect(список.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Файл 1×", "b.yaml×", "archmap.zip×",
+    ]);
+    // Имя архива — не кнопка: тело архива не правят.
+    expect(screen.queryByRole("button", { name: "archmap.zip" })).toBeNull();
+    // Счётчиков приезжающего знания в панели больше нет (Ф-E).
     expect(screen.queryByText(/Из архивов:/)).toBeNull();
     expect(screen.queryByText(/Готово к импорту: /)).toBeNull();
   });
 
-  it("клик по чипу архива открывает карточку без замечаний и без копии", async () => {
-    render(
-      <Harness
-        initial={["nodes: a"]}
-        summary={двухфайловая({
-          file_remarks: [
-            { file: 1, errors: [], warnings: [Ф1] },
-            { file: 2, errors: [], warnings: [ЗАМ_АРХИВА] },
-          ],
-        })}
-        archives={архивы()}
-      />,
-    );
+  it("ошибка в архиве названа его именем, без ссылки «Открыть файл»", async () => {
+    const битый = red(["файл 2: архив повреждён"], {
+      files: 2,
+      file_remarks: [
+        { file: 1, errors: [], warnings: [] },
+        { file: 2, errors: ["архив повреждён"], warnings: [] },
+      ],
+    });
+    render(<Harness initial={["nodes: a"]} summary={битый} />);
+    await userEvent.upload(файлы(), [new File(["zip"], "donor.zip")]);
 
-    await userEvent.click(chip("zip 2 · archmap.zip"));
-
-    expect(screen.getByText(/архив проекта \(zip\)/)).toBeInTheDocument();
-    // Замечания архива — пунктами свёртки, в карточке их нет (правка Ф2г).
-    expect(screen.queryByText("Замечания к архиву:")).toBeNull();
-    expect(screen.queryByText("К архиву замечаний нет.")).toBeNull();
-    expect(screen.queryByText(ЗАМ_АРХИВА)).toBeNull();
-    // Тело архива не правят — textarea заменена карточкой.
-    expect(screen.queryByPlaceholderText(/Перетащите сюда/)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Скопировать замечания/ })).toBeNull();
+    await waitFor(() => expect(screen.getByText(/Проблема в файле/)).toHaveTextContent(
+      "Проблема в файле donor.zip: архив повреждён."));
+    expect(screen.queryByRole("button", { name: /Открыть файл/ })).toBeNull();
   });
 
   it("спор содержимого стал вопросом разбора, выбор уходит наверх", async () => {
@@ -284,7 +299,6 @@ describe("архивные входы единой панели", () => {
       <Harness
         initial={["nodes: a"]}
         summary={двухфайловая()}
-        archives={архивы()}
         remainder={разбор({ conflicts: [СПЕКА_СПОР], onResolve })}
       />,
     );
@@ -292,12 +306,14 @@ describe("архивные входы единой панели", () => {
     // Прежней секции «Споры содержимого (1)» с радиокнопками нет: спор задан
     // вопросом, кандидаты подписаны источником знания, а не именем файла.
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
-    expect(screen.getByText(/Без ваших решений не объединить/)).toBeInTheDocument();
+    expect(screen.getByText("Вопрос 1 из 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «openapi» в разных файлах разные спецификации с одинаковым названием."
+      "У объекта «orders» в разных файлах разные спецификации OpenAPI."
       + " Какую считаем правильной?");
-    // Ничего не предвыбрано — дефолт бэка назван сноской, а не галкой.
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+    // Ничего не предвыбрано — дефолт бэка помечен «по умолчанию» и назван в подсказке «?».
+    expect(screen.getByRole("button", { name: /^Из архива Ярмарка/ })).toHaveTextContent("по умолчанию");
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    expect(screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent).toContain(
       "в проект попадёт вариант «Из архива Ярмарка»");
     expect(document.querySelectorAll(".rq-opt--on")).toHaveLength(0);
 
@@ -313,7 +329,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     expect(screen.getByText("Готово к импорту")).toBeInTheDocument();
     expect(screen.queryByText(/Готово к импорту: /)).toBeNull();
     expect(screen.queryByText(/Корневые:/)).toBeNull();
-    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
+    expect(document.querySelector(".rq-block")).toBeNull();
   });
 
   it("есть вопросы — статус «не всё сошлось», блок показывает первый", () => {
@@ -326,7 +342,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     );
 
     expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
-    expect(screen.getByText("вопрос 1 из 1")).toBeInTheDocument();
+    expect(screen.getByText("Вопрос 1 из 1")).toBeInTheDocument();
   });
 
   it("незакрываемое замечание без вопросов — тоже «Не всё сошлось идеально»", () => {
@@ -349,7 +365,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     // Ф2г-2: состояние бывает и без вопросов — прежнее «Есть вопросы» тут врало бы.
     expect(screen.queryByText("Есть вопросы")).toBeNull();
-    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
+    expect(document.querySelector(".rq-block")).toBeNull();
     expect(screen.getByRole("button", { name: "Придется подправить вручную (1)" }))
       .toBeInTheDocument();
   });
@@ -365,10 +381,10 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
       "Проблема в файле 1. Строка 29: Некорректный YAML: ошибка разметки."
       + " Частая причина — двоеточие.");
     expect(screen.queryByText("Не получается разобрать YAML:")).toBeNull();
-    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
+    expect(document.querySelector(".rq-block")).toBeNull();
   });
 
-  it("ошибка без файла-виновника — без чипа и без ссылки", () => {
+  it("ошибка без файла-виновника — без подписи файла и без ссылки", () => {
     paint(red(["входы не имеют общих корневых узлов"], {
       files: 2, schema_errors: ["входы не имеют общих корневых узлов"],
     }));
@@ -393,32 +409,36 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     render(<Harness initial={["nodes: a", "nodes: b", "nodes: c"]} summary={битые} />);
 
     expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();
-    const пункты = within(screen.getByRole("list")).getAllByRole("listitem");
+    const пункты = within(document.querySelector(".rq-st-sub ul") as HTMLElement).getAllByRole("listitem");
     expect(пункты.map((li) => li.textContent)).toEqual([
       "Файл 1. Строка 3: Некорректный YAML: ошибка разметки.",
       "Файл 3. nodes[0]: name — обязательная непустая строка.",
     ]);
     // Префиксы «файл N:» плоского списка сводки на экран не попадают.
     expect(screen.queryByText(/файл 1:/)).toBeNull();
-    await userEvent.click(within(пункты[1]!).getByRole("button", { name: "Файл 3" }));
+    // В поле сначала последняя вставка; ссылка пункта открывает свой вход.
     expect(screen.getByDisplayValue("nodes: c")).toBeInTheDocument();
+    await userEvent.click(within(пункты[0]!).getByRole("button", { name: "Файл 1" }));
+    expect(screen.getByDisplayValue("nodes: a")).toBeInTheDocument();
   });
 
-  it("ссылка статуса делает виновника активным входом", async () => {
-    const битый = red(["файл 2: nodes[0]: name — обязательная непустая строка"], {
+  it("ссылка статуса открывает виновника в поле", async () => {
+    const битый = red(["файл 1: nodes[0]: name — обязательная непустая строка"], {
       files: 2,
       file_remarks: [
-        { file: 1, errors: [], warnings: [] },
-        { file: 2, errors: ["Строка 3: name — обязательная непустая строка"], warnings: [] },
+        { file: 1, errors: ["Строка 3: name — обязательная непустая строка"], warnings: [] },
+        { file: 2, errors: [], warnings: [] },
       ],
     });
     render(<Harness initial={["nodes: a", "nodes: b"]} summary={битый} />);
 
     expect(screen.getByText(/Проблема в файле/).textContent).toBe(
-      "Проблема в файле 2. Строка 3: name — обязательная непустая строка.");
-    await userEvent.click(screen.getByRole("button", { name: "Открыть файл 2" }));
-    // Активен второй чип: вход, который надо чинить, открыт в редакторе.
-    expect(chip("Файл 2").closest(".cp-chip")).toHaveClass("cp-chip--on");
-    expect(screen.getByDisplayValue("nodes: b")).toBeInTheDocument();
+      "Проблема в файле 1. Строка 3: name — обязательная непустая строка.");
+    // В поле сначала последняя вставка, не виновник.
+    expect(имя("Файл 2")).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Открыть файл 1" }));
+    // Открыт первый вход: его текст в поле, имя отмечено.
+    expect(имя("Файл 1")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByDisplayValue("nodes: a")).toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 // Окно «Выберите связь» (useEdgeChoice → EdgeChoiceModal): связи пучка с одинаковой
 // подписью различаются настоящими концами (edge.md E57, 2026-11-02). Шапка называет общую
 // пару по отображаемым концам стрелки, строка — свой настоящий конец там, где связи
-// расходятся. Кнопка «+ Добавить связь» отдаёт хозяину эти же концы: новая связь ведёт к
+// расходятся. Кнопка «Добавить связь» отдаёт хозяину эти же концы: новая связь ведёт к
 // показанной паре, а не к концам первой связи пучка.
 import { act, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -52,9 +52,11 @@ describe("окно выбора связи: строки различимы по
     render(<>{hook.result.current.choiceModal}</>);
     const modal = screen.getByTestId("modal");
     expect(within(modal).getByText("Пользователь → Заказы")).toBeInTheDocument();
-    const rows = within(modal).getAllByRole("button");
+    // Строки — список связей окна (крестик окна в нём не стоит). Технология справа от
+    // описания и его второй строчки, без склейки точкой.
+    const rows = within(within(modal).getByRole("list")).getAllByRole("button");
     expect(rows.map((r) => r.textContent)).toEqual([
-      "пользуется→ Каталог", "пользуется→ Корзина", "платит · HTTPS→ Оплата",
+      "пользуется → Каталог", "пользуется → Корзина", "платит → Оплата HTTPS",
     ]);
     await userEvent.click(within(modal).getByRole("button", { name: "пользуется → Корзина" }));
     expect(onPick).toHaveBeenCalledWith(bus[1]);
@@ -74,8 +76,8 @@ describe("окно выбора связи: строки различимы по
     const { hook } = setup(mixed);
     act(() => hook.result.current.onEdgesChoice(mixed, { source: null, target: null }));
     render(<>{hook.result.current.choiceModal}</>);
-    const rows = within(screen.getByTestId("modal")).getAllByRole("button");
-    expect(rows.map((r) => r.textContent)).toEqual(["смотритПользователь → Каталог", "смотритКорзина → Оплата"]);
+    const rows = within(within(screen.getByTestId("modal")).getByRole("list")).getAllByRole("button");
+    expect(rows.map((r) => r.textContent)).toEqual(["смотрит Пользователь → Каталог", "смотрит Корзина → Оплата"]);
   });
 
   it("общие концы — шапка их называет, вторых строчек нет", () => {
@@ -85,7 +87,7 @@ describe("окно выбора связи: строки различимы по
     render(<>{hook.result.current.choiceModal}</>);
     const modal = screen.getByTestId("modal");
     expect(modal).toHaveTextContent("Пользователь → Каталог");
-    expect(within(modal).getAllByRole("button").map((r) => r.textContent)).toEqual(["читает", "пишет"]);
+    expect(within(within(modal).getByRole("list")).getAllByRole("button").map((r) => r.textContent)).toEqual(["читает", "пишет"]);
   });
 
   it("одна связь — сразу выбрана, окна нет", () => {
@@ -96,7 +98,7 @@ describe("окно выбора связи: строки различимы по
   });
 });
 
-describe("окно выбора связи: «+ Добавить связь» (E97, 2026-11-02)", () => {
+describe("окно выбора связи: «Добавить связь» (E97, 2026-11-02)", () => {
   const bus = [le("u1", "user", "cat", "пользуется"), le("u2", "user", "cart", "пользуется")];
 
   it("отдаёт первую связь пучка и концы стрелки, по которой открыто окно; окно закрывается", async () => {
@@ -111,7 +113,7 @@ describe("окно выбора связи: «+ Добавить связь» (E
     };
     act(() => hook.result.current.onEdgesChoice(bus, ends));
     const { rerender } = render(<>{hook.result.current.choiceModal}</>);
-    await userEvent.click(within(screen.getByTestId("modal")).getByRole("button", { name: "+ Добавить связь" }));
+    await userEvent.click(within(screen.getByTestId("modal")).getByRole("button", { name: "Добавить связь" }));
     expect(onAdd).toHaveBeenCalledOnce();
     expect(onAdd).toHaveBeenCalledWith(bus[0], ends);
     rerender(<>{hook.result.current.choiceModal}</>);
@@ -123,7 +125,7 @@ describe("окно выбора связи: «+ Добавить связь» (E
     const { hook } = setup(bus, onAdd);
     act(() => hook.result.current.onEdgesChoice(bus));
     render(<>{hook.result.current.choiceModal}</>);
-    await userEvent.click(within(screen.getByTestId("modal")).getByRole("button", { name: "+ Добавить связь" }));
+    await userEvent.click(within(screen.getByTestId("modal")).getByRole("button", { name: "Добавить связь" }));
     expect(onAdd.mock.calls).toEqual([[bus[0], undefined]]);
   });
 
@@ -131,6 +133,6 @@ describe("окно выбора связи: «+ Добавить связь» (E
     const { hook } = setup(bus);
     act(() => hook.result.current.onEdgesChoice(bus, { source: "user", target: "orders" }));
     render(<>{hook.result.current.choiceModal}</>);
-    expect(within(screen.getByTestId("modal")).queryByRole("button", { name: "+ Добавить связь" })).toBeNull();
+    expect(within(screen.getByTestId("modal")).queryByRole("button", { name: "Добавить связь" })).toBeNull();
   });
 });

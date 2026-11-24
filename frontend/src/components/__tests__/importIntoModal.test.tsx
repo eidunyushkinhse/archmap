@@ -157,7 +157,7 @@ describe("догрузка архива · превью и споры", () => {
   it("архив положен: дифф, семьи и спор вопросом с живым кандидатом «Из проекта»", async () => {
     await открыть(zip("b.zip"));
 
-    expect(await screen.findByText(/Нового: 3 объекта · 2 связи/)).toBeInTheDocument();
+    expect(await screen.findByText(/Нового: 3 объекта, 2 связи/)).toBeInTheDocument();
     expect(screen.getByText(/Добавится:.*4 схемы логики.*2 площадки/)).toBeInTheDocument();
     expect(screen.getByText("Ярмарка / billing")).toBeInTheDocument();
     // Ф2г: сырых строк «Проверьте» в окне нет — тёзку показывает свёртка
@@ -168,17 +168,22 @@ describe("догрузка архива · превью и споры", () => {
     // подписаны источником знания, живой — «Из проекта» (§4.7).
     expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
+    // Владелец назван, а кандидат «Из проекта» меняет «в разных файлах» на «в проекте и
+    // в архиве» (фаза 8а).
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «Оформление заказа» в разных файлах разные схемы с одинаковым"
-      + " названием. Какую считаем правильной?");
-    const моё = screen.getByRole("button", { name: "Из проекта" });
+      "У объекта «orders» в проекте и в архиве разные схемы логики «Оформление заказа»."
+      + " Какую считаем правильной?");
+    const моё = screen.getByRole("button", { name: /^Из проекта/ });
     const изАрхива = screen.getByRole("button", { name: "Из архива Ярмарка" });
-    // Ничего не предвыбрано: дефолт бэка («оставить моё») назван сноской, а не
-    // галкой — перетереть живое знание можно только явным выбором.
+    // Ничего не предвыбрано: дефолт бэка («оставить моё») помечен «по умолчанию» и назван
+    // в подсказке, а не галкой — перетереть живое знание можно только явным выбором.
     expect(моё).toHaveAttribute("aria-pressed", "false");
+    expect(моё).toHaveTextContent("по умолчанию");
     expect(изАрхива).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
-      "в проект попадёт вариант «Из проекта»");
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    // По умолчанию вариант проекта остаётся в проекте, архивный отбрасывается (фаза 8б).
+    expect(screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent).toContain(
+      "Если не отвечать, то в проекте останется прежний вариант, а вариант из архива будет отброшен.");
 
     // Файлы уехали в превью в том порядке, в каком их видит пользователь.
     const [id, files] = vi.mocked(projectsApi.importIntoPreview).mock.calls[0];
@@ -192,7 +197,7 @@ describe("догрузка архива · превью и споры", () => {
       remainder: остаток({ container_edges: [В_КОНТЕЙНЕР] }),
     }));
     await открыть(zip("b.zip"), zip("c.zip"));
-    await screen.findByText("вопрос 1 из 3");
+    await screen.findByText("Вопрос 1 из 3");
 
     await userEvent.click(screen.getByRole("button", { name: "Взять из новых архивов" }));
     expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
@@ -225,13 +230,15 @@ describe("догрузка архива · превью и споры", () => {
       remainder: остаток({ container_edges: [В_КОНТЕЙНЕР] }),
     }));
     await открыть(zip("b.zip"));
-    await screen.findByText("вопрос 1 из 1");
+    await screen.findByText("Вопрос 1 из 1");
 
     // Сноска в догрузке говорит о ДОГРУЗКЕ: проект уже создан.
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
-      "после догрузки попадёт в рекомендации проекта");
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    const подсказка = screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent;
+    expect(подсказка).toContain("после догрузки попадёт в рекомендации проекта");
     // «его рекомендации» — только после «создания проекта»: здесь «его» не к чему отнести.
-    expect(screen.getByText(/Если не отвечать/).textContent).not.toContain("его рекомендации");
+    expect(подсказка).not.toContain("его рекомендации");
+    await userEvent.keyboard("{Escape}");
     // Массовых кнопок нет: спорить не с чем, а жест закрывает только человек.
     expect(screen.queryByRole("button", { name: "Взять из новых архивов" })).toBeNull();
 
@@ -249,7 +256,7 @@ describe("догрузка архива · превью и споры", () => {
 
   it("409 применения: превью перезапрошено, ручной выбор уцелел", async () => {
     await открыть(zip("b.zip"));
-    await screen.findByText("вопрос 1 из 1");
+    await screen.findByText("Вопрос 1 из 1");
 
     await userEvent.click(screen.getByRole("button", { name: "Из архива Ярмарка" }));
     expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
@@ -285,7 +292,7 @@ describe("догрузка архива · превью и споры", () => {
     await userEvent.click(применить());
 
     expect(await screen.findByText("Архивы догружены")).toBeInTheDocument();
-    expect(screen.getByText(/Создано объектов: 3 · связей: 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Создано объектов: 3, связей: 2/)).toBeInTheDocument();
     // Замечания видны ДО закрытия — свёрткой «Придется подправить вручную», а не
     // сырым списком «Замечания» (Ф2г-2): сырые строки ответа на экран не попадают.
     expect(screen.queryByText("Замечания")).toBeNull();
@@ -313,8 +320,8 @@ describe("догрузка архива · отказ и свёртка (пра�
     }));
     await открыть(zip("a.zip"), zip("c.zip"));
 
-    expect(await screen.findByText("Что-то пошло не так")).toBeInTheDocument();
-    const пункты = within(screen.getByRole("list")).getAllByRole("listitem");
+    const статус = (await screen.findByText("Что-то пошло не так")).closest(".rq-root") as HTMLElement;
+    const пункты = within(within(статус).getByRole("list")).getAllByRole("listitem");
     expect(пункты.map((li) => li.textContent)).toEqual([
       "a.zip: Файл не читается как zip-архив.",
       "c.zip: В архиве нет файла C4 (contents.c4).",
@@ -383,19 +390,25 @@ describe("основание склейки и источника новых (Ф
   // же объект» — не показывалось вовсе: превью говорило только про новое.
   it("найденные в проекте названы с основанием каждой находки", async () => {
     vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
-      nodes_matched: 5,
+      nodes_matched: 6,
       matched_nodes: [
         { path: "Ярмарка / orders", basis: "code" },
         { path: "Ярмарка / Каталог-БД", basis: "dependency" },
         { path: "Ярмарка", basis: "name" },
+        { path: "Ярмарка / Заказы / БД заказов", basis: "name" },
       ],
     }));
     await открыть(zip("b.zip"));
 
-    expect(await screen.findByText(/Найдено в проекте: 5 объектов/)).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка / orders · по коду")).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка / Каталог-БД · по имени зависимости")).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка · по имени на верхнем уровне")).toBeInTheDocument();
+    expect(await screen.findByText(/Найдено в проекте: 6 объектов/)).toBeInTheDocument();
+    // Строка: путь, затем тихим цветом основание (как строка плана «Обновить из кода»).
+    const строка = (путь: string) => screen.getByText(путь).closest("li");
+    expect(строка("Ярмарка / orders")).toHaveTextContent(/^Ярмарка \/ orders: по коду$/);
+    expect(строка("Ярмарка / Каталог-БД")).toHaveTextContent(/^Ярмарка \/ Каталог-БД: по имени зависимости$/);
+    // Основание коротко: путь уже в строке, хвост «внутри «…»» его повторял (хвост 6г).
+    expect(строка("Ярмарка")).toHaveTextContent(/^Ярмарка: по имени$/);
+    expect(строка("Ярмарка / Заказы / БД заказов")).toHaveTextContent(/^Ярмарка \/ Заказы \/ БД заказов: по имени$/);
+    expect(screen.getByText(": по коду")).toHaveClass("ii-quiet");
     // Перечень обрезан капом — остаток назван счётчиком, а не съеден молча.
     expect(screen.getByText("и ещё 2")).toBeInTheDocument();
   });
@@ -412,6 +425,8 @@ describe("основание склейки и источника новых (Ф
 
     // Фикстура: у «billing» источник-код есть, у его компонента — нет.
     expect(await screen.findByText("Ярмарка / billing")).toBeInTheDocument();
-    expect(screen.getByText(/Ярмарка \/ billing \/ api \(без источника\)/)).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка / billing / api").closest("li"))
+      .toHaveTextContent(/^Ярмарка \/ billing \/ api \(без источника\)$/);
+    expect(screen.getByText("Ярмарка / billing").closest("li")).toHaveTextContent(/^Ярмарка \/ billing$/);
   });
 });

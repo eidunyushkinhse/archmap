@@ -1,61 +1,95 @@
-/* Окно создания проекта (CreateProjectDialog): сегменты режимов, список
-   проектов-источников копии, чипы импорта. Токены — единый синий акцент #2563eb
-   (активный текст #1d4ed8, мягкий фон #eff6ff) + slate-нейтрали. */
+/* Окно «Новый проект» (CreateProjectDialog и его части): одна колонка на общем каркасе
+   окна (ui/ds.css: ds-win, блоки ds-win-block, строки ds-prop). Зона файлов и выбор языка —
+   общие части окон ввоза (docsImport/importParts.css). Значения — только токены
+   ui/tokens.css. */
 
-/* Четыре способа старта — ровной сеткой 2×2. В одну строку узкой колонки они не
-   помещаются: «ИИ-агент» упирался в рамку (находка ручной проверки 2026-08-08),
-   а флекс-перенос 3+1 растягивал последнюю кнопку на весь ряд. */
-.cp-segs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+/* Окно прижато к верху (8vh, CreateProjectDialog): не выше экрана без этого отступа и
+   24px снизу, прокручивается только тело. */
+.ds-win.cp-win {
+  max-height: calc(92vh - 24px);
 }
 
-.cp-seg {
-  padding: 8px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-  color: #1e293b;
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
+/* Поля и режимы: сверху окна, не двигаются при смене режима. */
+.cp-top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
 }
-.cp-seg:hover { background: #f1f5f9; }
-.cp-seg--on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
-.cp-seg--on:hover { background: #eff6ff; }
-.cp-seg:disabled { opacity: 0.5; cursor: not-allowed; }
-.cp-seg:disabled:hover { background: #fff; }
+.cp-modes {
+  align-self: flex-start;
+}
+/* «Сначала введите название…» — под полем названия, с x его текста. */
+.cp-need {
+  margin: 2px 0 0;
+}
+.cp-quiet {
+  color: var(--c-fg-muted);
+}
+.cp-fixed {
+  overflow-wrap: anywhere;
+}
 
-/* Строка выбора в списке слева (проект-источник копии) */
-.cp-row {
+/* «Копия»: проекты строками в одну линию, выбранный — галочкой справа. Строка 30px,
+   восемь строк, дальше список прокручивается внутри себя. Подложка наведения выходит
+   на 8px за колонку, текст стоит на её x. */
+.cp-sources {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(8 * 30px);
+  margin: 0 -8px;
+  overflow-y: auto;
+}
+.cp-source {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: #1e293b;
-  font-size: 13.5px;
+  gap: var(--space-2);
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
   text-align: left;
   cursor: pointer;
 }
-.cp-row:hover { background: #f1f5f9; }
-.cp-row--on { border-color: #2563eb; background: #eff6ff; }
-.cp-row--on:hover { background: #eff6ff; }
-
-/* Чип документа импорта (мульти-YAML): те же токены, что у сегментов */
-.cp-chip {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #e2e8f0;
-  border-radius: 999px;
-  background: #fff;
-  color: #475569;
+.cp-source:hover {
+  background: var(--c-hover);
 }
-.cp-chip:hover { background: #f1f5f9; }
-.cp-chip--on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
-.cp-chip--on:hover { background: #eff6ff; }
+.cp-source:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.cp-source-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cp-source-check {
+  flex: none;
+  display: inline-flex;
+  color: var(--c-accent);
+}
+
+/* Итог превью под зоной файлов: строка статуса, вопросы, свёртка. */
+.cp-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+}
+.cp-line {
+  margin: 0;
+}
+
+/* Отчёт применения: строки 13px. */
+.cp-report div {
+  overflow-wrap: anywhere;
+}

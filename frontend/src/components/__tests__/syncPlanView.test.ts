@@ -53,14 +53,14 @@ describe("planSections", () => {
         { returned: false, path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "code" },
       ],
     });
-    expect(planSections(p)[0].rows[0].note).toBe("имя, источник · нашли по коду");
+    expect(planSections(p)[0].rows[0].note).toBe("имя, источник; нашли по коду");
   });
 
   it("доливку элемента архитектуры называет словами продукта, а не кодом поля", () => {
     const p = preview({
       nodes: [{ returned: false, path: "С / svc", action: "update", fields: ["element"], matched_by: "code" }],
     });
-    expect(planSections(p)[0].rows[0].note).toBe("элемент архитектуры · нашли по коду");
+    expect(planSections(p)[0].rows[0].note).toBe("элемент архитектуры; нашли по коду");
   });
 
   it("матч по имени показан даже без изменений полей — он слабее якорного", () => {
@@ -118,7 +118,7 @@ describe("связи", () => {
 
   it("сводка и итог считают дополненные связи", () => {
     expect(planSummary(preview({ summary: { edges_update: 2, edges_unchanged: 1 } }))).toBe(
-      "2 изменённых связей · без изменений 1",
+      "2 изменённых связей, 1 без изменений",
     );
     const r: SyncApplyOut = {
       created_nodes: [], updated_nodes: [], deprecated_nodes: [], created_edges: [],
@@ -141,7 +141,7 @@ describe("planSummary", () => {
         summary: { nodes_create: 2, nodes_missing: 1, edges_create: 3, nodes_unchanged: 10 },
       }),
     );
-    expect(s).toBe("2 новых, 1 пропавших, 3 новых связей · без изменений 10");
+    expect(s).toBe("2 новых, 1 пропавших, 3 новых связей, 10 без изменений");
   });
 
   it("для неразобранного входа сводки нет", () => {

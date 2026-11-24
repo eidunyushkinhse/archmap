@@ -15,13 +15,19 @@
 // Компонент владеет ВСЕМИ тремя модалками, скачиванием архива и тостом итога:
 // страницам остаётся сказать, что экспортировать, и перечитать данные после того,
 // как схему изменил синк или догрузка архива.
+//
+// Вид один в обеих шапках (редизайн, фазы 4б и 5): тихая кнопка-значок и меню нового
+// языка (ui/ds.css). Редактор-карта ставит сверху пункты самой страницы (подписи связей,
+// «Переразложить уровень»): отдельные кнопки им в шапке не нужны. Закрытие, стрелки и
+// возврат фокуса на кнопку — общим хуком ui/useMenu.
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import ExportModal from "./ExportModal";
 import SyncRepoModal from "./docsImport/SyncRepoModal";
 import ImportIntoModal from "./project/ImportIntoModal";
 import { KebabIcon } from "../ui/icons";
-import { useDismiss } from "../ui/useDismiss";
+import { useMenu } from "../ui/useMenu";
+import "../ui/ds.css";
 
 /** Область экспорта: что грузим и как назвать окно/пункт меню. */
 export interface ExportScope {
@@ -33,6 +39,13 @@ export interface ExportScope {
   archive?: { filename: string; load: () => Promise<Blob> };
 }
 
+/** Пункт меню от страницы: действие над открытой схемой (редактор-карта). */
+export interface SchemaMenuItem {
+  label: string;
+  onSelect: () => void;
+  disabled?: boolean;
+}
+
 interface Props {
   projectId: string;
   isArchitect: boolean;
@@ -42,8 +55,8 @@ interface Props {
   syncHidden?: boolean;
   /** Синк записал схему — страница перечитывает данные. */
   onSynced: () => void;
-  /** Размер кнопки: в оболочке 34, в редакторе 32 (там соседи меньше). */
-  size?: number;
+  /** Пункты страницы над общими, отделены чертой (шапка редактора-карты). */
+  items?: readonly SchemaMenuItem[];
 }
 
 const TOAST_MS = 5000;
@@ -54,7 +67,7 @@ export default function SchemaActions({
   exportScope,
   syncHidden = false,
   onSynced,
-  size = 34,
+  items = NO_ITEMS,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -62,13 +75,11 @@ export default function SchemaActions({
   const [importIntoOpen, setImportIntoOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const { wrapRef, triggerRef, menuRef, onKeyDown, pick } = useMenu(menuOpen, setMenuOpen);
 
   useEffect(() => () => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
   }, []);
-
-  useDismiss(menuOpen, wrapRef, setMenuOpen);
 
   function showToast(message: string) {
     setToast(message);
@@ -99,52 +110,69 @@ export default function SchemaActions({
     }
   };
 
-  const btn: CSSProperties = { ...iconBtn, width: size, height: size };
-
   return (
-    <div ref={wrapRef} style={{ position: "relative" }}>
+    <div ref={wrapRef} className="ds-menu-root">
       <button
-        className="icon-btn"
-        style={btn}
+        ref={triggerRef}
+        type="button"
+        className="ds-icon-btn"
         onClick={() => setMenuOpen((o) => !o)}
         title="Действия со схемой"
         aria-label="Действия со схемой"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
+        onKeyDown={onKeyDown}
       >
         <KebabIcon />
       </button>
 
       {menuOpen && (
-        <div style={menu} role="menu" aria-label="Действия со схемой">
+        <div ref={menuRef} className="ds-menu ds-menu--end" style={menuWidth} role="menu" aria-label="Действия со схемой" onKeyDown={onKeyDown}>
+          {items.length > 0 && (
+            <>
+              {items.map((it) => (
+                <button
+                  key={it.label}
+                  type="button"
+                  className="ds-menu-item"
+                  role="menuitem"
+                  disabled={it.disabled}
+                  onClick={() => pick(it.onSelect)}
+                >
+                  {it.label}
+                </button>
+              ))}
+              <div className="ds-menu-sep" role="separator" />
+            </>
+          )}
           <button
-            className="sam-item"
-            style={menuItem}
+            type="button"
+            className="ds-menu-item"
             role="menuitem"
             disabled={!exportScope}
-            onClick={() => { setMenuOpen(false); setExportOpen(true); }}
+            onClick={() => pick(() => setExportOpen(true))}
           >
             {exportScope?.title ?? "Экспорт"}
           </button>
           {isArchitect && !syncHidden && (
             <button
-              className="sam-item"
-              style={menuItem}
+              type="button"
+              className="ds-menu-item"
               role="menuitem"
               title="Изменения из файлов сольются с текущей схемой"
-              onClick={() => { setMenuOpen(false); setSyncOpen(true); }}
+              onClick={() => pick(() => setSyncOpen(true))}
             >
               Обновить из кода
             </button>
           )}
           {exportScope?.archive && (
             <button
-              className="sam-item"
-              style={menuItem}
+              type="button"
+              className="ds-menu-item"
               role="menuitem"
               disabled={archiveBusy}
               title="Архив всего, что есть в проекте: схема, схемы логики, спецификации, структуры баз, каналы брокеров, конфигурация и процессы"
-              onClick={() => { setMenuOpen(false); void downloadArchive(); }}
+              onClick={() => pick(() => { void downloadArchive(); })}
             >
               {archiveBusy ? "Собираем архив" : "Экспорт проекта (zip)"}
             </button>
@@ -154,11 +182,11 @@ export default function SchemaActions({
             // другому проекту. Мердж аддитивен — живое знание перетирается только
             // явным выбором в превью (Ф4 эпика «единый импорт»).
             <button
-              className="sam-item"
-              style={menuItem}
+              type="button"
+              className="ds-menu-item"
               role="menuitem"
               title="Добавить к проекту всё, что есть в архивах других проектов"
-              onClick={() => { setMenuOpen(false); setImportIntoOpen(true); }}
+              onClick={() => pick(() => setImportIntoOpen(true))}
             >
               Догрузить архив
             </button>
@@ -195,62 +223,13 @@ export default function SchemaActions({
           }}
         />
       )}
-      {toast && <div style={toastStyle}>{toast}</div>}
+      {/* Тост итога и отказа: низ окна справа (ui/ds.css). */}
+      {toast && <div className="ds-toast ds-toast--bottom-end">{toast}</div>}
     </div>
   );
 }
 
-// cursor ЗДЕСЬ НЕ ЗАДАЁМ: инлайн-стиль перебил бы not-allowed у неактивной кнопки
-// (курсор и :disabled — глобальным CSS, index.css). Ховеры пунктов — chrome.css (.sam-item).
-const iconBtn: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flex: "none",
-  background: "#fff",
-  color: "#475569",
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-};
-const menu: CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 8px)",
-  right: 0,
-  width: 260,
-  background: "#fff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 12,
-  boxShadow: "0 16px 40px rgba(15,23,42,.16)",
-  padding: 6,
-  zIndex: 20,
-  display: "flex",
-  flexDirection: "column",
-  gap: 2,
-};
-const menuItem: CSSProperties = {
-  display: "block",
-  width: "100%",
-  textAlign: "left",
-  padding: "8px 10px",
-  border: "none",
-  // Фон — в .sam-item (chrome.css): инлайновый background перебивал бы :hover.
-  borderRadius: 8,
-  fontSize: 13.5,
-  color: "#1e293b",
-  lineHeight: 1.35,
-};
-// Тост-итог применения синка / ошибки архива: тот же язык, что у тостов конкурентности.
-const toastStyle: CSSProperties = {
-  position: "fixed",
-  right: 18,
-  bottom: 18,
-  zIndex: 60,
-  maxWidth: 420,
-  padding: "10px 14px",
-  borderRadius: 8,
-  background: "#065f46",
-  color: "#ecfdf5",
-  fontSize: 13,
-  lineHeight: 1.45,
-  boxShadow: "0 10px 24px rgba(15,23,42,.18)",
-};
+const NO_ITEMS: readonly SchemaMenuItem[] = [];
+
+// Меню не уже 240px: короткие пункты оболочки («Экспорт схемы») не сужают его.
+const menuWidth: CSSProperties = { minWidth: 240 };

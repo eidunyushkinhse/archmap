@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
-import { primaryBtn } from "./styles";
+import "./ds.css";
 
 // Плашка «вышла новая версия» (аудит R-7). После выката старые чанки сборки пропадают
 // с сервера, и открытая вкладка не может догрузить ленивые части (mermaid, swagger,
 // окна): Vite сообщает об этом событием vite:preloadError. Перезагружать страницу
 // сами не станем — в открытом окне может быть несохранённая правка; говорим человеку
 // и даём кнопку. Ошибку не гасим (preventDefault не зовём): загрузчик сам покажет,
-// что его часть не загрузилась.
+// что его часть не загрузилась. Вид — тост нового языка с кнопкой, внизу окна поверх
+// всего (ui/ds.css).
 export const UPDATE_NOTICE = "Вышла новая версия ArchMap. Обновите страницу, чтобы всё загружалось.";
 
 export default function UpdateNotice() {
@@ -21,29 +21,11 @@ export default function UpdateNotice() {
 
   if (!stale) return null;
   return (
-    <div role="status" style={bar}>
+    <div role="status" className="ds-toast ds-toast--action ds-toast--service-bottom">
       <span>{UPDATE_NOTICE}</span>
-      <button type="button" style={primaryBtn} onClick={() => window.location.reload()}>
+      <button type="button" className="ds-btn" onClick={() => window.location.reload()}>
         Обновить
       </button>
     </div>
   );
 }
-
-const bar: CSSProperties = {
-  position: "fixed",
-  left: "50%",
-  bottom: 16,
-  transform: "translateX(-50%)",
-  zIndex: 10000,
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  maxWidth: "calc(100% - 32px)",
-  padding: "10px 12px 10px 16px",
-  background: "#1e293b",
-  color: "#f8fafc",
-  borderRadius: 10,
-  boxShadow: "0 12px 32px rgba(15,23,42,.25)",
-  fontSize: 14,
-};

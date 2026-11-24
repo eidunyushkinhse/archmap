@@ -62,7 +62,10 @@ describe("AccountMenu", () => {
     await userEvent.click(screen.getByLabelText("Профиль"));
     await userEvent.click(screen.getByRole("menuitem", { name: "Токены для MCP" }));
     expect(await screen.findByLabelText("Название")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    // «Закрыть» подвала: у крестика окна (редизайн, фаза 9д) то же имя, но без текста.
+    const close = screen.getAllByRole("button", { name: "Закрыть" }).find((b) => b.textContent === "Закрыть");
+    if (!close) throw new Error("нет кнопки «Закрыть» в подвале");
+    await userEvent.click(close);
     expect(screen.queryByLabelText("Название")).not.toBeInTheDocument();
   });
 

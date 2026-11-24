@@ -1,17 +1,19 @@
-import { useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import { useState } from "react";
 import type { Project } from "../../types";
 import SchemaPreview from "./SchemaPreview";
-import { useDismiss } from "../../ui/useDismiss";
-import { plural } from "../../ui/plural";
+import { KebabIcon } from "../../ui/icons";
+import { useMenu } from "../../ui/useMenu";
+import "../../ui/ds.css";
 import "./projectCard.css";
 
 /**
- * Карточка проекта на лендинге: превью схемы, имя и описание, кто и когда менял,
- * меню ⋯. Меню — редактору и владельцу: «Открыть» и «Доступ» обоим, управление
- * проектом (редактировать, архив, восстановить, удалить) — только владельцу.
- * Читателю состав участников не показываем, а без «Доступа» в меню остался бы один
- * пункт «Открыть» — поэтому у читателя меню ⋯ нет вовсе (и меток роли тоже нет).
+ * Карточка проекта на экране «Проекты» (редизайн, фаза 12а): превью схемы, имя и описание,
+ * внизу тихой строкой кто менял последним и когда. Превью и текст открывают проект; меню —
+ * кнопка-значок в углу превью, видна под курсором, при фокусе клавиатуры внутри карточки и
+ * при открытом меню (projectCard.css). Меню — редактору и владельцу: «Открыть» и «Доступ»
+ * обоим, управление проектом (редактировать, архив, восстановить, удалить) — только
+ * владельцу. Читателю состав участников не показываем, а без «Доступа» в меню остался бы
+ * один пункт «Открыть» — поэтому у читателя меню нет вовсе (и меток роли тоже нет).
  * Гостю демо-стенда «Доступ» не показываем (canShare=false): делиться ему не с кем.
  */
 export default function ProjectCard({
@@ -30,10 +32,12 @@ export default function ProjectCard({
   onRestore: () => void;
   onDelete: () => void;
 }) {
+  const who = updaterLabel ?? project.updated_by;
   return (
-    <div data-tour={`project:${project.id}`} className="project-card" style={card}>
-      <div style={{ position: "relative" }}>
-        <button style={cardPreviewBtn} onClick={onOpen} title="Открыть проект">
+    <div data-tour={`project:${project.id}`} className="project-card">
+      {/* Меню — соседом кнопки превью, а не внутри неё: щелчок по меню проект не открывает. */}
+      <div className="project-card-top">
+        <button type="button" className="project-card-preview" onClick={onOpen} title="Открыть проект">
           <SchemaPreview preview={project.preview} />
         </button>
         {project.my_role !== "reader" && <CardMenu
@@ -48,22 +52,14 @@ export default function ProjectCard({
           onDelete={onDelete}
         />}
       </div>
-      <button style={cardBody} onClick={onOpen}>
-        <div style={cardName}>{project.name}</div>
-        <div style={cardDesc}>{project.description || "Без описания"}</div>
+      <button type="button" className="project-card-body" onClick={onOpen}>
+        <span className="project-card-name">{project.name}</span>
+        <span className="project-card-desc">{project.description || "Без описания"}</span>
       </button>
-      <div style={cardFooter}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-          <span style={miniAvatar}>{initials(updaterLabel ?? project.updated_by)}</span>
-          <span style={editorName}>{updaterLabel ?? project.updated_by ?? "—"}</span>
-          <span style={{ color: "#cbd5e1" }}>·</span>
-          <span style={{ color: "#94a3b8", whiteSpace: "nowrap" }}>{fmtDate(project.updated_at)}</span>
-        </div>
-        <span style={{ color: "#94a3b8", whiteSpace: "nowrap" }}>
-          {project.object_count} {plural(project.object_count, ["объект", "объекта", "объектов"])}
-          {" · "}
-          {project.edge_count} {plural(project.edge_count, ["связь", "связи", "связей"])}
-        </span>
+      {/* Кто менял последним (длинный логин — с многоточием, целиком в подсказке) и дата. */}
+      <div className="project-card-foot">
+        <span className="project-card-who" title={who ?? undefined}>{who ?? "—"}</span>
+        <span className="project-card-date">{fmtDate(project.updated_at)}</span>
       </div>
     </div>
   );
@@ -83,16 +79,35 @@ function CardMenu({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useDismiss(open, ref, setOpen);
-  const item = (label: string, fn: () => void, danger = false): ReactNode => (
-    <MenuItem label={label} danger={danger} onClick={() => { setOpen(false); fn(); }} />
+  // Закрытие, стрелки и возврат фокуса на кнопку меню — общим хуком ui/useMenu.
+  const { wrapRef, triggerRef, menuRef, onKeyDown, pick } = useMenu(open, setOpen);
+  // Пункт меню: фокус на кнопку меню, закрывает меню и зовёт действие; «Удалить навсегда» —
+  // опасным пунктом.
+  const item = (label: string, fn: () => void, danger = false) => (
+    <button
+      type="button"
+      className={"ds-menu-item" + (danger ? " ds-menu-item--danger" : "")}
+      onClick={() => pick(fn)}
+    >
+      {label}
+    </button>
   );
   return (
-    <div ref={ref} style={{ position: "absolute", top: 8, right: 8 }}>
-      <button style={dotsBtn} onClick={() => setOpen((o) => !o)} aria-label="Меню проекта" aria-haspopup="menu" aria-expanded={open}>⋯</button>
+    <div ref={wrapRef} className="project-card-menu">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="ds-icon-btn project-card-kebab"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Меню проекта"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onKeyDown={onKeyDown}
+      >
+        <KebabIcon />
+      </button>
       {open && (
-        <div style={cardMenu} role="menu">
+        <div ref={menuRef} className="ds-menu ds-menu--end" role="menu" onKeyDown={onKeyDown}>
           {item("Открыть", onOpen)}
           {canShare && item("Доступ", onAccess)}
           {isOwner && item("Редактировать", onEdit)}
@@ -110,73 +125,7 @@ function CardMenu({
   );
 }
 
-// Пункт дропдауна ⋯ с подсветкой активной зоны по ховеру (projectCard.css).
-// Danger-пункт («Удалить») подсвечивается красноватым.
-function MenuItem({ label, danger, onClick }: { label: string; danger?: boolean; onClick: () => void }) {
-  return (
-    <button
-      className={"project-card-menuitem" + (danger ? " project-card-menuitem--danger" : "")}
-      style={{ ...menuItem, color: danger ? "#dc2626" : "#1e293b" }}
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  );
-}
-
-// ── Утилиты ───────────────────────────────────────────────────────────────────
-function initials(name: string | null): string {
-  if (!name) return "—";
-  const parts = name.trim().split(/\s+/);
-  const s = parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2);
-  return s.toUpperCase();
-}
-
 function fmtDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 }
-
-// ── Стили ─────────────────────────────────────────────────────────────────────
-const card: CSSProperties = {
-  background: "#fff", border: "1px solid #e8edf3", borderRadius: 14, overflow: "hidden",
-  transition: "transform .14s ease, box-shadow .14s ease", display: "flex", flexDirection: "column",
-};
-const cardPreviewBtn: CSSProperties = {
-  display: "block", width: "100%", padding: 12, border: "none", background: "none", cursor: "pointer",
-};
-const dotsBtn: CSSProperties = {
-  width: 30, height: 30, borderRadius: 8, border: "1px solid #e2e8f0", background: "rgba(255,255,255,.92)",
-  color: "#475569", fontSize: 18, lineHeight: 1, cursor: "pointer", display: "flex",
-  alignItems: "center", justifyContent: "center",
-};
-const cardMenu: CSSProperties = {
-  position: "absolute", top: "calc(100% + 6px)", right: 0, width: 190, background: "#fff",
-  border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 16px 40px rgba(15,23,42,.16)",
-  padding: 6, zIndex: 5,
-};
-// Фон пункта — в projectCard.css: инлайновый перебивал бы :hover.
-const menuItem: CSSProperties = {
-  display: "block", width: "100%", textAlign: "left", padding: "8px 10px",
-  border: "none", borderRadius: 7, fontSize: 13.5, cursor: "pointer",
-};
-const cardBody: CSSProperties = {
-  display: "block", width: "100%", textAlign: "left", padding: "2px 14px 10px",
-  background: "none", border: "none", cursor: "pointer",
-};
-const cardName: CSSProperties = { fontSize: 15.5, fontWeight: 700, color: "#0f172a", marginBottom: 3 };
-const cardDesc: CSSProperties = {
-  fontSize: 13, color: "#64748b", lineHeight: 1.4, display: "-webkit-box",
-  WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 36,
-};
-const cardFooter: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-  padding: "10px 14px", borderTop: "1px solid #f1f5f9", fontSize: 12, color: "#94a3b8",
-};
-const miniAvatar: CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22,
-  flex: "none", borderRadius: "50%", background: "#eff6ff", color: "#1d4ed8", fontSize: 10, fontWeight: 700,
-};
-const editorName: CSSProperties = {
-  color: "#475569", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 90,
-};

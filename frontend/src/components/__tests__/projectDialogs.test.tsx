@@ -96,6 +96,45 @@ describe("DeleteForeverDialog", () => {
   });
 });
 
+// Вид (редизайн, фаза 9а): три окна — общее подтверждение на каркасе окна нового языка.
+describe("окна проекта: вид подтверждения", () => {
+  it("архив: заголовок h2, пояснение, синяя главная кнопка первой", () => {
+    render(<ArchiveDialog project={project} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Отправить «Ярмарка» в архив?" })).toBeInTheDocument();
+    expect(screen.getByText("Схема сохранится, и проект можно вернуть из архива в любой момент.")).toHaveClass("ds-confirm-lead");
+    const [main, cancel] = screen.getAllByRole("button");
+    expect([main.textContent, cancel.textContent]).toEqual(["В архив", "Отмена"]);
+    expect(main.className).toBe("ds-btn ds-btn--primary");
+    expect(cancel.className).toBe("ds-btn");
+  });
+
+  it("возврат из архива: синяя главная кнопка, «Возвращаем» на время записи", async () => {
+    vi.mocked(projectsApi.restore).mockReturnValue(new Promise(() => {}));
+    render(<RestoreDialog project={project} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Вернуть «Ярмарка» из архива?" })).toBeInTheDocument();
+    expect(screen.getByText("Проект снова появится среди активных.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Вернуть" }).className).toBe("ds-btn ds-btn--primary");
+    await userEvent.click(screen.getByRole("button", { name: "Вернуть" }));
+    expect(screen.getByRole("button", { name: "Возвращаем" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled();
+  });
+
+  it("удаление навсегда: красная кнопка заперта без своей прозрачности, поле нового вида", async () => {
+    render(<DeleteForeverDialog project={project} onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Удалить «Ярмарка» навсегда?" })).toBeInTheDocument();
+    const del = screen.getByRole("button", { name: "Удалить навсегда" });
+    expect(del.className).toBe("ds-btn ds-btn--danger");
+    expect(del).toBeDisabled();
+    expect(del).not.toHaveAttribute("style");
+    const field = screen.getByPlaceholderText("Ярмарка");
+    expect(field).toHaveClass("ds-input");
+    expect(field).toHaveAttribute("data-autofocus");
+    expect(screen.getByRole("button", { name: "Отмена" })).toBeEnabled();
+    await userEvent.type(field, "Ярмарка");
+    expect(del).toBeEnabled();
+  });
+});
+
 describe("EditProjectDialog", () => {
   it("поля предзаполнены; успех уносит обрезанные значения, зовёт onSaved и держит кнопку занятой", async () => {
     vi.mocked(projectsApi.update).mockResolvedValue(project);
@@ -120,5 +159,68 @@ describe("EditProjectDialog", () => {
     await userEvent.type(name, "Плёнка{Enter}");
     expect(await screen.findByText("Имя занято")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled();
+  });
+
+  it("описание обрезается по краям; Enter в описании переносит строку и не сохраняет", async () => {
+    vi.mocked(projectsApi.update).mockResolvedValue(project);
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const описание = screen.getByPlaceholderText("коротко о проекте");
+    await userEvent.type(описание, "  первая{Enter}вторая  ");
+    expect(projectsApi.update).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(projectsApi.update).toHaveBeenCalledWith("p1", { name: "Ярмарка", description: "первая\nвторая" });
+  });
+
+  it("«Отмена» закрывает окно без записи", async () => {
+    const onClose = vi.fn();
+    render(<EditProjectDialog project={project} onClose={onClose} onSaved={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(projectsApi.update).not.toHaveBeenCalled();
+  });
+
+  it("Enter в пустом названии ничего не отправляет", async () => {
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    await userEvent.clear(screen.getByDisplayValue("Ярмарка"));
+    await userEvent.keyboard("{Enter}");
+    expect(projectsApi.update).not.toHaveBeenCalled();
+  });
+
+  // Вид (редизайн, фаза 9г): каркас окна нового языка, строки «подпись — значение».
+  it("вид: заголовок h2, строки «Название» и «Описание», кнопки подвала нового языка", () => {
+    render(<EditProjectDialog project={{ ...project, description: "Старое" }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Редактировать проект" })).toHaveClass("ds-win-title");
+    const name = screen.getByLabelText("Название");
+    expect(name).toHaveValue("Ярмарка");
+    expect(name).toHaveAttribute("data-autofocus");
+    expect(name.closest(".ds-prop")).not.toBeNull();
+    expect(screen.getByLabelText("Описание")).toHaveValue("Старое");
+    expect(screen.queryByText(/необязательно/)).not.toBeInTheDocument();
+    const [save, cancel] = screen.getAllByRole("button").filter((b) => b.textContent !== "");
+    expect([save.textContent, cancel.textContent]).toEqual(["Сохранить", "Отмена"]);
+    expect(save.className).toBe("ds-btn ds-btn--primary");
+    expect(cancel.className).toBe("ds-btn");
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-win-close");
+  });
+
+  it("вид: у стёртого названия подсказка внутри поля, как в окне «Новый проект»", async () => {
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const name = screen.getByLabelText("Название");
+    expect(name).toHaveAttribute("placeholder", "например: Платёжная платформа");
+    await userEvent.clear(name);
+    expect(screen.getByPlaceholderText("например: Платёжная платформа")).toBe(name);
+  });
+
+  it("вид: запертая «Сохранить» без своей прозрачности, отказ строкой подвала", async () => {
+    vi.mocked(projectsApi.update).mockRejectedValue(new Error("Имя занято"));
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const name = screen.getByLabelText("Название");
+    await userEvent.clear(name);
+    const save = screen.getByRole("button", { name: "Сохранить" });
+    expect(save).toBeDisabled();
+    expect(save).not.toHaveAttribute("style");
+    await userEvent.type(name, "Плёнка");
+    await userEvent.click(save);
+    expect(await screen.findByText("Имя занято")).toHaveClass("ds-danger", "ds-win-err");
   });
 });

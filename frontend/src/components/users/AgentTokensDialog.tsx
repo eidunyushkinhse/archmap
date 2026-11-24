@@ -1,21 +1,26 @@
 import { useState } from "react";
-import type { CSSProperties } from "react";
 import { tokensApi } from "../../api/tokens";
 import { useAsyncLoad } from "../../lib/useAsyncLoad";
 import type { PersonalToken, PersonalTokenCreate, PersonalTokenCreated } from "../../types";
 import ConfirmDialog from "../../ui/ConfirmDialog";
-import DialogTitle from "../../ui/DialogTitle";
 import LoadError from "../../ui/LoadError";
 import Modal from "../../ui/Modal";
-import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { ChevronDownIcon, CloseIcon } from "../../ui/icons";
 import { useBusyAction } from "../../ui/useBusyAction";
 import IssuedTokenView from "./IssuedTokenView";
+import "../../ui/ds.css";
+import "./userDialogs.css";
 
 /**
  * «Токены для MCP» из меню профиля (docs/plan-remote-mcp.md, Ф5): свои личные токены,
  * выпуск и отзыв. Токен подключает ИИ-агента к ArchMap по адресу …/mcp; права агента — ваши,
  * удаляет он только пачкой с версией перед удалением (app/deletions.py). Секрет показывается ОДИН раз — сразу после выпуска (IssuedTokenView);
  * живёт только в состоянии окна: ни хранилища браузера, ни кэша api.
+ *
+ * Вид (редизайн, фаза 9д): каркас окна нового языка (ui/ds.css, ds-win), токены тихими
+ * строками без коробки (название, префикс, доступ словом, под ними когда пользовались и
+ * срок; «Отозвать» тихой красной кнопкой-текстом), блок «Новый токен» строками «подпись —
+ * поле в рамке» (users/userDialogs.css), в подвале «Выпустить токен» и «Закрыть».
  */
 
 interface Props {
@@ -61,7 +66,7 @@ function fmtDate(iso: string): string {
 // Строка под именем токена: когда пользовались и до какого числа действует.
 function tokenMeta(t: PersonalToken): string {
   const used = t.last_used_at ? `использовался ${fmtDate(t.last_used_at)}` : "не использовался";
-  return `${used} · ${t.expires_at ? `до ${fmtDate(t.expires_at)}` : "бессрочно"}`;
+  return `${used}, ${t.expires_at ? `до ${fmtDate(t.expires_at)}` : "бессрочно"}`;
 }
 
 export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
@@ -87,7 +92,11 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
 
   async function submit() {
     if (!canIssue) return;
-    const days = LIFETIMES.find((l) => l.value === lifetime)?.days ?? 90;
+    // «Бессрочно» — найденный вариант с days: null (токен без срока); запасные 90 дней —
+    // только если вариант не найден. `?.days ?? 90` путало эти случаи и выпускало
+    // «бессрочный» токен на 90 дней.
+    const picked = LIFETIMES.find((l) => l.value === lifetime);
+    const days: Lifetime = picked === undefined ? 90 : picked.days;
     await issue.run(async () => {
       setIssued(await tokensApi.create({
         name: shownName.trim(),
@@ -121,78 +130,102 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
 
   return (
     <>
-      <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 560, padding: 24, maxHeight: "86vh", overflowY: "auto" }}>
-        <DialogTitle>Токены для MCP</DialogTitle>
+      <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 560, padding: 0 }}>
+        <div className="ds ds-win">
+          <div className="ds-win-head">
+            <h2 className="ds-win-title">Токены для MCP</h2>
+            <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+              <CloseIcon />
+            </button>
+          </div>
 
-        {tokens.error !== null ? (
-          <LoadError what="токены" error={tokens.error} onRetry={tokens.reload} />
-        ) : tokens.loading && tokens.data === null ? (
-          <p style={muted}>Загрузка</p>
-        ) : list.length > 0 && (
-          <div style={listBox}>
-            {list.map((t, i) => (
-              <div key={t.id} style={{ ...row, borderTop: i === 0 ? "none" : row.borderTop }} data-testid={`token-${t.name}`}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={nameLine}>
-                    <span style={nameCell}>{t.name}</span>
-                    <code style={prefixCell}>{t.prefix}…</code>
-                    {t.read_only && <span style={roTag}>только чтение</span>}
-                    {t.ci_only && <span style={roTag}>сигнал из CI</span>}
-                  </div>
-                  <div style={metaLine}>{tokenMeta(t)}</div>
+          <div className="ds-win-body">
+            {tokens.error !== null ? (
+              <LoadError what="токены" error={tokens.error} onRetry={tokens.reload} />
+            ) : tokens.loading && tokens.data === null ? (
+              <p className="ds-empty ud-flat">Загрузка</p>
+            ) : list.length > 0 && (
+              <section className="ds-win-block">
+                <ul className="ud-tokens">
+                  {list.map((t) => (
+                    <li key={t.id} className="ud-token" data-testid={`token-${t.name}`}>
+                      <div className="ud-token-text">
+                        <div className="ud-token-line">
+                          <span className="ud-token-name">{t.name}</span>
+                          <code className="ds-mono ud-token-prefix">{t.prefix}…</code>
+                          {t.read_only && <span className="ud-token-access">только чтение</span>}
+                          {t.ci_only && <span className="ud-token-access">сигнал из CI</span>}
+                        </div>
+                        <div className="ud-token-meta">{tokenMeta(t)}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="ds-text-danger ud-revoke"
+                        aria-label={`Отозвать ${t.name}`}
+                        onClick={() => { setRevokeError(null); setRevoking(t); }}
+                      >
+                        Отозвать
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            <section className="ds-win-block">
+              {list.length > 0 && <h3 className="ds-win-block-title">Новый токен</h3>}
+              <dl className="ds-props ud-props">
+                <div className="ds-prop">
+                  <dt className="ds-prop-term"><label htmlFor="tok-name">Название</label></dt>
+                  <dd className="ds-prop-value">
+                    <input
+                      id="tok-name"
+                      className="ds-input"
+                      data-autofocus
+                      maxLength={64}
+                      value={shownName}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </dd>
                 </div>
-                <button
-                  style={revokeBtn}
-                  aria-label={`Отозвать ${t.name}`}
-                  onClick={() => { setRevokeError(null); setRevoking(t); }}
-                >
-                  Отозвать
-                </button>
-              </div>
-            ))}
+                <div className="ds-prop">
+                  <dt className="ds-prop-term"><label htmlFor="tok-life">Срок действия</label></dt>
+                  <dd className="ds-prop-value">
+                    <span className="ds-select">
+                      <select id="tok-life" value={lifetime} onChange={(e) => setLifetime(e.target.value)}>
+                        {LIFETIMES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+                      </select>
+                      <ChevronDownIcon />
+                    </span>
+                  </dd>
+                </div>
+                <div className="ds-prop">
+                  <dt className="ds-prop-term"><label htmlFor="tok-access">Доступ</label></dt>
+                  <dd className="ds-prop-value">
+                    <span className="ds-select">
+                      <select
+                        id="tok-access"
+                        value={shownAccess}
+                        disabled={readOnlyOnly}
+                        onChange={(e) => setAccess(ACCESS.find((a) => a.value === e.target.value)?.value ?? "full")}
+                      >
+                        {ACCESS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+                      </select>
+                      <ChevronDownIcon />
+                    </span>
+                  </dd>
+                </div>
+              </dl>
+            </section>
           </div>
-        )}
 
-        {list.length > 0 && <div style={sectionLabel}>Новый токен</div>}
-        <div style={fieldsRow}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <label style={labelStyle} htmlFor="tok-name">Название</label>
-            <input
-              id="tok-name"
-              data-autofocus
-              style={input}
-              maxLength={64}
-              value={shownName}
-              onChange={(e) => setName(e.target.value)}
-            />
+          <div className="ds-win-foot">
+            {issue.error && <p className="ds-danger ds-win-err" role="alert">{issue.error}</p>}
+            <button type="button" className="ds-btn ds-btn--primary" disabled={!canIssue} onClick={() => void submit()}>
+              {issue.busy ? "Выпускаем" : "Выпустить токен"}
+            </button>
+            <button type="button" className="ds-btn" onClick={onClose}>Закрыть</button>
           </div>
-          <div style={{ width: 150, flex: "none" }}>
-            <label style={labelStyle} htmlFor="tok-life">Срок действия</label>
-            <select id="tok-life" style={input} value={lifetime} onChange={(e) => setLifetime(e.target.value)}>
-              {LIFETIMES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ width: 220 }}>
-          <label style={labelStyle} htmlFor="tok-access">Доступ</label>
-          <select
-            id="tok-access"
-            style={input}
-            value={shownAccess}
-            disabled={readOnlyOnly}
-            onChange={(e) => setAccess(ACCESS.find((a) => a.value === e.target.value)?.value ?? "full")}
-          >
-            {ACCESS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
-          </select>
-        </div>
-
-        {issue.error && <p style={errText}>{issue.error}</p>}
-
-        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-          <button style={{ ...primaryBtn, opacity: canIssue ? 1 : 0.55 }} disabled={!canIssue} onClick={() => void submit()}>
-            {issue.busy ? "Выпускаем" : "Выпустить токен"}
-          </button>
-          <button style={secondaryBtn} onClick={onClose}>Закрыть</button>
         </div>
       </Modal>
 
@@ -212,27 +245,3 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
     </>
   );
 }
-
-const muted: CSSProperties = { margin: "0 0 4px", fontSize: 14, color: "#64748b" };
-const listBox: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" };
-const row: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
-  borderTop: "1px solid #f1f5f9", fontSize: 14,
-};
-const nameLine: CSSProperties = { display: "flex", alignItems: "center", gap: 8, minWidth: 0 };
-const nameCell: CSSProperties = {
-  minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-  color: "#0f172a", fontWeight: 600,
-};
-const prefixCell: CSSProperties = { fontSize: 12.5, color: "#64748b" };
-const roTag: CSSProperties = {
-  padding: "2px 8px", borderRadius: 999, background: "#f1f5f9", color: "#475569",
-  fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
-};
-const metaLine: CSSProperties = { marginTop: 2, fontSize: 12.5, color: "#64748b" };
-const revokeBtn: CSSProperties = {
-  background: "none", border: "none", padding: "4px 2px", fontSize: 13, fontWeight: 600,
-  color: "#dc2626", cursor: "pointer",
-};
-const sectionLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569", margin: "20px 0 10px" };
-const fieldsRow: CSSProperties = { display: "flex", gap: 12, alignItems: "flex-start" };

@@ -3,7 +3,7 @@ import type { DeletionSnapshot, Node } from "../types";
 import { nodesApi } from "../api/nodes";
 import { plural } from "../ui/plural";
 import ConfirmDialog from "../ui/ConfirmDialog";
-import { confirmListBox, confirmList } from "../ui/styles";
+import "../ui/ds.css";
 
 /**
  * Подтверждение удаления НЕСКОЛЬКИХ выбранных узлов (мультиудаление с канваса по
@@ -51,15 +51,12 @@ export default function NodesDeleteConfirm({ nodes, onCancel, onDeleted }: Props
       busy={deleting}
       onConfirm={confirmDelete}
       onCancel={onCancel}
-      scroll
     >
-      <div style={confirmListBox}>
-        <ul style={confirmList}>
-          {nodes.map((n) => (
-            <li key={n.id} style={{ marginBottom: 4 }}>{n.name}</li>
-          ))}
-        </ul>
-      </div>
+      <ul className="ds-confirm-list">
+        {nodes.map((n) => (
+          <li key={n.id} title={n.name}>{n.name}</li>
+        ))}
+      </ul>
     </ConfirmDialog>
   );
 }

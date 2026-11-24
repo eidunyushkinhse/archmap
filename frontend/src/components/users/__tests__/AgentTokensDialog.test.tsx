@@ -44,7 +44,8 @@ describe("AgentTokensDialog", () => {
     expect(within(reader).getByText("только чтение")).toBeInTheDocument();
     expect(within(reader).getByText(/до 15 янв/)).toBeInTheDocument();
     const agent = screen.getByTestId("token-Агент");
-    expect(within(agent).getByText("не использовался · бессрочно")).toBeInTheDocument();
+    // Редизайн, фаза 9д: части строки срока через запятую, без склейки точкой.
+    expect(within(agent).getByText("не использовался, бессрочно")).toBeInTheDocument();
     expect(within(agent).queryByText("только чтение")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Название")).toHaveValue("Агент 2");
   });
@@ -181,10 +182,160 @@ describe("AgentTokensDialog", () => {
     expect(screen.getByTestId("token-Агент")).toBeInTheDocument();
   });
 
+  // Страховка редизайна (фаза 9д): механика окна не меняется вместе с видом.
+  it("токен CI: «сигнал из CI»; строка срока — когда пользовались и до какого числа", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([
+      token({ id: "t-ci", name: "CI", prefix: "archmap_Ci56G", ci_only: true,
+        last_used_at: "2026-11-12T12:00:00+00:00", expires_at: "2027-02-12T12:00:00+00:00" }),
+    ]);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    const ci = await screen.findByTestId("token-CI");
+    expect(within(ci).getByText("сигнал из CI")).toBeInTheDocument();
+    expect(within(ci).queryByText("только чтение")).not.toBeInTheDocument();
+    expect(within(ci).getByText(/^использовался 12 нояб\. 2026 г\./)).toHaveTextContent(/до 12 февр\. 2027 г\.$/);
+    expect(within(ci).getByRole("button", { name: "Отозвать CI" })).toHaveTextContent("Отозвать");
+    // Заголовок блока выпуска есть, только когда список не пуст.
+    expect(screen.getByText("Новый токен")).toBeInTheDocument();
+  });
+
+  it("подтверждение отзыва — соседнее окно, а не вложенное в окно токенов", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([token()]);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Отозвать Агент" }));
+    const dialogs = [...document.querySelectorAll("dialog")];
+    expect(dialogs).toHaveLength(2);
+    expect(dialogs[0].contains(dialogs[1])).toBe(false);
+    expect(dialogs[1].contains(dialogs[0])).toBe(false);
+    expect(screen.getByText("Агент с этим токеном сразу потеряет доступ.")).toBeInTheDocument();
+  });
+
+  it("пока список грузится — «Загрузка», выпускать нельзя", async () => {
+    vi.mocked(tokensApi.list).mockReturnValue(new Promise<PersonalToken[]>(() => {}));
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    expect(screen.getByText("Загрузка")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeDisabled();
+  });
+
+  it("название из пробелов — выпускать нечего; срок «Год» уходит числом дней", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    vi.mocked(tokensApi.create).mockResolvedValue({ token: token(), secret: SECRET });
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    const name = await screen.findByLabelText("Название");
+    await userEvent.clear(name);
+    await userEvent.type(name, "   ");
+    const issue = screen.getByRole("button", { name: "Выпустить токен" });
+    expect(issue).toBeDisabled();
+    await userEvent.clear(name);
+    await userEvent.type(name, "Ноутбук");
+    await userEvent.selectOptions(screen.getByLabelText("Срок действия"), "365");
+    await userEvent.click(issue);
+    expect(tokensApi.create).toHaveBeenCalledWith({
+      name: "Ноутбук", read_only: false, ci_only: false, lifetime_days: 365,
+    });
+  });
+
+  it("срок «Бессрочно» уходит как null: токен без срока, а не на 90 дней", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    vi.mocked(tokensApi.create).mockResolvedValue({ token: token(), secret: SECRET });
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    await userEvent.selectOptions(await screen.findByLabelText("Срок действия"), "none");
+    await userEvent.click(screen.getByRole("button", { name: "Выпустить токен" }));
+    expect(tokensApi.create).toHaveBeenCalledTimes(1);
+    expect(tokensApi.create).toHaveBeenCalledWith({
+      name: "Агент", read_only: false, ci_only: false, lifetime_days: null,
+    });
+  });
+
+  it("поля: id, автофокус названия, предел длины; варианты срока и доступа", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    const onClose = vi.fn();
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={onClose} />);
+    const name = await screen.findByLabelText("Название");
+    expect(name.id).toBe("tok-name");
+    expect(name).toHaveAttribute("data-autofocus");
+    expect(name).toHaveAttribute("maxlength", "64");
+    const life = screen.getByLabelText("Срок действия");
+    expect(life.id).toBe("tok-life");
+    expect(life).toHaveValue("90");
+    expect([...life.querySelectorAll("option")].map((o) => [o.value, o.textContent])).toEqual([
+      ["30", "30 дней"], ["90", "90 дней"], ["365", "Год"], ["none", "Бессрочно"],
+    ]);
+    const access = screen.getByLabelText("Доступ");
+    expect(access.id).toBe("tok-access");
+    expect(access).toHaveValue("full");
+    expect(access).toBeEnabled();
+    expect([...access.querySelectorAll("option")].map((o) => [o.value, o.textContent])).toEqual([
+      ["full", "Полный"], ["read", "Только чтение"], ["ci", "Только сигнал из CI"],
+    ]);
+    // «Закрыть» подвала (у крестика окна то же имя, но без текста).
+    const close = screen.getAllByRole("button", { name: "Закрыть" }).find((b) => b.textContent === "Закрыть");
+    if (!close) throw new Error("нет кнопки «Закрыть» в подвале");
+    await userEvent.click(close);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(tokensApi.create).not.toHaveBeenCalled();
+  });
+
   it("список не загрузился — ошибка видна, выпускать нельзя", async () => {
     vi.mocked(tokensApi.list).mockRejectedValue(new Error("Нет связи с сервером"));
     render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     expect(await screen.findByText(/Нет связи с сервером/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeDisabled();
+  });
+});
+
+// Вид (редизайн, фаза 9д): каркас окна нового языка, токены тихими строками без коробки и
+// пилюль, блок «Новый токен» строками «подпись — поле в рамке», подвал нового языка.
+describe("вид окна «Токены для MCP»", () => {
+  it("строки токенов: доступ словом, срок через запятую, «Отозвать» кнопкой-текстом", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([
+      token({ last_used_at: "2026-11-12T12:00:00+00:00", expires_at: "2027-02-12T12:00:00+00:00" }),
+      token({ id: "t-2", name: "Читатель", read_only: true }),
+      token({ id: "t-3", name: "CI", ci_only: true }),
+    ]);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Токены для MCP" })).toHaveClass("ds-win-title");
+    const agent = await screen.findByTestId("token-Агент");
+    expect(agent.textContent).not.toContain(" · ");
+    expect(within(agent).getByText(/^использовался 12 нояб\. 2026 г\., до 12 февр\. 2027 г\.$/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("token-Читатель")).getByText("только чтение")).toHaveClass("ud-token-access");
+    expect(within(screen.getByTestId("token-CI")).getByText("сигнал из CI")).toHaveClass("ud-token-access");
+    expect(within(agent).getByText("archmap_Zx9se…")).toHaveClass("ds-mono");
+    expect(within(agent).getByRole("button", { name: "Отозвать Агент" })).toHaveClass("ud-revoke");
+    expect(screen.getByText("Новый токен").tagName).toBe("H3");
+    expect(screen.getByText("Новый токен")).toHaveClass("ds-win-block-title");
+    // Инлайн-стилей в окне нет; исключение — общий значок шеврона списка (ui/icons).
+    expect([...document.querySelectorAll(".ds-win [style]")].filter((e) => e.tagName !== "svg")).toHaveLength(0);
+  });
+
+  it("блок «Новый токен»: строки Название, Срок действия, Доступ; подвал", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    const name = await screen.findByLabelText("Название");
+    const rows = [...document.querySelectorAll(".ds-prop")];
+    expect(rows.map((r) => r.querySelector("dt")?.textContent)).toEqual(["Название", "Срок действия", "Доступ"]);
+    expect(name).toHaveClass("ds-input");
+    expect(screen.getByLabelText("Срок действия").closest(".ds-select")).not.toBeNull();
+    expect(screen.getByLabelText("Доступ").closest(".ds-select")).not.toBeNull();
+    const [issue, close] = screen.getAllByRole("button").filter((b) => b.textContent !== "");
+    expect([issue.textContent, close.textContent]).toEqual(["Выпустить токен", "Закрыть"]);
+    expect(issue.className).toBe("ds-btn ds-btn--primary");
+    expect(close.className).toBe("ds-btn");
+    // Крестик окна — кнопка-значок с тем же именем «Закрыть», без текста.
+    const cross = screen.getAllByRole("button", { name: "Закрыть" }).find((b) => b.textContent === "");
+    expect(cross).toHaveClass("ds-icon-btn", "ds-win-close");
+  });
+
+  it("отказ выпуска строкой подвала", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    vi.mocked(tokensApi.create).mockRejectedValue(new Error("Токен с таким именем у вас уже есть"));
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Выпустить токен" }));
+    expect(await screen.findByText("Токен с таким именем у вас уже есть")).toHaveClass("ds-danger", "ds-win-err");
+  });
+
+  it("«Загрузка» тихим текстом", () => {
+    vi.mocked(tokensApi.list).mockReturnValue(new Promise<PersonalToken[]>(() => {}));
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
+    expect(screen.getByText("Загрузка")).toHaveClass("ds-empty");
   });
 });

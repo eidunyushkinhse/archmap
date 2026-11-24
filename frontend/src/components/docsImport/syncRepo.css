@@ -1,0 +1,59 @@
+/* Окно «Обновить из кода» (docsImport/SyncRepoModal, SyncPlan): одна колонка на общем
+   каркасе окна (ui/ds.css: ds-win, блоки ds-win-block, строки ds-prop). Выбор языка и
+   зона файлов — общие части окон ввоза (importParts.css). Здесь только своё: галочки «что
+   обновлять» и план. Значения — только токены ui/tokens.css. */
+
+/* Строка «Сверяем со схемой» и прочие строки окна. */
+.sync-line {
+  margin: 0;
+}
+.sync-quiet {
+  color: var(--c-fg-muted);
+}
+
+/* «Что обновлять»: галочки окна (ds-check в ui/ds.css) столбцом, подсказка — в title. */
+.sync-policies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+/* План: итог 13px/600, раздел — название и число тихим цветом, строки 13px с
+   примечанием тихим цветом; раздел с вниманием — цветом предупреждения. */
+.sync-plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+.sync-summary {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-fg);
+}
+.sync-sec-title {
+  margin: 0 0 2px;
+  font-weight: 500;
+  color: var(--c-fg);
+}
+.sync-count {
+  font-weight: 400;
+  color: var(--c-fg-muted);
+}
+.sync-sec.is-attention .sync-sec-title,
+.sync-sec.is-attention .sync-count {
+  color: var(--c-warn);
+}
+.sync-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sync-rows li {
+  padding: 1px 0;
+  overflow-wrap: anywhere;
+}
+.sync-note {
+  color: var(--c-fg-muted);
+}

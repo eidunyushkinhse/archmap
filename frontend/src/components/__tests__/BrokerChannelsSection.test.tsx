@@ -55,10 +55,26 @@ function setup(channels: BrokerChannel[], isArchitect = true, usage: ChannelUsag
 describe("BrokerChannelsSection", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("пустая структура предлагает завести канал", async () => {
+  it("пустой список у редактора — заголовок и «Добавить», без пустой строки", async () => {
     setup([]);
-    await waitFor(() => expect(screen.getByText("Каналы не описаны")).toBeInTheDocument());
-    expect(screen.getByText("+ Канал")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Каналы" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить" })).toBeInTheDocument();
+    expect(screen.queryByText("Каналы не описаны")).toBeNull();
+  });
+
+  it("пустой список у читателя — раздела нет", async () => {
+    const { container } = setup([], false);
+    await waitFor(() => expect(brokerChannelsApi.list).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it("мета доставки у редактора — три поля с подписями", async () => {
+    setup([channel({ delivery: "at-least-once" })]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть канал"));
+    expect(screen.getByRole("textbox", { name: "Ключ партиционирования" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Гарантия доставки" })).toHaveValue("at-least-once");
+    expect(screen.getByRole("textbox", { name: "Хранение" })).toHaveValue("");
   });
 
   it("поля сообщения и мета доставки видны только после раскрытия канала", async () => {
@@ -78,7 +94,7 @@ describe("BrokerChannelsSection", () => {
     setup([channel()]);
     await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть канал"));
-    for (const заголовок of ["Поле", "Тип", "обяз.", "Смысл значения"]) {
+    for (const заголовок of ["Поле", "Тип", "Обязательное", "Смысл значения"]) {
       expect(screen.getByText(заголовок)).toBeInTheDocument();
     }
     // Признак назван ОДИН раз — в шапке; в строке только сам чекбокс.
@@ -96,13 +112,13 @@ describe("BrokerChannelsSection", () => {
     setup([channel(), channel({ id: "ch2", name: "audit", group_name: "billing" })]);
     await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
     expect(screen.getByText("без группы")).toBeInTheDocument();
-    expect(screen.getByText("billing")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "billing" })).toBeInTheDocument();
   });
 
   it("свёрнутая группа прячет свои каналы", async () => {
     setup([channel(), channel({ id: "ch2", name: "audit", group_name: "billing" })]);
     await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
-    await userEvent.click(screen.getByText("billing"));
+    await userEvent.click(screen.getByRole("button", { name: "billing" }));
     // Высоту ведёт ГОЛАЯ обёртка (.anim-box), а не блок с отступами: иначе измерение
     // врало бы на padding/border, и соседи прыгали бы.
     const box = screen.getByDisplayValue("audit").closest(".anim-box") as HTMLElement;
@@ -124,7 +140,7 @@ describe("BrokerChannelsSection", () => {
     setup([channel({ id: "ch1", name: "канал" })]);
     await waitFor(() => expect(screen.getByDisplayValue("канал")).toBeInTheDocument());
     // Кнопка одна, способы — пункты меню (как у «Логики» и структуры базы).
-    await userEvent.click(screen.getByText("+ Канал"));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     expect(brokerChannelsApi.create).toHaveBeenCalledWith("n1", {
       name: "канал_2", group_name: "", kind: "", partition_key: "", delivery: "", retention: "",
@@ -140,17 +156,17 @@ describe("BrokerChannelsSection", () => {
     // окна тоже: смонтированное «на всякий случай», оно ходило бы в превью само.
     expect(screen.queryByText("Через ИИ-агента")).toBeNull();
     expect(screen.queryByTestId("channels-agent")).toBeNull();
-    await userEvent.click(screen.getByText("+ Канал"));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
     expect(screen.getByTestId("channels-agent")).toBeInTheDocument();
   });
 
-  it("«+ Поле» шлёт порядок — иначе поля сообщения встали бы как попало", async () => {
+  it("«Добавить поле» шлёт порядок — иначе поля сообщения встали бы как попало", async () => {
     vi.mocked(brokerChannelsApi.createField).mockResolvedValue(field());
     setup([channel({ fields: [field(), field({ id: "f2", name: "поле", order: 1 })] })]);
     await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть канал"));
-    await userEvent.click(screen.getByText("+ Поле"));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить поле" }));
     expect(brokerChannelsApi.createField).toHaveBeenCalledWith("n1", "ch1", {
       name: "поле_2", type: "", required: false, order: 2,
     });
@@ -175,8 +191,8 @@ describe("BrokerChannelsSection", () => {
     })], false);
     await waitFor(() => expect(screen.getByText("orders.created")).toBeInTheDocument());
     expect(screen.queryByDisplayValue("orders.created")).toBeNull();
-    expect(screen.queryByText("+ Канал")).toBeNull();
-    // И тело тоже читается, а не правится: мета текстом, признак чипом, полей ввода нет.
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+    // И тело тоже читается, а не правится: мета и признак текстом, полей ввода нет.
     await userEvent.click(screen.getByLabelText("Развернуть канал"));
     expect(screen.getByText("ключ: user_id")).toBeInTheDocument();
     expect(screen.getByText("доставка: at-least-once")).toBeInTheDocument();
@@ -184,7 +200,7 @@ describe("BrokerChannelsSection", () => {
     expect(screen.getByText("order_id")).toBeInTheDocument();
     expect(screen.getByText("обяз.")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("order_id")).toBeNull();
-    expect(screen.queryByText("+ Поле")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить поле" })).toBeNull();
     expect(screen.queryByLabelText("Обязательное поле")).toBeNull();
   });
   it("обратный индекс: кто публикует и кто потребляет — в теле канала", async () => {

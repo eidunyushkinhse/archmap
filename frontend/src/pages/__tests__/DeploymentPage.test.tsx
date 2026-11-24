@@ -191,7 +191,8 @@ describe("DeploymentPage", () => {
     const modal = screen.getByTestId("modal");
     expect(modal).toHaveTextContent("Выберите связь");
     expect(modal).toHaveTextContent("A → B");
-    await userEvent.click(within(modal).getByRole("button", { name: "пишет · Kafka" }));
+    // Технология справа от описания, без склейки точкой.
+    await userEvent.click(within(modal).getByRole("button", { name: "пишет Kafka" }));
     expect(screen.queryByTestId("modal")).toBeNull();
     expect(props().linkedHighlight).toEqual({ kind: "edge", id: "deploy:e2@s1@s1" });
   });
@@ -218,13 +219,27 @@ describe("DeploymentPage", () => {
     expect(treeProps().currentNodeId).toBe("c2");
   });
 
-  it("селекта уровня нет — путь текстом, «Весь проект» ведёт в корень", async () => {
+  it("селекта уровня нет — путь крошками без глифов, «Весь проект» ведёт в корень", async () => {
     const { onNavigateLevel } = await setup(true, graph(), "c2");
     expect(screen.queryByRole("combobox")).toBeNull();
     const nav = screen.getByRole("navigation", { name: "Уровень" });
-    await waitFor(() => expect(nav).toHaveTextContent("Весь проект›Витрина › Каталог"));
+    await waitFor(() => expect(within(nav).getByRole("button", { name: "Витрина" })).toBeInTheDocument());
+    // Между звеньями — значок-шеврон, а не глиф «›»; текущий уровень не нажимается.
+    expect(nav).toHaveTextContent("Весь проектВитринаКаталог");
+    expect(nav.textContent).not.toContain("›");
+    expect(within(nav).queryByRole("button", { name: "Каталог" })).toBeNull();
+    expect(within(nav).getByText("Каталог")).toHaveAttribute("title", "Каталог");
     await userEvent.click(screen.getByRole("button", { name: "Весь проект" }));
     expect(onNavigateLevel).toHaveBeenCalledWith(null);
+  });
+
+  it("звено-предок пути ведёт на свой уровень; полное имя — в подсказке", async () => {
+    const { onNavigateLevel } = await setup(true, graph(), "c2");
+    const nav = screen.getByRole("navigation", { name: "Уровень" });
+    const crumb = await within(nav).findByRole("button", { name: "Витрина" });
+    expect(crumb).toHaveAttribute("title", "Витрина");
+    await userEvent.click(crumb);
+    expect(onNavigateLevel).toHaveBeenCalledWith("c1");
   });
 
   it("на корне путь — «Весь проект» без ссылки", async () => {
@@ -492,6 +507,34 @@ describe("DeploymentPage", () => {
     expect(await screen.findByText("«Лист» размещён на «s1»")).toBeInTheDocument();
   });
 
+  // Страховка механики тоста (редизайн, фаза 13а, меняется только вид): aria-live="polite",
+  // без роли, гаснет ровно через 4 с.
+  it("тост «размещён»: aria-live polite, без роли, гаснет через 4 с", async () => {
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("l1", "Лист", "c1")); });
+    // Под подменённым setTimeout findBy* не годится (обёртка RTL ждёт setTimeout 0): цепочку
+    // записи и перечитывания графа (одни промисы) досчитываем внутри act.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => {
+        props().projection?.pickFrame?.("deploy:site:s1");
+        for (let i = 0; i < 30; i++) await Promise.resolve();
+      });
+      const тост = screen.getByText("«Лист» размещён на «s1»");
+      expect(тост).toHaveClass("ds-toast", "ds-toast--bottom");
+      expect(тост).not.toHaveClass("legacy-root");
+      expect(тост).not.toHaveAttribute("style");
+      expect(тост).toHaveAttribute("aria-live", "polite");
+      expect(тост).not.toHaveAttribute("role");
+      act(() => { vi.advanceTimersByTime(3999); });
+      expect(screen.getByText("«Лист» размещён на «s1»")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByText("«Лист» размещён на «s1»")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("система, чьи единицы нигде не стоят или стоят там же, — запись сразу (набор единицам раздаёт сервер)", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pnode("c1", "Витрина", null, { has_children: true, partial: ["t"] }),
@@ -593,6 +636,70 @@ describe("DeploymentPage", () => {
     act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
     expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось разместить. Пользователя разместить нельзя");
     expect(banner()).not.toBeNull();
+  });
+
+  // ── Страховка редизайна (фаза 11): тулбар, пустые состояния, цель тура ──
+  it("значки тулбара: порядок, подписи и подсказки прежние", async () => {
+    await setup();
+    const names = screen.getAllByRole("button").map((b) => b.getAttribute("aria-label"))
+      .filter((n) => n === "Площадки" || n === "Переразложить" || n === "Подписи связей");
+    expect(names).toEqual(["Площадки", "Переразложить", "Подписи связей"]);
+    expect(screen.getByRole("button", { name: "Площадки" })).toHaveAttribute("title", "Площадки");
+    expect(screen.getByRole("button", { name: "Переразложить" })).toHaveAttribute("title", "Переразложить уровень");
+    expect(screen.getByRole("button", { name: "Подписи связей" })).toHaveAttribute("title", "Скрыть подписи связей");
+  });
+
+  it("холст — цель обучающего тура (data-tour=deploy-diagram)", async () => {
+    await setup();
+    expect(screen.getByTestId("level-graph").closest('[data-tour="deploy-diagram"]')).not.toBeNull();
+  });
+
+  it("отказ «Переразложить» — строкой с role=alert в тулбаре; смена уровня её снимает", async () => {
+    vi.mocked(viewsApi.saveLayout).mockRejectedValue(new ApiError(500, "Сервер недоступен"));
+    const { goTo } = await setup();
+    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось переразложить. Сервер недоступен");
+    goTo("c1");
+    await waitFor(() => expect(props().containerId).toBe("c1"));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("нет объектов — «Переразложить» заперта", async () => {
+    await setup(true, graph({ nodes: [], edges: [], layout: {} }));
+    await screen.findByText("Нет объектов для размещения");
+    expect(screen.getByRole("button", { name: "Переразложить" })).toBeDisabled();
+  });
+
+  it("пока граф грузится — «Загрузка» вместо холста; пока грузится состав — «Загрузка» в пути", async () => {
+    vi.mocked(deploymentApi.graph).mockReturnValue(new Promise(() => {}));
+    vi.mocked(nodesApi.getAll).mockReturnValue(new Promise(() => {}));
+    render(<DeploymentPage isArchitect level="c2" onNavigateLevel={vi.fn()} onOpenNode={vi.fn()} />);
+    const nav = screen.getByRole("navigation", { name: "Уровень" });
+    expect(within(nav).getByRole("button", { name: "Весь проект" })).toBeInTheDocument();
+    expect(within(nav).getByText("Загрузка")).toBeInTheDocument();
+    expect(screen.getAllByText("Загрузка")).toHaveLength(2);
+    expect(screen.queryByTestId("level-graph")).toBeNull();
+  });
+
+  it("панель выделения: число объектов, «Указать размещение» и «Снять выделение»", async () => {
+    await setup();
+    act(() => { props().drill.onSelectionChange?.(["deploy:a@s1", "deploy:b@s1"]); });
+    const panel = screen.getByRole("status");
+    expect(panel).toHaveTextContent("Выбрано 2 объекта");
+    expect(within(panel).getAllByRole("button").map((b) => b.textContent)).toEqual(["Указать размещение", "Снять выделение"]);
+  });
+
+  it("полоса режима размещения: текст, «Снять размещение» и «Отмена»; отказ — role=alert внутри полосы", async () => {
+    vi.mocked(deploymentApi.setPlacements).mockRejectedValue(new ApiError(422, "Пользователя разместить нельзя"));
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null, { own: ["s1"] })); });
+    const band = screen.getByRole("status");
+    expect(band).toHaveTextContent("Куда поставить «B»? Щёлкните площадку");
+    await within(band).findByRole("button", { name: "Снять размещение" });
+    expect(within(band).getAllByRole("button").map((b) => b.textContent)).toEqual(["Снять размещение", "Отмена"]);
+    act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    const alert = await within(band).findByRole("alert");
+    expect(alert).toHaveTextContent("Не удалось разместить. Пользователя разместить нельзя");
   });
 
   it("смена уровня режим размещения не сбрасывает", async () => {

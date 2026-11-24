@@ -1,46 +1,51 @@
-// Панель «Версии документации» объекта или всего проекта (docs/tasks/doc-versions.md §7;
-// прототип — вкладка «2 · Версии документации», принят пользователем). Один экран за
-// раз: список версий → что изменилось в версии → одна дельта с переключателем
-// «Изменения · Было · Стало». Первая редакция «всё на одном экране» была отвергнута,
-// поэтому здесь нет чипов, счётчиков и подсказок сверх прототипа.
+// Окно «Версии» документации объекта или всего проекта (docs/tasks/doc-versions.md §7).
+// Один экран за раз: список версий → что изменилось в версии → один элемент дельты с
+// вкладками «Изменения», «Было», «Стало». Первая редакция «всё на одном экране» была
+// отвергнута, поэтому здесь нет чипов, счётчиков и подсказок сверх прототипа.
+//
+// Вид (редизайн, фаза 9ж): каркас окна нового языка (ui/ds.css, ds-win) шириной 680,
+// прижатый к верху экрана (ds-win--top): высота меняется от экрана к экрану, а верх и
+// поля остаются на месте. Шапку каждого экрана рисует ScreenHead, прокручивается тело.
+// Имя объекта (проп title) в шапку не идёт: окно открыто с его страницы; оно нужно
+// пояснению отката.
 //
 // Окно поверх страницы (ui/Modal): закрывают Escape и крестик. Окно фиксации и
-// подтверждения удаления и отката — СИБЛИНГИ панели, а не её потомки: вложенный
+// подтверждения удаления и отката — СИБЛИНГИ окна, а не его потомки: вложенный
 // <dialog> получает всплывший cancel и закрывал бы родителя вместе с собой.
 //
 // Откат (§5, §7): перед окном — запрос «что сделает откат» (сохранится ли
 // незафиксированное, сколько объектов удалится, есть ли процессы); окно открывается по
-// ответу. После отката — список, а замечания (что вернуть не удалось) тихой строкой над
-// ним до следующего действия.
+// ответу. После отката — список, а замечания (что вернуть не удалось) строкой
+// предупреждения над ним до следующего действия.
 import { useRef, useState } from "react";
 import Modal from "../../../ui/Modal";
 import ConfirmDialog from "../../../ui/ConfirmDialog";
 import LoadError from "../../../ui/LoadError";
 import { loadErrorText } from "../../../ui/loadErrorText";
-import { plural } from "../../../ui/plural";
 import { versionsApi } from "../../../api/versions";
 import type { VersionBase } from "../../../api/versions";
 import type { RestorePreview, VersionItem, VersionList, VersionOut } from "../../../types";
 import { useVersionList } from "./useVersions";
-import { changesPhrase, remarksLine, restoreLead, versionMeta } from "./versionText";
+import { changesPhrase, fixLead, remarksLine, restoreLead, versionDate } from "./versionText";
 import FixVersionDialog from "./FixVersionDialog";
 import VersionScreen from "./VersionScreen";
 import type { SideLabels } from "./VersionScreen";
 import ItemScreen from "./ItemScreen";
+import ScreenHead from "./ScreenHead";
+import "../../../ui/ds.css";
 import "./versions.css";
-import "../../../ui/smallButton.css";
 
 interface Props {
   // null — весь проект: страница проекта — корень дерева.
   nodeId: string | null;
-  // Имя объекта или проекта — в шапке и в окне фиксации.
+  // Имя объекта или проекта — в пояснении отката.
   title: string;
   // Фиксация и откат — редактору; читателю строки «Есть изменения…» и кнопки отката нет.
   canEdit: boolean;
   // Удаление версии — только владельцу проекта.
   canDelete: boolean;
   onClose: () => void;
-  // Откат применён: страница под панелью перечитывает документацию сама — поллинг
+  // Откат применён: страница под окном перечитывает документацию сама — поллинг
   // догнал бы её лишь через секунды и с тостом «в другой сессии».
   onRestored?: () => void;
 }
@@ -144,17 +149,15 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
 
   return (
     <>
-      <Modal onClose={onClose} boxStyle={{ width: 680, padding: 0 }}>
-        <div className="vp-panel">
+      <Modal onClose={onClose} boxStyle={{ width: 680, padding: 0, margin: "8vh auto auto" }}>
+        <div className="ds ds-win ds-win--top">
           {data === null ? (
             <>
-              <div className="vp-head">
-                <span className="vp-title">Версии · {title}</span>
-              </div>
-              <div className="vp-body">
+              <ScreenHead title="Версии" onClose={onClose} />
+              <div className="ds-win-body">
                 {list.error
                   ? <LoadError what="версии" error={list.error} onRetry={list.reload} />
-                  : <p className="vp-empty vp-note">Загрузка</p>}
+                  : <p className="ds-empty vp-flat">Загрузка</p>}
               </div>
             </>
           ) : (
@@ -162,7 +165,6 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
               screen={screen}
               data={data}
               nodeId={nodeId}
-              title={title}
               canEdit={canEdit}
               canDelete={canDelete}
               restorePrep={restorePrep}
@@ -171,6 +173,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
               onFix={() => { setRemarks([]); setFixOpen(true); }}
               onRestore={openRestore}
               onDelete={(num) => { setDeleteError(null); setDeleting(num); }}
+              onClose={onClose}
             />
           )}
         </div>
@@ -179,7 +182,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
       {fixOpen && data && (
         <FixVersionDialog
           nodeId={nodeId}
-          lead={`${title} · ${latest === null ? "первая версия" : changesPhrase(latest, data.pending.items)}`}
+          lead={fixLead(latest, data.pending.items)}
           onClose={() => setFixOpen(false)}
           onDone={() => {
             setFixOpen(false);
@@ -218,15 +221,14 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
   );
 }
 
-// Выбор экрана по состоянию панели. Версию ищем в загруженном списке: её могли удалить
+// Выбор экрана по состоянию окна. Версию ищем в загруженном списке: её могли удалить
 // в другой сессии — тогда честнее показать список, чем пустой экран.
 function PanelScreen({
-  screen, data, nodeId, title, canEdit, canDelete, restorePrep, remarks, onScreen, onFix, onRestore, onDelete,
+  screen, data, nodeId, canEdit, canDelete, restorePrep, remarks, onScreen, onFix, onRestore, onDelete, onClose,
 }: {
   screen: Screen;
   data: VersionList;
   nodeId: string | null;
-  title: string;
   canEdit: boolean;
   canDelete: boolean;
   restorePrep: RestorePrep | null;
@@ -235,17 +237,18 @@ function PanelScreen({
   onFix: () => void;
   onRestore: (version: VersionOut) => void;
   onDelete: (num: number) => void;
+  onClose: () => void;
 }) {
   const version = screen.kind === "list" ? undefined : data.versions.find((v) => v.number === screen.num);
   if (screen.kind === "list" || !version) {
     return (
       <ListScreen
-        title={title}
         data={data}
         canEdit={canEdit}
         remarks={remarks}
         onFix={onFix}
         onOpen={(num) => onScreen({ kind: "version", num, base: "prev" })}
+        onClose={onClose}
       />
     );
   }
@@ -270,6 +273,7 @@ function PanelScreen({
         onBase={(base) => onScreen({ kind: "version", num: version.number, base })}
         onItem={(item, labels) => onScreen({ kind: "item", num: version.number, base: screen.base, item, labels })}
         onDelete={() => onDelete(version.number)}
+        onClose={onClose}
       />
     );
   }
@@ -281,6 +285,7 @@ function PanelScreen({
       item={screen.item}
       labels={screen.labels}
       onBack={() => onScreen({ kind: "version", num: screen.num, base: screen.base })}
+      onClose={onClose}
     />
   );
 }
@@ -296,48 +301,58 @@ function previousNumber(versions: VersionOut[], num: number): number | null {
 }
 
 // ── Экран «список» ───────────────────────────────────────────────────────────
+// Строка состояния первым абзацем (только у редактора), замечания отката, строки версий
+// и «Зафиксировать версию» в подвале (только у редактора). Строка версии — одна
+// кнопка: номер, комментарий, автор и дата; автор и дата — своими колонками на одной
+// вертикали во всех строках (общая сетка списка, versions.css).
 
-function ListScreen({ title, data, canEdit, remarks, onFix, onOpen }: {
-  title: string;
+function ListScreen({ data, canEdit, remarks, onFix, onOpen, onClose }: {
   data: VersionList;
   canEdit: boolean;
   // Замечания только что выполненного отката: что вернуть не удалось.
   remarks: string[];
   onFix: () => void;
   onOpen: (num: number) => void;
+  onClose: () => void;
 }) {
   const { versions, pending } = data;
   const latest = versions.length > 0 ? versions[0].number : null;
+  // «Версий ещё нет» и «Изменений с vN нет» — тихо, «Есть изменения…» — основным цветом.
+  const quiet = latest === null || !pending.changed;
   return (
     <>
-      <div className="vp-head">
-        <span className="vp-title">Версии · {title}</span>
-        <span className="vp-spacer" />
-        {versions.length > 0 && (
-          <span className="vp-meta">{versions.length} {plural(versions.length, ["версия", "версии", "версий"])}</span>
-        )}
-      </div>
-      <div className="vp-body">
-        {remarks.length > 0 && <p className="vp-remarks vp-note" role="status">{remarksLine(remarks)}</p>}
+      <ScreenHead title="Версии" onClose={onClose} />
+      <div className="ds-win-body">
         {canEdit && (
-          <div className="vp-pending">
-            <span className="vp-pending-text">{pendingLine(latest, pending)}</span>
-            <button type="button" className="btn-sm-primary" disabled={!pending.changed} onClick={onFix}>
-              Зафиксировать версию
-            </button>
+          <p className={"vp-status" + (quiet ? " vp-status--quiet" : "")}>{pendingLine(latest, pending)}</p>
+        )}
+        {remarks.length > 0 && <p className="ds-warn vp-flat" role="status">{remarksLine(remarks)}</p>}
+        {versions.length > 0 && (
+          <div className="vp-rows">
+            {versions.map((v) => (
+              <button key={v.number} type="button" className="vp-row" onClick={() => onOpen(v.number)}>
+                <span className="vp-row-n">v{v.number}</span>
+                {/* Автоматические версии (перед откатом, откат) — тихим цветом, без чипов. */}
+                <span className={v.kind === "manual" ? "vp-row-c" : "vp-row-c vp-row-c--auto"} title={v.comment}>
+                  {v.comment}
+                </span>
+                {/* Автора удалили — прочерк: история остаётся без автора. */}
+                <span className="vp-row-a">{v.author ?? "—"}</span>
+                <span className="vp-row-d">{versionDate(v.created_at)}</span>
+              </button>
+            ))}
           </div>
         )}
-        {versions.map((v) => (
-          <button key={v.number} type="button" className="vp-row" onClick={() => onOpen(v.number)}>
-            <span className="vp-row-n">v{v.number}</span>
-            {/* Автоматические версии (перед откатом, откат) — обычным весом, без чипов. */}
-            <span className={v.kind === "manual" ? "vp-row-c" : "vp-row-c vp-row-c--auto"}>{v.comment}</span>
-            <span className="vp-meta">{versionMeta(v)}</span>
-          </button>
-        ))}
-        {/* У редактора «Версий ещё нет» уже сказано строкой над списком. */}
-        {versions.length === 0 && !canEdit && <p className="vp-empty vp-note">Версий ещё нет</p>}
+        {/* У редактора «Версий ещё нет» уже сказано строкой состояния. */}
+        {versions.length === 0 && !canEdit && <p className="ds-empty vp-flat">Версий ещё нет</p>}
       </div>
+      {canEdit && (
+        <div className="ds-win-foot">
+          <button type="button" className="ds-btn ds-btn--primary" disabled={!pending.changed} onClick={onFix}>
+            Зафиксировать версию
+          </button>
+        </div>
+      )}
     </>
   );
 }

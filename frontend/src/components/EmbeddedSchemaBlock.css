@@ -1,32 +1,29 @@
 /* EmbeddedSchemaBlock — встроенный read-only блок схемы на странице.
-   Активация по клику, подсветка рамки, оверлей-пилюля. */
-
-.esb-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.esb-hint {
-  font-size: 12px;
-  color: #64748b;
-  font-weight: 500;
-}
+   Активация по клику, подсветка рамки, оверлей-пилюля. Те же классы ставит живая схема
+   лендинга (embed/LandingSchema): токенов ui/tokens.css она не грузит, рамку и скругление
+   снимает своим правилом (.lp-wrap), кольцо активной рисует сама. */
 
 /* ── Обёртка схемы ───────────────────────────────────────────────── */
+/* Подложка числом: её же держит живая схема лендинга, которая токенов не грузит. */
 .esb-wrap {
   position: relative;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: #f8fafc;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.esb-wrap--active {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px #dbeafe;
+/* Раздел «Схема» нового языка (редизайн, направление А): рамка 1px, радиус 10, подложка
+   тихим фоном языка, высота окна от высоты экрана — схема видна целиком вместе со строкой
+   заголовка. */
+.esb-wrap--page {
+  height: clamp(380px, 56vh, 640px);
+  background: var(--c-bg-subtle);
+}
+.esb-wrap--page.esb-wrap--active {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
 
 /* ── Оверлей активации ───────────────────────────────────────────── */
@@ -58,6 +55,15 @@
 
 .esb-activate:hover .esb-activate-pill {
   opacity: 1;
+}
+/* На страницах нового языка (.ds) надпись — шрифтом страницы и кеглем подписи: оверлей —
+   кнопка, а кнопка шрифт не наследует (выходил Arial). Живая схема лендинга (embed)
+   живёт вне .ds и свою надпись настраивает сама. */
+.ds .esb-activate {
+  font: inherit;
+}
+.ds .esb-activate-pill {
+  font-size: var(--fs-caption);
 }
 
 /* ── Канвас ──────────────────────────────────────────────────────── */
@@ -93,4 +99,9 @@
   color: #94a3b8;
   text-align: center;
   padding: 20px;
+}
+/* Действие пустой схемы («Начать наполнение» на главной проекта): строкой ниже текста
+   «Схема пуста». Класс ставит главная проекта и сама импортирует эти стили. */
+.esb-empty-act {
+  margin-top: 10px;
 }

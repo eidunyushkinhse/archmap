@@ -1,7 +1,14 @@
-import type { CSSProperties } from "react";
 import type { Edge } from "../types";
 import Modal from "../ui/Modal";
-import { secondaryBtn } from "../ui/styles";
+import { CloseIcon, PlusIcon } from "../ui/icons";
+import "../ui/ds.css";
+
+// Окно «Выберите связь» (редизайн, фаза 9б: каркас окна нового языка ui/ds.css, ds-win).
+// Под заголовком тихой строкой пара концов, ниже связи тихими строками списка (ds-rows):
+// вся строка — одна кнопка, без рамки и заливки, подложка при наведении. Слева описание
+// связи основным цветом и под ним настоящий конец связи (endOf), справа тихо технология;
+// склейки описания с технологией точкой нет. Под списком тихое «Добавить связь» (onAdd).
+// Длинный список прокручивается в теле окна, заголовок остаётся на месте.
 
 // Строка окна — любая связь с подписью: связь холста (Edge с original_*) или строка
 // таблицы «Связи» страницы объекта (NodeEdgeInfo). Окну нужны только id и текст.
@@ -25,9 +32,11 @@ interface Props<E extends ChoiceEdge> {
   onClose: () => void;
 }
 
-// Текст связи для пункта списка
-function edgeText(e: ChoiceEdge): string {
-  return [e.label, e.technology].filter(Boolean).join(" · ") || "связь";
+// Текст строки: слева описание, справа технология. Без описания слева технология, а
+// справа пусто; без того и другого слева «связь».
+function edgeTexts(e: ChoiceEdge): { main: string; side: string | null } {
+  if (e.label) return { main: e.label, side: e.technology || null };
+  return { main: e.technology || "связь", side: null };
 }
 
 export default function EdgeChoiceModal<E extends ChoiceEdge>({
@@ -40,53 +49,44 @@ export default function EdgeChoiceModal<E extends ChoiceEdge>({
   onClose,
 }: Props<E>) {
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 420, maxHeight: "80vh", overflowY: "auto" }}>
-      <h2 style={{ margin: "0 0 6px", color: "#1e293b" }}>Выберите связь</h2>
-      <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>
-        {`${sourceLabel} → ${targetLabel}`}
-      </p>
-      <div style={list}>
-        {edges.map((e) => {
-          const end = endOf?.(e);
-          return (
-            <button key={e.id} onClick={() => onPick(e)} style={linkRow}>
-              {edgeText(e)}
-              {end && <span style={endLine}>{end}</span>}
+    <Modal onClose={onClose} boxStyle={{ width: 440, padding: 0 }}>
+      <div className="ds ds-win">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Выберите связь</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="ds-win-body">
+          <p className="ds-win-lead">{`${sourceLabel} → ${targetLabel}`}</p>
+          <div className="ds-rows" role="list">
+            {edges.map((e) => {
+              const end = endOf?.(e);
+              const { main, side } = edgeTexts(e);
+              // Пробелы между частями строки раскладка не рисует (это соседи во flex), но
+              // они разделяют слова в имени кнопки для скринридера: «пользуется → Каталог».
+              return (
+                <div key={e.id} className="ds-row" role="listitem">
+                  <button type="button" className="ds-row-main" onClick={() => onPick(e)}>
+                    <span className="ds-row-text">
+                      <span className="ds-row-name">{main}</span>
+                      {end && <>{" "}<span className="ds-row-sub">{end}</span></>}
+                    </span>
+                    {side && <>{" "}<span className="ds-row-quiet">{side}</span></>}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {onAdd && (
+            <button type="button" className="ds-add" onClick={onAdd}>
+              <PlusIcon size={12} />
+              Добавить связь
             </button>
-          );
-        })}
+          )}
+        </div>
       </div>
-      {onAdd && (
-        <button onClick={onAdd} style={{ ...secondaryBtn, marginTop: 12, width: "100%" }}>
-          + Добавить связь
-        </button>
-      )}
     </Modal>
   );
 }
-
-const list: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-const linkRow: CSSProperties = {
-  textAlign: "left",
-  padding: "10px 12px",
-  background: "#f8fafc",
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-  cursor: "pointer",
-  fontSize: 14,
-  fontWeight: 600,
-  color: "#2563eb",
-};
-// Вторая строчка пункта: настоящий конец связи, приглушённо
-const endLine: CSSProperties = {
-  display: "block",
-  marginTop: 2,
-  fontSize: 12,
-  fontWeight: 400,
-  color: "#64748b",
-};
-// строка с правой колонкой «куда/откуда ведёт» (вариант общего плеча, E80)

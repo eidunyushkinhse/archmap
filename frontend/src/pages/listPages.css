@@ -1,0 +1,243 @@
+/* Списочные экраны «Проекты» и «Пользователи» (редизайн, фаза 12а): корень страницы — область
+   нового языка (.ds), прокручивается вся страница; шапка — общий каркас ds-head (ui/ds.css),
+   поэтому логотип стоит там же, где в шапке проекта. Колонка содержимого не шире 1120px по
+   центру. Стили импортирует каждая из двух страниц: они грузятся лениво, экран входа их не
+   тянет. Значения — только токены ui/tokens.css. Правила, которые спорят с примитивом
+   ui/ds.css, пишутся вместе с его классом или внутри колонки: порядок загрузки стилей
+   разных чанков не гарантирован. */
+
+.lp-page {
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--c-bg);
+}
+.lp-main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 24px 60px;
+}
+/* «Пользователи»: над заголовком строка «Все проекты» — поле сверху меньше. */
+.lp-main--crumb {
+  padding-top: 20px;
+}
+
+/* Заголовок страницы и главная кнопка справа от него. */
+.lp-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+/* Те же метрики, что у названия на странице объекта и на главной проекта (NodePage.css,
+   .np-name): глобальное правило h1 (index.css) задаёт свои гарнитуру, кегль и поля. */
+.lp-title {
+  margin: 0;
+  min-width: 0;
+  font-family: inherit;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+
+/* «Загрузка» и отказ загрузки (а у «Проектов» и тихие пустые состояния): абзац под строкой
+   заголовка или управления. */
+.lp-main .lp-note {
+  margin: var(--space-4) 0 0;
+}
+/* Отказ загрузки списка (ui/LoadError, ds-fail): текст на вертикали заголовка страницы.
+   Поля примитива по бокам сняты, сверху остаются. */
+.lp-main .ds-fail {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+/* Запертая «Новый проект» гостя демо-стенда: вид запертой главной кнопки (кнопка не
+   disabled, а aria-disabled: на ней фокус и подсказка), подсказка — поверхностью меню
+   нового языка (ds-menu). */
+.lp-locked {
+  position: relative;
+  display: inline-block;
+}
+.lp-locked-btn.ds-btn--primary,
+.lp-locked-btn.ds-btn--primary:hover {
+  background: var(--c-accent);
+  opacity: 0.6;
+  cursor: default;
+}
+.lp-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 270px;
+  padding: var(--space-2) 10px;
+  box-sizing: border-box;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  white-space: normal;
+}
+
+/* ── «Проекты» ──────────────────────────────────────────────────────────── */
+/* Гость демо-стенда: предупреждение песочницы абзацем над заголовком (без коробки), первое
+   предложение выделено весом. Ширина — вся колонка: предел ds-warn в 68 знаков переносил
+   короткий абзац с одним словом на второй строке. */
+.lp-main .lp-sandbox {
+  margin: 0 0 var(--space-4);
+  max-width: none;
+}
+.lp-sandbox strong {
+  font-weight: 600;
+}
+
+/* Строка управления: слева вкладки, справа поиск не шире 320px. */
+.lp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 var(--space-4);
+}
+.ds-input.lp-search {
+  flex: 0 1 320px;
+  width: 320px;
+  min-width: 200px;
+}
+
+/* Сетка карточек: колонки от 280px, шаг 18px. */
+.lp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+/* Первое открытие: заголовок, пояснение и главная кнопка, прижаты влево. Глобальное правило
+   h2 (index.css) задаёт свои гарнитуру, кегль, трекинг и поля. */
+.lp-first {
+  margin-top: var(--space-6);
+}
+.lp-first .lp-first-title {
+  margin: 0 0 var(--space-1);
+  font-family: inherit;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.lp-first-lead {
+  margin: 0 0 var(--space-4);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+
+/* ── «Пользователи» ─────────────────────────────────────────────────────── */
+/* «Все проекты» над заголовком: тихая кнопка-текст того же вида, что крошки страницы
+   объекта (NodePage.css, .np-breadcrumb): 12px тихим цветом, основным при наведении. */
+.lp-crumbs {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+.lp-crumbs button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.lp-crumbs button:hover {
+  color: var(--c-fg);
+}
+.lp-crumbs button:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Таблица учёток (ds-table): без коробки и своей прокрутки, поэтому меню строки не
+   обрезается. Ячейки по середине строки: в строке список роли и кнопка-значок выше текста. */
+.ds-table.lp-users {
+  margin-top: var(--space-6);
+}
+.ds-table.lp-users td {
+  vertical-align: middle;
+}
+.lp-login {
+  color: var(--c-fg);
+}
+.lp-self {
+  margin-left: var(--space-2);
+  color: var(--c-fg-muted);
+}
+.ds-table.lp-users .lp-quiet {
+  color: var(--c-fg-muted);
+}
+.ds-table.lp-users .lp-blocked {
+  color: var(--c-danger);
+}
+.ds-table.lp-users .lp-nowrap {
+  white-space: nowrap;
+}
+/* Список роли своей ширины (по самому длинному варианту) при любом логине: ширина 100%
+   не давала списку минимальной ширины в таблице, и длинный логин отбирал её у колонки роли. */
+.ds-select.lp-role {
+  display: inline-flex;
+}
+.ds-select.lp-role select {
+  width: auto;
+}
+/* Телефонная ширина: таблица не помещается и со списком своей ширины. Там список снова
+   сжимается, как раньше, чтобы страница не прокручивалась вбок. */
+@media (max-width: 600px) {
+  .ds-select.lp-role select {
+    width: 100%;
+  }
+}
+/* Последняя колонка — кнопка-значок у правого края таблицы. */
+.ds-table.lp-users td.lp-acts {
+  width: 28px;
+  padding-right: 0;
+  text-align: right;
+}
+
+/* Меню действий строки: у правого края кнопки; у нижних строк длинной таблицы — вверх. */
+.lp-row-menu {
+  position: relative;
+  display: inline-flex;
+}
+.ds-menu.lp-menu--up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+/* Пункт в две строки: подпись и под ней причина, по которой он заперт. Запертый пункт без
+   прозрачности общего правила button:disabled (index.css): подпись бледнеет своим цветом
+   (--c-fg-faint из ds-menu-item), причина читается тихим цветом в полную силу. */
+.ds-menu-item.lp-menu-item {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.ds-menu-item.lp-menu-item:disabled {
+  opacity: 1;
+}
+.lp-menu-why {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}

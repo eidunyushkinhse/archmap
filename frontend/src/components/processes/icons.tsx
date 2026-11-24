@@ -36,16 +36,6 @@ export function C4Glyph({ shape, s = 16 }: { shape: NodeShape; s?: number }) {
   );
 }
 
-export function IcoFlow({ s = 17 }: { s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.7}>
-      <circle cx="6" cy="6" r="2.4" />
-      <circle cx="18" cy="12" r="2.4" />
-      <circle cx="6" cy="18" r="2.4" />
-      <path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
-    </svg>
-  );
-}
 export function IcoPlus({ s = 16 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.9}>
@@ -57,14 +47,6 @@ export function IcoClose({ s = 16 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.9}>
       <path d="M6 6 L18 18 M18 6 L6 18" />
-    </svg>
-  );
-}
-export function IcoEdit({ s = 15 }: { s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>
-      <path d="M4 20 h4 L19 9 a2 2 0 0 0-3-3 L5 17 Z" />
-      <path d="M14 7 L17 10" />
     </svg>
   );
 }
@@ -99,14 +81,6 @@ export function IcoSelf({ s = 14 }: { s?: number }) {
     </svg>
   );
 }
-export function IcoLink({ s = 14 }: { s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>
-      <path d="M9 13 a4 4 0 0 0 6 .5 l2-2 a4 4 0 0 0-6-6 l-1 1" />
-      <path d="M15 11 a4 4 0 0 0-6-.5 l-2 2 a4 4 0 0 0 6 6 l1-1" />
-    </svg>
-  );
-}
 // Разорванная цепь — глиф повисшего сообщения (связь удалена из схемы). Два звена
 // разведены, между ними штрих разрыва.
 export function IcoBrokenLink({ s = 14 }: { s?: number }) {
@@ -118,19 +92,12 @@ export function IcoBrokenLink({ s = 14 }: { s?: number }) {
     </svg>
   );
 }
-export function IcoSearch({ s = 14 }: { s?: number }) {
+// Документ — значок привязанной к шагу схемы логики (после подписи шага на диаграмме).
+export function IcoDoc({ s = 12 }: { s?: number }) {
   return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="M16 16 L21 21" />
-    </svg>
-  );
-}
-export function IcoWarn({ s = 15 }: { s?: number }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.8}>
-      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3 h17 a2 2 0 0 0 1.7-3 L13.7 3.9 a2 2 0 0 0-3.4 0z" />
-      <path d="M12 9 V13.4 M12 16.8 h.01" />
+    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.9}>
+      <path d="M14 3 H7 a2 2 0 0 0-2 2 V19 a2 2 0 0 0 2 2 H17 a2 2 0 0 0 2-2 V8 Z" />
+      <path d="M14 3 V8 H19 M9 13 H15 M9 17 H13" />
     </svg>
   );
 }

@@ -1,163 +1,223 @@
-// Модалка «Описать логику с помощью агента» (BYOA-дозаливка) — ТОЛЬКО СХЕМЫ
+// Окно «Описать схемы логики с помощью ИИ-агента» (BYOA-дозаливка) — ТОЛЬКО СХЕМЫ
 // ЛОГИКИ (node_docs, mermaid). OpenAPI-спека узла — отдельное окно спеки
 // (DocOverlay → SpecAgentPanel): сущности не смешиваются (include промпта и фильтр
 // превью/применения зафиксированы на «logic»). Скоуп — ТЕКУЩИЙ УЗЕЛ, два режима:
 // «Пакетом» — все схемы объекта за заход (микросервисы); «По одной схеме» — один
-// воркер/эндпоинт (крупные монолиты), слева поле «Что описать» (target — блок
-// фокуса в промпте). Одну схему со страницы правят не здесь, а в её окне
-// («Изменить → Через ИИ-агента»): туда же ведёт и неописанная строка.
-// Здесь только оболочка и левая колонка (параметры промпта). Файлы пакета, превью
-// и применение — DocsAgentPanel: то же тело живёт в окне одной схемы (DocOverlay).
-// Закрытие после успешного применения — отсюда (onClose); родитель через onApplied
-// только освежает мету узла.
-import { useState } from "react";
-import type { CSSProperties } from "react";
+// воркер/эндпоинт (крупные монолиты), строка «Что описать» (target — блок фокуса в
+// промпте). Одну схему со страницы правят не здесь, а в её окне («Изменить → Через
+// ИИ-агента»): туда же ведёт и неописанная строка.
+//
+// Вид — новый язык (редизайн, фаза 6в): одна колонка на общем каркасе окна (ui/ds.css,
+// ds-win) в порядке действий. Режим текстовыми вкладками (пояснение режима — в подсказке
+// вкладки) → «Задание агенту» (строки «подпись — значение», «Скопировать задание») →
+// «Ответы агента» (зона файлов, отчёт превью, галочка «Заменять уже описанное») → футер
+// слева. Файлы принимает всё окно. Состояние пакета, превью и применения — useDocsAgent
+// (то же у прежней панели окна одной схемы), зона файлов — DocsAgentFiles, отчёт —
+// DocsAgentPlan.
+//
+// Окно прижато к верху экрана, а не стоит по центру: высота меняется со сменой режима и
+// с файлами, а вкладки остаются на месте (как «Новый проект»). Закрытие после успешного
+// применения — отсюда (onClose); родитель через onApplied только освежает мету узла.
+import { useId, useState } from "react";
 import type { PromptVariant } from "../../types";
 import { docsImportApi, type DocsPromptParams } from "../../api/docsImport";
-import { head, sub, cols, leftCol, radioRow, hintsArea } from "./agentModalShared";
-import DocsAgentPanel from "./DocsAgentPanel";
+import { useDocsAgent } from "./useDocsAgent";
+import { MAX_FILES } from "./useDocsFiles";
+import { useFileDrop } from "./useFileDrop";
+import DocsAgentFiles from "./DocsAgentFiles";
+import DocsAgentPlan from "./DocsAgentPlan";
+import LangChoice from "./LangChoice";
 import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
+import GrowField from "../../ui/GrowField";
 import { CloseIcon } from "../../ui/icons";
-import { labelStyle } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyText } from "../../lib/copyText";
+import "../../ui/ds.css";
+import "./docsAgent.css";
 
 type Mode = "batch" | "single";
+
+// Пояснение режима — подсказкой на самой вкладке: на экране оно занимало строку рядом с
+// переключателем.
+const MODES: { mode: Mode; label: string; hint: string }[] = [
+  {
+    mode: "batch",
+    label: "Пакетом",
+    hint: "Агент отдаст пакет со всеми схемами объекта за один заход. Используйте этот режим в репозиториях микросервисов",
+  },
+  {
+    mode: "single",
+    label: "По одной схеме",
+    hint: "Агент отдаст схему одного воркера или эндпоинта за один заход. Используйте этот режим в репозиториях крупных монолитов",
+  },
+];
 
 interface Props {
   // Узел, для которого агент готовит документы (скоуп промпта и применения).
   nodeId: string;
-  nodeName: string;
   onClose: () => void;
   // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
 }
 
-export default function DocsAgentModal({ nodeId, nodeName, onClose, onApplied }: Props) {
+export default function DocsAgentModal({ nodeId, onClose, onApplied }: Props) {
+  const uid = useId();
   const [mode, setMode] = useState<Mode>("batch");
+  const single = mode === "single";
   // ── параметры промпта (include зафиксирован на схемах логики) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
   const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
+  // Поле адреса держит текст само (GrowField): после «Добавить ещё» его перемонтируем
+  // пустым.
+  const [targetEpoch, setTargetEpoch] = useState(0);
+
+  // Пакет применён: «Добавить ещё» оставляет окно под следующую точку входа
+  // (адрес очищаем здесь, пакет очищает useDocsAgent), остальное закрывает окно.
+  const agent = useDocsAgent(nodeId, { kind: mode }, (more) => {
+    onApplied();
+    if (more) {
+      setTarget("");
+      setTargetEpoch((n) => n + 1);
+    } else onClose();
+  });
+  const drop = useFileDrop({ onFiles: agent.pkg.pickFiles, disabled: agent.pkg.files.length >= MAX_FILES });
+  const canApply = agent.willWrite && !agent.applying;
+
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА (промежуточных await между
   // кликом и writeText не добавляем). «Скопировано» показывает PromptCopyButton по
-  // разрешению этого обещания — своё у каждого из трёх вариантов.
+  // разрешению этого обещания.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     // include зафиксирован на схемах логики (OpenAPI-спека — окно спеки);
     // в режиме «по одной» target фокусирует агента на одном воркере/эндпоинте
-    // (пустой target в «пакетом» клиент не передаёт).
+    // (пустой target клиент не передаёт).
     const params: DocsPromptParams = { nodeId, include: "logic", lang, hints, target, variant };
     return copyText(docsImportApi.prompt(params).then(({ prompt }) => prompt));
   }
 
-  // Пакет применён: «Добавить ещё» оставляет окно под следующую точку входа
-  // (адрес очищаем здесь, пакет панель очистила сама), остальное закрывает окно.
-  function applied(more: boolean) {
-    onApplied();
-    if (more) setTarget("");
-    else onClose();
-  }
-
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
-      <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>Описать схемы логики с помощью ИИ-агента</h2>
-        <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
-      </div>
-      <p style={sub}>
-        ИИ-агент опишет по коду схемы логики объекта «{nodeName}». Скопируйте промпт,
-        запустите его своим агентом в репозитории и загрузите сюда файлы, которые он создаст.
-      </p>
-
-      {/* Переключатель режимов */}
-      <div style={segWrap}>
-        <div style={seg} role="tablist" aria-label="Как описывать">
-          <button type="button" role="tab" aria-selected={mode === "batch"} style={mode === "batch" ? segBtnOn : segBtn} onClick={() => setMode("batch")}>
-            Пакетом
-          </button>
-          <button type="button" role="tab" aria-selected={mode === "single"} style={mode === "single" ? segBtnOn : segBtn} onClick={() => setMode("single")}>
-            По одной схеме
+    <Modal onClose={onClose} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
+      <div className="ds ds-win dap-win" {...drop.bind}>
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Описать схемы логики с помощью ИИ-агента</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
           </button>
         </div>
-        <span style={segNote}>
-          {mode === "batch"
-            ? "Агент отдаст пакет со всеми схемами объекта за один заход. Используйте этот режим в репозиториях микросервисов"
-            : "Агент отдаст схему одного воркера или эндпоинта за один заход. Используйте этот режим в репозиториях крупных монолитов"}
-        </span>
-      </div>
 
-      <div style={cols}>
-        {/* ── Слева: параметры промпта ── */}
-        <div style={leftCol}>
-          {mode === "single" && (
-            <>
-              <label style={labelStyle}>Что описать</label>
-              <textarea
-                {...noAutofill("docs-agent-modal-1")}
-                style={targetInput}
-                rows={3}
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                placeholder="воркер или эндпоинт: OrderCreatedHandler, POST /orders"
-              />
-            </>
-          )}
-
-          <label style={labelStyle}>Язык подписей</label>
-          <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
-            <label style={radioRow}>
-              <input type="radio" checked={lang === "ru"} onChange={() => setLang("ru")} /> Русский
-            </label>
-            <label style={radioRow}>
-              <input type="radio" checked={lang === "en"} onChange={() => setLang("en")} /> Английский
-            </label>
+        <div className="ds-win-body">
+          <div className="ds-tabs dap-modes" role="group" aria-label="Как описывать">
+            {MODES.map((m) => (
+              <button
+                key={m.mode}
+                type="button"
+                className={"ds-tab" + (mode === m.mode ? " is-active" : "")}
+                aria-pressed={mode === m.mode}
+                title={m.hint}
+                onClick={() => setMode(m.mode)}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
 
-          <label style={labelStyle}>Подсказки агенту (опционально)</label>
-          <textarea
-            {...noAutofill("docs-agent-modal-2")}
-            style={hintsArea}
-            value={hints}
-            onChange={(e) => setHints(e.target.value)}
-            placeholder={"Например: документируй только сервис billing;\nкаждый воркер опиши отдельной схемой."}
-          />
+          <section className="ds-win-block">
+            <h3 className="ds-win-block-title">Задание агенту</h3>
+            <dl className="ds-props">
+              {single && (
+                <div className="ds-prop">
+                  <dt className="ds-prop-term"><label htmlFor={`${uid}-target`}>Что описать</label></dt>
+                  <dd className="ds-prop-value">
+                    <GrowField
+                      key={targetEpoch}
+                      {...noAutofill("docs-agent-modal-1")}
+                      id={`${uid}-target`}
+                      initial={target}
+                      onValue={setTarget}
+                      onCommit={setTarget}
+                      placeholder="воркер или эндпоинт: OrderCreatedHandler, POST /orders"
+                    />
+                  </dd>
+                </div>
+              )}
+              <div className="ds-prop">
+                <dt className="ds-prop-term" id={`${uid}-lang`}>Язык подписей</dt>
+                <dd className="ds-prop-value">
+                  <LangChoice value={lang} onChange={setLang} labelId={`${uid}-lang`} />
+                </dd>
+              </div>
+              <div className="ds-prop">
+                <dt className="ds-prop-term"><label htmlFor={`${uid}-hints`}>Подсказки агенту</label></dt>
+                <dd className="ds-prop-value">
+                  <GrowField
+                    {...noAutofill("docs-agent-modal-2")}
+                    id={`${uid}-hints`}
+                    multiline
+                    initial={hints}
+                    onValue={setHints}
+                    onCommit={setHints}
+                    placeholder="например: документируй только сервис billing"
+                  />
+                </dd>
+              </div>
+            </dl>
+            <PromptCopyButton
+              label="Скопировать задание"
+              copiedLabel="Скопировано"
+              kind="secondary"
+              copy={copyPrompt}
+            />
+          </section>
 
-          <PromptCopyButton
-            label="Скопировать промпт"
-            copiedLabel="Скопировано ✓"
-            kind="primary"
-            buttonStyle={{ marginTop: 4 }}
-            copy={copyPrompt}
-          />
+          <section className="ds-win-block">
+            <h3 className="ds-win-block-title">Ответы агента</h3>
+            <DocsAgentFiles agent={agent} single={single} over={drop.over} dropError={drop.error} />
+            {agent.pkg.files.length > 0 && (
+              <>
+                <DocsAgentPlan agent={agent} />
+                <label
+                  className="ds-check dap-check"
+                  title="Если в ArchMap уже есть схема с таким именем, новая по умолчанию пропускается. Отметьте, чтобы новые схемы заменяли старые"
+                >
+                  <input
+                    type="checkbox"
+                    checked={agent.overwriteFlag}
+                    onChange={(e) => agent.setOverwriteFlag(e.target.checked)}
+                  />
+                  <span>Заменять уже описанное</span>
+                </label>
+              </>
+            )}
+          </section>
         </div>
 
-        {/* ── Справа: файлы пакета + превью + применение ── */}
-        <DocsAgentPanel nodeId={nodeId} mode={{ kind: mode }} onApplied={applied} />
+        {/* Главная кнопка первой, «Отмена» за ней (правило окон владельца). */}
+        <div className="ds-win-foot">
+          {agent.applyError && <p className="ds-danger ds-win-err" role="alert">{agent.applyError}</p>}
+          {single ? (
+            <>
+              <button type="button" className="ds-btn ds-btn--primary" disabled={!canApply} onClick={() => agent.apply(false)}>
+                {agent.applying ? "Применяем" : "Добавить"}
+              </button>
+              <button
+                type="button"
+                className="ds-btn"
+                disabled={!canApply}
+                title="Применить и подготовить поля к следующему воркеру/эндпоинту"
+                onClick={() => agent.apply(true)}
+              >
+                Добавить ещё
+              </button>
+            </>
+          ) : (
+            <button type="button" className="ds-btn ds-btn--primary" disabled={!canApply} onClick={() => agent.apply(false)}>
+              {agent.applying ? "Применяем" : "Применить"}
+            </button>
+          )}
+          <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
+        </div>
       </div>
     </Modal>
   );
 }
-
-// ── inline-стили переключателя режимов и поля адреса (остальные — agentModalShared) ──
-
-const segWrap: CSSProperties = { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "0 0 14px" };
-const seg: CSSProperties = {
-  display: "inline-flex", gap: 3, padding: 3, background: "#f1f5f9",
-  border: "1px solid #e2e8f0", borderRadius: 10,
-};
-const segBtnBase: CSSProperties = {
-  border: "none", borderRadius: 8, padding: "6px 14px", font: "inherit",
-  fontSize: 13, cursor: "pointer", transition: "background .12s, color .12s",
-};
-const segBtn: CSSProperties = { ...segBtnBase, background: "transparent", color: "#64748b", fontWeight: 500 };
-const segBtnOn: CSSProperties = {
-  ...segBtnBase, background: "#fff", color: "#1e293b", fontWeight: 600,
-  boxShadow: "0 1px 3px rgba(15,23,42,.14)",
-};
-const segNote: CSSProperties = { fontSize: 12, color: "#94a3b8", lineHeight: 1.4 };
-const targetInput: CSSProperties = {
-  width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px",
-  border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a",
-  fontFamily: "inherit", resize: "vertical", lineHeight: 1.45,
-};

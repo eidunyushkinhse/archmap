@@ -1,10 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { CloseIcon } from "./icons";
 import "./modal.css";
 
 interface ModalProps {
-  // Единственный канал закрытия: Escape и крестик (клик по подложке не закрывает).
+  // Единственный канал закрытия: Escape и крестик самого окна (у окон нового языка это
+  // ds-win-close; у подтверждений ui/ConfirmDialog крестика нет). Клик по подложке не
+  // закрывает. Своего крестика у ui/Modal нет.
   onClose: () => void;
   // Подтверждение окна с клавиатуры: Enter в однострочном поле, Ctrl/Cmd+Enter в
   // многострочном (там Enter — перенос строки). Передают окна с полями ввода; это тот
@@ -12,8 +13,6 @@ interface ModalProps {
   // делает того, чего не даёт кнопка. Окнам без полей (подтверждения) не нужен — там
   // Enter и так нажимает кнопку в фокусе.
   onSubmit?: () => void;
-  // Показывать крестик ✕. Дефолт true; false только у NodeDeleteConfirm.
-  closeButton?: boolean;
   // Переопределения геометрии бокса: width/maxHeight/overflowY уходят на <dialog>,
   // padding/display/flexDirection — на внутреннюю обёртку (см. split ниже).
   boxStyle?: CSSProperties;
@@ -55,15 +54,29 @@ function isSubmitKey(e: KeyboardEvent<HTMLElement>): boolean {
  * preventDefault по повторному Escape) — и тогда мы дёргаем onClose. Размонтирует
  * нас родитель: при unmount элемент просто убирается из DOM, событие close не
  * стреляет, лишнего onClose нет (важно для StrictMode-двойного маунта).
+ *
+ * Возврат фокуса. Нативный <dialog> возвращает фокус на элемент, бывший в фокусе до
+ * открытия, только при close(); мы окно размонтируем, и фокус уходил в никуда (редизайн,
+ * фаза 13в). Поэтому элемент в фокусе запоминается на первом рендере, до того как окно
+ * возьмёт фокус (поле с autoFocus берёт его ещё до эффектов), а при размонтировании фокус
+ * возвращается на него: если он ещё на странице и фокус потерян. Новое окно, открытое
+ * вместо этого, возьмёт фокус своим эффектом позже. Меню, чей пункт открыл окно, заранее
+ * ставит фокус на свою кнопку (ui/useMenu): пункт размонтирован, а кнопка остаётся.
  */
 export default function Modal({
   onClose,
   onSubmit,
-  closeButton = true,
   boxStyle,
   children,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [opener] = useState<Element | null>(() => document.activeElement);
+
+  useEffect(() => () => {
+    const now = document.activeElement;
+    const lost = now === null || now === document.body;
+    if (lost && opener instanceof HTMLElement && opener.isConnected) opener.focus();
+  }, [opener]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -71,7 +84,7 @@ export default function Modal({
     // В StrictMode эффект может отработать дважды: повторный showModal на уже
     // открытом диалоге кидает исключение, поэтому проверяем open.
     if (!dialog.open) dialog.showModal();
-    // showModal уводит фокус на первый фокусируемый элемент (это был бы крестик ✕).
+    // showModal уводит фокус на первый фокусируемый элемент (это был бы крестик окна).
     // Если в контенте помечен [data-autofocus] — фокусируем его; иначе уводим фокус
     // на сам диалог (tabIndex=-1), чтобы не подсвечивать обводкой крестик.
     const target = dialog.querySelector<HTMLElement>("[data-autofocus]") ?? dialog;
@@ -117,39 +130,24 @@ export default function Modal({
         onSubmit();
       } : undefined}
     >
-      {closeButton && (
-        <button onClick={onClose} className="app-close" style={closeBtn} aria-label="Закрыть">
-          <CloseIcon />
-        </button>
-      )}
       <div style={{ ...wrapperBase, ...wrapperOverrides }}>{children}</div>
     </dialog>
   );
 }
 
-// Сброс UA-стилей <dialog> (чёрная рамка, padding, узкий max-*) + наш бокс.
+// Сброс UA-стилей <dialog> (чёрная рамка, padding, узкий max-*) + наш бокс. Тень — токен окна
+// с запасным значением: живая схема лендинга (embed) токенов не грузит, а окно выбора связи
+// открывается и в ней.
 const dialogBase: CSSProperties = {
   border: "none",
   padding: 0,
   maxWidth: "calc(100vw - 32px)",
   background: "#fff",
   borderRadius: 12,
-  boxShadow: "0 16px 40px rgba(15,23,42,.18)",
-  color: "inherit",
+  boxShadow: "var(--shadow-window, 0 16px 40px rgba(15, 23, 42, 0.18))",
+  // Цвет текста (сброс UA-цвета CanvasText) — правилом в modal.css, от родителя окна.
 };
 // Обёртка контента: дефолтный padding 28 (переопределяется через boxStyle.padding)
 const wrapperBase: CSSProperties = {
   padding: 28,
-};
-const closeBtn: CSSProperties = {
-  position: "absolute",
-  top: 14,
-  right: 14,
-  border: "none",
-  background: "none",
-  cursor: "pointer",
-  color: "#94a3b8", // hover #1e293b — каскадом из modal.css (.app-close)
-  display: "inline-flex",
-  padding: 2,
-  zIndex: 1, // поверх контента обёртки
 };

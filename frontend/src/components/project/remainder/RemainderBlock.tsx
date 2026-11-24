@@ -1,24 +1,28 @@
-// Блок «Без ваших решений не объединить» (§3, §8 ТЗ): остаток слияния задаётся по
-// одному вопросу. Шапка со счётчиком, прогресс, тело текущего вопроса
-// (QuestionBody), подвал навигации, список всех вопросов и итог разбора.
+// Блок вопросов слияния (§3, §8 ТЗ): остаток слияния задаётся по одному вопросу.
+// Строка над вопросом (тихий счётчик «Вопрос N из M» и «Все вопросы»), заголовок со
+// знаком «?» (почему возник вопрос и что будет без ответа), тело текущего вопроса
+// (QuestionBody), подвал «Назад / Дальше», список всех вопросов (короткие темы, полный
+// вопрос в подсказке строки; фаза 8б) и итог разбора.
+// Шапки «Без ваших решений…» и прогресса точками или полосой нет (фаза 8а редизайна):
+// положение показывает счётчик, перейти к любому вопросу даёт «Все вопросы».
 //
 // Главное правило механики: ВЫБОР ВАРИАНТА НЕ ПЕРЕВОДИТ ДАЛЬШЕ. Пользователь
-// ходит «Назад/Дальше», точками, списком и стрелками — иначе ответ, данный
-// случайным кликом, утаскивал бы экран, и вернуться было бы некуда.
+// ходит «Назад/Дальше», списком и стрелками — иначе ответ, данный случайным кликом,
+// утаскивал бы экран, и вернуться было бы некуда.
 //
-// Разбор не обязателен: без единого ответа результат тот же, что сегодня. Поэтому
+// Разбор не обязателен: без единого ответа действуют варианты «по умолчанию». Поэтому
 // блок ничем не блокирует кнопку окна и не показывает ни янтарного, ни красного.
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { plural } from "../../../ui/plural";
 import { CheckIcon } from "../../../ui/icons";
 import type { Answer, Answers, Question, Resolutions } from "./questions";
-import {
-  answerLabel, answerState, progressMode, segments, summarize,
-} from "./questions";
+import { answerLabel, answerState, defaultLabel, summarize } from "./questions";
 import { emptyEdgesDraft, mergeDraftFor } from "./drafts";
 import type { EdgesDraft, MergeDraft } from "./drafts";
 import { MERGE_TITLE, mergeContext, NEW_EDGE_CONTEXT, NEW_EDGE_TITLE } from "./questionText";
 import QuestionBody from "./QuestionBody";
+import TitleWithWhy from "./TitleWithWhy";
+import "../../../ui/ds.css";
 import "./remainder.css";
 
 interface Props {
@@ -28,9 +32,9 @@ interface Props {
   onAnswer: (id: string, answer: Answer) => void;
   onResolve: (id: string, choice: string) => void;
   /**
-   * Окно, в котором стоит блок. Слова разбора в обоих одни и те же (§8), а
-   * массовые кнопки догрузки живут отдельным блоком снаружи (§7) — поле принято
-   * как контекст вызова и различий в самом блоке пока не даёт.
+   * Окно, в котором стоит блок. Слова разбора от окна зависят только в сносках (их
+   * собирает buildQuestions), а массовые кнопки догрузки живут отдельным блоком снаружи
+   * (§7) — поле принято как контекст вызова и различий в самом блоке пока не даёт.
    */
   mode: "create" | "into";
 }
@@ -51,10 +55,25 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   // (производное состояние, а не зеркалящий эффект).
   const index = Math.max(0, Math.min(indexRaw, questions.length - 1));
   const q: Question | undefined = questions[index];
-  const итог = summarize(questions, answers, resolutions);
   const last = index === questions.length - 1;
 
   const go = (to: number) => { setIndex(to); setView("q"); };
+
+  // Второй шаг открыт, только пока его открыл человек: ответ сам по себе его не держит
+  // (фаза 8б), иначе после «Объединить» вопрос навсегда становился бы шагом имени.
+  const шаг2 = q !== undefined && (q.kind === "group" || q.kind === "pair") && stage2[q.id] === true;
+
+  // Открытый человеком второй шаг встаёт в вид тела окна целиком, с кнопками (если
+  // помещается; иначе виден его верх с заголовком). Только на переходе к шагу: флаг ставит
+  // щелчок, открывший шаг, — ввод в поля, возврат к вопросу и хождение по вопросам тело
+  // окна не прокручивают. До отрисовки: шаг не мелькает за краем тела.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const reveal = useRef(false);
+  useLayoutEffect(() => {
+    if (!шаг2 || !reveal.current) return;
+    reveal.current = false;
+    bodyRef.current?.scrollIntoView({ block: "nearest" });
+  }, [шаг2]);
 
   // Стрелки ← → ходят по вопросам (Р9): не в поле ввода (в том же окне живёт
   // textarea YAML), не поверх открытого вьюера и не с модификаторами.
@@ -74,9 +93,6 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   }, [viewer, view, index, questions.length]);
 
   if (questions.length === 0 || q === undefined) return null;
-
-  const шаг2 = (q.kind === "group" && stage2[q.id] === true)
-    || (q.kind === "pair" && (stage2[q.id] === true || answers[q.id]?.kind === "merge"));
   const title = !шаг2 ? q.title : q.kind === "pair" ? MERGE_TITLE : NEW_EDGE_TITLE;
   // Черновик формы связей: нет своего — строка на каждый объект группы (П4).
   const edgeDraft: EdgesDraft = edgeDrafts[q.id]
@@ -87,64 +103,41 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   const context = !шаг2 ? q.context
     : q.kind === "pair" ? mergeContext(q.source) : NEW_EDGE_CONTEXT;
 
+  // Одна строка над вопросом и в списке: тихий счётчик и переключатель вида.
   const шапка = (
-    <>
-      <div className="rq-hd">
-        <div className="rq-h1">
-          Без ваших решений не объединить. <span>Помогите сделать правильно</span>
-        </div>
-      </div>
-      <div className="rq-sub">
-        <span className="rq-cnt">
-          {view === "done" ? "разбор пройден" : `вопрос ${index + 1} из ${questions.length}`}
-        </span>
-        <button
-          type="button"
-          className="rq-nav rq-sp"
-          onClick={() => setView(view === "list" ? "q" : "list")}
-        >
-          {view === "list" ? "К вопросу" : "Все вопросы"}
-        </button>
-      </div>
-    </>
+    <div className="rq-sub">
+      <span className="rq-cnt">Вопрос {index + 1} из {questions.length}</span>
+      <button
+        type="button"
+        className="ds-add rq-sp"
+        onClick={() => setView(view === "list" ? "q" : "list")}
+      >
+        {view === "list" ? "К вопросу" : "Все вопросы"}
+      </button>
+    </div>
   );
 
   if (view === "done") {
-    // Нулевые части не выводятся вовсе, «оставлено как есть» — только когда есть
-    // что оставлять: итог перечисляет сделанное, а не отчитывается по графам.
-    const части = [
-      { t: "перенесено связей", n: итог.rewired },
-      { t: "добавлено связей", n: итог.added },
-      { t: "объединено объектов", n: итог.merged },
-      { t: "оставлено как есть", n: итог.kept },
-    ].filter((x) => x.n > 0);
+    // Итог без счётчика и без строки частей: она называла не все ответы, полная
+    // картина — в списке («Пересмотреть ответы»).
+    const unanswered = summarize(questions, answers, resolutions).unanswered;
     return (
       <div className="rq-root rq-block">
-        {шапка}
         <div className="rq-bd rq-done">
-          <span className={"rq-tick" + (итог.unanswered > 0 ? " rq-tick--open" : "")}>
-            {итог.unanswered > 0 ? "?" : <CheckIcon size={12} />}
+          <span className={"rq-tick" + (unanswered > 0 ? " rq-tick--open" : "")} aria-hidden>
+            {unanswered > 0 ? "?" : <CheckIcon size={12} />}
           </span>
-          <div>
-            <div className="rq-done-t">
-              {итог.unanswered > 0
-                ? `Осталось ${итог.unanswered} ${plural(итог.unanswered, ["вопрос", "вопроса", "вопросов"])} без ответа`
-                : "Разбор пройден"}
-            </div>
-            {части.length > 0 && (
-              <div className="rq-done-s">
-                {части.map((ч, i) => (
-                  <span key={ч.t}>{i > 0 && " · "}{ч.t} <b>{ч.n}</b></span>
-                ))}
-              </div>
-            )}
+          <div className="rq-done-t">
+            {unanswered > 0
+              ? `Осталось ${unanswered} ${plural(unanswered, ["вопрос", "вопроса", "вопросов"])} без ответа`
+              : "Разбор пройден"}
           </div>
         </div>
         <div className="rq-ft">
-          {итог.unanswered > 0 && (
+          {unanswered > 0 && (
             <button
               type="button"
-              className="rq-nav"
+              className="ds-btn"
               onClick={() => {
                 const i = questions.findIndex((x) => answerState(x, answers, resolutions) === "none");
                 if (i >= 0) go(i);
@@ -153,8 +146,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
               Вернуться к пропущенным
             </button>
           )}
-          <span className="rq-sp" />
-          <button type="button" className="rq-nav" onClick={() => setView("list")}>
+          <button type="button" className="ds-btn" onClick={() => setView("list")}>
             Пересмотреть ответы
           </button>
         </div>
@@ -169,8 +161,10 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
         <div className="rq-bd">
           <div className="rq-ql">
             {questions.map((x, i) => {
+              // Без ответа — тихим цветом вариант, который действует по умолчанию: список
+              // показывает, что будет на самом деле.
               const ответ = answerLabel(x, answers, resolutions);
-              const серый = ответ === null;
+              const подпись = ответ ?? defaultLabel(x);
               return (
                 <button
                   key={x.id}
@@ -179,8 +173,12 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
                   onClick={() => go(i)}
                 >
                   <span className="rq-ql-n">{i + 1}</span>
-                  <span className="rq-ql-q">{x.title}</span>
-                  <span className={"rq-ql-a" + (серый ? " rq-ql-a--none" : "")}>{ответ ?? "—"}</span>
+                  {/* Короткая тема строкой, полный вопрос — в подсказке (фаза 8б). */}
+                  <span className="rq-ql-q" title={x.title}>{x.topic}</span>
+                  {/* Длинный ответ (описание) обрезается многоточием — подсказка отдаёт его целиком. */}
+                  <span className={"rq-ql-a" + (ответ === null ? " rq-ql-a--none" : "")} title={подпись}>
+                    {подпись}
+                  </span>
                 </button>
               );
             })}
@@ -193,21 +191,13 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   return (
     <div className="rq-root rq-block">
       {шапка}
-      <Progress
-        questions={questions} answers={answers} resolutions={resolutions}
-        index={index} onGo={go}
-      />
-      <div className="rq-bd">
-        <h4 className="rq-q">{title}</h4>
+      <div className="rq-bd" ref={bodyRef}>
+        {/* Второй шаг — продолжение того же вопроса: «почему» и «если не отвечать» он не
+            повторяет (§4.6), знака «?» у него нет. */}
+        <h4 className="rq-q">
+          {шаг2 ? title : <TitleWithWhy title={title} why={q.why} ifLeft={q.ifLeft} />}
+        </h4>
         {context !== null && <p className="rq-ctx">{context}</p>}
-        {/* Второй шаг — продолжение того же вопроса: «почему» и «если не отвечать»
-            он не повторяет (§4.6). */}
-        {!шаг2 && (
-          <details className="rq-why">
-            <summary>почему возник вопрос</summary>
-            <p>{q.why}</p>
-          </details>
-        )}
         <QuestionBody
           question={q}
           answers={answers}
@@ -215,7 +205,10 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
           onAnswer={onAnswer}
           onResolve={onResolve}
           stage2={шаг2}
-          onStage2={(on) => setStage2((cur) => ({ ...cur, [q.id]: on }))}
+          onStage2={(on) => {
+            if (on) reveal.current = true;
+            setStage2((cur) => ({ ...cur, [q.id]: on }));
+          }}
           edgeDraft={edgeDraft}
           onEdgeDraft={(next) => setEdgeDrafts((cur) => ({ ...cur, [q.id]: next }))}
           mergeDraft={mergeDraft}
@@ -223,12 +216,11 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
           viewer={viewer?.id === q.id ? viewer.candidate : null}
           onViewer={(c) => setViewer(c === null ? null : { id: q.id, candidate: c })}
         />
-        {!шаг2 && q.ifLeft !== null && <div className="rq-ifnot">{q.ifLeft}</div>}
       </div>
       <div className="rq-ft">
         <button
           type="button"
-          className="rq-nav"
+          className="ds-add"
           disabled={index === 0}
           onClick={() => setIndex(index - 1)}
         >
@@ -237,7 +229,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
         <span className="rq-sp" />
         <button
           type="button"
-          className="rq-nav"
+          className="ds-add"
           onClick={() => (last ? setView("done") : setIndex(index + 1))}
         >
           {last ? "Завершить →" : "Дальше →"}
@@ -251,48 +243,4 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
 function currentName(q: Question, answers: Answers): string | null {
   const a = answers[q.id];
   return a?.kind === "merge" ? a.name : null;
-}
-
-function Progress({ questions, answers, resolutions, index, onGo }: {
-  questions: Question[]; answers: Answers; resolutions: Resolutions;
-  index: number; onGo: (i: number) => void;
-}) {
-  // До полутора десятков вопросов ряд точек читается целиком; дальше он
-  // превращается в шум, и прогресс показывается полосой по видам (§3).
-  if (progressMode(questions.length) === "dots") {
-    return (
-      <div className="rq-prog">
-        {questions.map((q, i) => {
-          // «Как сейчас» — такой же ответ, как остальные (П8 приёмки): точка
-          // синяя. Серым остаётся только НЕОТВЕЧЕННОЕ.
-          const st = answerState(q, answers, resolutions);
-          const cls = i === index ? " rq-dot--on" : st === "none" ? "" : " rq-dot--done";
-          return (
-            <button
-              key={q.id}
-              type="button"
-              className={"rq-dot" + cls}
-              title={q.title}
-              aria-label={`вопрос ${i + 1}`}
-              onClick={() => onGo(i)}
-            />
-          );
-        })}
-      </div>
-    );
-  }
-  return (
-    <div className="rq-prog">
-      <div className="rq-bar">
-        {segments(questions, answers, resolutions).map((s) => (
-          <button key={s.kind} type="button" className="rq-bar-g" onClick={() => onGo(s.first)}>
-            <span className="rq-bar-t">
-              <span className="rq-bar-f" style={{ width: `${s.done / s.total * 100}%` }} />
-            </span>
-            <span className="rq-bar-l">{s.caption}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }

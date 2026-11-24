@@ -79,6 +79,6 @@ describe("непривязанный участник", () => {
     const colors = lifelines.map((l) => l.getAttribute("stroke"));
 
     expect(colors).toContain("#d97706"); // BROKEN.ln — непривязанный
-    expect(colors).toContain("#94a3b8"); // обычный existing — привязанный
+    expect(colors).toContain("var(--c-fg-faint)"); // обычный existing — привязанный
   });
 });

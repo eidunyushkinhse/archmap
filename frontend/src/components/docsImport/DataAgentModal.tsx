@@ -1,8 +1,8 @@
-// Модалка «Структура от агента» (BYOA-дозаливка) — только СТРУКТУРА БД.
+// Окно «Описать структуру с помощью ИИ-агента» (BYOA-дозаливка) — только СТРУКТУРА БД.
 //
-// Третье окно того же семейства (схемы логики — DocsAgentModal, спека —
+// Третье окно того же семейства (схемы логики — DocsAgentModal, спецификация —
 // SpecAgentPanel): сущности не смешиваются, у каждого свой контракт превью/применения.
-// Здесь агент читает миграции и ORM-модели, а не рисует диаграммы, поэтому промпт один
+// Здесь агент читает миграции и ORM-модели, а не рисует диаграммы, поэтому задание одно
 // и без параметров — ни языка подписей, ни режимов «пакетом/по одной» тут нет.
 //
 // Обращений к данным здесь НЕТ (пивот §9 plan-db-docs.md): они приезжают пометками
@@ -19,13 +19,6 @@ import FactAgentModal, { type FactAgentKind } from "./FactAgentModal";
 const DATA: FactAgentKind<DataImportReport> = {
   api: dataImportApi,
   title: "Описать структуру с помощью ИИ-агента",
-  intro: (nodeName) => (
-    <>
-      Агент прочитает миграции и ORM-модели репозитория и опишет таблицы и колонки.
-      Таблицы без указания объекта попадут к «{nodeName}». Скопируйте промпт, запустите
-      агента и загрузите сюда полученные файлы.
-    </>
-  ),
   // Механика адреса и слияния файлов — за «?»: на виду только то, что нужно для запуска.
   help: (nodeName) => (
     <>
@@ -40,7 +33,7 @@ const DATA: FactAgentKind<DataImportReport> = {
       <p>Ничего не удаляется ни при какой настройке. Чего агент не увидел, то останется как есть.</p>
     </>
   ),
-  overwriteNote: <>По умолчанию уже описанное не меняется, новые файлы только добавляют недостающее.</>,
+  overwriteNote: "По умолчанию уже описанное не меняется, новые файлы только добавляют недостающее.",
   remarksFamily: "структуры",
   remarksItems: "Записи",
   autofillKey: "data-agent-modal-1",
@@ -48,10 +41,12 @@ const DATA: FactAgentKind<DataImportReport> = {
   listTitle: "Таблицы:",
   rows: (r) => r.tables.map((t) => ({
     key: `${t.node_path}#${t.schema_name}.${t.name}`,
-    text: `«${t.node_path}» · ${t.schema_name ? `${t.schema_name}.` : ""}${t.name} · колонок ${t.columns}`,
-    badge: ACTION_LABEL[t.action] ?? t.action,
+    path: t.node_path,
+    name: `${t.schema_name ? `${t.schema_name}.` : ""}${t.name}`,
+    detail: `колонок ${t.columns}`,
+    action: ACTION_LABEL[t.action] ?? t.action,
+    overwrite: t.action === "overwrite",
     bad: t.columns === 0 ? "без колонок, проверьте файл" : null,
-    ok: t.columns > 0,
   })),
   applied: (r) => `таблиц ${r.tables_written}, колонок ${r.columns_written}`,
   summary: (r) => `Таблиц: ${r.tables.length} (новых ${countAction(r.tables, "create")})`,

@@ -1,67 +1,48 @@
-// Общий каркас окон «… с помощью ИИ-агента» для ТАБЛИЧНЫХ семей фактов: структура БД
+// Общее окно «… с помощью ИИ-агента» для ТАБЛИЧНЫХ семей фактов: структура базы
 // (DataAgentModal), каналы брокера (ChannelsAgentModal), конфигурация сервиса
-// (ConfigAgentModal). Окна были копиями на ~270 строк с отличиями только в контракте и
-// словах (аудит F-9, фаза 7); у каждой семьи теперь — описание FactAgentKind, а
-// машинерия одна: промпт → пакет файлов → превью с отсрочкой → применение.
+// (ConfigAgentModal). Окна были копиями с отличиями только в контракте и словах (аудит F-9,
+// фаза 7); у каждой семьи — описание FactAgentKind, а машинерия одна: задание агенту →
+// пакет файлов → превью с отсрочкой → применение.
+//
+// Вид — новый язык (редизайн, фаза 6г): одна колонка на общем каркасе окна (ui/ds.css,
+// ds-win) в порядке действий, как окно схем логики. «Задание агенту» (кнопка задания) →
+// «Ответы агента» со знаком «?» (механика адреса и слияния файлов — help семьи), зона
+// файлов, отчёт и галочка «Заменять уже описанное» (пояснение семьи — в подсказке галочки)
+// → футер слева: «Применить», «Отмена», отказ применения строкой над ними. Файлы принимает
+// всё окно. Состояние — useFactAgent, зона — AgentFiles, отчёт — FactAgentPlan.
 //
 // Обращений к фактам эти окна не несут: пометки «читает:/пишет:», «публикует:/
 // потребляет:», «зависит от:» приезжают внутри схем логики, окном дозаливки доков.
-// Применение НЕ кладётся в undo — страховка: превью + дефолт «не перезаписывать».
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { DocsFile, PromptVariant } from "../../types";
-import type { DataImportParams } from "../../api/docsImport";
-import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
+import type { ReactNode } from "react";
+import type { PromptVariant } from "../../types";
+import { useFactAgent } from "./useFactAgent";
+import type { FactApi, FactReport } from "./useFactAgent";
+import type { FactPlanWords } from "./FactAgentPlan";
+import { MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
-import {
-  inputFingerprint, useRepeatedInput,
-  head, sub, cols, leftCol, rightCol, leftNote,
-  chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow, radioRow,
-} from "./agentModalShared";
-import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
+import AgentFiles from "./AgentFiles";
+import FactAgentPlan from "./FactAgentPlan";
 import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
-import { CloseIcon } from "../../ui/icons";
-import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import InfoPopover from "../../ui/InfoPopover";
-import { noAutofill } from "../../ui/noAutofill";
-import { copyText, copyTextOrShow } from "../../lib/copyText";
-import { useToast } from "../../pages/useToast";
-
-// Отчёт превью/применения любой табличной семьи — общая часть.
-interface FactReport {
-  errors: string[];
-  warnings: string[];
-  applied: boolean;
-}
-
-// Строка списка «что приедет» (ItemList).
-type ItemRow = Parameters<typeof ItemList>[0]["rows"][number];
+import { CloseIcon } from "../../ui/icons";
+import { copyText } from "../../lib/copyText";
+import "../../ui/ds.css";
+import "./factAgent.css";
 
 // Чем семьи отличаются: контракт и слова. Остальное у окон общее.
-export interface FactAgentKind<R extends FactReport> {
-  api: {
-    prompt: (variant?: PromptVariant) => Promise<{ prompt: string }>;
-    preview: (p: DataImportParams) => Promise<R>;
-    apply: (p: DataImportParams) => Promise<R>;
-  };
+export interface FactAgentKind<R extends FactReport> extends FactPlanWords<R> {
+  api: FactApi<R>;
   title: string;
-  // Подзаголовок: где запускать агента (и куда уедут записи без адреса).
-  intro: (nodeName: string) => ReactNode;
-  // Механика за «?» в конце подзаголовка: адрес «# archmap-node:» и слияние файлов.
+  // Механика за «?» у «Ответов агента»: адрес «# archmap-node:» и слияние файлов; без
+  // неё «?» у окна нет.
   help?: (nodeName: string) => ReactNode;
-  // Пояснение под тумблером «Заменять уже описанное».
-  overwriteNote: ReactNode;
+  // Пояснение галочки «Заменять уже описанное» — в её подсказке.
+  overwriteNote: string;
   // «ArchMap проверил файлы {remarksFamily}…» и «{remarksItems} чини по замечаниям…».
   remarksFamily: string;
   remarksItems: string;
   autofillKey: string;
-  // Записи пакета (по ним «есть что применить» и список «что приедет»).
-  count: (r: R) => number;
-  listTitle: string;
-  rows: (r: R) => ItemRow[];
-  // «Применено: {applied}.» и сводка превью «Таблиц: 3 (новых 2)».
-  applied: (r: R) => string;
-  summary: (r: R) => string;
 }
 
 interface Props<R extends FactReport> {
@@ -77,226 +58,83 @@ interface Props<R extends FactReport> {
 export default function FactAgentModal<R extends FactReport>({
   kind, nodeId, nodeName, onClose, onApplied,
 }: Props<R>) {
-  const pkg = useDocsFiles();
-  const [rawReport, setRawReport] = useState<R | null>(null);
-  const [overwrite, setOverwrite] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [remarksCopied, flashRemarksCopied] = useToast(2000);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const seqRef = useRef(0);
-  const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
-  const { api } = kind;
+  const agent = useFactAgent({
+    api: kind.api,
+    nodeId,
+    count: kind.count,
+    remarksFamily: kind.remarksFamily,
+    remarksItems: kind.remarksItems,
+    onApplied: () => { onApplied(); onClose(); },
+  });
+  const drop = useFileDrop({ onFiles: agent.pkg.pickFiles, disabled: agent.pkg.files.length >= MAX_FILES });
 
-  // Пустые файлы прячут отчёт ПРОИЗВОДНО — эффект не зеркалит состояние в состояние.
-  const report = pkg.hasContent ? rawReport : null;
-
-  // Гвард «вход не изменился»: тот же байт-в-байт пакет, что в прошлый заход, —
-  // повод посмотреть на файлы агента, а не на замечание (находка полевой приёмки).
-  const fingerprint = useMemo(() => inputFingerprint(pkg.files), [pkg.files]);
-  const repeatedInput = useRepeatedInput(pkg.files, fingerprint);
-  // Пакет, к которому задан вопрос об устаревании (после копирования замечаний).
-  // Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
-  const [askedFor, setAskedFor] = useState<DocsFile[] | null>(null);
-
-  useEffect(() => {
-    const nonEmpty = pkg.files.filter((f) => f.content.trim() !== "");
-    if (nonEmpty.length === 0) return;
-    const seq = ++seqRef.current;
-    const t = window.setTimeout(() => {
-      setChecking(true);
-      api.preview({ files: nonEmpty, overwrite, nodeId })
-        .then((r) => {
-          if (seqRef.current !== seq) return;
-          setRawReport(r);
-          setChecking(false);
-        })
-        .catch(() => {
-          if (seqRef.current !== seq) return;
-          setRawReport(null);
-          setChecking(false);
-        });
-    }, 600);
-    return () => window.clearTimeout(t);
-  }, [pkg.files, overwrite, nodeId, api]);
-
-  // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
-  // трёх вариантов показывает PromptCopyButton по разрешению этого обещания.
+  // Запрос задания + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «Скопировано» показывает
+  // PromptCopyButton по разрешению этого обещания.
   function copyPrompt(variant: PromptVariant): Promise<void> {
-    return copyText(api.prompt(variant).then(({ prompt }) => prompt));
+    return copyText(kind.api.prompt(variant).then(({ prompt }) => prompt));
   }
-
-  const remarks = report === null ? [] : [...report.errors, ...report.warnings];
-
-  // «Чини, а не удаляй» — тот же урок, что у импорта и доков (полевой QA,
-  // docs/qa-sentry-brokers.md находка №2): на голое «исправь» слабая модель отвечает
-  // ампутацией — вырезает записи вместо того, чтобы искать верное имя.
-  function copyRemarks() {
-    const text =
-      `ArchMap проверил файлы ${kind.remarksFamily} и нашёл замечания. ` +
-      `Исправь файлы и сообщи, какие изменились. ${kind.remarksItems} чини по замечаниям, ` +
-      "а не удаляй из пакета:\n" +
-      remarks.map((r) => `- ${r}`).join("\n");
-    void copyTextOrShow(text).then(() => {
-      flashRemarksCopied();
-      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
-      // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
-      setAskedFor(pkg.files);
-    });
-  }
-
-  // Убрать пакет из панели: файлы и отчёт уходят целиком (зеркало снятия
-  // последнего файла крестиком) — новый заход сравнивать будет не с чем.
-  function clearPackage() {
-    setAskedFor(null);
-    pkg.reset();
-    setRawReport(null);
-  }
-
-  function apply() {
-    setApplying(true);
-    api.apply({ files: pkg.nonEmpty, overwrite, nodeId })
-      .then((r) => {
-        setRawReport(r);
-        if (!r.applied) return;
-        onApplied();
-        onClose();
-      })
-      .finally(() => setApplying(false));
-  }
-
-  const willWrite = report !== null && report.errors.length === 0 && kind.count(report) > 0;
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
-      <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>{kind.title}</h2>
-        <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
-      </div>
-      {/* div, а не p: панель «?» — блок, а блок внутри абзаца HTML не допускает. */}
-      <div style={sub}>
-        {kind.intro(nodeName)}
-        {kind.help && (
-          <>
-            {" "}
-            <InfoPopover label="Как ArchMap разбирает файлы" width={380}>
-              {kind.help(nodeName)}
-            </InfoPopover>
-          </>
-        )}
-      </div>
-
-      <div style={cols}>
-        <div style={leftCol}>
-          <PromptCopyButton
-            label="Скопировать промпт"
-            copiedLabel="Скопировано ✓"
-            kind="primary"
-            copy={copyPrompt}
-          />
-          <label style={{ ...radioRow, marginTop: 14 }}>
-            <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
-            Заменять уже описанное
-          </label>
-          <p style={leftNote}>{kind.overwriteNote}</p>
+    <Modal onClose={onClose} boxStyle={{ width: 640, padding: 0, margin: "8vh auto auto" }}>
+      <div className="ds ds-win fact-win" {...drop.bind}>
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">{kind.title}</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
         </div>
 
-        <div style={rightCol}>
-          <div style={chipsRow}>
-            {pkg.files.map((f, i) => (
-              <span key={f.name} style={i === pkg.active ? chipOn : chip}>
-                <button type="button" style={chipBtn} title={f.name} onClick={() => pkg.setActive(i)}>
-                  {f.name}
-                </button>
-                <button type="button" style={chipX} title="Убрать файл" onClick={() => pkg.removeFile(i)}>×</button>
-              </span>
-            ))}
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              style={{ display: "none" }}
-              onChange={(e) => { pkg.pickFiles(e.target.files); e.target.value = ""; }}
+        <div className="ds-win-body">
+          <section className="ds-win-block">
+            <h3 className="ds-win-block-title">Задание агенту</h3>
+            <PromptCopyButton label="Скопировать задание" copiedLabel="Скопировано" kind="secondary" copy={copyPrompt} />
+          </section>
+
+          <section className="ds-win-block">
+            <div className="ds-win-block-head">
+              <h3 className="ds-win-block-title">Ответы агента</h3>
+              {kind.help && (
+                <InfoPopover label="Как ArchMap разбирает файлы" width={380}>
+                  {kind.help(nodeName)}
+                </InfoPopover>
+              )}
+            </div>
+            <AgentFiles
+              pkg={agent.pkg}
+              text="Перетащите сюда файлы от агента"
+              over={drop.over}
+              dropError={drop.error}
+              onRemove={agent.removeFile}
+              autofill={kind.autofillKey}
             />
-            <button type="button" className="btn-soft" disabled={pkg.files.length >= MAX_FILES}
-              onClick={() => fileRef.current?.click()}>
-              Загрузить файлы
-            </button>
-            <button type="button" className="btn-soft" disabled={pkg.files.length >= MAX_FILES}
-              title="Добавить файл вставкой текста" onClick={pkg.addPaste}>
-              + вставить из буфера
-            </button>
-          </div>
+            {agent.pkg.files.length > 0 && (
+              <>
+                <FactAgentPlan agent={agent} words={kind} />
+                <label className="ds-check fact-check" title={kind.overwriteNote}>
+                  <input
+                    type="checkbox"
+                    checked={agent.overwrite}
+                    onChange={(e) => agent.setOverwrite(e.target.checked)}
+                  />
+                  <span>Заменять уже описанное</span>
+                </label>
+              </>
+            )}
+          </section>
+        </div>
 
-          <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
-            {pkg.files.length > 0 ? (
-              <textarea
-                {...noAutofill(kind.autofillKey)}
-                style={fileArea}
-                value={pkg.files[pkg.active]?.content ?? ""}
-                onChange={(e) => pkg.setText(pkg.active, e.target.value)}
-                placeholder="вставьте содержимое файла"
-                spellCheck={false}
-              />
-            ) : (
-              <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда файлы, которые подготовил агент, или нажмите, чтобы
-                выбрать их на диске. Содержимое можно и вставить текстом.
-              </button>
-            )}
-          </div>
-          {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
-          {pkg.sizeError && <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>}
-
-          <div style={{ marginTop: 10, minHeight: 20 }}>
-            {checking && <div style={grayLine}>Проверяем файлы</div>}
-            {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
-                повторится, и чинить надо не его, а разговор с агентом. */}
-            {repeatedInput && <UnchangedInputNote />}
-            {!checking && report !== null && report.applied && (
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-                Применено: {kind.applied(report)}.
-              </div>
-            )}
-            {!checking && report !== null && !report.applied && report.errors.length === 0 && (
-              <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
-                {kind.summary(report)}
-              </div>
-            )}
-            {!checking && report !== null && report.errors.length > 0 && (
-              <div style={{ fontSize: 12.5, color: "#dc2626" }}>
-                <div style={{ fontWeight: 600, marginBottom: 3 }}>Файлы не применить:</div>
-                {report.errors.slice(0, 6).map((e, i) => <div key={i} style={{ marginTop: 2 }}>{e}</div>)}
-                {report.errors.length > 6 && <div>и ещё {report.errors.length - 6}</div>}
-              </div>
-            )}
-
-            {!checking && report !== null && kind.count(report) > 0 && (
-              <ItemList title={kind.listTitle} rows={kind.rows(report)} />
-            )}
-            {!checking && report !== null && report.warnings.length > 0 && (
-              <NoteList title="Проверьте:" items={report.warnings} />
-            )}
-            {!checking && remarks.length > 0 && (
-              <button type="button"
-                style={{ ...secondaryBtn, marginTop: 8, padding: "4px 10px", fontSize: 12.5 }}
-                onClick={copyRemarks}>
-                {remarksCopied ? "Скопировано ✓" : "Скопировать замечания для агента"}
-              </button>
-            )}
-            {askedFor === pkg.files && (
-              <StaleFilesConfirm onKeep={() => setAskedFor(null)} onClear={clearPackage} />
-            )}
-          </div>
-
-          <div style={footRow}>
-            <button type="button"
-              style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
-              disabled={!willWrite || applying}
-              onClick={apply}>
-              {applying ? "Применяем" : "Применить"}
-            </button>
-          </div>
+        {/* Главная кнопка первой, «Отмена» за ней (правило окон владельца). */}
+        <div className="ds-win-foot">
+          {agent.applyError && <p className="ds-danger ds-win-err" role="alert">{agent.applyError}</p>}
+          <button
+            type="button"
+            className="ds-btn ds-btn--primary"
+            disabled={!agent.willWrite || agent.applying}
+            onClick={agent.apply}
+          >
+            {agent.applying ? "Применяем" : "Применить"}
+          </button>
+          <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
         </div>
       </div>
     </Modal>

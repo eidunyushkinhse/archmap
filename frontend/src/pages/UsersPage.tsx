@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import { listPage as page, listPrimaryBtn as newBtn, listTitle as h1, listToast as toastStyle, listTopBar as topBar } from "../ui/pageChrome";
+import { useCallback, useEffect, useId, useLayoutEffect, useState } from "react";
 import { adminApi } from "../api/admin";
 import { fetchMe } from "../api/auth";
 import type { AdminUser, AdminUserUpdate, UserRole } from "../types";
@@ -10,15 +8,18 @@ import ResetPasswordDialog from "../components/users/ResetPasswordDialog";
 import { ROLE_LABEL, ROLES } from "../components/users/userLabels";
 import BrandLink from "../ui/BrandLink";
 import ConfirmDialog from "../ui/ConfirmDialog";
-import { PlusIcon } from "../ui/icons";
-import "../ui/chrome.css";
+import { ChevronDownIcon, KebabIcon } from "../ui/icons";
+import { useMenu } from "../ui/useMenu";
 import { useMessageToast } from "./useToast";
+import "../ui/ds.css";
+import "./listPages.css";
 
 /**
- * Экран «Пользователи» (#/admin/users, только администратор): таблица учёток и
- * действия над ними. Удаления нет: в проектах живут created_by/updated_by, поэтому
- * вместо удаления — блокировка. Защиты «себя не блокировать, последнего админа не
- * трогать» проверяет бэк; здесь те же кнопки заранее отключены с подсказкой почему.
+ * Экран «Пользователи» (#/admin/users, только администратор; редизайн, фаза 12а): тихая
+ * таблица учёток, действия строки — в меню кнопки-значка. Удаления нет: в проектах живут
+ * created_by/updated_by, поэтому вместо удаления — блокировка. Защиты «себя не блокировать,
+ * последнего админа не трогать» проверяет бэк; здесь те же пункты меню заранее заперты, а
+ * причина стоит второй строкой пункта.
  */
 
 interface Props {
@@ -95,119 +96,97 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
 
   const activeAdmins = users.filter((u) => u.is_admin && u.is_active).length;
 
-  return (
-    <div style={page}>
-      <div style={topBar}>
-        <BrandLink onClick={onAllProjects} />
-        <AccountMenu onLogout={onLogout} />
-      </div>
+  // Действия строки по порядку пунктов меню: что делает каждое, не меняется (окно,
+  // подтверждение или запись сразу).
+  function rowActions(u: AdminUser): RowAction[] {
+    const isSelf = u.id === meId;
+    const lastAdmin = u.is_admin && u.is_active && activeAdmins <= 1;
+    // Почему нельзя: себя — всегда, последнего активного админа — тоже.
+    const blockLock = isSelf ? "Нельзя заблокировать себя" : lastAdmin ? "Это последний администратор" : null;
+    const revokeLock = isSelf ? "Нельзя снять права с себя" : lastAdmin ? "Это последний администратор" : null;
+    return [
+      { label: "Сбросить пароль", run: () => setDialog({ kind: "reset", user: u }) },
+      u.is_admin
+        ? { label: "Снять права администратора", run: () => setDialog({ kind: "revoke", user: u }), locked: revokeLock }
+        : { label: "Сделать администратором", run: () => void patch(u, { is_admin: true }, "Права администратора выданы") },
+      u.is_active
+        ? { label: "Заблокировать", run: () => setDialog({ kind: "block", user: u }), locked: blockLock, danger: true }
+        : { label: "Разблокировать", run: () => void patch(u, { is_active: true }, "Пользователь разблокирован") },
+    ];
+  }
 
-      <div style={container}>
-        <button className="crumb" style={backLink} onClick={onAllProjects}>← Все проекты</button>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-          <h1 style={h1}>Пользователи</h1>
-          <button style={newBtn} onClick={() => setDialog({ kind: "create" })}>
-            <PlusIcon /> Новый пользователь
+  return (
+    <div className="ds lp-page">
+      <header className="ds-head">
+        <div className="ds-head-left">
+          <BrandLink onClick={onAllProjects} />
+        </div>
+        <div className="ds-head-acts">
+          <AccountMenu onLogout={onLogout} />
+        </div>
+      </header>
+
+      <main className="lp-main lp-main--crumb">
+        <div className="lp-crumbs">
+          <button type="button" onClick={onAllProjects}>Все проекты</button>
+        </div>
+        <div className="lp-title-row">
+          <h1 className="lp-title">Пользователи</h1>
+          <button type="button" className="ds-btn ds-btn--primary" onClick={() => setDialog({ kind: "create" })}>
+            Новый пользователь
           </button>
         </div>
 
-        {error && <p style={{ color: "#dc2626", fontSize: 14 }}>{error}</p>}
-        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка</p>}
+        {error && <p className="ds-danger lp-note">{error}</p>}
+        {loading && <p className="ds-empty lp-note">Загрузка</p>}
 
         {!loading && users.length > 0 && (
-          <div style={tableBox}>
-            <table style={table}>
-              <thead>
-                <tr>
-                  <th style={th}>Логин</th>
-                  <th style={th}>Роль</th>
-                  <th style={th}>Администратор</th>
-                  <th style={th}>Статус</th>
-                  <th style={th}>Создан</th>
-                  <th style={th} aria-label="Действия" />
+          <table className="ds-table lp-users">
+            <thead>
+              <tr>
+                <th>Логин</th>
+                <th>Роль</th>
+                <th>Администратор</th>
+                <th>Статус</th>
+                <th>Создан</th>
+                <th aria-label="Действия" />
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} data-testid={`user-row-${u.username}`}>
+                  {/* Логин бывает длинным без пробелов: переносится в любом месте (ds-td-long). */}
+                  <td className="ds-td-long">
+                    <span className="lp-login">{u.username}</span>
+                    {u.id === meId && <span className="lp-self">вы</span>}
+                  </td>
+                  <td>
+                    <span className="ds-select lp-role">
+                      <select
+                        aria-label={`Роль ${u.username}`}
+                        value={u.role}
+                        // Администратор всегда архитектор: роль меняется, только сняв права.
+                        disabled={busy || u.is_admin}
+                        title={u.is_admin ? "Администратор всегда архитектор" : undefined}
+                        onChange={(e) => void patch(u, { role: e.target.value as UserRole }, "Роль изменена")}
+                      >
+                        {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                      </select>
+                      <ChevronDownIcon />
+                    </span>
+                  </td>
+                  <td className={u.is_admin ? undefined : "lp-quiet"}>{u.is_admin ? "Да" : "Нет"}</td>
+                  <td className={u.is_active ? "lp-quiet" : "lp-blocked"}>{u.is_active ? "Активен" : "Заблокирован"}</td>
+                  <td className="lp-quiet lp-nowrap">{fmtDate(u.created_at)}</td>
+                  <td className="lp-acts">
+                    <RowMenu username={u.username} busy={busy} actions={rowActions(u)} />
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => {
-                  const isSelf = u.id === meId;
-                  const lastAdmin = u.is_admin && u.is_active && activeAdmins <= 1;
-                  // Почему нельзя: себя — всегда, последнего активного админа — тоже.
-                  const blockLock = isSelf ? "Нельзя заблокировать себя" : lastAdmin ? "Это последний администратор" : null;
-                  const revokeLock = isSelf ? "Нельзя снять права с себя" : lastAdmin ? "Это последний администратор" : null;
-                  return (
-                    <tr key={u.id} data-testid={`user-row-${u.username}`}>
-                      <td style={td}>
-                        <span style={{ fontWeight: 600, color: "#0f172a" }}>{u.username}</span>
-                        {isSelf && <span style={selfMark}>вы</span>}
-                      </td>
-                      <td style={td}>
-                        <select
-                          aria-label={`Роль ${u.username}`}
-                          style={roleSelect}
-                          value={u.role}
-                          // Администратор всегда архитектор: роль меняется, только сняв права.
-                          disabled={busy || u.is_admin}
-                          title={u.is_admin ? "Администратор всегда архитектор" : undefined}
-                          onChange={(e) => void patch(u, { role: e.target.value as UserRole }, "Роль изменена")}
-                        >
-                          {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-                        </select>
-                      </td>
-                      <td style={td}>{u.is_admin ? "Да" : "Нет"}</td>
-                      <td style={td}>
-                        <span style={u.is_active ? activeBadge : blockedBadge}>
-                          {u.is_active ? "Активен" : "Заблокирован"}
-                        </span>
-                      </td>
-                      <td style={{ ...td, color: "#64748b", whiteSpace: "nowrap" }}>{fmtDate(u.created_at)}</td>
-                      <td style={{ ...td, textAlign: "right" }}>
-                        <div style={actions}>
-                          <RowAction onClick={() => setDialog({ kind: "reset", user: u })} disabled={busy}>
-                            Сбросить пароль
-                          </RowAction>
-                          {u.is_admin ? (
-                            <RowAction
-                              onClick={() => setDialog({ kind: "revoke", user: u })}
-                              disabled={busy}
-                              lockedReason={revokeLock}
-                            >
-                              Снять права администратора
-                            </RowAction>
-                          ) : (
-                            <RowAction
-                              onClick={() => void patch(u, { is_admin: true }, "Права администратора выданы")}
-                              disabled={busy}
-                            >
-                              Сделать администратором
-                            </RowAction>
-                          )}
-                          {u.is_active ? (
-                            <RowAction
-                              onClick={() => setDialog({ kind: "block", user: u })}
-                              disabled={busy}
-                              lockedReason={blockLock}
-                              danger
-                            >
-                              Заблокировать
-                            </RowAction>
-                          ) : (
-                            <RowAction
-                              onClick={() => void patch(u, { is_active: true }, "Пользователь разблокирован")}
-                              disabled={busy}
-                            >
-                              Разблокировать
-                            </RowAction>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         )}
-      </div>
+      </main>
 
       {dialog?.kind === "create" && (
         <NewUserDialog
@@ -251,71 +230,86 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
         />
       )}
 
-      {toast && <div style={toastStyle}>{toast}</div>}
+      {/* Тост итога: низ окна по центру, щелчки проходят сквозь него (ui/ds.css). */}
+      {toast && <div className="ds-toast ds-toast--bottom">{toast}</div>}
     </div>
   );
 }
 
-// Кнопка действия в строке. Отключённая по правилу (себя, последний админ) несёт
-// подсказку на обёртке: у disabled-кнопки браузеры не всегда показывают title.
-function RowAction({
-  children, onClick, disabled, lockedReason = null, danger = false,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  disabled: boolean;
-  lockedReason?: string | null;
+// Действие строки. locked — причина, по которой действие заперто правилом (себя, последний
+// администратор); danger — опасный пункт («Заблокировать»).
+interface RowAction {
+  label: string;
+  run: () => void;
+  locked?: string | null;
   danger?: boolean;
-}) {
-  const locked = lockedReason !== null;
+}
+
+// Меню действий строки: кнопка-значок, меню у её правого края. Закрывается выбором пункта,
+// щелчком мимо и Escape; стрелки по незапертым пунктам и возврат фокуса на кнопку — общим
+// хуком ui/useMenu. Пока идёт запись, кнопка и пункты заперты. Запертый по правилу пункт
+// остаётся в меню, причина — второй строкой пункта: имя пункта — подпись (aria-label),
+// причина — его описание (aria-describedby). Меню не помещается под кнопкой,
+// а над ней места больше (нижние строки длинной таблицы) — раскрывается вверх.
+function RowMenu({ username, busy, actions }: { username: string; busy: boolean; actions: RowAction[] }) {
+  const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
+  const { wrapRef, triggerRef, menuRef, onKeyDown, pick } = useMenu(open, setOpen);
+  const idBase = useId();
+
+  // До отрисовки (без вспышки вниз, потом вверх), как у components/AddDocsMenu.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const wrap = wrapRef.current;
+    const menu = menuRef.current;
+    if (!wrap || !menu) return;
+    const rect = wrap.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom;
+    setUp(below < menu.offsetHeight + 8 && rect.top > below);
+  }, [open, wrapRef, menuRef]);
+
   return (
-    <span title={lockedReason ?? undefined} style={{ display: "inline-flex" }}>
+    <div ref={wrapRef} className="lp-row-menu">
       <button
-        style={{ ...rowBtn, color: danger ? "#dc2626" : "#1e293b", opacity: locked ? 0.45 : 1 }}
-        disabled={disabled || locked}
-        onClick={onClick}
+        ref={triggerRef}
+        type="button"
+        className="ds-icon-btn"
+        title="Действия"
+        aria-label={`Действия с пользователем ${username}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={busy}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={onKeyDown}
       >
-        {children}
+        <KebabIcon />
       </button>
-    </span>
+      {open && (
+        <div ref={menuRef} className={"ds-menu ds-menu--end" + (up ? " lp-menu--up" : "")} role="menu" onKeyDown={onKeyDown}>
+          {actions.map((a, i) => {
+            const why = a.locked ? `${idBase}-${i}` : undefined;
+            return (
+              <button
+                key={a.label}
+                type="button"
+                role="menuitem"
+                className={"ds-menu-item lp-menu-item" + (a.danger ? " ds-menu-item--danger" : "")}
+                disabled={busy || why !== undefined}
+                aria-label={why ? a.label : undefined}
+                aria-describedby={why}
+                onClick={() => pick(a.run)}
+              >
+                <span>{a.label}</span>
+                {why && <span id={why} className="lp-menu-why">{a.locked}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
 }
-
-// ── Стили (шапка и контейнер — как у лендинга «Проекты») ─────────────────────
-const container: CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: "20px 24px 60px" };
-const backLink: CSSProperties = {
-  display: "inline-flex", alignItems: "center", padding: "4px 8px", margin: "0 0 10px -8px",
-  border: "none", borderRadius: 8, background: "none", color: "#64748b",
-  fontSize: 13.5, fontWeight: 600, cursor: "pointer",
-};
-const tableBox: CSSProperties = {
-  marginTop: 22, background: "#fff", border: "1px solid #e8edf3", borderRadius: 14, overflowX: "auto",
-};
-const table: CSSProperties = { width: "100%", borderCollapse: "collapse", fontSize: 14 };
-const th: CSSProperties = {
-  textAlign: "left", padding: "11px 14px", fontSize: 12.5, fontWeight: 700, color: "#64748b",
-  borderBottom: "1px solid #eef2f6", whiteSpace: "nowrap",
-};
-const td: CSSProperties = { padding: "10px 14px", borderBottom: "1px solid #f1f5f9", color: "#334155", verticalAlign: "middle" };
-const selfMark: CSSProperties = {
-  marginLeft: 8, padding: "2px 8px", borderRadius: 999, background: "#eff6ff",
-  color: "#1d4ed8", fontSize: 12, fontWeight: 600,
-};
-const roleSelect: CSSProperties = {
-  padding: "5px 8px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13.5,
-  color: "#0f172a", background: "#fff",
-};
-const badgeBase: CSSProperties = {
-  display: "inline-flex", padding: "3px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap",
-};
-const activeBadge: CSSProperties = { ...badgeBase, background: "#f0fdf4", color: "#15803d" };
-const blockedBadge: CSSProperties = { ...badgeBase, background: "#fef2f2", color: "#b91c1c" };
-const actions: CSSProperties = { display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" };
-const rowBtn: CSSProperties = {
-  padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff",
-  fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
-};

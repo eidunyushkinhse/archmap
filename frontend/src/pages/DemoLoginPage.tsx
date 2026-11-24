@@ -1,14 +1,16 @@
 // Вход в демо-стенд (docs/tasks/demo-mode.md, экран 1 прототипа): вместо формы
 // «Логин / Пароль» — «Попробовать без регистрации» и «Установить» (репозиторий на
-// GitHub). Левая половина та же, что у обычного входа (LoginPitch).
+// GitHub). Левая половина та же, что у обычного входа (LoginPitch). Вид (редизайн,
+// фаза 12б): кнопки — примитивы нового языка (ui/ds.css), сообщение — абзацем без коробки.
 //
 // Входа по логину на стенде нет: гость возвращается в свою песочницу, пока его
 // браузер хранит сессию. notice — почему сессию закрыли без спроса (песочницу убрали
-// после суток бездействия): жёлтая плашка, пока человек не попробует снова.
+// после суток бездействия): предупреждение, пока человек не попробует снова.
 import { useState } from "react";
 import { saveToken, startDemo } from "../api/auth";
 import LoginPitch from "../components/login/LoginPitch";
 import { GitHubIcon } from "../ui/icons";
+import "../ui/ds.css";
 import "./LoginPage.css";
 import "./DemoLoginPage.css";
 
@@ -20,7 +22,7 @@ interface Props {
   notice?: string | null;
 }
 
-// Сообщение над фактами: отказ стенда (красное) или причина выхода (жёлтое).
+// Сообщение над пунктами: отказ стенда (цветом опасности) или причина выхода (предупреждение).
 type Message = { kind: "error" | "notice"; text: string };
 
 export default function DemoLoginPage({ onLogin, notice = null }: Props) {
@@ -44,16 +46,16 @@ export default function DemoLoginPage({ onLogin, notice = null }: Props) {
   }
 
   return (
-    <div className="login">
+    <div className="login ds">
       <LoginPitch />
 
       <main className="login-right">
         <div className="demo-box">
           <h2>Попробуйте ArchMap</h2>
           {message && (
-            <div className={`login-msg login-msg--${message.kind}`} role="alert">
+            <p className={`${message.kind === "error" ? "ds-danger" : "ds-warn"} login-msg`} role="alert">
               {message.text}
-            </div>
+            </p>
           )}
           <ul className="demo-facts">
             <li>Познакомьтесь с демо-проектом «Ярмарка». Вы поймёте, как может выглядеть ваша документация.</li>
@@ -62,7 +64,7 @@ export default function DemoLoginPage({ onLogin, notice = null }: Props) {
           <div className="demo-actions">
             <button
               type="button"
-              className="demo-btn demo-btn--primary"
+              className="ds-btn ds-btn--primary demo-btn"
               disabled={busy}
               onClick={() => void handleStart()}
             >
@@ -70,7 +72,7 @@ export default function DemoLoginPage({ onLogin, notice = null }: Props) {
               {busy ? "Готовим песочницу" : "Попробовать без регистрации"}
             </button>
             <a
-              className="demo-btn demo-btn--secondary"
+              className="ds-btn demo-btn"
               href={REPO_URL}
               target="_blank"
               rel="noopener noreferrer"

@@ -68,7 +68,8 @@ describe("ProjectAccessDialog: владелец", () => {
   it("флажок «Виден всем пользователям» шлёт PATCH проекта", async () => {
     vi.mocked(projectsApi.update).mockResolvedValue(проект({ visible_to_all: true }));
     открыть();
-    expect(screen.getByText("Остальные пользователи смогут только смотреть")).toBeInTheDocument();
+    // Пояснение — подсказкой строки флажка (редизайн, фаза 9г), а не второй строкой текста.
+    expect(screen.getByTitle("Остальные пользователи смогут только смотреть")).toContainElement(screen.getByRole("checkbox"));
     await userEvent.click(screen.getByRole("checkbox", { name: /Виден всем пользователям/ }));
     expect(projectsApi.update).toHaveBeenCalledWith("p1", { visible_to_all: true });
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeChecked());
@@ -122,6 +123,60 @@ describe("ProjectAccessDialog: владелец", () => {
     expect(within(screen.getByTestId("member-editor")).getByRole("option", { name: "Редактор" })).toBeEnabled();
   });
 
+  it("Enter в поле логина добавляет с ролью по умолчанию «Редактор»", async () => {
+    открыть();
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    await userEvent.type(screen.getByPlaceholderText("Логин"), "stranger{Enter}");
+    expect(projectsApi.putMember).toHaveBeenCalledWith("p1", "u3", "editor");
+    await waitFor(() => expect(screen.getByPlaceholderText("Логин")).toHaveValue(""));
+  });
+
+  it("уже участник: отказ текстом, запроса нет", async () => {
+    открыть();
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    await screen.findByTestId("member-editor");
+    await userEvent.type(screen.getByPlaceholderText("Логин"), "editor{Enter}");
+    expect(screen.getByText("Пользователь уже в проекте")).toBeInTheDocument();
+    expect(projectsApi.putMember).not.toHaveBeenCalled();
+  });
+
+  it("после правки список участников перечитывается, затем зовётся onChanged", async () => {
+    открыть();
+    await userEvent.click(await screen.findByRole("button", { name: "Удалить editor" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(projectsApi.members).toHaveBeenCalledTimes(2);
+    const удаление = vi.mocked(projectsApi.removeMember).mock.invocationCallOrder[0];
+    const перечитать = vi.mocked(projectsApi.members).mock.invocationCallOrder[1];
+    expect(удаление).toBeLessThan(перечитать);
+    expect(перечитать).toBeLessThan(onChanged.mock.invocationCallOrder[0]);
+  });
+
+  it("отказ правки показывается текстом, onChanged не зовётся", async () => {
+    vi.mocked(projectsApi.putMember).mockRejectedValue(new Error("Нет прав на проект"));
+    открыть();
+    await userEvent.selectOptions(await screen.findByRole("combobox", { name: "Роль editor" }), "reader");
+    expect(await screen.findByText("Нет прав на проект")).toBeInTheDocument();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("передача владения: «Отмена» в подтверждении ничего не передаёт", async () => {
+    открыть();
+    await userEvent.click(await screen.findByRole("button", { name: "Передать владение" }));
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    const выбор = screen.getByLabelText("Новый владелец");
+    await waitFor(() => expect(within(выбор).getAllByRole("option")).toHaveLength(3));
+    // Пока никто не выбран, «Передать» заперта.
+    expect(screen.getByRole("button", { name: "Передать" })).toBeDisabled();
+    await userEvent.selectOptions(выбор, "u2");
+    await userEvent.click(screen.getByRole("button", { name: "Передать" }));
+    expect(screen.getByText("Передать проект «Ярмарка» пользователю editor?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByText("Передать проект «Ярмарка» пользователю editor?")).not.toBeInTheDocument();
+    expect(projectsApi.transfer).not.toHaveBeenCalled();
+    // Строка выбора остаётся открытой с выбранным пользователем.
+    expect(screen.getByLabelText("Новый владелец")).toHaveValue("u2");
+  });
+
   it("незнакомый логин не отправляется", async () => {
     открыть();
     await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
@@ -161,6 +216,75 @@ describe("ProjectAccessDialog: владелец", () => {
   });
 });
 
+// Вид (редизайн, фаза 9г): каркас окна нового языка, тихие строки участников.
+describe("ProjectAccessDialog: вид", () => {
+  it("владелец: заголовок h2, имя проекта строкой, флажок, блок «Участники», подвал «Закрыть»", async () => {
+    открыть();
+    await screen.findByTestId("member-owner");
+    expect(screen.getByRole("heading", { level: 2, name: "Доступ к проекту" })).toHaveClass("ds-win-title");
+    expect(screen.getByText("Ярмарка")).toHaveClass("ds-win-lead");
+    expect(screen.getByRole("checkbox", { name: "Виден всем пользователям" }).closest("label")).toHaveClass("ds-check");
+    expect(screen.getByRole("heading", { level: 3, name: "Участники" })).toHaveClass("ds-win-block-title");
+    // Кнопок с текстом в окне: действия строк, строка добавления и одна «Закрыть» в подвале.
+    const подвал = screen.getAllByRole("button").filter((b) => b.textContent === "Закрыть");
+    expect(подвал).toHaveLength(1);
+    expect(подвал[0].className).toBe("ds-btn");
+    expect(screen.getAllByRole("button", { name: "Закрыть" }).filter((b) => b.classList.contains("ds-win-close"))).toHaveLength(1);
+    // Инлайн-стилей у разметки окна нет, у общего шеврона списков тоже: его отступ задаёт
+    // класс (ui/icons.css, ChevronDownIcon).
+    expect([...document.querySelectorAll("[style]")].map((e) => e.tagName.toLowerCase())).toEqual([]);
+  });
+
+  it("строки участников: у владельца слово «Владелец» и «Передать владение», у остальных список роли и «Удалить»", async () => {
+    открыть();
+    const владелец = await screen.findByTestId("member-owner");
+    expect(владелец).toHaveClass("pa-member");
+    expect(within(владелец).getByText("Владелец")).toHaveClass("pa-role");
+    expect(within(владелец).getByRole("button", { name: "Передать владение" })).toHaveClass("ds-add");
+    const редактор = screen.getByTestId("member-editor");
+    expect(within(редактор).getByRole("combobox", { name: "Роль editor" }).parentElement).toHaveClass("ds-select");
+    expect(within(редактор).getByRole("button", { name: "Удалить editor" })).toHaveClass("pa-del");
+  });
+
+  it("строка добавления: поле логина без видимой подписи, роль списком, «Добавить» не главная", async () => {
+    открыть();
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    const поле = screen.getByLabelText("Добавить участника");
+    expect(поле).toBe(screen.getByPlaceholderText("Логин"));
+    expect(поле).toHaveClass("ds-input");
+    expect(screen.getByText("Добавить участника")).toHaveClass("ds-sr");
+    expect(screen.getByRole("combobox", { name: "Роль нового участника" }).parentElement).toHaveClass("ds-select");
+    expect(screen.getByRole("button", { name: "Добавить" }).className).toBe("ds-btn");
+    await userEvent.type(поле, "viewer");
+    expect(screen.getByText("«Пользователь» может быть только читателем")).toHaveClass("pa-hint");
+  });
+
+  it("передача владения: подпись «Новый владелец» слева от списка, «Передать» не главная", async () => {
+    открыть();
+    await userEvent.click(await screen.findByRole("button", { name: "Передать владение" }));
+    expect(screen.getByRole("button", { name: "Передать владение" })).toHaveAttribute("aria-expanded", "true");
+    const выбор = screen.getByLabelText("Новый владелец");
+    expect(выбор.parentElement).toHaveClass("ds-select");
+    expect(screen.getByText("Новый владелец")).toHaveClass("pa-line-cap");
+    expect(screen.getByRole("button", { name: "Передать" }).className).toBe("ds-btn");
+  });
+
+  it("отказ правки — строкой опасности", async () => {
+    vi.mocked(projectsApi.removeMember).mockRejectedValue(new Error("Нет прав на проект"));
+    открыть();
+    await userEvent.click(await screen.findByRole("button", { name: "Удалить editor" }));
+    expect(await screen.findByText("Нет прав на проект")).toHaveClass("ds-danger");
+  });
+
+  it("не владелец: роли словами тихим цветом, заметка тихим текстом", async () => {
+    открыть({ my_role: "editor" });
+    const редактор = await screen.findByTestId("member-editor");
+    expect(within(редактор).getByText("Редактор")).toHaveClass("pa-role");
+    expect(within(screen.getByTestId("member-owner")).getByText("Владелец")).toHaveClass("pa-role");
+    expect(screen.getByText("Менять доступ может владелец проекта.")).toHaveClass("pa-note");
+  });
+});
+
 describe("ProjectAccessDialog: не владелец", () => {
   it("редактор видит участников и видимость, но ничего не меняет", async () => {
     открыть({ my_role: "editor" });
@@ -170,6 +294,9 @@ describe("ProjectAccessDialog: не владелец", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Передать владение" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Удалить/ })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Логин")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("member-owner")).getByText("Владелец")).toBeInTheDocument();
     expect(screen.getByText("Менять доступ может владелец проекта.")).toBeInTheDocument();
     // Список пользователей не-владельцу не нужен.
     expect(usersApi.list).not.toHaveBeenCalled();

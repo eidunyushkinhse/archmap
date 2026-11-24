@@ -84,6 +84,10 @@ export default function InfoPopover({ label, children, width = 420, iconSize }: 
       if (e.key !== "Escape") return;
       // Поповер закрывается первым и НЕ даёт Escape уехать выше (в модалку или
       // на снятие выделения холста): открытый слой всегда старше своего фона.
+      // preventDefault обязателен внутри окна: нативный <dialog> закрывается по
+      // непогашенному Escape событием cancel, и всплытие тут ни при чём — без него
+      // Escape закрывал и поповер, и окно (ui/Modal).
+      e.preventDefault();
       e.stopPropagation();
       close();
     };

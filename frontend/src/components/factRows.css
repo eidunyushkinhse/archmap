@@ -1,0 +1,238 @@
+/* Записи фактов на странице объекта: таблицы базы («Структура») и каналы брокера
+   («Каналы»). Редизайн, направление А «Документ»: без рамок и карточек, между записями
+   волосяная линия; имя моноширинным 13px/500, назначение строкой ниже; пустые
+   необязательные поля невидимы, пока запись не навели и фокус не в ней; крестик
+   удаления — так же. Общее у двух разделов здесь, сетки шапок — в dbStructure.css и
+   brokerChannels.css (у канала две подписи в шапке, у таблицы одна). Импортируют все
+   модули, ставящие эти классы (FactGroups, DbStructureSection, BrokerChannelsSection). */
+
+/* ── Группы записей (разделы базы, группы каналов) ─────────────────────── */
+.fact-group + .fact-group {
+  margin-top: 8px;
+}
+.fact-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 4px -2px;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.fact-group-toggle:hover {
+  color: var(--c-fg);
+}
+.fact-group-toggle:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+}
+
+/* ── Запись ─────────────────────────────────────────────────────────────── */
+.fact-item {
+  padding: 4px 0 6px;
+  border-top: 1px solid var(--c-line);
+}
+/* Шапка записи — сетка: шеврон, имя, подписи, крестик; второй строкой назначение
+   (с колонки имени до конца), поэтому его текст стоит ровно под именем. Сетка, а не
+   флекс: поле с шириной 100% в потоке флекса раздувало строку (урок прежней .dbs-thead). */
+.fact-head {
+  display: grid;
+  align-items: start;
+  column-gap: 8px;
+}
+.fact-head > .fact-desc {
+  grid-column: 2 / -1;
+}
+
+.fact-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  cursor: pointer;
+}
+.fact-chev:hover {
+  background: var(--c-hover);
+}
+.fact-chev:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.fact-head > .ds-del {
+  margin-top: 1px;
+}
+
+/* Имя записи — идентификатор из кода: моноширинным, «I» с «l» различать глазами. */
+.fact-name {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+/* Подписи у имени (раздел базы, группа и вид канала) — тихим текстом. */
+.fact-aux {
+  min-width: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+.fact-desc {
+  min-width: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+/* Читатель: голый текст с теми же полями по вертикали, что у поля ввода, — строки
+   читателя и редактора одной высоты. */
+span.fact-name:not(.ds-grow),
+span.fact-aux:not(.ds-grow),
+p.fact-desc {
+  margin: 0;
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+
+/* Пустое необязательное поле и крестик — до наведения на запись и фокуса в ней. */
+.fact-head .ds-grow.is-empty,
+.fact-head > .ds-del {
+  opacity: 0;
+}
+.fact-head:hover .ds-grow.is-empty,
+.fact-head:focus-within .ds-grow.is-empty,
+.fact-head:hover > .ds-del,
+.fact-head:focus-within > .ds-del {
+  opacity: 1;
+}
+
+/* ── Тело раскрытой записи: колонки / поля, мета, кто обращается ─────────── */
+.fact-body {
+  padding: 4px 0 4px 28px;
+}
+
+/* Вложенная таблица (колонки таблицы базы, поля сообщения канала): шапка 12px,
+   строки с волосяной линией. Сетка трека задаётся местом вызова на .fact-sub. */
+.fact-sub {
+  margin-top: 4px;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.fact-subrow {
+  display: grid;
+  grid-template-columns: var(--fact-cols);
+  align-items: start;
+  column-gap: 12px;
+  padding: 2px 0;
+  border-top: 1px solid var(--c-line);
+}
+.fact-subhead {
+  border-top: 0;
+  padding: 0 0 2px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.fact-subrow > * {
+  min-width: 0;
+}
+.fact-subrow:not(.fact-subhead) > span:not(.ds-grow) {
+  padding-top: 3px;
+  overflow-wrap: anywhere;
+}
+.fact-subrow .ds-del {
+  margin-top: 1px;
+}
+.fact-subrow:hover .ds-del,
+.fact-subrow:focus-within .ds-del {
+  opacity: 1;
+}
+.fact-check {
+  justify-self: start;
+  margin: 6px 0 0;
+  cursor: pointer;
+}
+.fact-mono {
+  font-family: var(--font-mono);
+}
+.fact-flags {
+  display: flex;
+  gap: 8px;
+  color: var(--c-fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+/* Выбор колонки, на которую ссылается внешний ключ: выглядит текстом, как поля строки. */
+.fact-select {
+  appearance: none;
+  width: calc(100% + 6px);
+  margin: 0 0 0 -6px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.fact-select:hover {
+  background: var(--c-hover);
+}
+.fact-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.fact-addrow {
+  margin-top: 4px;
+}
+
+/* Кто обращается / кто публикует и потребляет: действие словом. Пишущих и публикующих
+   ищут в инциденте первыми, поэтому они темнее и плотнее читающих. */
+.fact-usage {
+  margin-top: 8px;
+}
+.fact-usage-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1.6fr);
+  column-gap: 12px;
+  padding: 3px 0;
+  border-top: 1px solid var(--c-line);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.fact-usage-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fact-mode {
+  color: var(--c-fg-muted);
+}
+.fact-mode--strong {
+  color: var(--c-fg);
+  font-weight: 500;
+}
+.fact-usage-empty {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+
+/* Обёртка анимируемой высоты (useCollapse): своей коробки у неё нет, поэтому
+   измеренная высота точна, а вся косметика живёт на вложенном блоке. flow-root, а не
+   overflow:hidden — отступы вложенного блока входят в измерение, но ничего не
+   обрезается в покое. */
+.anim-box {
+  display: flow-root;
+}

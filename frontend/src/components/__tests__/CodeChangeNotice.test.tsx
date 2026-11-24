@@ -63,6 +63,23 @@ describe("CodeChangeNotice", () => {
     expect(onSynced).toHaveBeenCalledTimes(1);
   });
 
+  // Редизайн, фаза 5: тихая полоса нового языка без инлайн-стилей, текст прежний.
+  it("плашка нового языка: строка на репозиторий, «Обновить из кода» — кнопка ds-btn", () => {
+    render(
+      <CodeChangeNotice
+        projectId="p" changes={[change(), change({ id: "c-2", repo: "github.com/example/catalog" })]}
+        onSynced={vi.fn()} onDismissed={vi.fn()}
+      />,
+    );
+    const bar = screen.getByTestId("code-change-notice");
+    expect(bar).toHaveClass("ds", "ccn");
+    expect(bar.querySelectorAll("[style]")).toHaveLength(0);
+    expect(bar.querySelectorAll(".ccn-row")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Документация актуальна" })).toHaveLength(2);
+    for (const b of screen.getAllByRole("button", { name: "Документация актуальна" })) expect(b).toHaveClass("ccn-dismiss");
+    expect(screen.getByRole("button", { name: "Обновить из кода" })).toHaveClass("ds-btn");
+  });
+
   it("отказ снятия виден на плашке", async () => {
     vi.mocked(codeChangesApi.dismiss).mockRejectedValue(new Error("Нет связи"));
     render(<CodeChangeNotice projectId="p" changes={[change()]} onSynced={vi.fn()} onDismissed={vi.fn()} />);

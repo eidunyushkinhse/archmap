@@ -1,155 +1,112 @@
-/* Поле «Якорь» (components/anchor/AnchorField.tsx). Классы свои, не заимствованные
-   у страницы объекта или у инспектора: компонент один на оба места и обязан
-   выглядеть одинаково в обоих.
+/* Поле «Источник» (components/anchor/AnchorField.tsx). Классы свои: компонент один на
+   строку «Источник» страницы объекта и панели редактора и обязан выглядеть одинаково
+   в обоих местах.
    ⚠️ Осторожно с «звёздочка-слэш» в тексте комментария — она закрывает его
    досрочно и молча съедает следующее правило (поймано глазами: поле развалилось
    в строку, потому что .anchor-field остался без display:flex). */
 
 .anchor-field {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
-  /* Свой кегль, а не унаследованный: компонент стоит и в «Свойствах» страницы
-     (13px), и в панели редактора (там наследовался бы кегль панели — 18px). */
-  font-size: 13px;
-  line-height: 1.45;
+  /* Свой кегль, а не унаследованный: поле стоит в «Свойствах» страницы и в панели
+     редактора, вне их наследовался бы кегль места. */
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
 }
-
-.anchor-read {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.anchor-kind {
-  color: #64748b;
-}
-/* Значение якоря — моноширинно: это машинный ключ, в нём важен каждый символ. */
-.anchor-val {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px;
-  color: #0f172a;
+/* Значение одной строкой моноширинным, кнопка значения — общий примитив ui/ds.css
+   (ds-value-btn). */
+.anchor-pv-text {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--c-fg);
   overflow-wrap: anywhere;
 }
-.anchor-empty {
-  color: #9ca3af;
-  font-style: italic;
+.anchor-field .anchor-pv {
+  align-self: flex-start;
 }
 
-/* Действия чтения: «Изменить · Очистить» — с воздухом и точкой-разделителем. */
-.anchor-acts {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+/* Панель правки источника: поверх страницы (или панели редактора) под значением, ничего
+   не сдвигается. Подложка ловит клик мимо (закрыть без сохранения). Язык ds: вкладки
+   вида, подписи полей 12px, поля и кнопки на токенах (ui/ds.css). */
+.anchor-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
 }
-.anchor-sep {
-  color: #cbd5e1;
-}
-
-.anchor-link {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-size: 12.5px;
-  color: #2563eb;
-  cursor: pointer;
-}
-.anchor-link:hover:not(:disabled) {
-  text-decoration: underline;
-}
-.anchor-link:disabled {
-  color: #94a3b8;
-  cursor: default;
-}
-
-/* Переключатель вида: два сегмента, выбранный — залит. */
-.anchor-tabs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.anchor-tab {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 7px;
-  padding: 3px 9px;
-  font: inherit;
-  font-size: 12.5px;
-  color: #475569;
-  cursor: pointer;
-}
-.anchor-tab.is-on {
-  background: #eff6ff;
-  border-color: #93c5fd;
-  color: #1d4ed8;
-  font-weight: 600;
-}
-
-.anchor-label {
+.anchor-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -6px;
+  z-index: 15;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font-size: 11.5px;
-  color: #64748b;
-}
-.anchor-input {
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  padding: 5px 8px;
-  font: inherit;
-  font-size: 13px;
-  color: #0f172a;
-  min-width: 0;
-  width: 100%;
+  gap: 12px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
   box-sizing: border-box;
+  padding: 12px 14px 14px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  overflow-wrap: normal;
+  cursor: default;
 }
-.anchor-input:focus {
+.anchor-pop:focus {
   outline: none;
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
-
-.anchor-hint {
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: #94a3b8;
+.anchor-pop-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
 }
-/* Ответ dry-run: спокойный (что запишется) и красный (отказ сервера). */
-.anchor-preview {
-  font-size: 12px;
-  color: #047857;
+.anchor-pop-note,
+.anchor-pop-err {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
   overflow-wrap: anywhere;
 }
-.anchor-err {
-  font-size: 12px;
-  color: #b91c1c;
-  line-height: 1.45;
+.anchor-pop-note {
+  color: var(--c-fg-muted);
 }
-
-.anchor-actions {
+.anchor-pop-err {
+  color: var(--c-danger);
+}
+.anchor-pop-acts {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
 }
-.anchor-btn {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 7px;
-  padding: 4px 11px;
+/* «Очистить» — тихой текстовой кнопкой у правого края ряда. */
+.anchor-pop-clear {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
   font: inherit;
-  font-size: 12.5px;
-  color: #334155;
+  font-size: var(--fs-ui);
+  color: var(--c-fg-muted);
   cursor: pointer;
 }
-.anchor-btn.is-primary {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
+.anchor-pop-clear:hover:not(:disabled) {
+  color: var(--c-danger);
+  text-decoration: underline;
 }
-.anchor-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
+.anchor-pop-clear:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }

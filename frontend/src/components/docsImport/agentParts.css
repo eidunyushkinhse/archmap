@@ -1,0 +1,190 @@
+/* Общие части окон агента в новом языке («Описать схемы логики с помощью ИИ-агента», окна
+   фактов, список операций, стадия «Через ИИ-агента» окна документа, «Обновить из кода»,
+   «Новый проект»): кнопка задания агенту (PromptCopyButton), список замечаний, заметка
+   «содержимое не изменилось» и вопрос об устаревших файлах (agentModalReport: NoteList,
+   UnchangedInputNote, StaleFilesConfirm), отчёт превью (apl-*). Значения — только токены
+   ui/tokens.css. */
+
+/* Кнопка задания: по своей ширине; под ней — текст для ручного копирования, если буфер
+   недоступен. */
+.pcb {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* В блоке окна («Задание агенту») — кнопка под строками. */
+.ds-win-block .pcb {
+  margin-top: var(--space-1);
+}
+.pcb-hint {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-warn);
+}
+.pcb-area {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  box-sizing: border-box;
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  resize: vertical;
+}
+/* Кольцо фокуса поля то же, что у полей языка (ui/ds.css, .ds-input:focus): рамка акцентом
+   и светлый ореол 3px. */
+.pcb-area:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
+
+/* Список замечаний: заголовок цветом предупреждения, пункты тихим цветом. */
+.anl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.anl-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-warn);
+}
+.anl-item {
+  margin: 0;
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+/* «Файлы не применить:» — заголовок цветом ошибки. */
+.anl.is-danger .anl-title {
+  color: var(--c-danger);
+}
+/* Строка предупреждения в отчёте («Содержимое не изменилось…»): шаг задаёт отчёт. */
+.ds-warn.anl-line {
+  margin: 0;
+}
+
+/* ── Отчёт превью окон дозаливки от агента (схемы логики, факты, список операций) ──
+   Строки 13px, итог 600, предупреждения цветом предупреждения. Строки плана — общей
+   сеткой на все строки: имя, значение второй колонки и «что будет» в каждой строке
+   начинаются с одного x; путь объекта — подписью над его строками. */
+.apl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+}
+.apl:empty {
+  display: none;
+}
+.apl .ds-warn.apl-line,
+.apl-line {
+  margin: 0;
+}
+.apl-quiet {
+  color: var(--c-fg-muted);
+}
+.apl-summary {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-fg-muted);
+}
+.apl-summary.is-ok {
+  color: var(--c-ok);
+}
+.apl-remarks {
+  align-self: flex-start;
+}
+.apl-plan {
+  min-width: 0;
+}
+.apl-plan-title {
+  margin: 0 0 2px;
+  font-weight: 500;
+  color: var(--c-fg);
+}
+.apl-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  column-gap: var(--space-4);
+  row-gap: 2px;
+  align-items: start;
+}
+.apl-row {
+  display: contents;
+}
+.apl-path {
+  grid-column: 1 / -1;
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+  overflow-wrap: anywhere;
+}
+.apl-path:first-child {
+  margin-top: 0;
+}
+.apl-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* Текст ячейки на шаге строк с полем (поля в строке имеют поля 3px сверху и снизу). */
+.apl-cell {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+.apl-detail {
+  padding: 3px 0;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.apl-bad {
+  overflow: hidden;
+  color: var(--c-warn);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.apl-act {
+  padding: 3px 0;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.apl-act.is-warn {
+  color: var(--c-warn);
+}
+.apl-more {
+  margin: 2px 0 0;
+  color: var(--c-fg-muted);
+}
+
+/* Вопрос после копирования замечаний: строка и две текстовые кнопки под ней. */
+.asf {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+}
+.asf-text {
+  margin: 0;
+  color: var(--c-fg);
+}
+/* Текст кнопок на x текста вопроса: у ds-add поля 6px и такой же отрицательный отступ. */
+.asf-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-4);
+}

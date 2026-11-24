@@ -1,43 +1,16 @@
-// Мелкие части панели ввоза: карточка активного архива вместо textarea и список
-// отчёта (одно-файловые конфликты слияния). Вынесены из ImportPane, чтобы там
-// остались только вход, статус и разбор остатка (Ф-E): панель и без того держит
-// чипы, драг-н-дроп и память попыток.
-import type { CSSProperties } from "react";
+// Мелкая часть панели ввоза: список отчёта под итогом превью (одно-файловые конфликты
+// слияния). Вынесена из ImportPane, чтобы там остались только входы, статус и разбор
+// остатка (Ф-E). Вид — список замечаний нового языка (agentParts.css, как NoteList с
+// пропом ds): заголовок цветом предупреждения, пункты тихим цветом.
+import "../docsImport/agentParts.css";
 
 /** Список строк отчёта под панелью: первые шесть, остаток — счётчиком. */
 export function ReportList({ title, items }: { title: string; items: string[] }) {
   return (
-    <div style={{ marginTop: 6, fontSize: 12.5, color: "#b45309" }}>
-      <div style={{ fontWeight: 600 }}>{title}</div>
-      {items.slice(0, 6).map((s, i) => (
-        <div key={i} style={{ marginTop: 2, color: "#475569" }}>{s}</div>
-      ))}
-      {items.length > 6 && <div style={{ marginTop: 2, color: "#475569" }}>и ещё {items.length - 6}</div>}
+    <div className="anl">
+      <p className="anl-title">{title}</p>
+      {items.slice(0, 6).map((s, i) => <p key={i} className="anl-item">{s}</p>)}
+      {items.length > 6 && <p className="anl-item">и ещё {items.length - 6}</p>}
     </div>
   );
 }
-
-// Карточка активного архива вместо textarea: тело архива не правят — его читают.
-// Замечаний к архиву здесь нет (правка Ф2г): пофайловые замечания живут в свёртке
-// «Придется подправить вручную», а ошибки разбора — только в красном статусе.
-export function ArchiveCard({ file, no }: { file: File; no: number }) {
-  return (
-    <div style={archiveCard}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{file.name}</div>
-      <div style={grayLine}>
-        Файл {no} · {(file.size / 1024).toFixed(0)} КБ · архив проекта (zip)
-      </div>
-      <div style={{ ...grayLine, marginTop: 10 }}>
-        Из архива перенесутся схемы логики, спецификации, структура баз, каналы
-        брокеров, конфигурация и процессы. Объекты на схеме будут расставлены заново.
-      </div>
-    </div>
-  );
-}
-
-const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8", marginTop: 3 };
-// Карточка архива занимает место textarea — панель не должна прыгать при смене чипа.
-const archiveCard: CSSProperties = {
-  height: 246, boxSizing: "border-box", overflowY: "auto",
-  padding: "12px 14px", border: "1px solid #e2e8f0", borderRadius: 10, background: "#fff",
-};

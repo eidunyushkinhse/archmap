@@ -46,7 +46,12 @@ async function openPanel() {
 // Точка на кнопке — единственный след общего числа: класс, попавший в сумму,
 // её зажигает. Числа на кнопке нет.
 function dot(): Element | null {
-  return document.querySelector(".sa-btn .sa-dot");
+  return document.querySelector(".ds-icon-btn .sa-dot");
+}
+
+// Первая строка пункта целиком (имя и то, что за ним).
+function line(name: string): string | null | undefined {
+  return screen.getByText(name).closest(".sa-line")?.textContent;
 }
 
 // ── Кнопка и панель (подача «А1. Чистый список», 2026-09-29) ─────────────────
@@ -89,32 +94,32 @@ describe("SchemaAlerts: кнопка «Рекомендации»", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("на холсте кнопка той же формы, но с тенью; размер задаёт место", () => {
-    const { unmount } = render(<SchemaAlerts alerts={EMPTY} placement="canvas" />);
-    const onCanvas = screen.getByRole("button", { name: "Рекомендации" });
-    expect(onCanvas.className).toContain("sa-btn--canvas");
-    expect(onCanvas.style.width).toBe("32px");
-    unmount();
-
-    render(<SchemaAlerts alerts={EMPTY} size={34} />);
-    const inHeader = screen.getByRole("button", { name: "Рекомендации" });
-    expect(inHeader.className).not.toContain("sa-btn--canvas");
-    expect(inHeader.style.width).toBe("34px");
+  // Вид один в обеих шапках (редизайн, фазы 4б и 5): тихая кнопка-значок нового языка,
+  // как её сосед «Действия со схемой»; ни рамки, ни размера от места.
+  it("кнопка — тихая кнопка-значок без своего размера", () => {
+    render(<SchemaAlerts alerts={EMPTY} />);
+    const btn = screen.getByRole("button", { name: "Рекомендации" });
+    expect(btn).toHaveClass("ds-icon-btn");
+    expect(btn).not.toHaveClass("sa-btn");
+    expect(btn.style.width).toBe("");
+    expect(btn.style.height).toBe("");
   });
 });
 
 describe("SchemaAlerts: панель «Рекомендации»", () => {
-  it("пустое состояние: «Рекомендаций нет. Схема описана полностью.»", async () => {
+  // Пустое состояние — одна тихая фраза нового языка (ds-empty, редизайн, фаза 10).
+  it("пустое состояние: «Рекомендаций нет»", async () => {
     render(<SchemaAlerts alerts={EMPTY} />);
     await openPanel();
 
     expect(screen.getByRole("dialog", { name: "Рекомендации" })).toBeTruthy();
-    expect(screen.getByText("Рекомендаций нет. Схема описана полностью.")).toBeTruthy();
-    // Подзаголовок про «что ещё дополнить» при пустой панели не нужен.
+    expect(screen.getByText("Рекомендаций нет")).toHaveClass("ds-empty");
+    // Ни второй фразы, ни подзаголовка про «что ещё дополнить».
+    expect(screen.queryByText(/Схема описана полностью/)).toBeNull();
     expect(screen.queryByText("Что ещё можно дополнить в схеме.")).toBeNull();
   });
 
-  it("заголовок, подзаголовок и разделы подписью с числом; слова «алерт» нет", async () => {
+  it("заголовок без подзаголовка, разделы подписью без числа; слова «алерт» нет", async () => {
     render(
       <SchemaAlerts
         alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED, { ...DISCONNECTED, node_id: "n-8", node_name: "Поиск" }] }}
@@ -124,14 +129,26 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
 
     const panel = screen.getByRole("dialog", { name: "Рекомендации" });
     expect(screen.getByRole("heading", { name: "Рекомендации" })).toBeTruthy();
-    expect(screen.getByText("Что ещё можно дополнить в схеме.")).toBeTruthy();
+    expect(screen.queryByText("Что ещё можно дополнить в схеме.")).toBeNull();
     const head = screen.getByText("Объекты без связей").closest(".sa-sec-head");
-    expect(head?.textContent).toBe("Объекты без связей2");
+    expect(head?.textContent).toBe("Объекты без связей");
     expect(screen.queryByText(/Рекомендаций нет/)).toBeNull();
     expect(panel.textContent ?? "").not.toMatch(/алерт|незавершённ/i);
   });
 
-  it("пункт — текст со стрелкой «→» и подсказкой «Показать на схеме»; без перехода их нет", async () => {
+  // Панель — своя область нового языка: вид не зависит от шапки, где её открыли; якорь
+  // и панель без инлайн-стилей (стили классами, schemaAlerts.css).
+  it("панель — область нового языка, якорь и панель без инлайн-стилей", async () => {
+    const { container } = render(<SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} />);
+    await openPanel();
+
+    const panel = screen.getByRole("dialog", { name: "Рекомендации" });
+    expect(panel).toHaveClass("sa-panel", "ds");
+    expect(container.firstElementChild).toHaveClass("sa-anchor");
+    expect(container.querySelectorAll("[style]")).toHaveLength(0);
+  });
+
+  it("пункт — текст с подсказкой «Показать на схеме», без стрелки; без перехода подсказки нет", async () => {
     const { unmount } = render(
       <SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} onLocate={vi.fn()} />,
     );
@@ -139,8 +156,8 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
     const row = screen.getByText("Уведомления").closest(".sa-item");
     expect(row?.getAttribute("role")).toBe("button");
     expect(row?.getAttribute("title")).toBe("Показать на схеме");
-    expect(row?.querySelector(".sa-go")?.textContent).toBe("→");
-    // Стрелка — украшение: в имя кнопки-пункта она не входит.
+    // Стрелки перехода у строки нет: переход обещают подложка под курсором и подсказка.
+    expect(row?.textContent).toBe("Уведомления");
     expect(screen.getByRole("button", { name: "Уведомления" })).toBeTruthy();
     unmount();
 
@@ -148,7 +165,7 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
     await openPanel();
     const still = screen.getByText("Уведомления").closest(".sa-item");
     expect(still?.getAttribute("title")).toBeNull();
-    expect(still?.querySelector(".sa-go")).toBeNull();
+    expect(still?.getAttribute("role")).toBeNull();
   });
 
   it("клавиатура: Enter и пробел ведут к цели и закрывают панель", async () => {
@@ -179,6 +196,41 @@ describe("SchemaAlerts: панель «Рекомендации»", () => {
     await openPanel();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+// ── Документацию пора обновить (AL37) ───────────────────────────────────────
+// Сигнал CI о слияниях в репозиторий: строка — имя репозитория и тихо число слияний.
+// Сколько объектов ждут обновления, говорит плашка сигнала, а не строка панели.
+describe("SchemaAlerts: документацию пора обновить (AL37)", () => {
+  const CODE_CHANGE = {
+    id: "cc1", repo: "github.com/yarmarka/orders", merges: 3,
+    first_at: "2026-11-20T10:00:00Z", last_at: "2026-11-22T10:00:00Z",
+    first_commit: null, last_commit: null, branch: "main",
+    nodes: [{ node_id: "n1", node_name: "Order API" }, { node_id: "n2", node_name: "Оркестратор" }],
+  };
+
+  it("строка: имя репозитория основным цветом и тихо число слияний, без числа объектов", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, code_changes: [CODE_CHANGE] }} onLocate={vi.fn()} />);
+    expect(dot()).not.toBeNull();
+    await openPanel();
+
+    const row = screen.getByRole("button", { name: /github\.com\/yarmarka\/orders/ });
+    expect(row.textContent).toBe("github.com/yarmarka/orders 3 слияния");
+    // Имя без своего класса: ни полужирного, ни тихого цвета.
+    expect(screen.getByText("github.com/yarmarka/orders").className).toBe("");
+    expect(screen.getByText("3 слияния")).toHaveClass("sa-muted");
+  });
+
+  it("слово по числу слияний", async () => {
+    const { unmount } = render(<SchemaAlerts alerts={{ ...EMPTY, code_changes: [{ ...CODE_CHANGE, merges: 1 }] }} />);
+    await openPanel();
+    expect(screen.getByText("1 слияние")).toBeTruthy();
+    unmount();
+
+    render(<SchemaAlerts alerts={{ ...EMPTY, code_changes: [{ ...CODE_CHANGE, merges: 5 }] }} />);
+    await openPanel();
+    expect(screen.getByText("5 слияний")).toBeTruthy();
   });
 });
 
@@ -338,7 +390,8 @@ describe("SchemaAlerts: ответ на асинхронном канале", ()
     await openPanel();
 
     expect(screen.getByText(/«номер заказа»/)).toBeTruthy();
-    expect(screen.getByText(/канал «оформить заказ»/)).toBeTruthy();
+    // Канал — через запятую за концами, без склейки точкой.
+    expect(screen.getByText("Сервис заказов → Покупатель, канал «оформить заказ»")).toBeTruthy();
   });
 
   it("входит в общее число: зажигает точку на кнопке", async () => {
@@ -382,7 +435,8 @@ describe("SchemaAlerts: обращения к неописанным данны�
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
-    expect(screen.getByText(/Биллинг · POST \/pay/)).toBeTruthy();
+    // Где: объект, косая черта, имя схемы и двоеточие.
+    expect(screen.getByText("Биллинг / POST /pay:")).toHaveClass("sa-where");
     expect(screen.getByText("«ordrs.status»")).toBeTruthy();
     // Причина — не украшение: без неё непонятно, что чинить.
     expect(screen.getByText(/таблица не найдена/)).toBeTruthy();
@@ -442,7 +496,7 @@ describe("SchemaAlerts: обращения к неописанным канал�
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
-    expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
+    expect(screen.getByText("Заказы / POST /orders:")).toHaveClass("sa-where");
     expect(screen.getByText("«создание»")).toBeTruthy();
     expect(screen.getByText(/канал не найден у брокеров проекта/)).toBeTruthy();
   });
@@ -651,7 +705,7 @@ describe("SchemaAlerts: обращения к неописанным парам�
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным параметрам")).toBeTruthy();
-    expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
+    expect(screen.getByText("Заказы / POST /orders:")).toHaveClass("sa-where");
     expect(screen.getByText("«FEATURE_Y»")).toBeTruthy();
     // Класс ловит и прозу («зависит от: нагрузки») — подсказка обязана называть
     // второй выход, иначе такая строка читается как шум продукта.
@@ -747,7 +801,7 @@ describe("SchemaAlerts: документация не на своём месте
     await openPanel();
 
     const head = screen.getByText("Системы и контейнеры со своей документацией").closest(".sa-sec-head");
-    expect(head?.textContent).toBe("Системы и контейнеры со своей документацией2");
+    expect(head?.textContent).toBe("Системы и контейнеры со своей документацией");
     expect(screen.getByText("Торговля").nextElementSibling?.textContent).toBe(
       "спецификацию, конфигурацию и схемы логики можно перенести контейнерам этой системы",
     );
@@ -772,12 +826,14 @@ describe("SchemaAlerts: документация не на своём месте
     );
     await openPanel();
 
-    const titles = [...document.querySelectorAll(".sa-sec-head > span:first-child")].map((s) => s.textContent);
+    const titles = [...document.querySelectorAll(".sa-sec-head")].map((s) => s.textContent);
     expect(titles).toEqual(["Системы и контейнеры со своей документацией", "Конфигурация и спецификации у компонентов"]);
-    expect(screen.getByText("orders/api · конфигурация, спецификация")).toBeTruthy();
-    expect(screen.getByText("worker · спецификация")).toBeTruthy();
+    // Имя компонента и за ним тихо то, что осталось, без точки между ними.
+    expect(line("orders/api")).toBe("orders/api конфигурация, спецификация");
+    expect(screen.getByText("конфигурация, спецификация")).toHaveClass("sa-muted");
+    expect(line("worker")).toBe("worker спецификация");
     // порядок слов: конфигурация, спецификация, площадки
-    expect(screen.getByText("handlers · конфигурация, площадки")).toBeTruthy();
+    expect(line("handlers")).toBe("handlers конфигурация, площадки");
     expect(screen.getAllByText("можно собрать у контейнера «orders»")).toHaveLength(3);
   });
 
@@ -792,7 +848,8 @@ describe("SchemaAlerts: документация не на своём месте
     );
     await openPanel();
 
-    expect(screen.getByText("orders/api · площадки").nextElementSibling?.textContent).toBe(
+    expect(line("orders/api")).toBe("orders/api площадки");
+    expect(screen.getByText("orders/api").nextElementSibling?.textContent).toBe(
       "площадки можно задать контейнеру «orders»",
     );
     expect(screen.queryByText("можно собрать у контейнера «orders»")).toBeNull();
@@ -804,7 +861,7 @@ describe("SchemaAlerts: документация не на своём месте
     expect(dot()).not.toBeNull();
     await openPanel();
 
-    await userEvent.click(screen.getByText("orders/api · конфигурация, спецификация"));
+    await userEvent.click(screen.getByText("orders/api"));
 
     expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "a1" });
   });

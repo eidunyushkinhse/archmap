@@ -1,5 +1,5 @@
 // Чистые хелперы страничных схем (pages_pivot / single-schema): маппинг графа
-// уровня и метрики блоков. Вынесены из NodePage / ProjectHomePage /
+// уровня и предикаты пустого состояния. Вынесены из NodePage / ProjectHomePage /
 // MapEditorPage / useLevelSchema, чтобы жили в одном месте и были
 // покрыты тестами (pageSchema.test.ts).
 
@@ -83,35 +83,4 @@ export function outerGuests(graph: GraphResponse, focusId: string): GhostNode[] 
 // гостей (context.md X17 — пустое состояние секции «Схема»).
 export function hasNoNeighbors(graph: GraphResponse, focusId: string): boolean {
   return graph.nodes.length <= 1 && outerGuests(graph, focusId).length === 0;
-}
-
-// Оценка числа ВИДИМЫХ сущностей для высоты блока до замера ширины: локалы +
-// полностью внешние гости (не внутри отображаемой рамки одного из локалов).
-export function visibleEntityGuess(graph: GraphResponse): number {
-  const localIds = new Set(graph.nodes.map((n) => n.id));
-  const outer = graph.endpoints.filter(
-    (ep) => !(ep.ancestors ?? []).some((a) => localIds.has(a.id)),
-  ).length;
-  return graph.nodes.length + outer;
-}
-
-// Высота секции «Схема» страницы объекта: 90px на сущность, коридор 300–560.
-export function schemaSectionHeight(entityCount: number): number {
-  return Math.max(300, Math.min(560, entityCount * 90));
-}
-
-// Высота легаси-секции «Схема компонентов» (NodePage): 62px на узел, 280–430.
-export function componentsSectionHeight(nodeCount: number): number {
-  return Math.min(430, Math.max(280, nodeCount * 62));
-}
-
-// Высота схемы страницы проекта (корневой холст): 62px на узел, 300–440.
-export function projectSchemaHeight(nodeCount: number): number {
-  return Math.min(440, Math.max(300, nodeCount * 62));
-}
-
-// Отзывчивая высота холста EmbeddedSchemaBlock (после замера ширины):
-// ширина × 0.52, коридор 320–680.
-export function responsiveCanvasHeight(width: number): number {
-  return Math.max(320, Math.min(680, Math.round(width * 0.52)));
 }

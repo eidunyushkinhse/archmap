@@ -1,0 +1,183 @@
+/* Правая панель редактора-карты (components/inspector: ObjectInspector и панели объекта,
+   связи и объекта с другого уровня) — редизайн, направление А «Документ». Вид панели шага
+   процесса (processes/processes.css, sp-*): ширина 320px, заголовок с крестиком, строки
+   «подпись — значение» общим кодом со «Свойствами» страницы объекта
+   (nodePage/propRows.css), внизу тихое опасное действие. Значения — токены ui/tokens.css.
+   Кегль, гарнитура и цвет заданы самой панели: она одинакова внутри области .ds и вне её. */
+.ip-panel {
+  flex: none;
+  width: 320px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-left: 1px solid var(--c-line);
+  background: var(--c-bg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  font-weight: 400;
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+
+/* ── Заголовок: значок формы, название, кнопки-значки ─────────────────── */
+.ip-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ip-glyph {
+  flex: none;
+  display: inline-flex;
+  padding-top: 7px;
+  color: var(--c-fg-muted);
+}
+.ip-title-cell {
+  flex: 1;
+  min-width: 0;
+}
+/* Заголовки h2 несут глобальные кегль, гарнитуру и цвет (index.css) — здесь они сброшены
+   на язык панели. Поля 3px сверху и снизу — как у поля названия: текст стоит на месте. */
+.ip-title {
+  margin: 0;
+  padding: 3px 0;
+  font-family: inherit;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: 0;
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+/* Поле названия у редактора: растёт по тексту (ui/ds.css, ds-grow), выглядит текстом. */
+.ip-name {
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+/* Кнопки-значки заголовка — общий ds-icon-btn (ui/ds.css, 28px). В строке они занимают
+   26px, как строка названия: заголовок не выше прежнего, текст не сдвигается. */
+.ip-icon {
+  margin-block: -1px;
+}
+.ip-head > .ip-icon:last-child {
+  margin-right: -6px;
+}
+
+/* Описание (nodePage/DescriptionField): отступ сверху даёт промежуток панели. */
+.ip-panel .np-desc,
+.ip-panel .np-desc-fit {
+  margin-top: 0;
+}
+/* Предупреждения (конфликт версий, отказ сервера): отступы даёт промежуток панели. */
+.ip-panel .ds-warn {
+  margin: 0;
+}
+
+/* ── Строки ───────────────────────────────────────────────────────────── */
+.ip-props {
+  margin: 0;
+}
+/* Меню и плавающие панели значений привязаны к строке целиком, а не к значению: значение
+   начинается на 128px от края, и привязанное к нему меню шириной меню страницы вышло бы
+   за правый край окна. Меню «Тип», «Принадлежность» и «Статус» встают под значением:
+   левый край — там, где текст пункта ложится на вертикаль значений (начало значения
+   --np-value-x минус рамка меню 1px, его поле 4px и поле пункта 10px), правый — у правого
+   поля панели; подписи соседних строк меню не закрывает. Ширину задают края: наименьшая
+   ширина общего меню снята. Панель источника — во всю ширину строки. */
+.ip-panel .np-prop {
+  position: relative;
+}
+.ip-panel .np-value,
+.ip-panel .np-selwrap,
+.ip-panel .ts-wrap,
+.ip-panel .anchor-field {
+  position: static;
+}
+.ip-panel .np-prop .np-menu,
+.ip-panel .np-prop .ts-menu {
+  left: calc(var(--np-value-x) - 15px);
+  right: 0;
+  width: auto;
+  min-width: 0;
+}
+/* Статус: точка пункта висит левее вертикали, как в самой строке (точка 6px и зазор 8px),
+   текст статуса — на вертикали значений. */
+.ip-panel .np-prop .np-menu:has(.np-status) {
+  left: calc(var(--np-value-x) - 15px - 14px);
+}
+.ip-panel .anchor-pop {
+  left: 0;
+  right: 0;
+  width: auto;
+}
+
+/* ── Связь ────────────────────────────────────────────────────────────── */
+/* Конец связи: значок формы висит слева от имени, имя начинается с того же x, что и
+   остальные значения (как точка статуса). */
+.ip-end {
+  position: relative;
+}
+.ip-end-glyph {
+  position: absolute;
+  left: -20px;
+  top: calc(50% - 6px);
+  display: inline-flex;
+  color: var(--c-fg-muted);
+}
+/* Поиск конца связи (NodeSearchPicker, прежний язык) — под строкой во всю её ширину. */
+.ip-pop {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 15;
+  padding: 10px 10px 0;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+/* Описание связи у читателя: переносы автора сохраняются. */
+.ip-pre {
+  white-space: pre-wrap;
+}
+/* Канала нет в структуре брокера — предупреждение под полем, не запрет. */
+.ip-warn {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-warn);
+}
+
+/* ── Объект с другого уровня: одно действие ─────────────────────────────── */
+.ip-show {
+  align-self: flex-start;
+}
+
+/* ── Внизу: тихое опасное действие («Удалить объект», «Удалить связь») ───── */
+.ip-delete {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-danger);
+  cursor: pointer;
+}
+.ip-delete:hover,
+.ip-delete:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+.ip-delete:disabled {
+  color: var(--c-fg-faint);
+  text-decoration: none;
+  cursor: default;
+}

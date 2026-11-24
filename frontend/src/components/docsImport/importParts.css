@@ -1,0 +1,143 @@
+/* Общие части окон ввоза нового языка («Обновить из кода», «Новый проект», «Описать схемы
+   логики с помощью ИИ-агента»): выбор языка
+   описаний (LangChoice) и зона файлов (FileZone). Значения — только токены ui/tokens.css. */
+
+/* Язык описаний: меню под значением, fixed (координаты ставит LangChoice) — прокрутка
+   тела окна его не обрезает. Подложка ловит клик мимо. */
+.lc {
+  display: inline-flex;
+  max-width: 100%;
+}
+.lc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+/* Вес выше общего .ds-menu (absolute): итог не зависит от порядка подключения стилей. */
+.ds-menu.lc-menu {
+  position: fixed;
+  z-index: 31;
+}
+.lc-label {
+  flex: 1;
+}
+.lc-check {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-accent);
+}
+
+/* Зона файлов: тихая пунктирная рамка около 72px, строка текста и две текстовые
+   кнопки. Подсветка — пока над окном тащат файлы. */
+.fz-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 72px;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-4);
+  border: 1px dashed var(--c-line-strong);
+  border-radius: var(--radius-lg);
+  color: var(--c-fg-muted);
+  text-align: center;
+  cursor: pointer;
+}
+.fz-drop:hover {
+  background: var(--c-bg-subtle);
+}
+.fz-drop.is-over {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+  color: var(--c-fg);
+}
+.fz-drop.is-full {
+  cursor: default;
+}
+.fz-drop-text {
+  margin: 0;
+}
+.fz-drop-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 var(--space-4);
+}
+/* Строка отказа под зоной. */
+.fz-line {
+  margin: 0;
+}
+
+/* Принесённые файлы: имена строкой с переносом, у каждого крестик. Имя-кнопка открывает
+   текст файла в поле ниже. */
+.fz-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.fz-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+.fz-file-name {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c-fg);
+}
+button.fz-file-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+button.fz-file-name:hover,
+button.fz-file-name.is-active {
+  color: var(--c-fg);
+}
+button.fz-file-name.is-active {
+  font-weight: 500;
+}
+button.fz-file-name:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.fz-file .ds-del {
+  opacity: 1;
+}
+.fz-paste {
+  display: block;
+  width: 100%;
+  height: 160px;
+  min-height: 80px;
+  box-sizing: border-box;
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-body);
+  color: var(--c-fg);
+  resize: vertical;
+}
+.fz-paste::placeholder {
+  color: var(--c-fg-faint);
+}
+.app-modal .ds-win .fz-paste:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}

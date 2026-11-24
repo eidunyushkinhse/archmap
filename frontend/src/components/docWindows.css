@@ -1,0 +1,93 @@
+/* Окна документации объекта (редизайн, фаза 9е): «Собрать с компонентов»
+   (CollectFactsModal), «Перенести документацию» (TransferDocsModal) и ER-диаграмма во весь
+   экран (ErDiagramModal; сцена и пилюля масштаба — inspector/docOverlay.css). Каркас ds-win,
+   блоки ds-win-block, строки ds-confirm-rows, списки ds-select, кнопки ds-btn (ui/ds.css);
+   вопросы окна сбора — вид окон ввоза (область .imp-res, project/importResult.css). Здесь
+   только своё этих окон. Значения — только токены ui/tokens.css. */
+
+/* Абзац тела: пояснение под заголовком, строки-факты и строки итога. Обычный текст окна,
+   перенос по словам. */
+.dw-text {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+/* Тихий абзац: загрузка, «Внутри нет подходящего объекта.» */
+.dw-muted {
+  color: var(--c-fg-muted);
+}
+
+/* Вопросы окна сбора идут списком: между вопросами 24px, заголовок 14px/600 со знаком «?»
+   и варианты — те же, что в окнах ввоза. Шапки и перехода по вопросам нет. От строк над
+   вопросами тоже 24px (12px отступа и 12px шага тела), как между блоками окна. */
+.dw-questions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  margin-top: var(--space-3);
+}
+
+/* ── «Перенести документацию» ─────────────────────────────────────────── */
+/* Отказ загрузки в теле окна: шаг задаёт тело, своего нижнего поля нет. */
+.dw-win .ds-danger {
+  margin: 0;
+}
+/* Блоки частей отделены от пояснения и друг от друга одинаково: 24px (12px отступа и
+   12px шага тела). */
+.dw-win .ds-win-block {
+  margin-top: var(--space-3);
+}
+/* Строки блока: 30px, между строками 2px (списки высотой со строку иначе стояли бы рамка
+   к рамке). Колонка списка одной ширины во всех строках всех блоков, поэтому списки стоят
+   на одной вертикали; название забирает остальное. */
+.dw-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dw-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  column-gap: var(--space-4);
+  align-items: center;
+  min-height: 30px;
+}
+/* Название части: длинное обрезается многоточием (целиком — в подсказке строки), вид схемы
+   логики словом тихим цветом остаётся виден. */
+.dw-row-name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  line-height: var(--lh-ui);
+}
+.dw-row-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-fg);
+}
+.dw-row-kind {
+  flex: none;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+
+/* ── ER-диаграмма во весь экран (ErDiagramModal) ──────────────────────── */
+/* Окно прежнего размера: экран без 24px с каждой стороны (ширину задаёт бокс Modal, высоту —
+   корень окна). ⚠️ Высота — у СВОЕГО корня, а не у бокса: Modal кладёт содержимое в обёртку
+   без высоты, и сцена в колонке без заданной высоты схлопывалась в ноль (окно открывалось
+   пустым). Сцена — ещё и .doc-pv (flex: 1, docOverlay.css): селектор сильнее одиночного
+   класса, исход не зависит от порядка подключения CSS. Сцена растёт от нулевой высоты на
+   всё место под шапкой и отступает от краёв окна на его поле. Сторож — ErDiagramModal.test. */
+.ds-win.dw-er {
+  height: calc(100vh - 48px);
+}
+.dw-er .dw-er-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 0;
+  margin: 0 var(--win-pad) var(--win-pad);
+}

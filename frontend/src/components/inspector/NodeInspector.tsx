@@ -1,287 +1,119 @@
-// Мета узла в правой панели: просмотр (наблюдатель) и inline-правка (архитектор).
-// Перенос ветки «просмотр/правка» из NodeModal (создание осталось в модалке). Inline-
-// правка коммитится по blur (тексты) / сразу (toggle/статус) и ложится в Undo/Redo через
-// тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
-// не управляется — единый раздел «Документация» ведёт на страницу узла.
+// Панель объекта в редакторе-карте (редизайн, направление А «Документ»): те же строки,
+// что «Свойства» страницы объекта (nodePage/PropRows), в один столбец. Сверху вниз:
+// заголовок (значок формы, название, «Открыть страницу объекта», «Закрыть»), описание,
+// строки «Тип», «Принадлежность», «Статус», «Роль», «Технология», «Источник», внизу у
+// редактора — «Удалить объект». Читатель видит только строки со значением.
+//
+// Правка на месте коммитится по уходу с поля (тексты) или сразу (выбор) с CAS и
+// 409-ресинком — тот же хук, что на странице объекта. Успешная правка ложится в Undo
+// редактора: хук отдаёт узел ДО правки вторым аргументом. Значения полей сбрасываются на
+// смену выбора: ObjectInspector монтирует панель с key=node.id. Документация (схемы
+// логики, OpenAPI) здесь не управляется — на страницу объекта ведёт кнопка заголовка.
 import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
-import type { AncestorRef, DeletionSnapshot, Node, NodeStatus } from "../../types";
-import { nodeNesting, treeNesting } from "../../types";
-import { getNodeColors, STATUS_META } from "../graph/colors";
+import type { AncestorRef, DeletionSnapshot, Node } from "../../types";
+import { treeNesting } from "../../types";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
-import AnchorField from "../anchor/AnchorField";
-import MetaRow from "./MetaRow";
-import { META_ICON } from "./metaIcons";
+import DescriptionField from "../nodePage/DescriptionField";
+import { BelongingProp, RoleProp, SourceProp, StatusProp, TechProp, TypeProp } from "../nodePage/PropRows";
+import { revertOnEscape } from "../nodePage/revertOnEscape";
 import { aggregateTech, useDescendants } from "../../pages/useContainerChildren";
 import { useNodePatch } from "../../pages/useNodePatch";
-import "./inspector.css";
-import { noAutofill } from "../../ui/noAutofill";
-import { loadErrorText } from "../../ui/loadErrorText";
-import { STATUS_ORDER } from "../nodeTerms";
 import { useTypePick } from "../element/useTypePick";
-import { typeView } from "../element/elementView";
-import { typeOptions } from "../element/typeOptions";
-import { ElementHelp, TypeValue } from "../element/ElementParts";
+import { pageElement } from "../element/elementView";
+import { noAutofill } from "../../ui/noAutofill";
+import PanelHead from "./PanelHead";
+import "../../ui/ds.css";
+import "./panel.css";
 
 interface Props {
   node: Node;
-  // Предки узла от корня (крошки уровня и раскрытые рамки над ним): по ним строка
-  // «Тип» находит контейнер компонента для ссылки и решает, какие типы возможны.
+  // Предки узла от корня (крошки уровня и раскрытые рамки над ним): какие типы возможны.
   ancestors: readonly AncestorRef[];
   isArchitect: boolean;
-  // Тот же обработчик, что у модалки: кладёт правку в Undo/Redo. before — узел ДО правки.
+  // Тот же обработчик, что у окна: кладёт правку в Undo/Redo. before — узел ДО правки.
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
-  // Переход на страницу узла (раздел «Документация» → «Открыть»).
+  // «Открыть страницу объекта» в заголовке.
   onNavigateNode: (nodeId: string) => void;
+  onClose: () => void;
 }
 
-
-// Плашка-уведомление панели: и конфликт версий, и отказ сервера с причиной.
-const noticeStyle: CSSProperties = {
-  color: "#92400e", background: "#fef3c7", border: "1px solid #fcd34d",
-  borderRadius: 8, padding: "6px 10px", fontSize: 12.5, margin: "0 0 10px",
-};
-
-export default function NodeInspector({ node, ancestors, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode }: Props) {
-  // Правка по blur (тексты) / сразу (тогл, статус, тип) с CAS и 409-ресинком — тот же
-  // хук, что на странице объекта. Успешная правка ложится в Undo редактора: хук отдаёт
-  // узел ДО правки вторым аргументом. Значения полей сбрасываются на смену выбора:
-  // ObjectInspector монтирует NodeInspector с key=node.id. Плашки: conflict — 409
-  // (правка не применилась, данные обновлены с сервера), error — отказ с причиной
-  // (400: смена типа у узла с детьми / у базы с описанной структурой).
-  const patch = useNodePatch(node, (saved, before) => onNodeSaved(saved, false, before));
-  const { name, description, role, technology, isExternal, status, conflict, error } = patch;
-  const [statusOpen, setStatusOpen] = useState(false);
+export default function NodeInspector({ node: initial, ancestors, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode, onClose }: Props) {
+  // Конфликт версий (409: правка не применилась, данные обновлены с сервера) и отказ с
+  // причиной (400: смена типа у узла с детьми, у базы с описанной структурой) — плашками.
+  const patch = useNodePatch(initial, (saved, before) => onNodeSaved(saved, false, before));
+  const node = patch.node;
   // Тип (Р40): система ↔ контейнер — смена элемента с окном последствий, если они есть;
   // база, брокер, «Пользователь» — смена формы с правилами сервера.
   const typePick = useTypePick(patch);
   const [confirming, setConfirming] = useState(false);
-  // Тип показываем из самого узла (пропа): он обновится тем же путём, что имя
-  // (onNodeSaved → данные узла в редакторе → холст), а при отказе 400 показанный тип
-  // остаётся прежним, потому что прошлое значение никто не перетирал.
-  const shape = node.shape;
-  // Шапка и строка «Тип» называют объект одной подписью (typeView): тип по элементу с
-  // сервера, у внешних системы и контейнера — «Внешняя система» / «Внешний контейнер».
-  const nodeType = typeView(node, ancestors);
-  const isPerson = shape === "person";
-  const isGroup = nodeNesting(node) === "group";
-  // Сводная технология потомков, только чтение — ТОЛЬКО у системы (Р15): она сама не
-  // запускается, её технология — сумма её контейнеров. У контейнера с компонентами и у
-  // составного компонента технология своя и правится, как у листа. Не система — хук
-  // ничего не фетчит.
-  const isSystem = isGroup && node.element_effective === "system";
-  const { descendants, error: techError, reload: reloadTech } = useDescendants(node.id, isSystem);
+  // Сводная технология потомков, только чтение — у системы (Р15), как на странице, в том
+  // числе у пустой (Р39). База или брокер с вложенными (данные до проверки формы родителя
+  // на сервере) остаются листом и технологию не сворачивают — своя полем. Потомки
+  // грузятся, только если они есть.
+  const isSystem = node.shape === "service" && pageElement(node, ancestors).kind === "system";
+  const loadKids = isSystem && node.has_children;
+  const { descendants, error: techError, reload: reloadTech } = useDescendants(node.id, loadKids);
   const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
-  const techLoading = isSystem && descendants === null && techError === null;
+  const techLoading = loadKids && descendants === null && techError === null;
 
-  // Выпадашки закрываются сами; коммит — только при реальном изменении (хук не
-  // плодит пустых записей истории).
-  const pickStatus = (st: NodeStatus) => {
-    setStatusOpen(false);
-    patch.pickStatus(st);
-  };
-
-  const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
+  const title = isArchitect ? (
+    // Название растёт по тексту и переносится; Enter и уход с поля сохраняют, Escape
+    // возвращает прежнее.
+    <span className="ds-grow ip-name" data-value={patch.name}>
+      <textarea
+        {...noAutofill("node-name")}
+        className="ds-grow-input"
+        rows={1}
+        aria-label="Название"
+        value={patch.name}
+        onChange={(e) => patch.setName(e.target.value.replace(/\n/g, " "))}
+        onBlur={patch.commitName}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.blur(); return; }
+          revertOnEscape(patch.name !== node.name, () => patch.setName(node.name))(e);
+        }}
+      />
+    </span>
+  ) : (
+    <h2 className="ip-title">{node.name}</h2>
+  );
 
   return (
-    <div>
-      {conflict && <p style={noticeStyle}>{conflict}</p>}
-      {error && <p style={noticeStyle}>{error}</p>}
-      {/* Шапка-идентификатор: глиф формы + имя + тип той же подписью, что строка «Тип» */}
-      <div className="insp-head">
-        <span className="insp-headglyph"><ShapeGlyph nesting={treeNesting(node)} shape={shape} /></span>
-        <div className="insp-headmain">
-          {isArchitect ? (
-            <input
-              {...noAutofill("node-inspector-1")}
-              className="insp-field insp-field--name"
-              value={name}
-              onChange={(e) => patch.setName(e.target.value)}
-              onBlur={patch.commitName}
-            />
-          ) : (
-            <div className="insp-name">{node.name}</div>
-          )}
-          <div className="insp-typeline">{nodeType.label}</div>
-        </div>
-      </div>
-
-      {/* Описание */}
-      {isArchitect ? (
-        <textarea
-          {...noAutofill("node-inspector-2")}
-          className="insp-field insp-fieldarea"
-          value={description}
-          onChange={(e) => patch.setDescription(e.target.value)}
-          onBlur={patch.commitDesc}
-          placeholder="Описание"
-        />
-      ) : (
-        node.description && <p className="insp-desc">{node.description}</p>
-      )}
-
-      {/* Список меты «терм → значение» (в узкой панели — терм над значением) */}
-      <dl className="insp-meta insp-meta--stacked">
-        {/* Тип (Р40): одна строка из шести значений у любого объекта, справка «?» у
-            термина. Архитектор выбирает из выпадашки, невозможные пункты серые с
-            причиной (typeOptions); у компонента рядом — ссылка на его контейнер. */}
-        <MetaRow icon={META_ICON.type} label="Тип" help={<ElementHelp />}>
-          <span className="insp-value">
-            <TypeValue
-              view={nodeType}
-              options={isArchitect ? typeOptions({ mode: "change", node, ancestors }) : null}
-              onPick={typePick.pick}
-              onNavigateNode={onNavigateNode}
-              trigger={{ className: "insp-field insp-select", chevron: <span className="insp-chev"><ChevronDown /></span> }}
-            />
-          </span>
-        </MetaRow>
-
-        <MetaRow icon={META_ICON.membership} label="Принадлежность">
-          {isArchitect ? (
-            <span className="insp-value">
-              {/* Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
-                  сервис — активный синий, чужой — серый, как точка у наблюдателя.
-                  Подпись называет состояние, а не «что включает» тогл. */}
-              <button type="button" className="insp-toggle" onClick={patch.toggleExternal} aria-pressed={!isExternal}>
-                <span className={"insp-switch" + (isExternal ? "" : " is-on")} />
-                {isExternal ? "Внешний" : "Внутренний"}
-              </button>
-            </span>
-          ) : (
-            <span className="insp-value">
-              <span className="insp-dot" style={{ background: isExternal ? "#9ca3af" : "#2563eb" }} />
-              {isExternal ? "Внешний" : "Внутренний"}
-            </span>
-          )}
-        </MetaRow>
-
-        <MetaRow icon={META_ICON.status} label="Статус">
-          {isArchitect ? (
-            <span className="insp-value">
-              <span className="insp-selwrap">
-                <button
-                  type="button"
-                  className="insp-field insp-select"
-                  onClick={() => setStatusOpen((o) => !o)}
-                  aria-haspopup="listbox"
-                  aria-expanded={statusOpen}
-                >
-                  <span className="insp-dot" style={{ background: statusDot(status) }} />
-                  <span className="insp-select-label">{STATUS_META[status].label}</span>
-                  <span className="insp-chev"><ChevronDown /></span>
-                </button>
-                {statusOpen && (
-                  <>
-                    <div className="insp-backdrop" onClick={() => setStatusOpen(false)} />
-                    <ul className="insp-menu" role="listbox">
-                      {STATUS_ORDER.map((st) => (
-                        <li
-                          key={st}
-                          role="option"
-                          aria-selected={st === status}
-                          onClick={() => pickStatus(st)}
-                        >
-                          <span className="insp-dot" style={{ background: statusDot(st) }} />
-                          {STATUS_META[st].label}
-                          {st === status && <span className="insp-menu-check"><CheckMark /></span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </span>
-            </span>
-          ) : (
-            <span className="insp-value">
-              <span className="insp-dot" style={{ background: statusDot(node.status) }} />
-              {STATUS_META[node.status].label}
-            </span>
-          )}
-        </MetaRow>
-
-        <MetaRow icon={META_ICON.role} label="Роль">
-          {isArchitect ? (
-            <span className="insp-value">
-              <input
-                {...noAutofill("node-inspector-3")}
-                className="insp-field"
-                value={role}
-                onChange={(e) => patch.setRole(e.target.value)}
-                onBlur={patch.commitRole}
-                placeholder="например, API или шлюз"
-              />
-            </span>
-          ) : (
-            <span className={"insp-value" + (node.role ? "" : " insp-value--empty")}>
-              {node.role || "не указана"}
-            </span>
-          )}
-        </MetaRow>
-
-        {!isPerson && (
-          <MetaRow icon={META_ICON.tech} label="Технология">
-            {isSystem ? (
-              // Система: сводная технология потомков, только чтение. Потомки не
-              // загрузились — так и сказано, с повтором: «не указана» было бы неправдой.
-              techError !== null ? (
-                <span className="insp-value" role="alert">
-                  <span className="insp-value--empty" title={loadErrorText(techError)}>не загрузилась</span>
-                  <button type="button" className="insp-retry" onClick={reloadTech}>Повторить</button>
-                </span>
-              ) : (
-                <span className={"insp-value" + (aggTech ? "" : " insp-value--empty")}>
-                  {techLoading ? "загрузка" : aggTech || "не указана"}
-                </span>
-              )
-            ) : isArchitect ? (
-              <span className="insp-value">
-                <input
-                  {...noAutofill("node-inspector-4")}
-                  className="insp-field"
-                  value={technology}
-                  onChange={(e) => patch.setTechnology(e.target.value)}
-                  onBlur={patch.commitTech}
-                  placeholder="например, Python"
-                />
-              </span>
-            ) : (
-              <span className={"insp-value" + (node.technology ? "" : " insp-value--empty")}>
-                {node.technology || "не указана"}
-              </span>
-            )}
-          </MetaRow>
-        )}
-      </dl>
-
-      {/* Источник — чем ArchMap опознаёт объект при обновлениях из кода. НЕ строкой
-          меты, а отдельным блоком во всю ширину панели: у источника свои кнопки
-          «Изменить»/«Очистить» и форма. Тот же компонент, что в карточке объекта. */}
-      <div className="insp-block-label">Источник</div>
-      <AnchorField
-        source={node.source}
-        isArchitect={isArchitect}
-        onSave={patch.commitSource}
+    <>
+      <PanelHead
+        glyph={<ShapeGlyph nesting={treeNesting(node)} shape={node.shape} />}
+        title={title}
+        // У «Пользователя» документации нет — и страницы в панели тоже.
+        onOpenPage={node.shape !== "person" ? () => onNavigateNode(node.id) : undefined}
+        onClose={onClose}
       />
 
-      {/* Документация: управление схемами логики и спеками — только на странице
-          узла; из редактора ведёт туда единая точка входа «Открыть». */}
-      {!isPerson && (
-        <>
-          <div className="insp-block-label">Документация</div>
-          <button type="button" className="insp-doc-item" onClick={() => onNavigateNode(node.id)}>
-            <span className="insp-doc-name">Открыть</span>
-          </button>
-        </>
-      )}
+      <DescriptionField
+        value={isArchitect ? patch.description : (node.description ?? "")}
+        editable={isArchitect}
+        onChange={patch.setDescription}
+        onCommit={patch.commitDesc}
+        saved={node.description ?? ""}
+      />
 
-      {/* Удаление */}
+      {patch.conflict && <p className="ds-warn">{patch.conflict}</p>}
+      {patch.error && <p className="ds-warn">{patch.error}</p>}
+
+      <dl className="ip-props">
+        <TypeProp patch={patch} ancestors={ancestors} isArchitect={isArchitect}
+          onPick={typePick.pick} onNavigateNode={onNavigateNode} />
+        <BelongingProp patch={patch} isArchitect={isArchitect} />
+        <StatusProp patch={patch} isArchitect={isArchitect} />
+        <RoleProp patch={patch} isArchitect={isArchitect} />
+        <TechProp patch={patch} isArchitect={isArchitect} isSystem={isSystem}
+          techLoading={techLoading} aggTech={aggTech} techError={techError} onTechRetry={reloadTech} />
+        <SourceProp patch={patch} isArchitect={isArchitect} />
+      </dl>
+
       {isArchitect && (
-        <button type="button" className="insp-del" onClick={() => setConfirming(true)}>
-          {META_ICON.trash} Удалить объект
-        </button>
+        <button type="button" className="ip-delete" onClick={() => setConfirming(true)}>Удалить объект</button>
       )}
 
       {typePick.dialog}
@@ -293,13 +125,6 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
           onDeleted={(id, snapshot) => { setConfirming(false); onNodeDeleted(id, snapshot); }}
         />
       )}
-    </div>
+    </>
   );
-}
-
-function ChevronDown() {
-  return <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9 L12 15 L18 9" /></svg>;
-}
-function CheckMark() {
-  return <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12 L10 17 L19 7" /></svg>;
 }

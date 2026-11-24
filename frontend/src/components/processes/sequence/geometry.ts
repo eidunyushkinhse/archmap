@@ -1,8 +1,15 @@
 // Геометрия sequence-диаграммы: колонки участников, строки шагов, рамки фрагментов и
-// размеры холста. Чистая функция данных, замеров подписей и трёх живых жестов
+// размеры холста. Чистая функция данных, замеров подписей и шапок и трёх живых жестов
 // (перестановка колонок, перенос шага, грань фрагмента) — вынесена из SequenceDiagram
 // (аудит F-4): там она пересчитывалась на каждом рендере, то есть и на каждом
 // pointermove протяжки связи, и проверялась только DOM-селекторами.
+//
+// Промежутки между колонками — по содержимому, как в Mermaid (редизайн, фаза 3а):
+// соседние участники стоят не ближе, чем нужно самой длинной подписи шага между ними
+// плюс поля; шаг через несколько колонок раскладывает недостачу поровну на свои
+// промежутки; наименьший промежуток задают шапки самих участников. Ширины подписей и
+// шапок приходят входом — их замеряет диаграмма; без замера берётся значение по
+// умолчанию (в jsdom замеров нет, тесты подают ширины руками).
 import type { SeqBranch, SeqFragment, SeqMessage, SeqParticipant } from "./layout";
 import { SQ } from "../tokens";
 
@@ -11,6 +18,15 @@ export const LABEL_GAP = 10; // зазор между низом подписи 
 const LABEL_PAD = 26; // запас в шаге строки сверх высоты подписи (одна строка → шаг ROW_GAP)
 // Горизонтальный отступ вложенной рамки фрагмента на каждый уровень вложенности.
 const NEST_INSET = 10;
+// Поле между краем крайней шапки и краем холста.
+const EDGE_PAD = 16;
+// Шаг, которым вписывание опускает предел ширины подписи.
+const CAP_STEP = 10;
+// Полосы над подписью строки (шапки фрагментов и разделители ветвей): от верха рамки
+// до верха подписи под ней — плашка вида с условием (около 22 px) и воздух; от линии
+// разделителя до верха подписи — нижняя половина плашки условия ветви и воздух.
+const FRAG_TAG_BAND = 28;
+const DIV_BELOW = 15;
 
 // Живые жесты диаграммы (их состояние ведёт SequenceDiagram).
 // Перестановка участников: fromK — исходная колонка тянущейся шапки, px — x курсора.
@@ -28,9 +44,32 @@ export interface FragDragGesture {
   moved: boolean;
 }
 
-export interface SeqGeometryInput {
+// Что нужно раскладке колонок: участники, шаги и замеры.
+export interface SeqColumnsInput {
   participants: SeqParticipant[];
   messages: SeqMessage[];
+  // Естественная ширина подписи шага в одну строку (номер, текст, значок схемы) по id
+  // шага; нет — подпись считается пустой.
+  labelW?: Record<string, number>;
+  // Наименьшая ширина подписи шага: самое длинное слово (с номером и хвостом из
+  // последнего слова, причины поломки и значка схемы). Уже неё подпись не сжимается —
+  // слово не рвётся. Нет — ограничения нет.
+  labelMinW?: Record<string, number>;
+  // Естественная ширина шапки участника по id участника; нет — наименьшая (SQ.HEAD_MIN).
+  headW?: Record<string, number>;
+  // Наименьшая ширина шапки: самое длинное слово имени. Длинное имя переносится в две
+  // строки, но шапка не уже этого слова. Нет — ограничения нет.
+  headMinW?: Record<string, number>;
+  // Предел ширины подписи: шире — переносится. По умолчанию SQ.LABEL_MAX.
+  labelCap?: number;
+}
+
+// Запас к ширине самого длинного слова: под масштабом режима чтения ширина текста
+// чуть другая, чем у замера вне масштаба (кегль дробный, метрики глифов округляются),
+// и подпись точно по замеру рвала бы слово страховкой overflow-wrap.
+const wordFloor = (w: number | undefined): number => (w ? Math.ceil(w * 1.03) + 2 : 0);
+
+export interface SeqGeometryInput extends SeqColumnsInput {
   fragments: SeqFragment[];
   // Замеренные высоты подписей шагов по id (ResizeObserver); нет — однострочная.
   labelH: Record<string, number>;
@@ -41,25 +80,135 @@ export interface SeqGeometryInput {
   ghost: boolean;
 }
 
-export function computeSeqGeometry({
-  participants, messages, fragments, labelH, reorder, rowDrag, fragDrag, ghost,
-}: SeqGeometryInput) {
-  const idx: Record<string, number> = {};
-  const pById: Record<string, SeqParticipant> = {};
-  participants.forEach((p, k) => { idx[p.id] = k; pById[p.id] = p; });
+/**
+ * Колонки: x центра каждого участника по порядку и ширина холста. Подпись шага между
+ * соседями (ширина не больше предела) задаёт промежуток между ними; подпись шага через
+ * несколько колонок требует того же от суммы промежутков и, если её не хватает,
+ * докладывает недостачу поровну в каждый. Узкие шаги идут первыми: их требование
+ * точное, а широкий шаг часто уже накрыт промежутками, которые раздвинули они.
+ */
+export function computeColumns({
+  participants, messages, labelW = {}, labelMinW = {}, headW = {}, headMinW = {}, labelCap = SQ.LABEL_MAX,
+}: SeqColumnsInput) {
   const n = participants.length;
-  const PX = (k: number) => SQ.MARGIN + k * SQ.COL_W;
-  const lifeTop = SQ.TOP + SQ.PHEAD_H;
+  const idx: Record<string, number> = {};
+  participants.forEach((p, k) => { idx[p.id] = k; });
+  // Шапка: естественная ширина имени в пределах HEAD_MIN…HEAD_MAX; потолок раздвигает
+  // самое длинное слово (у копии-замера поля шире, чем у шапки, — запас уже в нём).
+  const hw = (k: number) => {
+    const id = participants[k].id;
+    return Math.min(Math.max(SQ.HEAD_MAX, headMinW[id] ?? 0), Math.max(SQ.HEAD_MIN, headW[id] ?? SQ.HEAD_MIN));
+  };
+  // Предел ширины подписи шага: общий, но не уже её самого длинного слова.
+  const capOf = (id: string) => Math.max(labelCap, wordFloor(labelMinW[id]));
+  // Ширина подписи на холсте: естественная, но не шире предела (шире — перенос).
+  const lw = (id: string) => Math.min(capOf(id), Math.max(0, labelW[id] ?? 0));
 
-  // Живой reorder: целевая колонка под курсором (обратное к PX: k=(x−MARGIN)/COL_W).
-  const reorderToK = reorder
-    ? Math.max(0, Math.min(n - 1, Math.round((reorder.px - SQ.MARGIN) / SQ.COL_W)))
-    : -1;
+  // Наименьший промежуток — шапки соседей не сходятся ближе HEAD_GAP.
+  const gaps = Array.from({ length: Math.max(0, n - 1) }, (_, k) => (hw(k) + hw(k + 1)) / 2 + SQ.HEAD_GAP);
+  // Подпись шага внутри участника стоит справа от петли: у последней колонки она
+  // уходит в правое поле.
+  let selfRight = 0;
+  const spans: { a: number; b: number; need: number }[] = [];
+  for (const m of messages) {
+    const ka = idx[m.from];
+    const kb = idx[m.to];
+    if (ka === undefined || kb === undefined) continue;
+    if (ka === kb) {
+      const need = SQ.SELF_OFF + lw(m.id) + SQ.LABEL_SIDE / 2;
+      if (ka < n - 1) gaps[ka] = Math.max(gaps[ka], need);
+      else selfRight = Math.max(selfRight, need);
+      continue;
+    }
+    spans.push({ a: Math.min(ka, kb), b: Math.max(ka, kb), need: lw(m.id) + SQ.LABEL_SIDE });
+  }
+  spans.sort((x, y) => (x.b - x.a) - (y.b - y.a));
+  for (const s of spans) {
+    let sum = 0;
+    for (let k = s.a; k < s.b; k++) sum += gaps[k];
+    if (sum >= s.need) continue;
+    const add = (s.need - sum) / (s.b - s.a);
+    for (let k = s.a; k < s.b; k++) gaps[k] += add;
+  }
+
+  const marginL = n ? Math.max(SQ.SIDE, hw(0) / 2 + EDGE_PAD) : SQ.SIDE;
+  const marginR = n ? Math.max(SQ.SIDE, hw(n - 1) / 2 + EDGE_PAD, selfRight) : SQ.SIDE;
+  const xs: number[] = [];
+  let x = marginL;
+  for (let k = 0; k < n; k++) {
+    xs.push(x);
+    if (k < n - 1) x += gaps[k];
+  }
+  const W = n ? xs[n - 1] + marginR : marginL + marginR;
+  // Ширина подписи на холсте: предел, но не уже места, которое у неё уже есть. Промежуток
+  // часто раздвинут шапками или соседними шагами шире предела, и подпись, перенесённая
+  // по пределу, стояла бы узким столбцом посреди пустоты. Ширина холста от этого не
+  // меняется: место берётся только внутри уже разложенных промежутков.
+  const room = (m: SeqMessage): number => {
+    const ka = idx[m.from];
+    const kb = idx[m.to];
+    if (ka === undefined || kb === undefined) return 0;
+    if (ka === kb) return ka < n - 1 ? gaps[ka] - SQ.SELF_OFF - SQ.LABEL_SIDE / 2 : 0;
+    return Math.abs(xs[kb] - xs[ka]) - SQ.LABEL_SIDE;
+  };
+  const shownCap: Record<string, number> = {};
+  for (const m of messages) shownCap[m.id] = Math.max(capOf(m.id), Math.floor(room(m)));
+  const labelCapOf = (id: string): number => shownCap[id] ?? capOf(id);
+  return { idx, xs, gaps, W, lw, hw, labelCapOf };
+}
+
+/**
+ * Предел ширины подписи для вписывания в окно: наибольший (до SQ.LABEL_MAX), при
+ * котором холст не шире maxW. Подписи переносятся ровно настолько, насколько это
+ * нужно, чтобы процесс уместился. Не уместился и на SQ.LABEL_MIN — берётся наибольший
+ * предел с той же наименьшей шириной: когда промежутки задают шапки, а не подписи,
+ * дальнейший перенос холст не сужает и только растит строки.
+ */
+export function fitLabelCap(input: Omit<SeqColumnsInput, "labelCap">, maxW: number): number {
+  const widthAt = (cap: number) => computeColumns({ ...input, labelCap: cap }).W;
+  for (let cap = SQ.LABEL_MAX; cap > SQ.LABEL_MIN; cap -= CAP_STEP) {
+    if (widthAt(cap) <= maxW) return cap;
+  }
+  const least = widthAt(SQ.LABEL_MIN);
+  let cap = SQ.LABEL_MIN;
+  while (cap + CAP_STEP <= SQ.LABEL_MAX && widthAt(cap + CAP_STEP) <= least + 0.5) cap += CAP_STEP;
+  return cap;
+}
+
+export function computeSeqGeometry({
+  participants, messages, fragments, labelW, labelMinW, headW, headMinW, labelCap, labelH, reorder, rowDrag, fragDrag, ghost,
+}: SeqGeometryInput) {
+  const { idx, xs, gaps, W, hw, labelCapOf } = computeColumns({
+    participants, messages, labelW, labelMinW, headW, headMinW, labelCap,
+  });
+  const pById: Record<string, SeqParticipant> = {};
+  participants.forEach((p) => { pById[p.id] = p; });
+  const n = participants.length;
+  // x центра колонки (слота) по её номеру — по порядку участников до жеста.
+  const PX = (k: number) => xs[k] ?? SQ.SIDE;
+  const lifeTop = SQ.TOP + SQ.PHEAD_H;
+  // Колонка под точкой x: ближайший центр колонки. Промежутки разные, поэтому деление
+  // на постоянную ширину колонки больше не годится.
+  const slotAt = (x: number): number => {
+    let best = 0;
+    let bestD = Infinity;
+    for (let k = 0; k < n; k++) {
+      const d = Math.abs(x - xs[k]);
+      if (d < bestD) { bestD = d; best = k; }
+    }
+    return best;
+  };
+  // Радиус «попадания» в колонку: половина большего из соседних промежутков.
+  const colHalf = (k: number): number =>
+    Math.max(gaps[k - 1] ?? 0, gaps[k] ?? 0, SQ.HEAD_MIN) / 2;
+
+  // Живой reorder: целевая колонка — ближайшая к курсору.
+  const reorderToK = reorder ? slotAt(reorder.px) : -1;
   // Дисплейный x центра колонки участника с учётом живого reorder — ЕДИНЫЙ источник x
   // для шапок, линий жизни, стрелок, активаций и рамок: вся диаграмма перестраивается
   // синхронно во время драга (стрелки динамически меняют положение и направление).
   // Тянущийся участник следует за курсором (непрерывно); участники между исходной и
-  // целевой колонкой сдвигаются на COL_W. Без reorder — обычный PX по индексу.
+  // целевой колонкой сдвигаются в соседний слот. Без reorder — обычный PX по индексу.
   const colX = (id: string): number => {
     const k = idx[id];
     if (!reorder) return PX(k);
@@ -75,7 +224,7 @@ export function computeSeqGeometry({
 
   const R = messages.length ? Math.max(...messages.map((m) => m.r)) + 1 : 0;
   const lhOf = (id: string) => labelH[id] ?? DEFAULT_LH;
-  // Высота подписи по строке = высота её сообщения (одно сообщение на строку).
+  // Высота подписи по строке = высота её шага (один шаг на строку).
   const rowLabelH: number[] = new Array(R).fill(DEFAULT_LH);
   for (const m of messages) rowLabelH[m.r] = lhOf(m.id);
   // Накопленные вертикальные смещения строк: зазор перед строкой r вмещает её подпись.
@@ -118,18 +267,51 @@ export function computeSeqGeometry({
     const row = Math.min(Math.max(fragDrag.row, lo), hi);
     return f.branches.map((b, k) => (k === i ? { ...b, row } : b));
   };
-  // Каждый фрагмент, начавшийся на/до строки r, добавляет высоту своей шапки, а КАЖДАЯ
-  // его ветвь — свой зазор. Так несколько/вложенные фрагменты и цепочка ветвей
-  // раздвигают строки корректно (иначе разделители наезжали бы на стрелки).
-  const fragHeadOff = (r: number) => {
-    let off = 0;
-    for (const f of fragments) {
-      if (r >= fragRows(f).from) off += SQ.FRAG_HEAD;
-      for (const b of fragBranches(f)) if (r >= b.row) off += SQ.ELSE_GAP;
+  // Полосы над подписью строки r (правки приёмки фазы 3а, П4: раньше шапка стояла на
+  // постоянном отступе от стрелки, и подпись в две-три строки ложилась поверх условия).
+  // Шапка фрагмента — над подписью первого шага его участка, разделитель с условием
+  // ветви — над подписью первого шага ветви. Каждая полоса добавляет строке свою высоту
+  // (FRAG_HEAD, ELSE_GAP), строка с полосами — ещё FRAG_PRE воздуха над ними: так
+  // несколько и вложенные фрагменты и цепочка ветвей раздвигают строки корректно.
+  const fr = fragments.map(fragRows);
+  const fb = fragments.map(fragBranches);
+  const startsAt: number[][] = Array.from({ length: R + 1 }, () => []);
+  const divsAt: { i: number; bi: number }[][] = Array.from({ length: R + 1 }, () => []);
+  fragments.forEach((_, i) => {
+    if (fr[i].from >= 0 && fr[i].from <= R) startsAt[fr[i].from].push(i);
+    fb[i].forEach((b, bi) => { if (b.row >= 0 && b.row <= R) divsAt[b.row].push({ i, bi }); });
+  });
+  const bandOff: number[] = new Array(R + 1).fill(0);
+  let bands = 0;
+  for (let r = 0; r <= R; r++) {
+    const k = startsAt[r].length;
+    const d = divsAt[r].length;
+    if (k + d) bands += k * SQ.FRAG_HEAD + d * SQ.ELSE_GAP + SQ.FRAG_PRE;
+    bandOff[r] = bands;
+  }
+  const rowY = (r: number) => lifeTop + rowOff[r] + bandOff[r];
+
+  // Стопка полос над подписью строки, снизу вверх: шапка самого вложенного фрагмента,
+  // начавшегося на r, над ней — шапки объемлющих, выше всех — разделители ветвей (их
+  // фрагменты начались раньше, то есть объемлют начавшиеся на r). Уже охват — ближе к
+  // подписи; при равном — позже заведённый.
+  const innerFirst = (a: number, b: number) => (fr[a].to - fr[a].from) - (fr[b].to - fr[b].from) || b - a;
+  const headTop = new Map<number, number>();
+  const divY = new Map<string, number>();
+  for (let r = 0; r <= R; r++) {
+    if (!startsAt[r].length && !divsAt[r].length) continue;
+    let cursor = rowY(r) - (r < R ? rowLabelH[r] : DEFAULT_LH) - LABEL_GAP;
+    for (const i of [...startsAt[r]].sort(innerFirst)) {
+      const top = cursor - FRAG_TAG_BAND;
+      headTop.set(i, top);
+      cursor = top - (SQ.FRAG_HEAD - FRAG_TAG_BAND);
     }
-    return off;
-  };
-  const rowY = (r: number) => lifeTop + rowOff[r] + fragHeadOff(r);
+    for (const { i, bi } of [...divsAt[r]].sort((a, b) => innerFirst(a.i, b.i))) {
+      const y = cursor - DIV_BELOW;
+      divY.set(`${i}:${bi}`, y);
+      cursor = y - (SQ.ELSE_GAP - DIV_BELOW);
+    }
+  }
   // Ближайшая строка к вертикальной координате y (для выбора диапазона протягиванием).
   const rowFromY = (y: number) => {
     let best = 0;
@@ -153,26 +335,25 @@ export function computeSeqGeometry({
     if (from > dropRow && r >= dropRow && r < from) return r + 1;
     return r;
   };
-  // Y строки сообщения с учётом жеста: тянущаяся идёт за курсором, прочие — по своей
+  // Y строки шага с учётом жеста: тянущаяся идёт за курсором, прочие — по своей
   // новой строке.
   const msgY = (r: number): number =>
     rowDrag && rowDrag.moved && r === rowDrag.fromR ? rowDrag.py : rowY(shownRow(r));
 
   const ghostY = ghost ? rowY(R) - 6 : 0;
-  const W = SQ.MARGIN * 2 + Math.max(0, n - 1) * SQ.COL_W;
   const contentBottom = R > 0 ? rowY(R - 1) : lifeTop + SQ.ROW0;
   const H = ghost ? ghostY + 44 : contentBottom + 54;
 
   // Прямоугольники фрагментов (с горизонтальным вложением по depth).
   const fragBoxes = fragments
-    .map((f) => {
-      const rows = fragRows(f);
-      // Ширина рамки выводится из охвата: берём крайние колонки сообщений внутри.
+    .map((f, i) => {
+      const rows = fr[i];
+      // Ширина рамки выводится из охвата: берём крайние колонки шагов внутри.
       // Поэтому при протягивании грани она подстраивается под самую широкую стрелку
       // нового охвата сама — отдельного пересчёта не нужно.
       const inner = messages.filter((m) => m.r >= rows.from && m.r <= rows.to);
       if (!inner.length) return null;
-      const xs = inner.flatMap((m) => [colX(m.from), colX(m.to)]);
+      const xs2 = inner.flatMap((m) => [colX(m.from), colX(m.to)]);
       // depth = сколько ДРУГИХ фрагментов строго охватывают диапазон этого (вложенность).
       const span = rows.to - rows.from;
       const depth = fragments.filter((g) => {
@@ -184,17 +365,24 @@ export function computeSeqGeometry({
       return {
         f,
         rows,
-        left: Math.min(...xs) - 38 + inset,
-        right: Math.max(...xs) + 38 - inset,
-        top: rowY(rows.from) - 26,
+        left: Math.min(...xs2) - 38 + inset,
+        right: Math.max(...xs2) + 38 - inset,
+        // Верх — по стопке над подписью первого шага (строка за пределом шагов —
+        // прежний отступ от стрелки).
+        top: headTop.get(i) ?? rowY(rows.from) - 26,
         bottom: rowY(rows.to) + 18,
-        branches: fragBranches(f).map((b) => ({ ...b, y: rowY(b.row) - 16 })),
+        branches: fb[i].map((b, bi) => ({ ...b, y: divY.get(`${i}:${bi}`) ?? rowY(b.row) - 16 })),
       };
     })
     .filter((b): b is NonNullable<typeof b> => b !== null);
 
   return {
-    idx, pById, n, PX, lifeTop, colX, isDraggedK, lhOf,
+    idx, pById, n, PX, slotAt, colHalf, reorderToK, lifeTop, colX, isDraggedK, lhOf,
+    // Ширина шапки участника по id (замер, зажатый в пределы).
+    headWOf: (id: string) => hw(idx[id]),
+    // Наибольшая ширина подписи шага на холсте по id: общий предел, но не уже её самого
+    // длинного слова и не уже места между её колонками (по порядку участников до жеста).
+    labelCapOf,
     fragRows, fragBranches, rowY, rowFromY, shownRow, msgY, ghostY, W, H, fragBoxes,
   };
 }

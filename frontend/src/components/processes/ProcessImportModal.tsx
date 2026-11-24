@@ -1,244 +1,417 @@
-// Импорт процесса из текста mermaid sequenceDiagram: превью → сопоставление имён →
-// применение. Тот же паттерн, что у импорта YAML и доков от агента: сперва показать,
-// что получится, и только потом писать.
+// Окно «Импорт процессов» и «Заменить процесс» (редизайн, фаза 3б). Источник один на оба
+// способа: поле текста (вставленный текст — один черновик) и файлы (кнопкой или
+// перетаскиванием; в .md каждый блок mermaid с sequenceDiagram — свой черновик).
+// Название черновика подставляется само: шапка диаграммы, заголовок Markdown, имя
+// файла (importDrafts). Превью считается само (useImportPreviews), под черновиком
+// только то, что требует решения или говорит о потере (ImportDraftIssues).
 //
 // Пользователь НЕ обязан сопоставить каждого участника (его решение): оставленные без
-// узла заводятся непривязанными и попадают в алерт «Незадокументированные участники», а их
-// шаги — повисшими. Ничего из сценария при этом не теряется.
-import { useState } from "react";
+// объекта заводятся непривязанными, их шаги — без связи; об этом сказано до импорта.
+// Объект участнику выбирается из всей схемы (NodeChoice); объекты окно грузит один раз,
+// при первом открытии панели выбора (schemaNodes).
+//
+// Замена (replace): один черновик, название подставлено текущее, содержимое процесса
+// заменяется, id и область остаются, перед заменой бэкенд сохраняет версию проекта.
+// Привязка шага к схеме логики переживает замену только строкой `%% archmap-doc`
+// перед шагом: окно сравнивает, сколько привязок у процесса сейчас и сколько
+// разрешится в новом тексте.
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent } from "react";
 import Modal from "../../ui/Modal";
 import { processesApi } from "../../api/processes";
-import type { ProcessImportPreview, ProcessImportResult } from "../../types";
-import { primaryBtn, secondaryBtn } from "../../ui/styles";
-import { BPT, BROKEN } from "./tokens";
+import type { ProcessImportPreview, ProcessReplaceResult } from "../../types";
 import { limitMessage } from "../demo/demoLimits";
-import type { LimitMessage } from "../demo/demoLimits";
-import { LimitText } from "../demo/DemoLimitToast";
 import { noAutofill } from "../../ui/noAutofill";
+import { ChevronDownIcon, CloseIcon } from "../../ui/icons";
+import { plural } from "../../ui/plural";
+import { autoName, splitDiagram, splitFile } from "./importDrafts";
+import type { DraftSource } from "./importDrafts";
+import { requestKey, useImportPreviews } from "./useImportPreviews";
+import type { PreviewResult } from "./useImportPreviews";
+import ImportDraftIssues from "./ImportDraftIssues";
+import { chosenNode, hasIssues, issuesOf } from "./importIssues";
+import type { DocKeep, DraftFailure } from "./importIssues";
+import { useSchemaNodes } from "./schemaNodes";
+import type { SchemaNodes } from "./schemaNodes";
+import "../../ui/ds.css";
+import "./processes.css";
 
 interface Props {
   onClose: () => void;
-  // Импорт создал процесс — открыть его.
-  onImported: (processId: string) => void;
+  // Импорт создал процессы (в порядке черновиков). all — прошли все: окно закрывается,
+  // открывается первый; иначе окно остаётся с упавшими. Замене не нужен.
+  onImported?: (processIds: string[], all: boolean) => void;
+  // Режим замены: какой процесс заменить. Без него — импорт новых процессов.
+  replace?: { id: string; name: string };
+  onReplaced?: (result: ProcessReplaceResult, name: string) => void;
 }
 
-const label: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, letterSpacing: ".04em",
-  textTransform: "uppercase", color: BPT.mut, marginBottom: 6,
-};
+// Файл больше этого не читаем: диаграмма процесса столько не весит.
+const MAX_FILE_BYTES = 1024 * 1024;
+const FILE_TYPES = /\.(mmd|md|markdown|txt)$/i;
 
-export default function ProcessImportModal({ onClose, onImported }: Props) {
-  const [text, setText] = useState("");
-  const [name, setName] = useState("");
-  const [preview, setPreview] = useState<ProcessImportPreview | null>(null);
-  // Сопоставление: алиас участника → узел (пусто = оставить непривязанным).
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<ProcessImportResult | null>(null);
+interface Draft extends DraftSource {
+  key: string;
+  // Название, правленное человеком; null — подставляется само (autoName).
+  name: string | null;
+  // Выбор человека: алиас участника → id узла, пустая строка — без объекта схемы.
+  choice: Record<string, string>;
+  // Файл не прочитан (велик, не тот тип, нет диаграммы): черновик не импортируется.
+  fileError: string | null;
+  // Отказ последней попытки импорта или замены; правка текста его снимает.
+  failure: DraftFailure | null;
+}
+
+const PLACEHOLDER = [
+  "sequenceDiagram",
+  "    Покупатель->>Веб-витрина: подтверждает корзину",
+  "    Веб-витрина->>Order API: создать заказ",
+].join("\n");
+
+// Ключ черновика: уникален на всё время жизни страницы, порядок не важен.
+let draftSeq = 0;
+function newDraft(src: DraftSource, extra: Partial<Draft> = {}): Draft {
+  return { key: `d${++draftSeq}`, ...src, name: null, choice: {}, fileError: null, failure: null, ...extra };
+}
+
+export default function ProcessImportModal({ onClose, onImported, replace, onReplaced }: Props) {
+  const [drafts, setDrafts] = useState<Draft[]>(() => [
+    newDraft({ raw: "", fallbackName: "" }, replace ? { name: replace.name } : {}),
+  ]);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [limit, setLimit] = useState<LimitMessage | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const schema = useSchemaNodes();
 
-  async function doPreview() {
+  // Замена: сколько шагов процесса привязаны к схемам логики сейчас (K). Пока процесс не
+  // прочитан, окно не знает, что потеряется, и «Заменить» заперта; отказ чтения держит
+  // её запертой и виден текстом.
+  const [keptNow, setKeptNow] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const replaceId = replace?.id;
+  useEffect(() => {
+    if (!replaceId) return;
+    let alive = true;
+    processesApi.get(replaceId).then(
+      (p) => { if (alive) setKeptNow(p.messages.filter((m) => !!m.doc_id).length); },
+      (e: unknown) => {
+        if (alive) setLoadError(`Не удалось загрузить процесс.${e instanceof Error && e.message ? ` ${e.message}` : ""}`);
+      },
+    );
+    return () => { alive = false; };
+  }, [replaceId]);
+
+  // Входы превью: текст без шапки и выбор человека. Мемо — ссылочная стабильность для
+  // эффекта превью (меняется только вместе с черновиками).
+  const inputs = useMemo(
+    () => drafts.map((d) => ({ key: d.key, body: d.fileError ? "" : splitDiagram(d.raw).body, choice: d.choice })),
+    [drafts],
+  );
+  const results = useImportPreviews(inputs);
+
+  // Состояние черновика для показа и импорта.
+  const view = drafts.map((d, idx) => {
+    const input = inputs[idx];
+    const res: PreviewResult | undefined = results[d.key];
+    const hasText = input.body.trim() !== "";
+    const fresh = hasText && res !== undefined && res.reqKey === requestKey(input);
+    const preview: ProcessImportPreview | null = hasText ? res?.preview ?? null : null;
+    const previewError = fresh ? res.error : null;
+    const name = d.name ?? autoName(d);
+    const keep: DocKeep | null = replace && keptNow !== null && preview
+      ? { m: issuesOf(preview).docKept, k: keptNow }
+      : null;
+    const errors: DraftFailure[] = [d.fileError, previewError, d.failure]
+      .filter((e): e is DraftFailure => e !== null);
+    // К импорту: есть текст и свежее превью без отказа (без превью неизвестно
+    // сопоставление — участники уехали бы непривязанными).
+    const importable = !d.fileError && hasText && fresh && !previewError;
+    return { d, body: input.body, preview, name, keep, errors, importable, pending: hasText && !fresh };
+  });
+
+  // Черновики с отказом (файл не прочитан, превью не посчиталось) не импортируются и
+  // кнопку не держат: ошибка видна у них самих. Держат кнопку превью в пути, пустое
+  // название и (у замены) процесс, который ещё не прочитан или не прочитался.
+  const toImport = view.filter((v) => v.importable);
+  const canSubmit = !busy && toImport.length > 0
+    && !view.some((v) => v.pending)
+    && toImport.every((v) => v.name.trim() !== "")
+    && (!replace || keptNow !== null);
+
+  function patch(key: string, change: Partial<Draft>) {
+    setDrafts((cur) => cur.map((d) => (d.key === key ? { ...d, ...change } : d)));
+  }
+
+  async function addFiles(list: FileList | File[]) {
+    const files = Array.from(list);
+    if (!files.length) return;
+    const fresh: Draft[] = [];
+    for (const f of files) {
+      if (!FILE_TYPES.test(f.name)) {
+        fresh.push(newDraft({ raw: "", fallbackName: f.name }, { fileError: "Подходят файлы .mmd, .md и .txt" }));
+      } else if (f.size > MAX_FILE_BYTES) {
+        fresh.push(newDraft({ raw: "", fallbackName: f.name }, { fileError: "Файл больше 1 МБ и не прочитан" }));
+      } else {
+        let text: string;
+        try {
+          text = await f.text();
+        } catch {
+          fresh.push(newDraft({ raw: "", fallbackName: f.name }, { fileError: "Файл не прочитан" }));
+          continue;
+        }
+        const parts = splitFile(f.name, text);
+        if (!parts.length) {
+          fresh.push(newDraft({ raw: "", fallbackName: f.name }, { fileError: "В файле нет блока mermaid с sequenceDiagram" }));
+        }
+        for (const p of parts) fresh.push(newDraft(p));
+      }
+      if (replace && fresh.some((d) => !d.fileError)) break; // замене нужен один файл
+    }
+    setDrafts((cur) => {
+      if (replace) {
+        // Один черновик: текст из файла, название — прежнее (текущее имя процесса).
+        const src = fresh.find((d) => !d.fileError) ?? fresh[0];
+        return [{ ...src, name: cur[0]?.name ?? replace.name }];
+      }
+      // Пустое поле вставки уступает место файлам.
+      const kept = cur.filter((d) => d.raw.trim() !== "" || d.fileError);
+      return [...kept, ...fresh];
+    });
+  }
+
+  function onDragOver(e: DragEvent<HTMLDivElement>) {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    setDropping(true);
+  }
+  function onDrop(e: DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    setDropping(false);
+    void addFiles(e.dataTransfer.files);
+  }
+
+  function mappingOf(v: (typeof view)[number]): Record<string, string | null> {
+    // Именно ||, а не ??: снятый выбор лежит пустой строкой, и с ?? она уехала бы на
+    // бэкенд невалидным uuid.
+    return Object.fromEntries(
+      (v.preview?.participants ?? []).map((p) => [p.alias, chosenNode(p, v.d.choice) || null]),
+    );
+  }
+
+  async function submit() {
+    if (!canSubmit) return;
     setBusy(true);
-    setError(null);
-    setLimit(null);
     try {
-      const p = await processesApi.importPreview({ text, name: name.trim() || null });
-      setPreview(p);
-      // Авто-сопоставление подставляем как значение по умолчанию — пользователь его
-      // может снять: превью не выбирает из тёзок, а единственное совпадение честное.
-      const auto: Record<string, string> = {};
-      for (const part of p.participants) if (part.node_id) auto[part.alias] = part.node_id;
-      setMapping(auto);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось разобрать диаграмму");
+      if (replace) {
+        const v = toImport[0];
+        const name = v.name.trim();
+        try {
+          const res = await processesApi.replaceProcess(replace.id, { text: v.body, name, mapping: mappingOf(v) });
+          onReplaced?.(res, name);
+        } catch (e: unknown) {
+          patch(v.d.key, { failure: limitMessage(e, "save") ?? (e instanceof Error ? e.message : "Не удалось заменить процесс") });
+        }
+        return;
+      }
+      // Импорт по очереди: успешные уходят из списка, упавшие остаются со своей ошибкой.
+      const created: string[] = [];
+      const failed = new Map<string, DraftFailure>();
+      for (const v of toImport) {
+        try {
+          const res = await processesApi.importProcess({ text: v.body, name: v.name.trim(), mapping: mappingOf(v) });
+          created.push(res.process_id);
+        } catch (e: unknown) {
+          // Демо-стенд: проект упёрся в предел (docs/tasks/demo-mode.md).
+          failed.set(v.d.key, limitMessage(e, "process") ?? (e instanceof Error ? e.message : "Не удалось импортировать процесс"));
+        }
+      }
+      const done = new Set(toImport.map((v) => v.d.key).filter((k) => !failed.has(k)));
+      const all = failed.size === 0 && view.every((v) => v.importable);
+      if (!all) {
+        setDrafts((cur) => cur
+          .filter((d) => !done.has(d.key))
+          .map((d) => (failed.has(d.key) ? { ...d, failure: failed.get(d.key) ?? null } : d)));
+      }
+      if (created.length) onImported?.(created, all);
     } finally {
       setBusy(false);
     }
   }
 
-  async function doImport() {
-    if (!preview) return;
-    setBusy(true);
-    setError(null);
-    setLimit(null);
-    try {
-      const res = await processesApi.importProcess({
-        text,
-        name: name.trim() || null,
-        mapping: Object.fromEntries(
-          // Именно ||, а не ??: снятое сопоставление лежит пустой строкой, и с ??
-          // она уехала бы на бэк как невалидный uuid.
-          preview.participants.map((p) => [p.alias, mapping[p.alias] || null]),
-        ),
-      });
-      setResult(res);
-    } catch (e: unknown) {
-      // Демо-стенд: проект упёрся в предел (docs/tasks/demo-mode.md).
-      const refusal = limitMessage(e, "process");
-      if (refusal) { setLimit(refusal); return; }
-      setError(e instanceof Error ? e.message : "Не удалось импортировать процесс");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const unbound = preview
-    ? preview.participants.filter((p) => !mapping[p.alias]).length
-    : 0;
-
-  // Enter в поле названия (Ctrl+Enter в тексте диаграммы) — главная кнопка текущего
-  // шага: «Разобрать», после превью — «Импортировать»; с теми же гардами, что у кнопок.
-  const submit = () => {
-    if (busy || result) return;
-    if (preview) void doImport();
-    else if (text.trim()) void doPreview();
-  };
+  const single = drafts.length === 1;
+  const title = replace ? "Заменить процесс" : "Импорт процессов";
+  const button = replace
+    ? "Заменить"
+    : toImport.length > 1
+      ? `Импортировать ${toImport.length} ${plural(toImport.length, ["процесс", "процесса", "процессов"])}`
+      : "Импортировать";
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 720 }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: BPT.head, marginBottom: 12 }}>
-        Импорт процесса из Mermaid
-      </div>
-      {result ? (
-        <div style={{ fontSize: 13, lineHeight: 1.7 }}>
-          <div style={{ fontWeight: 600, color: BPT.head, marginBottom: 8 }}>Процесс создан</div>
-          <div>Участников: {result.participants}
-            {result.unbound > 0 && (
-              <span style={{ color: BROKEN.ink }}> · без объекта схемы: {result.unbound}</span>
-            )}
-          </div>
-          <div>Шагов: {result.messages} · на каналах схемы: {result.attached}
-            {/* Внутренние операции участника канала не имеют по контракту — это не
-                поломка, поэтому обычным цветом и отдельным числом: иначе строка не
-                сходится («шагов 13, на каналах 12, а тринадцатый где?»). */}
-            {result.self_messages > 0 && (
-              <span style={{ color: BPT.mut }}> · внутренних операций: {result.self_messages}</span>
-            )}
-            {result.dangling > 0 && (
-              <span style={{ color: BROKEN.ink }}> · без связи: {result.dangling}</span>
-            )}
-          </div>
-          <div>Фрагментов: {result.fragments}</div>
-          {/* Привязки к схемам логики (Ф7): неразрешённый адрес — не поломка импорта,
-              шаг приехал непривязанным и виден алертом полноты, но сказать об этом
-              обязаны здесь — молчание читалось бы как «все привязки доехали». */}
-          {(result.doc_linked > 0 || result.doc_unresolved > 0) && (
-            <div>Привязок к схемам логики: {result.doc_linked}
-              {result.doc_unresolved > 0 && (
-                <span style={{ color: BROKEN.ink }}> · схема не найдена: {result.doc_unresolved}</span>
-              )}
-            </div>
-          )}
-          {result.unsupported.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <div style={label}>Строки, которые не удалось разобрать</div>
-              <ul style={{ margin: 0, paddingLeft: 18, color: BPT.mut, fontSize: 12 }}>
-                {result.unsupported.map((u, i) => <li key={i}>{u}</li>)}
-              </ul>
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-            <button style={primaryBtn} onClick={() => onImported(result.process_id)}>
-              Открыть процесс
-            </button>
-          </div>
+    <Modal onClose={onClose} onSubmit={() => void submit()} boxStyle={{ width: 720, padding: 0 }}>
+      <div
+        className={"ds ds-win pim" + (dropping ? " is-drop" : "")}
+        onDragOver={onDragOver}
+        // Уход указателя за пределы окна, а не переход между его частями.
+        onDragLeave={(e) => {
+          if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) setDropping(false);
+        }}
+        onDrop={onDrop}
+      >
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">{title}</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
         </div>
-      ) : (
-        <>
-          <div style={label}>Текст диаграммы</div>
-          <textarea
-            {...noAutofill("process-import-modal-1")}
-            value={text}
-            onChange={(e) => { setText(e.target.value); setPreview(null); }}
-            placeholder={"sequenceDiagram\n    participant P1 as Покупатель\n    P1->>P2: создать заказ"}
-            spellCheck={false}
-            style={{
-              width: "100%", height: 180, fontFamily: "ui-monospace, Menlo, Consolas, monospace",
-              fontSize: 12, lineHeight: 1.6, padding: 10, borderRadius: 8,
-              border: "1px solid " + BPT.line, resize: "vertical", boxSizing: "border-box",
+        <div className="ds-win-body">
+          {loadError && <p className="ds-danger pim-line" role="alert">{loadError}</p>}
+
+          {single ? (
+            <SingleDraft
+              v={view[0]}
+              replace={!!replace}
+              onName={(name) => patch(view[0].d.key, { name })}
+              onText={(raw) => patch(view[0].d.key, { raw, failure: null, fileError: null })}
+              onChoose={(alias, id) => patch(view[0].d.key, { choice: { ...view[0].d.choice, [alias]: id } })}
+              schema={schema}
+            />
+          ) : (
+            <div className="pim-rows">
+              {view.map((v) => {
+                const isOpen = open[v.d.key] ?? hasIssues(v.preview, v.errors.length > 0, v.keep);
+                return (
+                  <div key={v.d.key} className="pim-row">
+                    <div className="pim-row-head">
+                      <button
+                        type="button"
+                        className="pim-row-chev"
+                        aria-expanded={isOpen}
+                        aria-label={isOpen ? "Свернуть" : "Раскрыть"}
+                        onClick={() => setOpen((o) => ({ ...o, [v.d.key]: !isOpen }))}
+                      >
+                        <span className={"ds-chev" + (isOpen ? "" : " is-closed")}><ChevronDownIcon /></span>
+                      </button>
+                      <input
+                        {...noAutofill(`process-import-name-${v.d.key}`)}
+                        className="ds-field pim-row-name"
+                        value={v.name}
+                        maxLength={256}
+                        placeholder="Название процесса"
+                        aria-label="Название процесса"
+                        onChange={(e) => patch(v.d.key, { name: e.target.value })}
+                      />
+                      {v.preview && (
+                        <span className="pim-row-steps">
+                          {v.preview.message_count} {plural(v.preview.message_count, ["шаг", "шага", "шагов"])}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="ds-del"
+                        title="Убрать из импорта"
+                        aria-label="Убрать из импорта"
+                        onClick={() => setDrafts((cur) => cur.filter((d) => d.key !== v.d.key))}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {isOpen && (
+                      <div className="pim-row-body">
+                        <ImportDraftIssues
+                          preview={v.preview}
+                          choice={v.d.choice}
+                          onChoose={(alias, id) => {
+                            patch(v.d.key, { choice: { ...v.d.choice, [alias]: id } });
+                            // Строка раскрыта сама (были проблемы); выбор их может снять, и
+                            // строка свернулась бы из-под рук: раскрытие закрепляется.
+                            setOpen((o) => ({ ...o, [v.d.key]: o[v.d.key] ?? true }));
+                          }}
+                          errors={v.errors}
+                          keep={v.keep}
+                          schema={schema}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="ds-win-foot">
+          <button type="button" className="ds-add" onClick={() => fileInput.current?.click()}>
+            {replace ? "Выбрать файл" : "Выбрать файлы"}
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".mmd,.md,.txt"
+            multiple={!replace}
+            hidden
+            onChange={(e) => {
+              const files = e.target.files;
+              if (files) void addFiles(files);
+              e.target.value = ""; // тот же файл можно выбрать ещё раз
             }}
           />
-          <div style={{ ...label, marginTop: 12 }}>Название процесса</div>
-          <input
-            {...noAutofill("process-import-modal-2")}
-            className="bp-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Импортированный процесс"
-          />
-
-          {preview && (
-            <div style={{ marginTop: 14 }}>
-              <div style={label}>Участники: с чем сопоставились</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflow: "auto" }}>
-                {preview.participants.map((p) => (
-                  <div key={p.alias} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, color: BPT.head, minWidth: 150 }}>{p.name}</span>
-                    <select
-                      className="bp-input"
-                      style={{ flex: 1, height: 30 }}
-                      value={mapping[p.alias] ?? ""}
-                      onChange={(e) =>
-                        setMapping((m) => ({ ...m, [p.alias]: e.target.value }))
-                      }
-                    >
-                      <option value="">Без объекта схемы</option>
-                      {p.candidates.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}{c.parent_name ? ` (в ${c.parent_name})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize: 12, color: BPT.mut, marginTop: 8, lineHeight: 1.5 }}>
-                Шагов: {preview.message_count} · фрагментов: {preview.fragment_count}
-                {unbound > 0 && (
-                  <span style={{ color: BROKEN.ink }}>
-                    {" "}· без объекта останется участников: {unbound} (они попадут в
-                    рекомендации проекта, привязать можно потом)
-                  </span>
-                )}
-              </div>
-              {preview.unsupported.length > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={label}>Не удалось разобрать</div>
-                  <ul style={{ margin: 0, paddingLeft: 18, color: BPT.mut, fontSize: 12 }}>
-                    {preview.unsupported.map((u, i) => <li key={i}>{u}</li>)}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {error && <div style={{ color: "#dc2626", fontSize: 12, marginTop: 10 }}>{error}</div>}
-          {limit && (
-            <div style={{ color: "#dc2626", fontSize: 12, marginTop: 10 }} role="alert">
-              <LimitText message={limit} />
-            </div>
-          )}
-
-          {/* Главная кнопка слева, «Отмена» справа — правило окон (ревизия текстов, Р7). */}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-            {preview ? (
-              <button style={primaryBtn} onClick={() => void doImport()} disabled={busy}>
-                Импортировать
-              </button>
-            ) : (
-              <button
-                style={primaryBtn}
-                onClick={() => void doPreview()}
-                disabled={busy || !text.trim()}
-              >
-                Разобрать
-              </button>
-            )}
-            <button style={secondaryBtn} onClick={onClose}>Отмена</button>
+          <div className="pim-btns">
+            <button type="button" className="ds-btn ds-btn--primary" disabled={!canSubmit} onClick={() => void submit()}>
+              {button}
+            </button>
+            <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </Modal>
+  );
+}
+
+// Один черновик: поле названия, текст диаграммы и его проблемы. Без списка.
+function SingleDraft({ v, replace, onName, onText, onChoose, schema }: {
+  v: {
+    d: Draft;
+    preview: ProcessImportPreview | null;
+    name: string;
+    keep: DocKeep | null;
+    errors: DraftFailure[];
+  };
+  replace: boolean;
+  onName: (name: string) => void;
+  onText: (raw: string) => void;
+  onChoose: (alias: string, nodeId: string) => void;
+  schema: SchemaNodes;
+}) {
+  return (
+    <>
+      <input
+        {...noAutofill("process-import-name")}
+        className="ds-input pim-name"
+        value={v.name}
+        maxLength={256}
+        placeholder="Название процесса"
+        aria-label="Название процесса"
+        onChange={(e) => onName(e.target.value)}
+      />
+      <textarea
+        {...noAutofill("process-import-text")}
+        className="pim-text"
+        value={v.d.raw}
+        placeholder={PLACEHOLDER}
+        aria-label={replace ? "Новый текст процесса" : "Текст диаграммы"}
+        spellCheck={false}
+        data-autofocus
+        onChange={(e) => onText(e.target.value)}
+      />
+      <ImportDraftIssues
+        preview={v.preview}
+        choice={v.d.choice}
+        onChoose={onChoose}
+        errors={v.errors}
+        keep={v.keep}
+        schema={schema}
+      />
+    </>
   );
 }

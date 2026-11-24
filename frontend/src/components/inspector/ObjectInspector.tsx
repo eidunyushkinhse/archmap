@@ -1,14 +1,18 @@
-// Оркестратор правой панели (Вариант A · «Тихий бар»): мета выбранного объекта
-// (узел/связь) либо пустое состояние. Всё, что относится к СТАТУСАМ схемы —
-// переключатель вида и легенда цветов, — живёт в шапке редактора: держать это в
-// двух местах значило путать, какой из переключателей главный (находка проверки
-// 2026-08-08). Одна область меты для наблюдателя и
-// архитектора: роли различает сам NodeInspector/EdgeInspector.
+// Правая панель редактора-карты (редизайн, направление А «Документ»): объект, связь или
+// объект с другого уровня (гость, проекция чужого узла, только просмотр). Панели нет,
+// пока ничего не выбрано: MapEditorPage рисует её только при выборе. Открывают её
+// двойной клик по объекту, гостю или связи и клик по листу в дереве; закрывают крестик в
+// заголовке, Escape, двойной клик по пустому холсту, смена уровня и удаление. Панель
+// входит в раскладку экрана, но объекты на холсте при её появлении не сдвигаются: вид
+// React Flow при смене ширины холста не пересчитывается.
+//
+// Всё, что относится к СТАТУСАМ схемы — переключатель вида и «Принять переход», — живёт в
+// шапке редактора (находка проверки 2026-08-08).
 import type { AncestorRef, Edge, EdgeUpdate, DeletionSnapshot, GhostNode, Node, LevelEdge } from "../../types";
 import NodeInspector from "./NodeInspector";
 import EdgeInspector from "./EdgeInspector";
 import GhostInspector from "./GhostInspector";
-import "./inspector.css";
+import "./panel.css";
 
 // Что показано в панели: узел-локал, связь, ГОСТЬ (проекция чужого узла, read-only) или
 // ничего. Источник правды — MapEditorPage (двойной клик по объекту наполняет панель).
@@ -19,31 +23,30 @@ export type Selected =
   | null;
 
 interface Props {
-  selected: Selected;
-  // Предки выбранного узла от корня (у гостя путь свой — ghost.ancestors): строка
-  // «Элемент архитектуры» берёт из них контейнер компонента.
+  selected: NonNullable<Selected>;
+  // Предки выбранного узла от корня (у гостя путь свой — ghost.ancestors): строка «Тип»
+  // решает по ним, какие типы возможны.
   nodeAncestors: readonly AncestorRef[];
   isArchitect: boolean;
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
   onEdgeSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
   onEdgeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
-  onGhostGoToSource: (ghost: GhostNode) => void;
-  // Переход на страницу узла (раздел «Документация» инспектора узла и гостя) —
-  // единственный путь из панели на страницу
+  // «Показать на схеме» у гостя: уровень, где объект живёт, и подсветка объекта.
+  onShowGhost: (ghost: GhostNode) => void;
+  // «Открыть страницу объекта» в заголовке панели объекта и гостя.
   onNavigateNode: (nodeId: string) => void;
+  // Крестик в заголовке.
+  onClose: () => void;
 }
 
 export default function ObjectInspector({
   selected, nodeAncestors, isArchitect,
-  onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
-  onNavigateNode,
+  onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted, onShowGhost, onNavigateNode, onClose,
 }: Props) {
   return (
-    <div className="insp">
-      {!selected ? (
-        <InspectorEmpty />
-      ) : selected.kind === "node" ? (
+    <aside className="ip-panel" aria-label={selected.kind === "edge" ? "Связь" : "Объект"}>
+      {selected.kind === "node" ? (
         <NodeInspector
           key={selected.node.id}
           node={selected.node}
@@ -52,13 +55,15 @@ export default function ObjectInspector({
           onNodeSaved={onNodeSaved}
           onNodeDeleted={onNodeDeleted}
           onNavigateNode={onNavigateNode}
+          onClose={onClose}
         />
       ) : selected.kind === "ghost" ? (
         <GhostInspector
           key={selected.ghost.id}
           ghost={selected.ghost}
-          onGoToSource={onGhostGoToSource}
+          onShowOnMap={onShowGhost}
           onNavigateNode={onNavigateNode}
+          onClose={onClose}
         />
       ) : (
         <EdgeInspector
@@ -67,20 +72,9 @@ export default function ObjectInspector({
           isArchitect={isArchitect}
           onEdgeSaved={onEdgeSaved}
           onEdgeDeleted={onEdgeDeleted}
+          onClose={onClose}
         />
       )}
-    </div>
+    </aside>
   );
 }
-
-function InspectorEmpty() {
-  return (
-    <div className="insp-empty">
-      <div className="insp-empty-title">Объект не выбран</div>
-      <div className="insp-empty-hint">Дважды кликните объект или связь на схеме, чтобы увидеть и изменить их свойства.</div>
-    </div>
-  );
-}
-
-// Легенда статусов в панели (свотч + подпись + счётчик). Строки статусов, скрытых
-// текущим видом, гасим и показываем «—» вместо счётчика. Переехала с холста сюда (B4).

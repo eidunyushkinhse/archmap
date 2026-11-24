@@ -1,5 +1,7 @@
 // Поле «Тип» (Р35–Р37 раздела 13 docs/plan-c4-elements.md) — выпадашка из шести типов,
 // один рендер на окно «Новый объект», инспектор редактора и «Свойства» страницы объекта.
+// В окне меню живёт слоем position: fixed (fixedMenu, nodePage/useFixedMenu): тело окна
+// прокручивается и обрезало бы absolute-меню.
 // Пункт — только название типа (подсказки под названием убраны по решению владельца
 // 2026-11-01); серый пункт (aria-disabled) не выбирается. Какие пункты серые, решает
 // чистая модель typeOptions; здесь только разметка и клавиатура.
@@ -10,6 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { TYPE_LABEL, type NodeType } from "../nodeTerms";
+import { useFixedMenu } from "../nodePage/useFixedMenu";
 import type { TypeOption } from "./typeOptions";
 import "./element.css";
 
@@ -33,15 +36,18 @@ interface Props {
   // Значение видно, но меню не открывается: в окне «Новый объект» тип задаёт плитка,
   // пока обучающий тур на шаге создания с неё.
   disabled?: boolean;
+  // Меню слоем position: fixed от кнопки: поле стоит в прокручиваемом теле окна.
+  fixedMenu?: boolean;
 }
 
 export default function TypeSelect({
   value, valueLabel, options, onPick, triggerClass, chevron, placeholder = "Выберите тип", label, inline = false,
-  disabled = false,
+  disabled = false, fixedMenu = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  useFixedMenu(open && fixedMenu, trigger, menu, 4, () => setOpen(false));
 
   // Открытое меню — фокус на выбранном пункте (или первом): с клавиатуры выбирают сразу.
   useEffect(() => {

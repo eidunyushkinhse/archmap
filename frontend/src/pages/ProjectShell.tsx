@@ -1,10 +1,8 @@
-// Оболочка проекта (pages_pivot): шапка (лого, свитчер, режим, экспорт, профиль,
-// индикатор алертов), дерево с навигацией на страницы, NodePage / ProcessWorkspace /
-// DeploymentPage (режим «Развёртывание»).
+// Оболочка проекта (pages_pivot): шапка (ProjectShellHeader: лого, список проектов, режим,
+// рекомендации, действия со схемой, профиль), дерево с навигацией на страницы, NodePage /
+// ProcessWorkspace / DeploymentPage (режим «Развёртывание»).
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
-import { workBodyRow as bodyRow, workDivider as divider, workPage as page, workTopBar, workTopLeft as topLeft } from "../ui/pageChrome";
-import { getUserRole } from "../api/auth";
+import { workBodyRow as bodyRow, workPage as page } from "../ui/pageChrome";
 import { canEditProject, useProjectRole } from "./projectRole";
 import type { Node } from "../types";
 import { exportApi } from "../api/nodes";
@@ -15,20 +13,15 @@ import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import DeploymentPage from "./DeploymentPage";
 import { processesApi } from "../api/processes";
-import SchemaActions, { type ExportScope } from "../components/SchemaActions";
-import AccountMenu from "../components/users/AccountMenu";
-import ProjectSwitcher from "../components/ProjectSwitcher";
-import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
+import type { ExportScope } from "../components/SchemaActions";
+import type { LocateTarget } from "../components/SchemaAlerts";
+import ProjectShellHeader from "./ProjectShellHeader";
 import CodeChangeNotice from "../components/project/CodeChangeNotice";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
-import Modal from "../ui/Modal";
-import { primaryBtn, secondaryBtn } from "../ui/styles";
-import BrandLink from "../ui/BrandLink";
-import "../ui/chrome.css";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import "../components/NodeTreePanel.css";
 import { safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
-import DialogTitle from "../ui/DialogTitle";
 import type { WorkMode } from "./workMode";
 import { warmLayoutWorker } from "../components/graph/layout/pipelineClient";
 
@@ -175,49 +168,28 @@ export default function ProjectShell({
   return (
     <div style={page}>
       {/* ── Шапка ─────────────────────────────────────────────── */}
-      <div style={topBar}>
-        <div style={topLeft}>
-          <BrandLink onClick={onAllProjects} />
-          <span style={divider} />
-          <ProjectSwitcher
-            projectId={projectId}
-            // Свитчеру нужна ГЛОБАЛЬНАЯ роль: «+ Новый проект» — право architect.
-            isArchitect={getUserRole() === "architect"}
-            onAllProjects={onAllProjects}
-            onSwitchProject={onSwitchProject}
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <ModeSwitch mode={mode} onChange={switchMode} />
-          {/* Кнопка «Рекомендации» (архитектор): в шапке для глобальной видимости;
-              клик по пункту ведёт на страницу объекта или в редактор-карту.
-              Размер — как у соседних «трёх точек» (34). */}
-          {isArchitect && (
-            <SchemaAlerts
-              alerts={alerts}
-              size={34}
-              onLocate={handleAlertLocate}
-              // Повисшее сообщение чинят в процессе, а не на схеме: открываем его
-              // тем же путём, что клик по процессу на странице объекта.
-              onOpenProcess={(processId) => { setProcInitial(processId); leaveTo("proc"); }}
-            />
-          )}
-          <SchemaActions
-            projectId={projectId}
-            isArchitect={isArchitect}
-            exportScope={exportScope}
-            syncHidden={mode === "proc"}
-            onSynced={() => {
-              setTreeReload((t) => t + 1);
-              setSyncToken((t) => t + 1);
-              // обновление из кода снимает напоминание о слиянии: плашка гаснет сразу
-              reloadAlerts();
-            }}
-          />
-          <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
-        </div>
-      </div>
+      <ProjectShellHeader
+        projectId={projectId}
+        mode={mode}
+        onModeChange={switchMode}
+        isArchitect={isArchitect}
+        alerts={alerts}
+        onLocate={handleAlertLocate}
+        // Повисшее сообщение чинят в процессе, а не на схеме: открываем его тем же путём,
+        // что клик по процессу на странице объекта.
+        onOpenProcess={(processId) => { setProcInitial(processId); leaveTo("proc"); }}
+        exportScope={exportScope}
+        onSynced={() => {
+          setTreeReload((t) => t + 1);
+          setSyncToken((t) => t + 1);
+          // обновление из кода снимает напоминание о слиянии: плашка гаснет сразу
+          reloadAlerts();
+        }}
+        onLogout={onLogout}
+        onOpenUsers={onOpenUsers}
+        onAllProjects={onAllProjects}
+        onSwitchProject={onSwitchProject}
+      />
 
       {/* Код ушёл вперёд документации: CI сообщил о слиянии в репозиторий проекта. */}
       {isArchitect && (
@@ -315,95 +287,18 @@ export default function ProjectShell({
         />
       )}
 
-      {/* Подтверждение перехода в редактор для алертов про несколько объектов */}
+      {/* Подтверждение перехода в редактор для алертов про несколько объектов: общее
+          подтверждение нового языка, синяя главная кнопка (шаг не разрушает). */}
       {editorConfirmTarget && (
-        <Modal onClose={() => setEditorConfirmTarget(null)} boxStyle={{ width: 420 }}>
-          <DialogTitle lead={<>
-            Эта рекомендация касается нескольких объектов, их можно показать только
-            в редакторе схемы.
-          </>}>
-            Открыть редактор схемы?
-          </DialogTitle>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={confirmGoToEditor} style={primaryBtn}>Открыть</button>
-            <button type="button" onClick={() => setEditorConfirmTarget(null)} style={secondaryBtn}>Отмена</button>
-          </div>
-        </Modal>
+        <ConfirmDialog
+          tone="neutral"
+          title="Открыть редактор схемы?"
+          lead="Эта рекомендация касается нескольких объектов, их можно показать только в редакторе схемы."
+          confirmLabel="Открыть"
+          onConfirm={confirmGoToEditor}
+          onCancel={() => setEditorConfirmTarget(null)}
+        />
       )}
     </div>
   );
 }
-
-// Сегмент-переключатель «Объекты / Процессы / Развёртывание» со скользящей подсветкой
-// активной вкладки (плавный transition transform). Вкладки равной ширины — по трети.
-const MODE_INDEX: Record<WorkMode, number> = { schema: 0, proc: 1, deploy: 2 };
-
-function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode) => void }) {
-  const tab = (active: boolean): CSSProperties => ({
-    position: "relative",
-    zIndex: 1,
-    flex: 1,
-    height: 30,
-    padding: "0 12px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    fontSize: 13,
-    fontWeight: 600,
-    borderRadius: 7,
-    cursor: "pointer",
-    border: "none",
-    fontFamily: "inherit",
-    color: active ? "#2563eb" : "#64748b",
-    background: "transparent",
-    transition: "color .22s",
-  });
-  return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "stretch", width: 450, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
-      {/* Скользящая подсветка активной вкладки */}
-      <div
-        aria-hidden
-        style={{
-          position: "absolute",
-          top: 3,
-          bottom: 3,
-          left: 3,
-          width: "calc((100% - 6px) / 3)",
-          background: "#fff",
-          borderRadius: 7,
-          boxShadow: "0 1px 2px rgba(15,23,42,.10)",
-          transform: `translateX(${MODE_INDEX[mode] * 100}%)`,
-          transition: "transform .22s cubic-bezier(.4,0,.2,1)",
-        }}
-      />
-      <button style={tab(mode === "schema")} data-tour="mode-schema" onClick={() => onChange("schema")} title="Объекты: схема и страницы">
-        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-          <rect x="9" y="3" width="6" height="4.5" rx="1" /><rect x="3" y="16.5" width="6" height="4.5" rx="1" /><rect x="15" y="16.5" width="6" height="4.5" rx="1" /><path d="M12 7.5 V11 M6 16.5 V13 H18 V16.5" />
-        </svg>
-        Объекты
-      </button>
-      <button style={tab(mode === "proc")} data-tour="mode-proc" onClick={() => onChange("proc")} title="Бизнес-процессы">
-        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" /><path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
-        </svg>
-        Процессы
-      </button>
-      <button style={tab(mode === "deploy")} data-tour="mode-deploy" onClick={() => onChange("deploy")} title="Развёртывание: где работают объекты">
-        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-          <rect x="4" y="3.5" width="16" height="7.5" rx="1.5" /><rect x="4" y="13" width="16" height="7.5" rx="1.5" /><path d="M8 7.25 H8.01 M8 16.75 H8.01" strokeWidth={2.6} />
-        </svg>
-        Развёртывание
-      </button>
-    </div>
-  );
-}
-
-// ── Стили ───────────────────────────────────────────────────────────
-
-// Своя плоскость наложения выше тела страницы: панель алертов раскрывается ИЗ шапки,
-// и без этого её z-index (50) ничего не решал бы — тело страницы рисуется позже и
-// перекрывало бы её целиком.
-const topBar: CSSProperties = { ...workTopBar, position: "relative", zIndex: 50 };
-// Стиль иконочных кнопок шапки и тост синка переехали в SchemaActions вместе с
-// самими кнопками — здесь их больше нет намеренно.

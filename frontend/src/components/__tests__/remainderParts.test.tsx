@@ -3,13 +3,13 @@
 //
 // Что закрепляем: кап списка и фильтр (в крупной системе путей сотни, а решение
 // принимается по первым строкам); форма новой связи не отдаёт ответ, пока нет
-// обоих концов, и сама переходит на конец после выбора начала; «Склеить» со
+// обоих концов, и сама переходит на конец после выбора начала; «Объединить» со
 // своим именем отдаёт именно его; Escape закрывает ВЬЮЕР и не уходит выше — под
 // ним нативный <dialog> окна, который иначе закрылся бы заодно.
 import { useState } from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import type { ComponentOut, FuzzyPairOut } from "../../types";
 import type { NewEdgesAnswer } from "../project/remainder/questions";
 import { draftFromAnswer, emptyEdgesDraft, mergeDraftFor } from "../project/remainder/drafts";
@@ -17,6 +17,7 @@ import type { EdgesDraft, MergeDraft } from "../project/remainder/drafts";
 import ObjectList from "../project/remainder/ObjectList";
 import NewEdgeForm from "../project/remainder/NewEdgeForm";
 import MergeNameStep from "../project/remainder/MergeNameStep";
+import ObjectCombobox from "../project/remainder/ObjectCombobox";
 import DocViewer from "../project/remainder/DocViewer";
 
 vi.mock("../MermaidRenderer", () => ({
@@ -32,9 +33,38 @@ describe("ObjectList (§5.3)", () => {
     expect(screen.getAllByRole("button")).toHaveLength(5); // 4 варианта + «Показать остальные»
     expect(screen.getByText("Компонент 4")).toBeInTheDocument();
     expect(screen.queryByText("Компонент 5")).toBeNull();
+    // Кнопка-текст и поле поиска — примитивы нового языка (фаза 8а).
+    expect(screen.getByRole("button", { name: "Показать остальные 3" })).toHaveClass("ds-add");
     await userEvent.click(screen.getByRole("button", { name: "Показать остальные 3" }));
+    expect(screen.getByLabelText("Поиск по имени")).toHaveClass("ds-input");
     expect(screen.getByText("Компонент 7")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Показать остальные/ })).toBeNull();
+  });
+
+  it("до шести объектов — все сразу, без «Показать остальные» и без поиска (фаза 8б)", () => {
+    for (const n of [5, 6]) {
+      const { unmount } = render(<ObjectList items={дерево(n)} base="Zabbix" onPick={vi.fn()} />);
+      expect(screen.getAllByRole("button")).toHaveLength(n);
+      expect(screen.getByText(`Компонент ${n}`)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Показать остальные/ })).toBeNull();
+      expect(screen.queryByLabelText("Поиск по имени")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("раскрытый список встаёт в вид окна: поле поиска и начало списка (фаза 8б)", async () => {
+    const вид = vi.spyOn(Element.prototype, "scrollIntoView");
+    // В jsdom метод — общая заглушка (test-setup): вызовы прошлых тестов не в счёт.
+    вид.mockClear();
+    render(<ObjectList items={дерево(9)} base="Zabbix" onPick={vi.fn()} />);
+    expect(вид).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Показать остальные 5" }));
+    expect(вид).toHaveBeenCalledWith({ block: "nearest" });
+    // Прокручивается в вид блок, где поле поиска стоит первым, а список за ним.
+    const блок = вид.mock.contexts.at(-1) as Element;
+    expect(блок.firstElementChild).toBe(screen.getByLabelText("Поиск по имени"));
+    expect(блок.querySelector(".rq-scroll")).not.toBeNull();
+    вид.mockRestore();
   });
 
   it("у объекта с вложенными — тег, у пути — серый префикс и полужирный хвост", () => {
@@ -122,16 +152,50 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
 
   it("строка на каждый объект группы: видно, у кого связей нет", () => {
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
-    // Левые поля — сами объекты группы, они не редактируются.
+    // Слева — сами объекты группы, они не редактируются.
     expect(screen.getByText("Плагин")).toBeInTheDocument();
     expect(screen.getByText("Датасорс")).toBeInTheDocument();
     expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(поле()).toHaveAttribute("placeholder", "Имя объекта");
-    expect(screen.getAllByLabelText(/^Описание связи/)).toHaveLength(2);
-    expect(screen.getAllByLabelText(/^Технология связи/)).toHaveLength(2);
+    // Поля описания и технологии — только у строки с выбранным соседом (фаза 8б).
+    expect(screen.queryAllByLabelText(/^Описание связи/)).toHaveLength(0);
+    expect(screen.queryAllByLabelText(/^Технология связи/)).toHaveLength(0);
     // Типа канала в форме нет вовсе — его задают в «Процессах».
     expect(screen.queryByText("Синхронный")).toBeNull();
     expect(screen.queryByText("Асинхронный")).toBeNull();
+  });
+
+  it("объект слева — текст: имя отдельно от тихого префикса, полный путь в подсказке (фаза 8б)", () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    const имя = screen.getByText("Датасорс");
+    expect(имя).toHaveClass("rq-eobj-name");
+    const объект = имя.closest(".rq-eobj")!;
+    expect(объект).toHaveAttribute("title", "Плагин / Датасорс");
+    expect(объект.querySelector(".rq-eobj-pre")?.textContent).toBe("Плагин /");
+    // Ни поля, ни кнопки: объект строки не выбирается.
+    expect(объект.closest("input, button")).toBeNull();
+    expect(объект.querySelector("input, button")).toBeNull();
+    // У объекта без префикса — одно имя.
+    expect(screen.getByText("Плагин").closest(".rq-eobj")?.querySelector(".rq-eobj-pre")).toBeNull();
+  });
+
+  it("поля связи появляются с выбором соседа; очищенный сосед их прячет, тексты остаются (фаза 8б)", async () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
+    const описание = screen.getByLabelText("Описание связи от «Плагин»");
+    expect(описание).toHaveAttribute("placeholder", "Что ходит по связи");
+    expect(screen.getByLabelText("Технология связи от «Плагин»")).toHaveAttribute("placeholder", "Технология, например HTTP");
+    // Вторая строка формы — только у первой строки, у второй соседа нет.
+    expect(screen.getAllByLabelText(/^Описание связи/)).toHaveLength(1);
+    await userEvent.type(описание, "метрики");
+    await userEvent.type(screen.getByLabelText("Технология связи от «Плагин»"), "HTTP");
+    await userEvent.click(screen.getByLabelText("Очистить выбор"));
+    expect(screen.queryAllByLabelText(/^Описание связи/)).toHaveLength(0);
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 2/ }));
+    expect(screen.getByLabelText("Описание связи от «Плагин»")).toHaveValue("метрики");
+    expect(screen.getByLabelText("Технология связи от «Плагин»")).toHaveValue("HTTP");
   });
 
   it("поле само фильтрует список под собой, свой объект в нём не предлагается", async () => {
@@ -225,6 +289,24 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     });
   });
 
+  it("кнопки и поля нового языка: «Провести связь» первой, подписей над полями нет", async () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    const провести = screen.getByRole("button", { name: /^Провести связ/ });
+    const назад = screen.getByRole("button", { name: "Назад к вопросу" });
+    expect(провести).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(назад).toHaveClass("ds-btn");
+    expect(провести.compareDocumentPosition(назад) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
+    for (const поле of screen.getAllByLabelText(/^(Описание|Технология) связи/)) expect(поле).toHaveClass("ds-input");
+    for (const поле of screen.getAllByRole("combobox")) expect(поле).toHaveClass("ds-input");
+    // Подписи «Описание» и «Технология» над полями убраны: поле называет плейсхолдер.
+    expect(screen.queryByText("Описание")).toBeNull();
+    expect(screen.queryByText("Технология")).toBeNull();
+    // Переключатель направления — тихая кнопка-значок.
+    expect(screen.getAllByRole("button", { name: "Поменять направление" })[0]).toHaveClass("ds-icon-btn");
+  });
+
   it("«Назад к вопросу» ничего не отдаёт", async () => {
     const onAdd = vi.fn();
     const onBack = vi.fn();
@@ -249,6 +331,155 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
   });
 });
 
+describe("ObjectCombobox: список поверх окна (фаза 8б)", () => {
+  // jsdom раскладку не считает: прямоугольник поля и высоту содержимого списка задаём сами.
+  // Экран jsdom — 1024×768.
+  // Высота содержимого списка — своим свойством прототипа HTMLElement (у jsdom она 0 и
+  // живёт на Element.prototype); после теста свойство снимается.
+  afterEach(() => { Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight"); });
+
+  function открыть(rect: { top: number; left: number; width: number }, высота = 600) {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) { return this.classList.contains("rq-cbo-list") ? высота : 0; },
+    });
+    const onChange = vi.fn();
+    render(<ObjectCombobox items={дерево(30)} value={null} onChange={onChange} label="Сосед" />);
+    const поле = screen.getByRole("combobox");
+    const прямоугольник = { ...rect };
+    поле.getBoundingClientRect = () => ({
+      top: прямоугольник.top, bottom: прямоугольник.top + 30, left: прямоугольник.left,
+      right: прямоугольник.left + прямоугольник.width, width: прямоугольник.width, height: 30,
+      x: прямоугольник.left, y: прямоугольник.top, toJSON: () => ({}),
+    }) as DOMRect;
+    return {
+      поле, прямоугольник, onChange,
+      список: () => screen.getByRole("listbox"),
+    };
+  }
+
+  it("снизу хватает места — под полем: ширина не меньше 320, высота не больше 320", async () => {
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    const s = с.список().style;
+    expect(s.top).toBe("134px");
+    expect(s.bottom).toBe("auto");
+    expect(s.left).toBe("40px");
+    expect(s.width).toBe("320px");
+    expect(s.maxHeight).toBe("320px");
+  });
+
+  it("у нижнего края — над полем, нижним краем к полю; правый край экрана не переходит", async () => {
+    const с = открыть({ top: 700, left: 900, width: 100 });
+    await userEvent.click(с.поле);
+    const s = с.список().style;
+    // 768 − 700 + 4: нижний край списка в 4px над полем.
+    expect(s.bottom).toBe("72px");
+    expect(s.top).toBe("auto");
+    expect(s.maxHeight).toBe("320px");
+    // 1024 − 12 − 320: список прижат к правому краю экрана с полем 12px.
+    expect(s.left).toBe("692px");
+  });
+
+  it("высота не больше свободного места до края экрана без 12px", async () => {
+    const с = открыть({ top: 500, left: 40, width: 400 });
+    await userEvent.click(с.поле);
+    // Снизу 768 − 530 − 4 − 12 = 222 < 320 и меньше, чем сверху (484): список над полем.
+    expect(с.список().style.bottom).toBe("272px");
+    expect(с.список().style.width).toBe("400px");
+    cleanup();
+    const м = открыть({ top: 500, left: 40, width: 400 }, 120);
+    await userEvent.click(м.поле);
+    // Короткий список помещается снизу: под полем, предел — свободное место (222).
+    expect(м.список().style.top).toBe("534px");
+    expect(м.список().style.maxHeight).toBe("222px");
+  });
+
+  it("прокрутка тела окна двигает список за полем, прокрутка списка его не закрывает", async () => {
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    с.прямоугольник.top = 60;
+    fireEvent.scroll(document.body);
+    expect(с.список().style.top).toBe("94px");
+    fireEvent.scroll(с.список());
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("поле ушло из видимой части тела окна — список закрывается; видно краем — следует за полем", async () => {
+    // Тело окна — прокручиваемый предок поля: видимая часть от 100 до 400.
+    const тело = document.createElement("div");
+    тело.style.overflowY = "auto";
+    тело.getBoundingClientRect = () => ({
+      top: 100, bottom: 400, left: 0, right: 600, width: 600, height: 300, x: 0, y: 100, toJSON: () => ({}),
+    }) as DOMRect;
+    document.body.appendChild(тело);
+    render(<ObjectCombobox items={дерево(5)} value={null} onChange={vi.fn()} label="Сосед" />, { container: тело });
+    const поле = screen.getByRole("combobox");
+    const верх = { top: 150 };
+    поле.getBoundingClientRect = () => ({
+      top: верх.top, bottom: верх.top + 30, left: 40, right: 240, width: 200, height: 30,
+      x: 40, y: верх.top, toJSON: () => ({}),
+    }) as DOMRect;
+    await userEvent.click(поле);
+    // Поле наполовину ушло под верхний край тела — список на месте и следует за полем.
+    верх.top = 85;
+    fireEvent.scroll(тело);
+    expect(screen.getByRole("listbox").style.top).toBe("119px");
+    // Поле целиком над краем тела — список закрыт.
+    верх.top = 60;
+    fireEvent.scroll(тело);
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("щелчок по полю в фокусе открывает список: после Escape и после выбора; открытый не закрывает", async () => {
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(с.поле).toHaveFocus();
+    await userEvent.click(с.поле);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    // Щелчок по полю при открытом списке его не закрывает.
+    await userEvent.click(с.поле);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    // Выбрал, передумал, щёлкнул по полю — список снова открыт.
+    await userEvent.click(within(с.список()).getByRole("option", { name: /Компонент 3$/ }));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(с.поле).toHaveFocus();
+    await userEvent.click(с.поле);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("щелчок по строке выбирает её, Escape закрывает только список", async () => {
+    const выше = vi.fn();
+    document.addEventListener("keydown", выше);
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    await userEvent.click(within(с.список()).getByRole("option", { name: /Компонент 3$/ }));
+    expect(с.onChange).toHaveBeenCalledWith("Zabbix / Компонент 3");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    выше.mockClear();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(выше).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", выше);
+  });
+
+  it("подсвеченная клавиатурой строка прокручивается в вид списка", async () => {
+    const вид = vi.spyOn(Element.prototype, "scrollIntoView");
+    const с = открыть({ top: 100, left: 40, width: 200 });
+    await userEvent.click(с.поле);
+    вид.mockClear();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    expect(вид).toHaveBeenCalledWith({ block: "nearest" });
+    expect(вид.mock.contexts.at(-1)).toHaveClass("rq-cbo-row--on");
+    expect(вид.mock.contexts.at(-1)).toHaveTextContent("Компонент 3");
+    вид.mockRestore();
+  });
+});
+
 const пара: FuzzyPairOut = {
   id: "pair|Пользователь Zabbix|Пользователь",
   a_path: "Пользователь Zabbix", b_path: "Пользователь",
@@ -262,10 +493,35 @@ function MergeStepStand({ onApply }: { onApply: (name: string) => void }) {
 }
 
 describe("MergeNameStep (§4.5, шаг 2)", () => {
-  it("подписывает варианты источником и числом связей", () => {
+  it("подписывает имена только источником, у «Своё имя» подписи нет; без «·» (фаза 8б)", () => {
     render(<MergeStepStand onApply={vi.fn()} />);
-    expect(screen.getByText("Из файла zabbix.yaml · 2 связи")).toBeInTheDocument();
-    expect(screen.getByText("Из проекта · 1 связь")).toBeInTheDocument();
+    expect(screen.getByText("Из файла zabbix.yaml")).toBeInTheDocument();
+    expect(screen.getByText("Из проекта")).toBeInTheDocument();
+    // Сумму связей называет строка контекста над шагом, в вариантах числа связей нет.
+    expect(document.body.textContent).not.toMatch(/связ/);
+    expect(document.body.textContent).not.toContain("ни одно из двух не годится");
+    expect(screen.getByRole("button", { name: "Своё имя" })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("·");
+  });
+
+  it("«Назад к вопросу» есть всегда и ничего не отдаёт", async () => {
+    const onApply = vi.fn();
+    const onBack = vi.fn();
+    render(<MergeNameStep pair={пара} draft={mergeDraftFor(пара, "Пользователь")} onDraft={vi.fn()} onApply={onApply} onBack={onBack} />);
+    await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
+    expect(onBack).toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it("кнопки нового языка: «Объединить» первой, «Назад к вопросу» за ней; поле ds-input", async () => {
+    render(<MergeStepStand onApply={vi.fn()} />);
+    const кнопки = [screen.getByRole("button", { name: "Объединить" }), screen.getByRole("button", { name: "Назад к вопросу" })];
+    expect(кнопки[0]).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(кнопки[1]).toHaveClass("ds-btn");
+    expect(кнопки[1]).not.toHaveClass("ds-btn--primary");
+    expect(кнопки[0]!.compareDocumentPosition(кнопки[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(screen.getByText("Своё имя"));
+    expect(screen.getByLabelText("Своё имя")).toHaveClass("ds-input");
   });
 
   it("своё имя: пока пусто — «Объединить» неактивна, потом отдаёт введённое", async () => {
@@ -299,23 +555,39 @@ describe("DocViewer (§5.5, Р8)", () => {
     const onPick = vi.fn();
     const { unmount } = render(
       <DocViewer
-        title="Оформление заказа" source="Из файла zabbix.yaml" tag="mermaid · flowchart"
+        title="Оформление заказа" source="Из файла zabbix.yaml"
         body="flowchart TD" diagram onPick={onPick} onClose={onClose} {...props}
       />,
     );
     return { onClose, onPick, unmount };
   };
 
-  it("рисует схему логики и называет ключ с источником", () => {
+  it("рисует схему логики и называет ключ с источником: два элемента, без «·» и тега", () => {
     вьюер();
     expect(screen.getByTestId("mmd")).toHaveTextContent("flowchart TD");
-    expect(screen.getByText(/Оформление заказа/)).toBeInTheDocument();
-    expect(screen.getByText(/Из файла zabbix.yaml/)).toBeInTheDocument();
-    expect(screen.getByText("mermaid · flowchart")).toBeInTheDocument();
+    expect(screen.getByText("Оформление заказа")).toHaveClass("rq-ov-t");
+    expect(screen.getByText("Из файла zabbix.yaml")).toHaveClass("rq-ov-src");
+    const окно = screen.getByRole("dialog", { name: "Оформление заказа" });
+    // Шапка — только название и источник: ни «·», ни тега формата.
+    expect(окно.querySelector(".rq-ov-hd")?.textContent).toBe("Оформление заказаИз файла zabbix.yaml");
+    // Корень — в области нового языка, крестик — кнопка-значок.
+    expect(окно.closest(".rq-ov")).toHaveClass("ds");
+    expect(within(окно.querySelector(".rq-ov-hd") as HTMLElement).getByRole("button", { name: "Закрыть" }))
+      .toHaveClass("ds-icon-btn");
+  });
+
+  it("подвал: «Выбрать этот вариант» первой, «Закрыть» за ней", () => {
+    вьюер();
+    const подвал = document.querySelector(".rq-ov-ft") as HTMLElement;
+    const кнопки = within(подвал).getAllByRole("button");
+    expect(кнопки.map((b) => b.textContent)).toEqual(["Выбрать этот вариант", "Закрыть"]);
+    expect(кнопки[0]).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(кнопки[1]).toHaveClass("ds-btn");
+    expect(кнопки[1]).not.toHaveClass("ds-btn--primary");
   });
 
   it("не-схему показывает текстом", () => {
-    вьюер({ diagram: false, body: "PGHOST=localhost", tag: "параметр" });
+    вьюер({ diagram: false, body: "PGHOST=localhost" });
     expect(screen.queryByTestId("mmd")).toBeNull();
     expect(screen.getByText("PGHOST=localhost")).toBeInTheDocument();
   });
@@ -335,15 +607,17 @@ describe("DocViewer (§5.5, Р8)", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("колёсико над сценой зумит, а окно под ним не прокручивает (П9)", () => {
+  it("колёсико над сценой прокручивает, Ctrl с колёсиком зумит; окно под ним не прокручивается (П9)", () => {
     вьюер();
     const сцена = document.querySelector(".doc-pvstage");
     expect(сцена).not.toBeNull();
     expect(screen.getByText("100%")).toBeInTheDocument();
     // fireEvent возвращает false, когда обработчик погасил дефолт: окно под
-    // вьюером не прокручивается (хук вешает wheel с passive:false).
-    const дефолтЖив = fireEvent.wheel(сцена as Element, { deltaY: -100 });
-    expect(дефолтЖив).toBe(false);
+    // вьюером не прокручивается (хук вешает wheel с passive:false). Колёсико без
+    // Ctrl масштаб не меняет (редизайн, фаза 7а: колесо прокручивает схему).
+    expect(fireEvent.wheel(сцена as Element, { deltaY: -100 })).toBe(false);
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(fireEvent.wheel(сцена as Element, { deltaY: -100, ctrlKey: true })).toBe(false);
     expect(screen.getByText("115%")).toBeInTheDocument();
     // Кнопки пилюли — те же, что у превью доков.
     expect(screen.getByLabelText("Уменьшить")).toBeInTheDocument();
@@ -351,7 +625,7 @@ describe("DocViewer (§5.5, Р8)", () => {
   });
 
   it("текстовое тело сцены не заводит — зумить нечего", () => {
-    вьюер({ diagram: false, body: "PGHOST=localhost", tag: "параметр" });
+    вьюер({ diagram: false, body: "PGHOST=localhost" });
     expect(document.querySelector(".doc-pvstage")).toBeNull();
   });
 

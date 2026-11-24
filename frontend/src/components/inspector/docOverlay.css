@@ -1,81 +1,93 @@
 /* Оверлей документации (DocOverlay): широкий сплит «код | живое превью».
-   Токены — ТЗ «Визуализация Mermaid и OpenAPI» + принятая палитра панели. */
+   Всё на новом языке, значения только из ui/tokens.css, корень несёт область .ds: каркас,
+   шапка и чтение (редизайн, фаза 7а), стадия «Вручную», колонка кода читателя и сцена
+   превью (фаза 7б), стадия «Через ИИ-агента» малым окном семьи окон агента (фаза 7в).
+   Сцену превью этими же классами рисуют ER-диаграмма базы и просмотр документа в
+   вопросах слияния. */
 
 /* ── каркас ─────────────────────────────────────────────────────────────── */
 
 /* Размер задан на корне контента: <dialog> (fit-content) и обёртка Modal
-   обнимают его — сам Modal не трогаем, боксу хватает padding:0 из boxStyle. */
+   обнимают его — сам Modal не трогаем, боксу хватает padding:0 из boxStyle.
+   Окно во весь экран без полей по 32 px сверху и снизу (на 1440×900 — 836 px, без
+   прежнего предела 700 px), ширина прежняя: до 1120 px с полями по 32 px. */
 .doc-root {
   position: relative; /* слой вопроса «Закрыть без сохранения?» */
   width: min(1120px, calc(100vw - 64px));
-  height: min(700px, 92vh);
+  height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
+/* Шапка в одну строку под волосяной линией: имя объекта тихим цветом, название
+   заголовком окна, хвост (эндпоинт или «воркер»), справа действия стадии и крестик.
+   Высота постоянная: переход между чтением и правкой шапку не двигает. */
 .doc-head {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid #eef0f2;
+  gap: var(--space-4);
+  height: 56px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3) 0 var(--space-6);
+  border-bottom: 1px solid var(--c-line);
 }
-.doc-headglyph { display: flex; color: #64748b; }
-.doc-title {
-  flex: 1;
+/* Длинные имена — многоточием в одну строку. Первым сжимается имя объекта (доля сжатия
+   1000), но не до нуля: название с хвостом не шире строки без 4,5em. Внутри названия с
+   хвостом первым сжимается хвост, название схемы — последним. */
+.doc-headname {
+  flex: 1 1 auto;
   min-width: 0;
-  font-size: 15.5px;
-  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.doc-headobj,
+.doc-headtitle.ds-win-title,
+.doc-headtail {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.doc-title span { color: #94a3b8; font-weight: 600; }
-.doc-tag {
-  flex: none;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: #7c5cd6;
-  background: #f3efff;
-  border-radius: 5px;
-  padding: 3px 8px;
-  white-space: nowrap;
+.doc-headobj {
+  flex: 0 1000 auto;
+  color: var(--c-fg-muted);
 }
-.doc-tag--oas { color: #0f766e; background: #e8f7f3; }
-
-/* Ghost-кнопка «Показать код» (наблюдатель) */
-.doc-codebtn {
+.doc-headmain {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 4.5em);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.doc-headtitle.ds-win-title {
+  flex: 0 1 auto;
+}
+.doc-headtail {
+  flex: 0 1000 auto;
+  max-width: 50%;
+  color: var(--c-fg-muted);
+}
+.doc-headtail--mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+.doc-headacts {
   flex: none;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 7px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 7px 13px;
-  cursor: pointer;
+  gap: var(--space-2);
 }
-.doc-codebtn:hover { background: #f1f5f9; }
-
-/* Крестик в шапке (свой — Modal рендерится с closeButton=false) */
-.doc-x {
+/* Строка предупреждения под шапкой (ds-warn) для чтения: конфликт, схемы не загрузились. */
+.ds-warn.doc-notice {
   flex: none;
-  width: 30px;
-  height: 30px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-  display: grid;
-  place-items: center;
-  color: #64748b;
-  cursor: pointer;
+  margin: 0;
+  max-width: none;
+  padding: var(--space-2) var(--space-6);
 }
-.doc-x:hover { color: #1e293b; }
 
 .doc-body {
   flex: 1;
@@ -98,401 +110,346 @@
   min-height: 0;
 }
 
-/* Плашка конфликта в шапке (409 при записи спеки со страницы) */
-.doc-tag--notice { color: #92400e; background: #fef3c7; }
-
-/* Кнопки шапки «Вручную»: «Отмена» — тихая, «Сохранить» — основная */
-.doc-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 7px 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.doc-btn:hover { background: #f8fafc; }
-.doc-btn--primary { background: #2563eb; border-color: #2563eb; color: #fff; }
-.doc-btn--primary:hover { background: #1d4ed8; }
-.doc-btn--primary:disabled { opacity: 0.55; cursor: default; }
-.doc-btn--ghost { border-color: transparent; background: none; color: #64748b; }
-.doc-btn--ghost:hover { color: #1e293b; background: #f1f5f9; }
-
-/* «← К схеме» в режиме агента */
-.doc-back {
-  flex: none;
-  font: inherit;
-  font-size: 12.5px;
-  color: #64748b;
-  background: none;
-  border: none;
-  padding: 0 4px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.doc-back:hover { color: #1e293b; }
-
-/* Поля схемы в «Вручную»: имя, вид, эндпоинт */
+/* Поля схемы в «Вручную» (новый язык, фаза 7б): имя, вид, эндпоинт в одну строку с
+   полями 24 px по бокам, как у шапки; под строкой одна линия. Подпись над полем 12 px
+   тихим цветом; поля одной высоты (ds-input и ds-select), поэтому базовые линии текста
+   совпадают. Имя и эндпоинт делят ширину, у воркера имя занимает и место эндпоинта. */
 .doc-fields {
   flex: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #eef0f2;
-  background: #fbfcfd;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--c-line);
 }
 .doc-field {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #64748b;
-}
-.doc-field input,
-.doc-field select {
-  font: inherit;
-  font-size: 13px;
-  font-weight: 400;
-  color: #0f172a;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  padding: 5px 8px;
-  background: #fff;
+  gap: var(--space-1);
   min-width: 0;
 }
-.doc-field--grow { flex: 1; min-width: 180px; }
+.doc-field--grow {
+  flex: 1;
+  min-width: 180px;
+}
+.doc-field-label {
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* Фокус полей — кольцом нового языка, те же значения, что у примитивов (ui/ds.css). */
+.app-modal .doc-root .ds-input:focus,
+.app-modal .doc-root .ds-select select:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
+}
 
-/* Строка под рендером: «Используется в процессах», «Обращения» */
-.doc-meta {
+/* ── чтение схемы логики (новый язык) ─────────────────────────────────────
+   Подвал: «В процессах» и неразрешённые обращения строкой предупреждения. Разрешённые
+   обращения не показываются (они написаны в узлах схемы); пусто — подвала нет. */
+.doc-readfoot {
   flex: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  padding: 10px 16px;
-  border-top: 1px solid #eef0f2;
-  font-size: 12.5px;
-  color: #64748b;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--c-line);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
 }
-.doc-meta b { color: #334155; font-weight: 600; }
-.doc-metalink {
-  font: inherit;
-  color: #2563eb;
-  background: none;
-  border: none;
+.doc-readline {
+  margin: 0;
+}
+.doc-readfoot .ds-warn {
+  margin: 0;
+  max-width: none;
+}
+.doc-proclink {
   padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-accent);
   cursor: pointer;
 }
-.doc-metalink:hover { text-decoration: underline; }
+.doc-proclink:hover {
+  text-decoration: underline;
+}
+.doc-proclink:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.doc-procname {
+  color: var(--c-fg);
+}
 
-/* Неописанная схема: карточка посреди точечного поля */
-.doc-empty {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  padding: 30px 16px;
-  background-color: #fbfcfd;
-  background-image: radial-gradient(#e3e8ee 1px, transparent 1px);
-  background-size: 16px 16px;
-}
-.doc-emptycard {
-  max-width: 420px;
-  background: #fff;
-  border: 1px dashed #cbd5e1;
-  border-radius: 12px;
-  padding: 22px 22px 18px;
-}
-.doc-emptycard h3 { margin: 0 0 6px; font-size: 15px; }
-.doc-emptycard p { margin: 0 0 14px; color: #64748b; }
-
-/* «Через ИИ-агента»: шаги слева, панель пакета справа */
-.doc-agent {
-  flex: 1;
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-}
-.doc-agentleft {
-  flex: none;
-  width: 320px;
-  padding: 18px;
-  border-right: 1px solid #eef0f2;
-  overflow-y: auto;
-}
-.doc-agentright {
+/* Неописанная схема: заголовок и «Описать» посреди ровного поля. */
+.doc-stub {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  padding: 18px;
-  overflow-y: auto;
-}
-.doc-steps {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  counter-reset: doc-step;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #334155;
-}
-.doc-steps li {
-  counter-increment: doc-step;
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 8px;
-}
-.doc-steps li::before {
-  content: counter(doc-step);
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #eff6ff;
-  color: #2563eb;
-  font-size: 12px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-}
-.doc-target {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
-  background: #f3efff;
-  color: #7c5cd6;
-  border-radius: 5px;
-  padding: 1px 6px;
-}
-
-/* Подвал «Вручную»: «Удалить схему» слева, подсказка рядом */
-.doc-foot--bar {
-  display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
 }
+.doc-stub-title {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+
+/* «Загрузка», «Схема не найдена» — тихим текстом посреди окна. */
+.doc-readnote {
+  margin: auto;
+  padding: var(--space-6);
+  font-size: var(--fs-ui);
+  color: var(--c-fg-muted);
+}
+
+/* ── стадия «Через ИИ-агента» (новый язык, фаза 7в) ─────────────────────────
+   Малое окно семьи окон агента («Описать схемы логики…», окна фактов): одна колонка
+   640 px на каркасе окна (ds-win), верх на 8vh, высота по содержимому, прокручивается тело,
+   подвал всегда в экране. Это тот же <dialog>: стадия рисует корень .doc-agentwin, и окно
+   сужается селектором :has() по нему; без корня (чтение, правка) окно снова большое. */
+.doc-root:has(> .doc-agentwin) {
+  width: min(640px, calc(100vw - 32px));
+  height: auto;
+}
+.app-modal:has(> div > .doc-root > .doc-agentwin) {
+  margin: 8vh auto auto;
+}
+.ds-win.doc-agentwin {
+  max-height: calc(92vh - 24px);
+}
+/* Шапка: имя объекта тихим цветом и название в одну строку; длинные — многоточием, первым
+   сжимается имя объекта (.doc-headobj и .doc-headtitle — классы шапки окна выше). */
+.ds-win-head.doc-agenthead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* Конфликт с другой сессией от страницы — строкой над блоками. */
+.ds-warn.doc-agentnotice {
+  margin: 0;
+  max-width: none;
+}
+/* Рисунок схемы, которую получит окно (что изменится): под отчётом, рамка волосяной
+   линией, не выше 260 px — дальше прокручивается внутри. */
+.doc-incoming {
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+}
+
+/* Подвал стадии «Вручную» (новый язык, фаза 7б) у схемы логики и спецификации: на всю
+   ширину окна под волосяной линией, одна строка — «Сохранить», «Отмена», у схемы справа
+   «Удалить схему». Отказ — строкой над кнопками (ds-win-err). Поля окна свои: --win-pad
+   каркаса окон (ds-win) у этого окна не задан. */
+.ds-win-foot.doc-editfoot {
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--c-line);
+}
+/* «Удалить схему»: тихая кнопка-текст цветом опасного действия, без рамки, у правого
+   края подвала. Вторая ступень («Удалить схему?») держит подложку. */
 .doc-delbtn {
   flex: none;
+  height: 30px;
+  margin: 0 -8px 0 auto;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #b91c1c;
-  background: #fff;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 6px 12px;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--c-danger);
+  white-space: nowrap;
   cursor: pointer;
 }
 .doc-delbtn:hover,
-.doc-delbtn--armed { background: #fef2f2; border-color: #fca5a5; }
-
-.doc-foot {
-  flex: none;
-  padding: 9px 16px;
-  border-top: 1px solid #eef0f2;
-  font-size: 11.5px;
-  color: #94a3b8;
+.doc-delbtn--armed {
+  background: color-mix(in srgb, var(--c-danger) 8%, var(--c-bg));
+}
+.doc-delbtn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
 }
 
-/* Демо-стенд: правка упёрлась в предел (docs/tasks/demo-mode.md, экран 5).
-   Красная плашка в подвале, правка остаётся в редакторе. */
-.doc-limit {
-  flex: 1 1 320px;
-  font-size: 13.5px;
-  line-height: 1.45;
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-/* ── колонка редактора ──────────────────────────────────────────────────── */
-
+/* ── колонка кода (новый язык, фаза 7б) ─────────────────────────────────────
+   Поле кода на ровном фоне окна, без рамки и без полосы-заголовка; между кодом и
+   превью одна линия (правый край колонки). Под кодом строка состояния: слева ошибка или
+   тихая заметка, справа «Загрузить файл»; под ней строки обращений (схема логики). У
+   читателя строки состояния нет. Кегль и интерлиньяж поля кода (12 px × 1,75) держит
+   docShared.caretToLine: прокрутка к строке ошибки считает высоту строки по ним. Кегли
+   колонки заданы явно: в окне она стоит и рядом с частями прежнего вида. */
 .doc-edcol {
   flex: none;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid #eef0f2;
-}
-.doc-edhead {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #f3f4f6;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #94a3b8;
-}
-.doc-savebtn {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: none;
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
-  color: #2563eb;
-  cursor: pointer;
-  font-family: inherit;
-}
-.doc-savebtn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.doc-savebtn:not(:disabled):hover {
-  background: #dbeafe;
-}
-/* Кнопки шапки редактора: «Загрузить файл» + «Сохранить» */
-.doc-edact {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-/* Загрузка спеки нейтральнее сохранения: она ничего не пишет в БД, только
-   подставляет текст в поле. */
-.doc-filebtn {
-  border-color: #e5e7eb;
-  background: #f9fafb;
-  color: #475569;
-}
-.doc-filebtn:not(:disabled):hover {
-  background: #f3f4f6;
-}
-.doc-filein {
-  display: none;
-}
-/* Файл тащат на поле — подсвечиваем, что его тут примут. */
-.doc-edta--drop {
-  background: #eff6ff;
-  box-shadow: inset 0 0 0 2px #bfdbfe;
+  border-right: 1px solid var(--c-line);
 }
 .doc-edta {
   flex: 1;
   min-height: 0;
-  border: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
   outline: none;
   resize: none;
-  padding: 10px 14px;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.75;
-  color: #0f172a;
-  background: #fff;
+  letter-spacing: 0;
+  color: var(--c-fg);
+  background: var(--c-bg);
 }
-.doc-edta[readonly] { background: #fbfcfd; color: #475569; }
+.doc-edta::placeholder {
+  color: var(--c-fg-faint);
+}
+/* У поля кода в фокусе ни рамки, ни кольца: место ввода видно по каретке. */
+.app-modal .doc-edta:focus {
+  border: 0;
+  box-shadow: none;
+}
+/* Файл тащат на поле — подсвечиваем, что его тут примут. */
+.doc-edta.doc-edta--drop {
+  background: var(--c-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--c-accent);
+}
+.doc-filein {
+  display: none;
+}
 
-/* ── статус-строка редактора (Часть D) ──────────────────────────────────── */
-
-.doc-edstat {
+.doc-edbar {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  gap: var(--space-3);
+  min-height: 32px;
   box-sizing: border-box;
-  padding: 8px 12px;
-  border: none;
-  border-top: 1px solid #f3f4f6;
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-6);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+}
+.doc-edbar-msg {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+/* Ошибка разбора или отказ принять файл: значок и текст цветом ошибки в одну строку,
+   полный текст — в title. Со строкой — кнопка, ставящая каретку на эту строку. */
+.doc-ederr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
   background: none;
-  font-family: inherit;
-  font-size: 11.5px;
+  font: inherit;
+  color: var(--c-danger);
   text-align: left;
-  color: #475569;
 }
-.doc-edstat--ok .doc-stico { color: #16a34a; }
-.doc-edstat--err {
-  background: #fef2f2;
-  border-top-color: #fecaca;
-  color: #b91c1c;
-  font-weight: 600;
+.doc-ederr--btn {
+  cursor: pointer;
 }
-.doc-edstat--btn { cursor: pointer; }
-.doc-stico { display: flex; flex: none; }
-.doc-edstat-msg {
+.doc-ederr--btn:hover .doc-ederr-msg {
+  text-decoration: underline;
+}
+.doc-ederr--btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.doc-ederr-ico {
+  display: flex;
+  flex: none;
+}
+.doc-ederr-msg {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.doc-ednote {
+  color: var(--c-fg-muted);
+}
+/* «Загрузить файл»: тихая кнопка-текст у правого края строки. */
+.doc-filebtn {
+  flex: none;
+  margin: 0 -6px 0 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.doc-filebtn:hover {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.doc-filebtn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
 
-/* ── плашка «Обращения» (пометки «читает:/пишет:» в тексте схемы) ─────────── */
-/* Подсказка под статус-строкой, а не отчёт: мелко, серо, без рамок. Список длинных
-   пометок прокручивается внутри себя — редактор поля от неё усыхать не должен. */
+/* ── строки обращений при правке (пометки «читает:/пишет:» в тексте схемы) ────
+   Подсказка под строкой состояния, а не отчёт: без заголовка, пилюль и знаков.
+   Разрешённое — тихой строкой, неразрешённое — цветом предупреждения; имя
+   моноширинным. Не выше пяти строк, дальше список прокручивается внутри себя: поле
+   кода от него усыхать не должно. Длинная причина переносится, а не обрезается. */
 .doc-refs {
   flex: none;
-  box-sizing: border-box;
-  width: 100%;
-  max-height: 132px;
+  max-height: calc(var(--fs-caption) * var(--lh-ui) * 5);
   overflow-y: auto;
-  padding: 7px 12px 8px;
-  border-top: 1px solid #f3f4f6;
-  background: #fbfcfd;
-  font-size: 11px;
-  line-height: 1.45;
-  color: #475569;
-}
-.doc-refshead {
-  margin-bottom: 4px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #9aa6b4;
+  padding: 0 var(--space-4) var(--space-2) var(--space-6);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+  color: var(--c-fg-muted);
 }
 .doc-refrow {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 1.5px 0;
-}
-/* Действие — цветной чип теми же красками, что в обратном индексе базы
-   (dbStructure.css): «пишет» обязано отличаться от «читает» с одного взгляда. */
-.doc-refmode {
-  flex: none;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-.doc-refmode--read { color: #0369a1; background: #e0f2fe; }
-.doc-refmode--write { color: #9a3412; background: #ffedd5; }
-/* События — свои краски (те же, что в обратном индексе брокера, brokerChannels.css):
-   «публикует» не должно читаться как «пишет», это разные вопросы к карте. */
-.doc-refmode--publish { color: #6d28d9; background: #ede9fe; }
-.doc-refmode--consume { color: #047857; background: #d1fae5; }
-/* Цель переносится, а не обрезается: усечённое имя таблицы бесполезно — сверять
-   его с реальностью нечем. Колонка редактора бывает и узкой (правая панель). */
-.doc-reftext {
-  min-width: 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
-.doc-refname {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: #0f172a;
+.doc-refrow--bad {
+  color: var(--c-warn);
 }
-.doc-refok { color: #15803d; }
-.doc-refbad { color: #b45309; font-weight: 600; }
+/* Высоту строки задаёт текст строки: у моноширинной гарнитуры другие выносные, и без
+   line-height: 1 строка с именем выходила выше соседней (18,5 px вместо 17,4) и в пять
+   строк списка помещалось четыре с половиной. */
+.doc-refname {
+  font-family: var(--font-mono);
+  line-height: 1;
+}
 
-/* ── превью ─────────────────────────────────────────────────────────────── */
+/* ── превью: сцена схемы и колонка спецификации ─────────────────────────────
+   Вид сцены один (редизайн, фаза 7б): ровный фон окна, пилюля масштаба на токенах — при
+   чтении и при правке, у ER-диаграммы базы (ErDiagramModal) и у просмотра документа в
+   вопросах слияния (remainder/DocViewer): они рисуют сцену этими же классами. */
 
 .doc-pv {
   flex: 1;
@@ -500,9 +457,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background-color: #fbfcfd;
-  background-image: radial-gradient(#e3e8ee 1px, transparent 1px);
-  background-size: 16px 16px;
+  background: var(--c-bg);
 }
 
 /* Сцена с пан/зумом (flowchart) */
@@ -521,93 +476,111 @@
 .doc-pvstage--drag { cursor: grabbing; }
 .doc-pz { position: absolute; left: 0; top: 0; width: max-content; }
 
-/* Скролл-область OpenAPI (без пан/зума) */
+/* Спецификация: колонка до 860 px по центру с полями 24 px на ровном фоне, без карточки
+   с рамкой и тенью; прокручивается колонка. Внутренний вид Swagger UI — прежний
+   (подгонка ниже). При ошибке в тексте держит последний текст без ошибок притушенным. */
 .doc-pvscroll {
   flex: 1;
   overflow: auto;
   min-height: 0;
-  padding: 18px;
+  padding: var(--space-6);
 }
 .doc-oascard {
-  max-width: 640px;
+  max-width: 860px;
   margin: 0 auto;
-  background: #fff;
-  border: 1px solid #e5e9ef;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
-  padding: 16px 18px;
 }
 .doc-dim { opacity: 0.6; filter: saturate(0.85); }
 
-/* Заглушки по центру превью */
+/* Заглушки по центру превью: «Схема пуста», «Нет спецификации», ошибка синтаксиса у
+   читателя — тихим текстом и текстом цвета ошибки, без плашек. */
 .doc-pvcenter {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--space-6);
 }
-.doc-pvempty { color: #9ca3af; }
-.doc-pvnote { color: #94a3b8; padding: 24px; text-align: center; }
+.doc-pvempty {
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
 .doc-mmderr {
-  font-size: 12px;
-  color: #b91c1c;
-  background: #fef2f2;
-  border-radius: 8px;
-  padding: 14px 18px;
-  max-width: 80%;
+  max-width: 68ch;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-danger);
   overflow-wrap: anywhere;
 }
-
-/* Amber-баннер «последняя корректная версия» */
-.doc-banner {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: #fffbeb;
-  border-bottom: 1px solid #fde68a;
-  color: #92400e;
-  font-size: 11.5px;
-  font-weight: 600;
+/* Заметка рендерера («Схема большая…», «Открываем спецификацию»). Вне окна документа —
+   прежнего вида, на сцене и в рисунке стадии агента — тихим цветом. */
+.doc-pvnote { color: #94a3b8; padding: 24px; text-align: center; }
+.doc-pv .doc-pvnote,
+.doc-incoming .doc-pvnote {
+  color: var(--c-fg-muted);
 }
 
-/* Зум-пилюля (правый нижний угол превью) */
+/* Спецификация с ошибкой: строкой предупреждения над превью, по левому краю колонки
+   спецификации (до 860 px по центру, поля 24 px). */
+.ds-warn.doc-pvwarn {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(860px + 2 * var(--space-6));
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-6) 0;
+}
+
+/* Пилюля масштаба в правом нижнем углу сцены: на токенах, без тяжёлой тени. Кегли
+   заданы явно: ER-диаграмма открывается окном прежних метрик. */
 .doc-zoom {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
+  right: var(--space-4);
+  bottom: var(--space-4);
   display: flex;
   align-items: center;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 9px;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
   overflow: hidden;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+  letter-spacing: 0;
 }
 .doc-zoom button {
-  border: none;
-  background: none;
-  width: 30px;
-  height: 30px;
   display: grid;
   place-items: center;
-  color: #475569;
-  cursor: pointer;
-  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: none;
   font-family: inherit;
+  font-size: var(--fs-body);
+  color: var(--c-fg-muted);
+  cursor: pointer;
 }
-.doc-zoom button:hover { background: #f6f8fa; }
+.doc-zoom button:hover {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.doc-zoom button:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
 .doc-zval {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #334155;
+  min-width: 40px;
   padding: 0 4px;
-  min-width: 38px;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   text-align: center;
+  color: var(--c-fg-muted);
 }
-.doc-zsep { width: 1px; height: 18px; background: #eef0f2; }
+.doc-zsep {
+  width: 1px;
+  height: 16px;
+  background: var(--c-line);
+}
 
 /* ── подгонка Swagger UI под карточку ───────────────────────────────────── */
 
@@ -616,7 +589,7 @@
 .doc-oas .swagger-ui .information-container { padding: 0; margin: 0 0 12px; background: transparent; }
 .doc-oas .swagger-ui .info { margin: 0; }
 .doc-oas .swagger-ui .info .title { font-size: 20px; }
-/* Титул и версия уже в теге шапки оверлея; блок info с описанием остаётся */
+/* Ссылка на исходный файл спецификации в окне не нужна; блок info с описанием остаётся */
 .doc-oas .swagger-ui .info .link { display: none; }
 .doc-oas .swagger-ui .scheme-container,
 .doc-oas .swagger-ui .servers,
@@ -627,26 +600,38 @@
    а полный YAML копируется из соседней панели кода. Прячем. */
 .doc-oas .swagger-ui .opblock-summary .copy-to-clipboard { display: none; }
 
-/* ── вопрос «Закрыть без сохранения?» — слой поверх окна ─────────────────── */
+/* ── вопрос «Закрыть без сохранения?» — слой поверх окна ─────────────────
+   Новый язык: главная кнопка «Вернуться к правке» первой, «Закрыть» за ней цветом
+   опасного действия. Радиус слоя — радиус окна ui/Modal. */
 .doc-confirm-layer {
   position: absolute;
   inset: 0;
   z-index: 40;
   display: grid;
   place-items: center;
-  background: rgba(15, 23, 42, 0.28);
-  border-radius: 14px;
+  background: color-mix(in srgb, var(--c-fg) 28%, transparent);
+  border-radius: 12px;
 }
 .doc-confirm {
-  width: min(380px, calc(100% - 32px));
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
-  padding: 18px 18px 16px;
+  width: min(400px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: var(--space-6);
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
 }
-.doc-confirm-title { font-size: 15px; font-weight: 700; color: #1e293b; }
-.doc-confirm p { margin: 6px 0 16px; font-size: 13px; color: #64748b; }
-.doc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.doc-codebtn--danger { color: #b91c1c; border-color: #fecaca; }
-.doc-codebtn--danger:hover { background: #fef2f2; }
+.doc-confirm p {
+  margin: var(--space-2) 0 var(--space-6);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+.doc-confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.ds-btn.doc-confirm-close {
+  color: var(--c-danger);
+}

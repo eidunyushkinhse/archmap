@@ -1,28 +1,31 @@
-// Вариант ответа (§5.1 ТЗ): крупная кнопка на всю ширину с главной строкой,
-// подписью и тегом справа. Ничего не предвыбрано — выбор всегда жест человека.
+// Вариант ответа (§5.1 ТЗ): кнопка на всю ширину с главной строкой, подписью и тегом
+// справа. Ничего не предвыбрано — выбор всегда жест человека.
 //
-// Вариант «как сейчас» (keep) рисуется пунктиром: дефолт виден таким же вариантом,
-// как остальные, но не спорит с ними за внимание.
+// Вариант, который действует без ответа, помечен тихим тегом «по умолчанию» и выглядит
+// как остальные (фаза 8а редизайна): он не выбран, пока человек его не выбрал. Так же в окне
+// «Собрать с компонентов» (фаза 9е).
 import type { ReactNode } from "react";
 
 interface Props {
   /** Главная строка. Полужирное начертание задаёт вызывающий (<b>), как в ТЗ. */
   main: ReactNode;
   sub?: ReactNode;
-  /** Тег справа: «как сейчас», «система», «контейнер», «изменить», «выбираете». */
+  /** Тег справа: «система», «контейнер». */
   tag?: string;
+  /** Вариант действует без ответа: тег «по умолчанию» справа. */
+  byDefault?: boolean;
   selected?: boolean;
-  /** Пунктирная рамка варианта-дефолта. */
-  keep?: boolean;
   title?: string;
   onClick: () => void;
 }
 
-export default function Option({ main, sub, tag, selected = false, keep = false, title, onClick }: Props) {
+export default function Option({
+  main, sub, tag, byDefault = false, selected = false, title, onClick,
+}: Props) {
   return (
     <button
       type="button"
-      className={"rq-opt" + (selected ? " rq-opt--on" : "") + (keep ? " rq-opt--keep" : "")}
+      className={"rq-opt" + (selected ? " rq-opt--on" : "")}
       title={title}
       aria-pressed={selected}
       onClick={onClick}
@@ -32,12 +35,13 @@ export default function Option({ main, sub, tag, selected = false, keep = false,
         {sub !== undefined && <span className="rq-opt-sub">{sub}</span>}
       </span>
       {tag !== undefined && <span className="rq-opt-tag">{tag}</span>}
+      {byDefault && <span className="rq-opt-tag rq-opt-def">по умолчанию</span>}
     </button>
   );
 }
 
 /**
- * Подпись объекта путём (§5.3): серый префикс и полужирный последний сегмент —
+ * Подпись объекта путём (§5.3): серый префикс и последний сегмент —
  * «Grafana / Сервер Grafana / **Рантайм плагинов**». base — путь контейнера, его
  * префикс отбрасывается: внутри вопроса о контейнере он и так назван.
  */

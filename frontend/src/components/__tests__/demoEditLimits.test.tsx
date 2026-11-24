@@ -2,9 +2,9 @@
 // Отказ сервера — 409 с code=demo_limit и текстом по прототипу; фронт добавляет
 // жирное начало по действию. Экран 4: «Не получилось добавить объект / связь /
 // процесс» — в окне «Новый объект», в окне новой связи и тостом внизу холста
-// процессов. Экран 5: «Не сохранилось.» в подвале окна схемы и спеки, правка
-// остаётся в редакторе; тем же текстом — секции конфигурации.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+// процессов. Экран 5: «Не сохранилось.» в подвале окна схемы (строкой над кнопками) и
+// спеки, правка остаётся в редакторе; тем же текстом — секции конфигурации.
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeModal from "../NodeModal";
@@ -50,14 +50,12 @@ vi.mock("../inspector/FlowchartDoc", () => ({
     </div>
   ),
 }));
-vi.mock("../docsImport/DocsAgentPanel", () => ({ default: () => <div /> }));
 vi.mock("../OpenApiViewer", () => ({ default: () => <div data-testid="swagger" /> }));
-vi.mock("../docsImport/SpecAgentPanel", () => ({ default: () => <div /> }));
 vi.mock("../processes/ProcessCanvas", () => ({ default: () => <div data-testid="process-canvas" /> }));
 vi.mock("../processes/ProcessRail", () => ({
-  default: ({ onNew, onDuplicate }: { onNew: () => void; onDuplicate: (id: string) => void }) => (
+  default: ({ onCreate, onDuplicate }: { onCreate: (name: string) => void; onDuplicate: (id: string) => void }) => (
     <div>
-      <button onClick={onNew}>Новый процесс</button>
+      <button onClick={() => onCreate("Возврат")}>Новый процесс</button>
       <button onClick={() => onDuplicate("bp1")}>Дублировать</button>
     </div>
   ),
@@ -139,6 +137,37 @@ describe("экран 4 · предел при правке схемы", () => {
   });
 });
 
+// Страховка механики тоста холста (редизайн, фаза 13а, меняется только вид): role="status",
+// жирное начало, гаснет ровно через 6 с.
+describe("экран 4 · тост холста гаснет", () => {
+  it("тост предела: role=status, жирное начало, гаснет через 6 с", () => {
+    let show: (e: unknown, a: "node") => boolean = () => false;
+    function Harness() {
+      const [msg, s] = useDemoLimitToast();
+      show = s;
+      return <DemoLimitToast message={msg} />;
+    }
+    render(<Harness />);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      act(() => { show(limit(NODES), "node"); });
+      const тост = screen.getByRole("status");
+      expect(тост).toHaveTextContent(`Не получилось добавить объект. ${NODES}`);
+      expect(тост.querySelector("b")?.textContent).toBe("Не получилось добавить объект.");
+      expect(тост).not.toHaveAttribute("aria-live");
+      expect(тост).toHaveClass("ds-toast", "ds-toast--canvas");
+      expect(тост).not.toHaveAttribute("style");
+      expect(тост.querySelector("[style]")).toBeNull();
+      act(() => { vi.advanceTimersByTime(5999); });
+      expect(screen.getByRole("status")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByRole("status")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("экран 5 · предел при сохранении документации", () => {
   const doc = (over: Partial<NodeDoc> = {}): NodeDoc => ({
     id: "d1", node_id: "n1", name: "Создание заказа", kind: "operation", operation: null,
@@ -151,7 +180,7 @@ describe("экран 5 · предел при сохранении докуме�
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
   }
 
-  it("объём текста: «Не сохранилось.» в подвале, правка остаётся в редакторе", async () => {
+  it("объём текста: «Не сохранилось.» над кнопками подвала, правка остаётся в редакторе", async () => {
     vi.mocked(nodeDocsApi.usage).mockResolvedValue([]);
     vi.mocked(nodeDocsApi.list).mockResolvedValue([doc()]);
     vi.mocked(nodeDocsApi.update).mockRejectedValue(limit(VOLUME));
@@ -161,8 +190,8 @@ describe("экран 5 · предел при сохранении докуме�
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(`Не сохранилось. ${VOLUME}`);
-    expect(alert).toHaveClass("doc-limit");
-    expect(alert.closest(".doc-foot")).not.toBeNull();
+    expect(alert).toHaveClass("ds-danger", "ds-win-err");
+    expect(alert.closest(".doc-editfoot")).not.toBeNull();
     // Окно осталось в правке: можно сократить и сохранить снова.
     expect(screen.getByTestId("doc-editor")).toHaveAttribute("data-edit", "true");
     expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled();
@@ -198,7 +227,7 @@ describe("экран 5 · предел при сохранении докуме�
     }]);
     vi.mocked(configParamsApi.usage).mockResolvedValue([]);
     vi.mocked(configParamsApi.update).mockRejectedValue(limit(VOLUME));
-    render(<ConfigParamsSection nodeId="n1" element={{ kind: "leaf" }} isArchitect allowed onNavigateNode={vi.fn()} />);
+    render(<ConfigParamsSection nodeId="n1" element={{ kind: "leaf" }} isArchitect allowed />);
     const поле = await screen.findByDisplayValue("старое");
     await userEvent.clear(поле);
     await userEvent.type(поле, "очень длинное описание");

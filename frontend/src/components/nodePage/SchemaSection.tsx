@@ -1,4 +1,7 @@
-// Секция «Схема» страницы объекта (аудит F-5: вынесена из NodePage без изменений).
+// Раздел «Схема» страницы объекта (аудит F-5: вынесен из NodePage). С редизайна
+// (направление А «Документ») раздел рисует себя сам: заголовок «Схема» с вкладками вида
+// и «Редактировать» — у блока схемы (EmbeddedSchemaBlock title), загрузка, отказ и
+// пустое состояние — под тем же заголовком (ui/Section).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AncestorRef, GraphResponse, Node, ViewLayoutPayload } from "../../types";
 import { canHaveChildren } from "../../types";
@@ -11,9 +14,10 @@ import { useToast } from "../../pages/useToast";
 import EmbeddedSchemaBlock from "../EmbeddedSchemaBlock";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../schemaView";
 import type { LevelPersistenceProps, NavigateMap, ViewMetaRef } from "../graph/types";
-import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../pageSchema";
-import "../../ui/smallButton.css";
-import { remoteToastStyle } from "../../ui/remoteToast";
+import { hasNoNeighbors, mergeViewLayout, toLevelEdges, withOwnEdits } from "../pageSchema";
+import Section from "../../ui/Section";
+import "../../ui/ds.css";
+import "./schemaSection.css";
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
 // Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
@@ -174,48 +178,75 @@ export default function SchemaSection({
   // рендере со старым viewLayout, вызывая визуальный откат узла при отпускании драга.
   const edges = useMemo(() => (view ? toLevelEdges(view) : []), [view]);
 
-  if (loading) return <p className="np-empty">Загрузка</p>;
+  if (loading) {
+    return (
+      <Section title="Схема">
+        <div className="np-schema-empty">Загрузка</div>
+      </Section>
+    );
+  }
   if (!view) {
     if (failure === null) return null;
     return (
-      <LoadError what="схему" error={failure}
-        onRetry={() => { setLoading(true); void refetch(); }} />
+      <Section title="Схема">
+        <LoadError what="схему" error={failure}
+          onRetry={() => { setLoading(true); void refetch(); }} />
+      </Section>
     );
   }
 
   // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
   // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).
   if (hasNoNeighbors(view, node.id) && !node.has_children) {
-    // Пустое состояние: секцию не прячем; архитектору — CTA в редактор схемы
-    // (наполнить состав / создать связи — правка живёт только там).
+    // Пустое состояние: раздел не прячем (context.md X15, X17); архитектору — CTA в
+    // редактор схемы (наполнить состав / создать связи — правка живёт только там).
+    // С редизайна тише: рамка-пунктир окна схемы, вторичные кнопки. Читатель схему не
+    // правит: совета про редактор ему нет, а вход в большую схему — «Развернуть», тот же,
+    // что пункт меню «⋯» (редизайн, фаза 13в).
     return (
-      <div className="np-empty" style={{ textAlign: "center" }}>
-        Внешних связей нет. Объект пока не взаимодействует с соседями.
-        <br />
-        <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе схемы</span>
-        {isArchitect && onNavigateMap && (
-          <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
-            {/* Подпись называет, кем станет новый объект: компонентом — у контейнера (в
-                том числе листа) и внутри контейнера, у системы — вложенным объектом. */}
-            {canHaveChildren(node.shape) && (
-              <button className="btn-sm-primary" onClick={() => onNavigateMap(node.id)}>
-                {childIsComponent(node) ? "Добавить компонент" : "Добавить вложенный объект"}
+      <Section title="Схема">
+        <div className="np-schema-empty">
+          Внешних связей нет. Объект пока не взаимодействует с соседями.
+          {isArchitect && (
+            <>
+              <br />
+              <span className="np-schema-empty-note">Связи создаются в редакторе схемы</span>
+            </>
+          )}
+          {!isArchitect && onNavigateMap && (
+            <div className="np-schema-empty-acts">
+              <button
+                type="button"
+                className="ds-btn"
+                onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
+              >
+                Развернуть
               </button>
-            )}
-            <button
-              className="btn-sm-primary"
-              onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
-            >
-              Открыть в редакторе
-            </button>
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+          {isArchitect && onNavigateMap && (
+            <div className="np-schema-empty-acts">
+              {/* Подпись называет, кем станет новый объект: компонентом — у контейнера (в
+                  том числе листа) и внутри контейнера, у системы — вложенным объектом. */}
+              {canHaveChildren(node.shape) && (
+                <button type="button" className="ds-btn" onClick={() => onNavigateMap(node.id)}>
+                  {childIsComponent(node) ? "Добавить компонент" : "Добавить вложенный объект"}
+                </button>
+              )}
+              <button
+                type="button"
+                className="ds-btn"
+                onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
+              >
+                Открыть в редакторе
+              </button>
+            </div>
+          )}
+        </div>
+      </Section>
     );
   }
 
-  // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
-  const height = schemaSectionHeight(visibleEntityGuess(view));
   // Признак проектный, с сервера: на схеме одного объекта статусов может не быть,
   // а в проекте переход идёт — переключатель вида нужен и здесь. Статусы читаем из
   // view: свежепоставленный «планируется» обязан включить фильтр сразу.
@@ -226,35 +257,35 @@ export default function SchemaSection({
     ? () => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })
     : undefined;
 
+  // Чужая правка схемы: тост внутри рамки схемы, его рисует сам блок (notice).
   return (
-    <div style={{ position: "relative" }}>
-      {remoteToast && <div style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
-      <EmbeddedSchemaBlock
-        nodes={view.nodes}
-        endpoints={view.endpoints}
-        edges={edges}
-        viewLayout={view.layout}
-        containerId={node.parent_id ?? null}
-        layoutViewId={node.id}
-        persistence={persistence}
-        ancestorNames={ancestors.map((a) => a.name)}
-        ancestorIds={ancestors.map((a) => a.id)}
-        ancestorElements={ancestors.map((a) => a.element_effective)}
-        ancestorExternals={ancestors.map((a) => a.is_external)}
-        depth={ancestors.length}
-        isArchitect={isArchitect}
-        schemaView={schemaView}
-        onSchemaViewChange={setSchemaView}
-        onNavigateNode={onNavigateNode}
-        onEdit={onEdit}
-        onRelayout={handleRelayout}
-        relayoutToken={relayoutToken}
-        mutationToken={mutationToken}
-        height={height}
-        showViewFilter={hasStatusInfo}
-      />
-    </div>
+    <EmbeddedSchemaBlock
+      nodes={view.nodes}
+      endpoints={view.endpoints}
+      edges={edges}
+      viewLayout={view.layout}
+      containerId={node.parent_id ?? null}
+      layoutViewId={node.id}
+      persistence={persistence}
+      ancestorNames={ancestors.map((a) => a.name)}
+      ancestorIds={ancestors.map((a) => a.id)}
+      ancestorElements={ancestors.map((a) => a.element_effective)}
+      ancestorExternals={ancestors.map((a) => a.is_external)}
+      depth={ancestors.length}
+      isArchitect={isArchitect}
+      schemaView={schemaView}
+      onSchemaViewChange={setSchemaView}
+      onNavigateNode={onNavigateNode}
+      onEdit={onEdit}
+      onRelayout={handleRelayout}
+      relayoutToken={relayoutToken}
+      mutationToken={mutationToken}
+      showViewFilter={hasStatusInfo}
+      title="Схема"
+      notice={remoteToast ? "Схему только что изменили в другом окне" : null}
+    />
   );
 }
 
-// Тост «Схему только что изменили в другом окне» (remote-sync) — поверх окна схемы.
+// Тост «Схему только что изменили в другом окне» (remote-sync) рисует блок схемы внутри своей
+// рамки (EmbeddedSchemaBlock, notice).

@@ -13,12 +13,6 @@ export type SpecStatus =
 // Фиксированное сообщение для статус-строки при kind === "not-openapi".
 export const NOT_OPENAPI_MESSAGE = "Файл читается, но это не OpenAPI: в нём нет разделов openapi и paths";
 
-// Локальное «HH:MM» для подписей дока: «сохранено · 12:41», amber-баннер
-// (живёт здесь: docShared.tsx экспортирует только компоненты — react-refresh).
-export function nowHHMM(): string {
-  return new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-}
-
 /**
  * Снятие обёртки ```mermaid … ``` с содержимого ЗАГРУЖЕННОГО файла: схемы часто
  * хранят кусочком markdown, и без этого пользователь получал бы ошибку разбора на

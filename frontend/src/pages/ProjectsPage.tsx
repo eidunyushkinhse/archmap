@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { CSSProperties } from "react";
-import { listPage as page, listPrimaryBtn as newBtn, listTitle as h1, listToast as toastStyle, listTopBar as topBar } from "../ui/pageChrome";
+import type { ReactNode } from "react";
 import { fetchMe, getCanCreateProject, getIsGuest, getMe, getUserRole } from "../api/auth";
 import { projectsApi } from "../api/projects";
 import type { Project } from "../types";
@@ -10,19 +9,26 @@ import ProjectAccessDialog from "../components/project/ProjectAccessDialog";
 import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components/project/ProjectDialogs";
 import ProjectCard from "../components/project/ProjectCard";
 import AccountMenu from "../components/users/AccountMenu";
-import { LogoMark, PlusIcon } from "../ui/icons";
+import BrandLink from "../ui/BrandLink";
+import LoadError from "../ui/LoadError";
 import { noAutofill } from "../ui/noAutofill";
 import { useMessageToast } from "./useToast";
+import "../ui/ds.css";
+import "./listPages.css";
 
 /**
- * Лендинг «Проекты»: сетка карточек со схемой-превью, метаданными и меню ⋯.
- * Табы Активные/Архив, поиск, пустые состояния. Открытие проекта — клик по телу
- * карточки. Создать проект — глобальная роль architect; управлять им
- * (редактировать, архив, восстановить, удалить) — только его владелец (my_role);
- * окно «Доступ» открывает каждый, кто видит проект (не-владельцу — на чтение).
+ * Экран «Проекты» (редизайн, фаза 12а): сетка карточек с мини-схемой, именем и описанием
+ * (components/project/ProjectCard). Вкладки «Активные» и «Архив», поиск, пустые состояния.
+ * Список не загрузился — под заголовком только отказ с «Повторить» (ui/LoadError): вкладки,
+ * поиск и пустое состояние без списка ничего не значат (редизайн, фаза 13в).
+ * Открытие проекта — щелчок по превью или тексту карточки. Создать проект — глобальная роль
+ * architect; управлять им (редактировать, архив, восстановить, удалить) — только его
+ * владелец (my_role); окно «Доступ» открывает каждый, кто видит проект (не-владельцу — на
+ * чтение). Корень — область нового языка (.ds), шапка — общий каркас ds-head (ui/ds.css),
+ * стили страницы — listPages.css (общий с экраном «Пользователи»).
  *
- * Гость демо-стенда (docs/tasks/demo-mode.md): над списком плашка песочницы, «Доступа»
- * нет, а «Новый проект» гаснет с подсказкой, когда свой проект уже есть (решает
+ * Гость демо-стенда (docs/tasks/demo-mode.md): над заголовком предупреждение песочницы,
+ * «Доступа» нет, а «Новый проект» заперта с подсказкой, когда свой проект уже есть (решает
  * сервер: can_create_project в /auth/me).
  */
 
@@ -54,7 +60,8 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
   // очистки, аудит F-17).
   const [toast, flash] = useMessageToast(2600);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Отказ загрузки списков (сама ошибка: текст причины даёт ui/LoadError).
+  const [error, setError] = useState<unknown>(null);
 
   const reload = useCallback(async () => {
     setError(null);
@@ -65,7 +72,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
       setActive(a);
       setArchived(ar);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось загрузить проекты");
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -83,88 +90,93 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
     : list;
 
   return (
-    <div style={page}>
-      {/* Шапка лендинга */}
-      <div style={topBar}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <LogoMark />
-          <span style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-0.01em", color: "#0f172a" }}>
-            Arch<span style={{ color: "#2563eb" }}>Map</span>
-          </span>
+    <div className="ds lp-page">
+      {/* Шапка: логотип без ссылки (экран и так «Все проекты») и меню профиля. */}
+      <header className="ds-head">
+        <div className="ds-head-left">
+          <BrandLink />
         </div>
-        <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
-      </div>
+        <div className="ds-head-acts">
+          <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
+        </div>
+      </header>
 
-      <div style={container}>
+      <main className="lp-main">
         {isGuest && (
-          <div style={sandboxBanner} role="note">
-            <div>
-              <b style={{ color: "#78350f" }}>Это песочница.</b> Она удалится через сутки бездействия. Не вносите сюда рабочие данные.
-            </div>
-          </div>
+          <p className="ds-warn lp-sandbox" role="note">
+            <strong>Это песочница.</strong> Она удалится через сутки бездействия. Не вносите сюда рабочие данные.
+          </p>
         )}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-          <div>
-            <h1 style={h1}>Проекты</h1>
-          </div>
+        <div className="lp-title-row">
+          <h1 className="lp-title">Проекты</h1>
           {isArchitect && (createBlocked ? (
             <BlockedNewButton />
           ) : (
-            <button style={newBtn} data-tour="new-project" onClick={() => setDialog({ kind: "create" })}>
-              <PlusIcon /> Новый проект
+            <button
+              type="button"
+              className="ds-btn ds-btn--primary"
+              data-tour="new-project"
+              onClick={() => setDialog({ kind: "create" })}
+            >
+              Новый проект
             </button>
           ))}
         </div>
 
-        {/* Табы + поиск */}
-        <div style={controls}>
-          <div style={{ display: "flex", gap: 6 }}>
-            <TabBtn active={tab === "active"} onClick={() => setTab("active")}>
-              Активные <span style={countPill}>{active.length}</span>
-            </TabBtn>
-            <TabBtn active={tab === "archived"} onClick={() => setTab("archived")}>
-              Архив <span style={countPill}>{archived.length}</span>
-            </TabBtn>
-          </div>
-          <input
-            {...noAutofill("projects-page-1")}
-            style={search}
-            placeholder="Поиск по имени или описанию"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-
-        {error && <p style={{ color: "#dc2626", fontSize: 14 }}>{error}</p>}
-        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка</p>}
-
-        {!loading && filtered.length === 0 ? (
-          <EmptyState
-            tab={tab}
-            hasQuery={q.length > 0}
-            isArchitect={isArchitect && !createBlocked}
-            onCreate={() => setDialog({ kind: "create" })}
+        {error !== null ? (
+          <LoadError
+            what="проекты"
+            error={error}
+            onRetry={() => { setLoading(true); void reload(); }}
           />
         ) : (
-          <div style={grid}>
-            {filtered.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                archivedTab={tab === "archived"}
-                canShare={!isGuest}
-                updaterLabel={guestName !== null && p.updated_by === guestName ? "Гость" : undefined}
-                onOpen={() => onOpenProject(p.id)}
-                onAccess={() => setDialog({ kind: "access", project: p })}
-                onEdit={() => setDialog({ kind: "edit", project: p })}
-                onArchive={() => setDialog({ kind: "archive", project: p })}
-                onRestore={() => setDialog({ kind: "restore", project: p })}
-                onDelete={() => setDialog({ kind: "delete", project: p })}
+          <>
+            {/* Строка управления: вкладки слева, поиск справа. */}
+            <div className="lp-controls">
+              <div className="ds-tabs">
+                <TabBtn active={tab === "active"} onClick={() => setTab("active")}>Активные</TabBtn>
+                <TabBtn active={tab === "archived"} onClick={() => setTab("archived")}>Архив</TabBtn>
+              </div>
+              <input
+                {...noAutofill("projects-page-1")}
+                className="ds-input lp-search"
+                placeholder="Поиск по имени или описанию"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
               />
-            ))}
-          </div>
+            </div>
+
+            {loading && <p className="ds-empty lp-note">Загрузка</p>}
+
+            {!loading && filtered.length === 0 ? (
+              <EmptyState
+                tab={tab}
+                hasQuery={q.length > 0}
+                isArchitect={isArchitect && !createBlocked}
+                onCreate={() => setDialog({ kind: "create" })}
+              />
+            ) : (
+              <div className="lp-grid">
+                {filtered.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    archivedTab={tab === "archived"}
+                    canShare={!isGuest}
+                    updaterLabel={guestName !== null && p.updated_by === guestName ? "Гость" : undefined}
+                    onOpen={() => onOpenProject(p.id)}
+                    onAccess={() => setDialog({ kind: "access", project: p })}
+                    onEdit={() => setDialog({ kind: "edit", project: p })}
+                    onArchive={() => setDialog({ kind: "archive", project: p })}
+                    onRestore={() => setDialog({ kind: "restore", project: p })}
+                    onDelete={() => setDialog({ kind: "delete", project: p })}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
-      </div>
+      </main>
 
       {/* Диалоги */}
       {dialog?.kind === "create" && (
@@ -210,12 +222,13 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
         />
       )}
 
-      {toast && <div style={toastStyle}>{toast}</div>}
+      {/* Тост итога: низ окна по центру, щелчки проходят сквозь него (ui/ds.css). */}
+      {toast && <div className="ds-toast ds-toast--bottom">{toast}</div>}
     </div>
   );
 }
 
-// Подсказка к погашенной кнопке (docs/tasks/demo-mode.md, экран 2).
+// Подсказка к запертой кнопке (docs/tasks/demo-mode.md, экран 2).
 const GUEST_LIMIT_HINT = "В демо можно создать один свой проект. Удалите его, чтобы создать другой.";
 
 // «Новый проект», когда гость уже держит предельное число проектов: кнопка видна, но
@@ -224,93 +237,54 @@ function BlockedNewButton() {
   const [tip, setTip] = useState(false);
   return (
     <span
-      style={{ position: "relative", display: "inline-block" }}
+      className="lp-locked"
       onMouseEnter={() => setTip(true)}
       onMouseLeave={() => setTip(false)}
     >
       <button
-        style={{ ...newBtn, ...newBtnBlocked }}
+        type="button"
+        className="ds-btn ds-btn--primary lp-locked-btn"
         data-tour="new-project"
         aria-disabled="true"
         aria-describedby={tip ? "guest-limit-tip" : undefined}
         onFocus={() => setTip(true)}
         onBlur={() => setTip(false)}
       >
-        <PlusIcon /> Новый проект
+        Новый проект
       </button>
-      {tip && <span id="guest-limit-tip" role="tooltip" style={tipStyle}>{GUEST_LIMIT_HINT}</span>}
+      {tip && <span id="guest-limit-tip" role="tooltip" className="lp-tip">{GUEST_LIMIT_HINT}</span>}
     </span>
   );
 }
 
+// Пустой список: промах поиска и пустой архив — тихим абзацем; первое открытие — заголовок,
+// пояснение и (кому можно создавать) главная кнопка. Без коробки, прижато влево.
 function EmptyState({
   tab, hasQuery, isArchitect, onCreate,
 }: { tab: Tab; hasQuery: boolean; isArchitect: boolean; onCreate: () => void }) {
-  if (hasQuery) {
-    return <div style={empty}><p style={{ color: "#64748b" }}>Ничего не найдено</p></div>;
-  }
-  if (tab === "archived") {
-    return <div style={empty}><p style={{ color: "#94a3b8" }}>В архиве пусто</p></div>;
-  }
+  if (hasQuery) return <p className="ds-empty lp-note">Ничего не найдено</p>;
+  if (tab === "archived") return <p className="ds-empty lp-note">В архиве пусто</p>;
   return (
-    <div style={empty}>
-      <div style={emptyIcon}><LogoMark size={44} /></div>
-      <h3 style={{ margin: "14px 0 4px", color: "#1e293b", fontSize: 18 }}>Пока нет ни одного проекта</h3>
-      <p style={{ color: "#64748b", margin: "0 0 18px", fontSize: 14 }}>
-        Создайте первый проект. В каждом проекте своя изолированная схема системы.
-      </p>
+    <div className="lp-first">
+      <h2 className="lp-first-title">Пока нет ни одного проекта</h2>
+      <p className="lp-first-lead">Создайте первый проект. В каждом проекте своя изолированная схема системы.</p>
       {isArchitect && (
-        <button style={newBtn} onClick={onCreate}><PlusIcon /> Создать первый проект</button>
+        <button type="button" className="ds-btn ds-btn--primary" onClick={onCreate}>Создать первый проект</button>
       )}
     </div>
   );
 }
 
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+// Вкладка-текст нового языка: выбранная подчёркнута и нажата (aria-pressed).
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <button onClick={onClick} style={{ ...tabBtn, ...(active ? tabActive : {}) }}>{children}</button>
+    <button
+      type="button"
+      className={"ds-tab" + (active ? " is-active" : "")}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
-
-// ── Стили ─────────────────────────────────────────────────────────────────────
-const container: CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: "28px 24px 60px" };
-const newBtnBlocked: CSSProperties = { background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" };
-const tipStyle: CSSProperties = {
-  position: "absolute", right: 0, top: "calc(100% + 8px)", width: 270, zIndex: 3,
-  background: "rgba(17,24,39,.94)", color: "#f9fafb", fontSize: 12.5, lineHeight: 1.45,
-  padding: "9px 11px", borderRadius: 8, fontWeight: 400, whiteSpace: "normal",
-};
-const sandboxBanner: CSSProperties = {
-  display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 22, padding: "12px 16px",
-  background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12,
-  fontSize: 13.5, lineHeight: 1.5,
-};
-const controls: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  gap: 12, margin: "22px 0 18px", flexWrap: "wrap",
-};
-const tabBtn: CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px",
-  background: "transparent", border: "1px solid transparent", borderRadius: 999,
-  fontSize: 14, fontWeight: 600, color: "#64748b", cursor: "pointer",
-};
-const tabActive: CSSProperties = { background: "#fff", border: "1px solid #e2e8f0", color: "#1d4ed8" };
-const countPill: CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center",
-  minWidth: 20, height: 20, padding: "0 6px", borderRadius: 999,
-  background: "#eef2f6", color: "#64748b", fontSize: 12, fontWeight: 700,
-};
-const search: CSSProperties = {
-  flex: "1 1 240px", maxWidth: 320, padding: "9px 13px", border: "1px solid #e2e8f0",
-  borderRadius: 10, fontSize: 14, color: "#0f172a", background: "#fff", boxSizing: "border-box",
-};
-const grid: CSSProperties = {
-  display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 18,
-};
-const empty: CSSProperties = {
-  textAlign: "center", padding: "60px 20px", background: "#fff", border: "1px dashed #dbe3ec", borderRadius: 16,
-};
-const emptyIcon: CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center", width: 76, height: 76,
-  borderRadius: 20, background: "#eff6ff",
-};

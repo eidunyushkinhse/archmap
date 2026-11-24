@@ -1,15 +1,20 @@
 import { useState } from "react";
-import type { CSSProperties } from "react";
 import { changePassword } from "../../api/auth";
-import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
-import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { CloseIcon } from "../../ui/icons";
 import { useBusyAction } from "../../ui/useBusyAction";
+import "../../ui/ds.css";
+import "./userDialogs.css";
 
 /**
  * «Сменить пароль» из меню профиля (у всех): текущий пароль, новый и повтор.
  * Совпадение повтора проверяется здесь (на сервер уходит один новый пароль);
  * длину и верность текущего проверяет бэк — его текст ошибки показывается как есть.
+ *
+ * Вид (редизайн, фаза 9д): каркас окна нового языка (ui/ds.css, ds-win), строки «тихая
+ * подпись — поле в рамке» (users/userDialogs.css); колонка подписей шире общей, чтобы
+ * «Повторите новый пароль» стояла в одну строку. Порядок полей, id и autoComplete
+ * прежние: на них опираются менеджеры паролей.
  */
 
 interface Props {
@@ -32,62 +37,91 @@ export default function ChangePasswordDialog({ onClose }: Props) {
     await run(() => changePassword(oldPassword, newPassword).then(() => setDone(true)));
   }
 
+  const head = (title: string) => (
+    <div className="ds-win-head">
+      <h2 className="ds-win-title">{title}</h2>
+      <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+        <CloseIcon />
+      </button>
+    </div>
+  );
+
   if (done) {
     return (
-      <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-        <DialogTitle lead="Остальные активные сессии завершены.">Пароль изменён</DialogTitle>
-        <button data-autofocus style={primaryBtn} onClick={onClose}>Готово</button>
+      <Modal onClose={onClose} boxStyle={{ width: 440, padding: 0 }}>
+        <div className="ds ds-win">
+          {head("Пароль изменён")}
+          <div className="ds-win-body">
+            <p className="ud-lead">Остальные активные сессии завершены.</p>
+          </div>
+          <div className="ds-win-foot">
+            <button type="button" data-autofocus className="ds-btn ds-btn--primary" onClick={onClose}>Готово</button>
+          </div>
+        </div>
       </Modal>
     );
   }
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 400, padding: 24 }}>
-      <DialogTitle>Сменить пароль</DialogTitle>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 440, padding: 0 }}>
+      <div className="ds ds-win">
+        {head("Сменить пароль")}
 
-      <label style={labelStyle} htmlFor="cp-old">Текущий пароль</label>
-      <input
-        id="cp-old"
-        data-autofocus
-        type="password"
-        autoComplete="current-password"
-        style={input}
-        value={oldPassword}
-        onChange={(e) => setOldPassword(e.target.value)}
-      />
+        <div className="ds-win-body">
+          <dl className="ds-props ud-props ud-props--wide">
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor="cp-old">Текущий пароль</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  id="cp-old"
+                  className="ds-input"
+                  data-autofocus
+                  type="password"
+                  autoComplete="current-password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                />
+              </dd>
+            </div>
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor="cp-new">Новый пароль</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  id="cp-new"
+                  className="ds-input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </dd>
+            </div>
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor="cp-repeat">Повторите новый пароль</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  id="cp-repeat"
+                  className="ds-input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={repeat}
+                  onChange={(e) => setRepeat(e.target.value)}
+                />
+              </dd>
+            </div>
+          </dl>
+          <p className="ud-hint">Не короче 8 символов</p>
+          {mismatch && <p className="ds-danger ud-flat">Пароли не совпадают</p>}
+        </div>
 
-      <label style={labelStyle} htmlFor="cp-new">Новый пароль</label>
-      <input
-        id="cp-new"
-        type="password"
-        autoComplete="new-password"
-        style={input}
-        value={newPassword}
-        onChange={(e) => setNewPassword(e.target.value)}
-      />
-
-      <label style={labelStyle} htmlFor="cp-repeat">Повторите новый пароль</label>
-      <input
-        id="cp-repeat"
-        type="password"
-        autoComplete="new-password"
-        style={input}
-        value={repeat}
-        onChange={(e) => setRepeat(e.target.value)}
-      />
-      <p style={hint}>Не короче 8 символов</p>
-
-      {mismatch && <p style={errText}>Пароли не совпадают</p>}
-      {error && <p style={errText}>{error}</p>}
-
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.55 }} disabled={!canSubmit} onClick={submit}>
-          {busy ? "Сохраняем" : "Сменить"}
-        </button>
-        <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
+        <div className="ds-win-foot">
+          {error && <p className="ds-danger ds-win-err" role="alert">{error}</p>}
+          <button type="button" className="ds-btn ds-btn--primary" disabled={!canSubmit} onClick={() => void submit()}>
+            {busy ? "Сохраняем" : "Сменить"}
+          </button>
+          <button type="button" className="ds-btn" disabled={busy} onClick={onClose}>Отмена</button>
+        </div>
       </div>
     </Modal>
   );
 }
-
-const hint: CSSProperties = { margin: "-4px 0 0", fontSize: 12.5, color: "#94a3b8" };

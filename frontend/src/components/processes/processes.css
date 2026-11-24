@@ -1,338 +1,24 @@
-/* Бизнес-процессы — классы UI, портированы из дизайн-референса
-   (business-processes-mockups.html). Визуальный язык: system-ui, slate, синий
-   #2563eb, янтарь только для валидатора/фрагментов. */
+/* Экран «Процессы»: список, шапка процесса, диаграмма, панель шага, окна правки и импорта
+   (редизайн, фазы 3а, 3б и 13г). Хром экрана — на токенах языка (ui/tokens.css) и
+   примитивах ui/ds.css. Своя палитра (processes/tokens.ts) осталась только у содержимого
+   диаграммы: янтарь фрагментов и «повисших» шагов, полосы активации, цвета плеч по
+   статусу узла; её задают инлайн-стили SequenceDiagram, а не этот файл. */
 
 .bp,
 .bp * {
   box-sizing: border-box;
 }
 
-/* ── Кнопки ── */
-.bp-btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  background: #fff;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-.bp-btn-ghost:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
-}
-.bp-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 14px;
-  background: #2563eb;
-  color: #fff;
-  border: 1px solid #2563eb;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.12s;
-}
-.bp-btn-primary:hover {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
-}
-.bp-btn-primary:disabled,
-.bp-btn-ghost:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.bp-iconbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: #fff;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-.bp-iconbtn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1e293b;
-}
-.bp-iconbtn.is-active {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #2563eb;
-}
-.bp-iconbtn:disabled {
-  opacity: 0.45;
-  cursor: default;
-  background: #fff;
-  border-color: #e2e8f0;
-  color: #475569;
-}
-.bp-linklike {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: none;
-  border: none;
-  color: #2563eb;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0;
-}
-.bp-linklike:hover {
-  color: #1d4ed8;
-  text-decoration: underline;
-}
-
-/* ── Кнопка «Новый процесс» ── */
-.bp-newproc {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  height: 36px;
-  background: #eff6ff;
-  color: #2563eb;
-  border: 1px dashed #93c5fd;
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.bp-newproc:hover {
-  background: #dbeafe;
-  border-color: #60a5fa;
-}
-
-/* ── Строка процесса ── */
-.bp-procrow {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 8px 8px 9px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.bp-procrow:hover {
-  background: #eff6ff;
-}
-.bp-procrow.is-active {
-  background: #dbeafe;
-}
-.bp-procglyph {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  color: #64748b;
-}
-.bp-procrow:hover .bp-procglyph,
-.bp-procrow.is-active .bp-procglyph {
-  color: #2563eb;
-  border-color: #bfdbfe;
-}
-.bp-proctext {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-.bp-procname {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Поле переименования на месте имени: тот же шрифт, чтобы строка не прыгала. */
-.bp-procname-input {
-  flex: 1;
-  min-width: 0;
-  box-sizing: border-box;
-  margin: -2px 0 -2px -5px;
-  padding: 1px 4px;
-  border: 1px solid #93c5fd;
-  border-radius: 5px;
-  outline: none;
-  background: #fff;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-}
-.bp-procsub {
-  font-size: 11px;
-  color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.bp-procdots {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: none;
-  background: none;
-  color: #94a3b8;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.12s, background 0.12s, color 0.12s;
-}
-.bp-procrow:hover .bp-procdots {
-  opacity: 1;
-}
-.bp-procdots:hover {
-  background: #fff;
-  color: #475569;
-}
-.bp-procmenu {
-  position: absolute;
-  top: 38px;
-  right: 6px;
-  z-index: 8;
-  width: 168px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
-  padding: 4px;
-}
-/* Открытие вверх — когда снизу не хватает места (раскрыты все секции панели). */
-.bp-procmenu--up {
-  top: auto;
-  bottom: 100%;
-  margin-bottom: 4px;
-}
-.bp-menuitem {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 8px 11px;
-  background: none;
-  border: none;
-  border-radius: 7px;
-  font-size: 13px;
-  color: #334155;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.bp-menuitem:hover {
-  background: #f1f5f9;
-}
-.bp-menuitem--danger {
-  color: #dc2626;
-}
-.bp-menuitem--danger:hover {
-  background: #fef2f2;
-}
-
-/* ── Призрак «+ шаг» ── */
-.bp-ghoststep {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  width: 50px;
-  height: 50px;
-  border-radius: 12px;
-  border: 1.5px dashed #93c5fd;
-  background: rgba(239, 246, 255, 0.85);
-  color: #2563eb;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
-  transition: background 0.12s, border-color 0.12s;
-}
-.bp-ghoststep:hover {
-  background: #dbeafe;
-  border-color: #60a5fa;
-}
-
-/* ── Композитор сообщения ── */
-.bp-composer {
-  width: 360px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 13px;
-  box-shadow: 0 20px 56px rgba(15, 23, 42, 0.24);
-  overflow: hidden;
-}
-.bp-comphead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 12px 12px 16px;
-  border-bottom: 1px solid #eef2f6;
-}
-.bp-fieldlab {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #94a3b8;
-  margin-bottom: 5px;
-}
-.bp-pairsel {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  height: 36px;
-  padding: 0 9px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  color: #1e293b;
-  transition: border-color 0.12s;
-}
-.bp-pairsel:hover {
-  border-color: #cbd5e1;
-}
-.bp-pairsel b {
-  font-size: 13px;
-  font-weight: 600;
-}
-.bp-pairsel.is-placeholder {
-  color: #94a3b8;
-}
-.bp-caret {
-  margin-left: auto;
-  color: #94a3b8;
-  display: inline-flex;
-}
-
-/* Крестик удаления участника: спрятан, проявляется по ховеру на шапке линии жизни. */
+/* ── Ручки правки на шапке участника (SequenceDiagram) ──
+   Крестик удаления (правый верхний угол) и стрелка «на страницу объекта» (правый нижний):
+   кружки 20px без тени, рамка --c-line-strong, спрятаны и проявляются по ховеру на шапке
+   линии жизни и при фокусе клавиатуры. Под курсором у крестика рамка цвета опасности, у
+   стрелки — значок акцентом; подложка у обоих --c-hover. Размер и место — инлайн-стили
+   шапки (pheadDel, pheadOpen). */
 .bp-phead-del {
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-bg);
+  color: var(--c-danger);
   opacity: 0;
   transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
 }
@@ -341,12 +27,13 @@
   opacity: 1;
 }
 .bp-phead-del:hover {
-  background: #fef2f2;
-  border-color: #fca5a5;
+  border-color: var(--c-danger);
+  background: var(--c-hover);
 }
-
-/* Стрелка «на страницу объекта» — проявляется по ховеру, как крестик удаления. */
 .bp-phead-open {
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-bg);
+  color: var(--c-fg-muted);
   opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
@@ -355,198 +42,1368 @@
   opacity: 1;
 }
 .bp-phead-open:hover {
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--c-accent);
+  background: var(--c-hover);
 }
 
-.bp-channel {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  overflow: hidden;
+/* Область диаграммы процесса: белый фон без сетки. Ширина под полосой прокрутки
+   зарезервирована (scrollbar-gutter): появление вертикальной полосы не меняет ширину,
+   от которой считается вписывание, — иначе вписывание и полоса раскачивали бы друг
+   друга. */
+.proc-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+  background: var(--c-bg);
+  scrollbar-gutter: stable;
 }
-.bp-channelhd {
+/* Обёртка диаграммы: её масштабирует zoom режима чтения (ProcessCanvas). */
+.proc-diagram {
+  width: max-content;
+  padding: 8px 8px 24px;
+}
+
+/* ── Подпись шага на диаграмме (SequenceDiagram) ──
+   Ширина — естественная (width: max-content), предел задаёт max-width из геометрии:
+   шире — перенос по словам; предел не уже самого длинного слова, слово не рвётся.
+   Номер — тихим текстом, цифры одной ширины.
+   Ореол: подпись шага через несколько колонок лежит на линиях жизни и полосах
+   активации, и они резали буквы. Текст обведён цветом фона (тени в восемь сторон и
+   мягкая тень поверх): линия обрывается у самых букв и видна между словами и строками.
+   Фон блоком не годится — он вырезал бы куски линий по всей высоте подписи. Цвет ореола
+   совпадает с фоном подписи (--seq-halo): у наведённой и выбранной он свой, иначе
+   вокруг букв проступила бы белая кайма. */
+.seq-label {
+  --seq-halo: var(--c-bg);
+  text-shadow:
+    1px 0 0 var(--seq-halo), -1px 0 0 var(--seq-halo),
+    0 1px 0 var(--seq-halo), 0 -1px 0 var(--seq-halo),
+    1px 1px 0 var(--seq-halo), -1px -1px 0 var(--seq-halo),
+    1px -1px 0 var(--seq-halo), -1px 1px 0 var(--seq-halo),
+    0 0 3px var(--seq-halo);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  width: max-content;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  border-radius: var(--radius);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  text-align: left;
+  /* Страховка: предел не уже самого длинного слова (геометрия), но под масштабом ширина
+     текста гуляет — слово длиннее подписи переносится, а не вылезает за неё. */
+  overflow-wrap: anywhere;
+}
+/* Подпись-цель клика (шаг открывает панель): отклик наведением; выбранный шаг — тоном
+   акцента, пока его панель открыта. */
+.seq-label.is-click:hover {
+  --seq-halo: var(--c-hover);
+  background: var(--c-hover);
+}
+.seq-label.is-selected,
+.seq-label.is-selected:hover {
+  --seq-halo: var(--c-accent-soft);
+  background: var(--c-accent-soft);
+}
+.seq-num {
+  flex: none;
+  color: var(--c-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.seq-text {
+  min-width: 0;
+}
+/* Последнее слово подписи вместе с причиной поломки и значком схемы — без переноса. */
+.seq-tail {
+  white-space: nowrap;
+}
+/* Причина поломки рядом с подписью сломанного шага: цвет — янтарь из tokens.ts. */
+.seq-broken {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  white-space: nowrap;
+}
+/* Значок привязанной схемы логики после подписи. Тени текста на рисунок не ложатся,
+   поэтому ореол значка — подложка цветом фона подписи: значок мал, и линия жизни
+   обрывается только у него. */
+.seq-doc {
+  display: inline-flex;
+  vertical-align: -1px;
+  margin-left: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--seq-halo);
+  box-shadow: 0 0 0 1px var(--seq-halo);
+  color: var(--c-fg-faint);
+}
+button.seq-doc {
+  cursor: pointer;
+}
+button.seq-doc:hover,
+button.seq-doc:focus-visible {
+  color: var(--c-accent);
+  outline: none;
+}
+/* Невидимые копии подписей и шапок в одну строку: по ним меряется естественная
+   ширина. Копии — в портале вне диаграммы и вне её масштаба (SequenceDiagram), поэтому
+   шрифт и трекинг заданы явно: наследовать их неоткуда. */
+.seq-measure {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.seq-t::before {
+  content: attr(data-t);
+}
+.seq-label--measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  white-space: nowrap;
+}
+/* Копия шапки участника: значок формы (14px), зазор и имя одной строкой — так же, как
+   в самой шапке (SequenceDiagram); рамка 1px. Поля на 3px шире, чем у шапки (10px):
+   запас на то, что под масштабом текст чуть шире замера. */
+.seq-head-measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  box-sizing: border-box;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.seq-head-glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+/* Копия шириной min-content: самое длинное неразрывное место подписи или имени. Перенос
+   только по пробелам (overflow-wrap подписи вне копии разрешает рвать слово). */
+.seq-measure-min {
+  width: min-content;
+  white-space: normal;
+  overflow-wrap: normal;
+}
+
+/* ── Окна правки поверх диаграммы (ProcessCanvas, MessageComposer) ──
+   Окна — div-слои одного стека (useOverlayStack), не <dialog>: вложенный <dialog> здесь
+   нельзя. Слой окна — подложка (proc-dim) и центр (proc-center) поверх всего экрана.
+   Подтверждения («Удалить фрагмент?», «Убрать «…» из процесса?», «Имена расходятся»)
+   лежат выше окон: окно под подтверждением (панель «Участники») затемнено и читается
+   фоном. При общем z-index подложка подтверждения оказывалась под центром панели, и её
+   затемнения не было видно. Затемнение подтверждения той же силы, что подложка окон
+   приложения (dialog.app-modal::backdrop, ui/modal.css), подложка окна лёгкая. Само окно —
+   каркас ds-win карточкой (ds-win--card, ui/ds.css). */
+.proc-dim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.proc-center {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 51;
+}
+.proc-confirm-dim {
+  position: fixed;
+  inset: 0;
+  z-index: 52;
+  background: color-mix(in srgb, var(--c-fg) 45%, transparent);
+}
+.proc-confirm-center {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 53;
+}
+/* Окно правки — ширина подтверждения; длинное имя в заголовке переносится. */
+.proc-win {
+  width: 440px;
+}
+.proc-win .ds-win-title {
+  overflow-wrap: anywhere;
+}
+/* Окно без крестика (шаг внутри участника, ветка, условие фрагмента): правое поле шапки
+   равно полю окна, как у подтверждения. */
+.proc-win--plain .ds-win-head {
+  padding-right: var(--win-pad);
+}
+
+/* Окно «Участники»: нынешние участники строками 30px без фона (значок, имя, «Убрать»),
+   подложка под курсором; список прокручивается (до 140px). «Убрать» — кнопка-значок 24px:
+   видна под курсором строки и при фокусе клавиатуры внутри строки (прозрачность, а не
+   скрытие: кнопка остаётся в порядке Tab; :focus-visible, а не :focus-within: щелчок
+   мышью значок не закрепляет), на устройствах без наведения видна всегда — как значки
+   строк окна «Площадки» (deployment.css). */
+.proc-parts {
+  display: flex;
+  flex-direction: column;
+  max-height: 140px;
+  margin: 0 -6px;
+  overflow: auto;
+}
+.proc-part {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 3px 0 6px;
+  border-radius: var(--radius);
+}
+.proc-part:hover {
+  background: var(--c-hover);
+}
+.proc-part-glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+}
+.proc-part-glyph.is-broken {
+  color: var(--c-warn);
+}
+.proc-part-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--c-fg);
+}
+.ds-icon-btn.proc-part-x {
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+}
+.proc-part:hover .proc-part-x,
+.proc-part-x:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .ds-icon-btn.proc-part-x {
+    opacity: 1;
+  }
+}
+.proc-part .ds-icon-btn.proc-part-x:hover {
+  background: var(--c-line);
+}
+
+/* ── Выбор объектов (ParticipantPicker): поиск, дерево, «Добавить» ──
+   Дерево в рамке, строки 28px, подложка под курсором; шеврон и значок тихим цветом (глиф —
+   общий с деревом объектов, NodeTreePanel.css). Уже добавленный: имя и «в процессе» самым
+   тихим цветом, флажок отмечен и заперт. Отступ уровня — инлайн paddingLeft строки. */
+.pp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.pp-tree {
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+}
+.pp-row {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 11px;
-  background: #f8fafc;
-  border-bottom: 1px solid #eef2f6;
-  font-size: 12px;
-  color: #1e293b;
+  min-height: 28px;
+  padding-right: 8px;
+  border-radius: var(--radius);
 }
-.bp-channelhd b {
-  font-weight: 600;
+.pp-row:hover {
+  background: var(--c-hover);
 }
-.bp-channeltag {
-  margin-left: auto;
-  font-size: 10px;
-  font-weight: 600;
-  color: #64748b;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  padding: 1px 6px;
-}
-.bp-channeltag--async {
-  color: #0e7490;
-  background: #ecfeff;
-  border-color: #bae6f0;
-}
-.bp-legpick {
-  display: flex;
+.pp-chev {
+  display: inline-flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 8px 11px;
-  background: #fff;
-  border: none;
-  border-top: 1px solid #f1f5f9;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.12s;
-}
-.bp-legpick:first-of-type {
-  border-top: none;
-}
-.bp-legpick:hover {
-  background: #f8fafc;
-}
-.bp-legpick.is-sel {
-  background: #f4f1ff;
-}
-.bp-legradio {
   flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 9px;
-  border: 2px solid #cbd5e1;
-  background: #fff;
-  position: relative;
+  width: 14px;
+  height: 14px;
+  color: var(--c-fg-muted);
+  transition: transform 0.12s;
 }
-.bp-legradio.is-on {
-  border-color: #7c5cff;
+.pp-chev.has-kids {
+  cursor: pointer;
 }
-.bp-legradio.is-on::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 5px;
-  background: #7c5cff;
+.pp-chev.is-open {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pp-chev {
+    transition: none;
+  }
+}
+.pp-row input[type="checkbox"] {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
+}
+.pp-row input[type="checkbox"]:disabled {
+  cursor: default;
+}
+/* Фокус флажка — кольцом языка только с клавиатуры, как у флажков окон (ui/ds.css). */
+.pp-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+.pp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.pp-row.is-added .pp-name {
+  color: var(--c-fg-faint);
+  cursor: default;
+}
+.pp-added {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-faint);
+}
+.pp-tree .pp-note {
+  margin: 0;
+  padding: 4px;
+}
+.pp-foot {
+  display: flex;
 }
 
-/* ── Палитра фрагментов / участники (футер редактора) ── */
-.bp-palitem {
+/* ── Окно «Добавить шаг» (MessageComposer) ──
+   Пара объектов одной строкой без коробок: значок и имя, стрелка, значок и имя; длинное
+   имя обрезается многоточием (полное — в title). Стрелка смотрит туда же, куда протянули
+   шаг на диаграмме (is-left — цель левее источника). */
+.mc-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+.mc-end {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px 5px 7px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #475569;
-  cursor: pointer;
-  user-select: none;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  min-width: 0;
 }
-.bp-palitem:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+.mc-glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
 }
-.bp-palitem.is-active {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+.mc-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--c-fg);
 }
-.bp-palitem:disabled {
-  opacity: 0.5;
+.mc-arrow {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-faint);
+}
+.mc-arrow.is-left {
+  transform: scaleX(-1);
+}
+/* Отказ и «Загрузка связей» — абзацы без своего нижнего поля (у ds-danger оно есть): шаг
+   задаёт тело окна. */
+.proc-win .mc-flat {
+  margin: 0;
+}
+/* Связи нет: предупреждение двумя строками без коробки и значка, дальше поля новой связи
+   (подпись над полем тихим цветом). «Технология» и «Тип связи» — в одной строке. */
+.mc-warn-head {
+  margin: 0;
+  font-weight: 600;
+  color: var(--c-warn);
+}
+.mc-muted {
+  margin: 0;
+  color: var(--c-fg-muted);
+}
+.mc-warn-head + .mc-muted {
+  margin-top: 2px;
+}
+.mc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mc-label {
+  color: var(--c-fg-muted);
+}
+.mc-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.mc-row > .mc-field:first-child {
+  flex: 1;
+}
+.mc-field .ds-input:disabled {
+  background: var(--c-bg-subtle);
+  color: var(--c-fg-faint);
   cursor: default;
 }
-.bp-palglyph {
+/* Связи есть: каждая связь группой без коробки (шапка «A → B», технология, тип связи у
+   правого края; под ней варианты шага), между группами линия. Список прокручивается (до
+   200px). */
+.mc-channels {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  margin: 0 -6px;
+  overflow: auto;
+}
+.mc-channel + .mc-channel {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-line);
+}
+.mc-chhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 6px;
+}
+.mc-chname {
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.mc-tech {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+/* Список типа связи своей ширины (по самому длинному варианту): ширина 100% у ds-select
+   не даёт списку минимальной ширины в строке (приём listPages.css, lp-role). В шапке
+   связи — у правого края. */
+.ds-select.mc-sync {
+  display: inline-flex;
+  flex: none;
+}
+.ds-select.mc-sync select {
+  width: auto;
+}
+.mc-chhead .mc-sync {
+  margin-left: auto;
+}
+/* Вариант шага: строка 30px — кружок выбора, значок вида, слово вида, подпись в кавычках.
+   Под курсором подложка, выбранный — тоном акцента. */
+.mc-leg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.mc-leg:hover {
+  background: var(--c-hover);
+}
+.mc-leg.is-sel {
+  background: var(--c-accent-soft);
+}
+.mc-leg:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.mc-radio {
+  position: relative;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 50%;
+  background: var(--c-bg);
+}
+.mc-radio.is-on {
+  border-color: var(--c-accent);
+}
+.mc-radio.is-on::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--c-accent);
+}
+.mc-legicon {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+}
+.mc-word {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.mc-cap {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── Тело холста процесса: диаграмма и панель шага справа (ProcessCanvas) ──
+   Панель — часть раскладки: открылась — область диаграммы сузилась и вписалась заново. */
+.proc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* ── Панель шага (StepPanel) ── */
+.sp-panel {
+  flex: none;
+  width: 320px;
+  box-sizing: border-box;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-left: 1px solid var(--c-line);
+  background: var(--c-bg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+.sp-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.sp-num {
+  flex: none;
+  padding-top: 3px;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+  color: var(--c-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sp-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: inherit;
+  letter-spacing: 0;
+  color: var(--c-fg);
+  padding: 3px 0;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+/* Поле подписи в правке (ui/GrowField): тот же кегль, что у подписи в чтении. */
+.sp-title-field {
+  flex: 1;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+}
+.sp-close {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 26px;
+  height: 26px;
+  margin: -2px -6px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--c-fg-muted);
+  cursor: pointer;
 }
-.bp-fragtag {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  color: #b45309;
-  background: #fffbeb;
-  border: 1px solid #fcd9a8;
-  border-radius: 5px;
-  padding: 1px 8px;
+.sp-close:hover,
+.sp-close:focus-visible {
+  background: var(--c-hover);
+  color: var(--c-fg);
+  outline: none;
 }
-.bp-addpart {
+
+/* Свойства — языком страницы объекта: подпись слева тихим цветом, значение справа. */
+.sp-props {
+  margin: 0;
+}
+.sp-prop {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: baseline;
+  min-height: 30px;
+  padding: 2px 0;
+  box-sizing: border-box;
+}
+.sp-term,
+.sp-value {
+  margin: 0;
+  padding: 3px 0;
+}
+.sp-term {
+  color: var(--c-fg-muted);
+}
+.sp-value {
+  position: relative;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sp-value:has(> .sp-selwrap) {
+  padding-block: 0;
+}
+.sp-prop:hover .ds-value-chev {
+  opacity: 1;
+}
+/* Ссылка на объект или схему: текстом, синим при наведении. */
+.sp-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-accent);
+  text-align: left;
+  cursor: pointer;
+}
+.sp-link:hover,
+.sp-link:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+/* Расхождение со схемой — цветом предупреждения языка. */
+.sp-broken {
+  color: var(--c-warn);
+}
+.sp-path {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-doc-acts {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+.sp-quiet {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  cursor: pointer;
+}
+.sp-quiet:hover,
+.sp-quiet:focus-visible {
+  color: var(--c-fg);
+  outline: none;
+}
+/* Выбор типа связи: значение-кнопка и меню под ним. */
+.sp-selwrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.sp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+.sp-menu {
+  top: calc(100% + 4px);
+  left: -6px;
+  min-width: 180px;
+}
+.sp-confirm {
+  margin-top: 6px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-confirm p {
+  margin: 0 0 8px;
+}
+.sp-confirm-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Выбор схемы логики: поиск и прокручиваемый список (каталог монолита — до двухсот
+   строк, У5). */
+.sp-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sp-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sp-picker-head .ds-input {
+  flex: 1;
+  min-width: 0;
+}
+.sp-list {
+  max-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sp-list-empty {
+  padding: 6px 0;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.sp-row:hover,
+.sp-row:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+.sp-row.is-current {
+  background: var(--c-accent-soft);
+}
+.sp-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.sp-row-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sp-row-note {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.sp-row-path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+/* Тихая красная кнопка-текст: «Удалить шаг» внизу панели шага и «Убрать ветку» в подвале
+   окна ветки «иначе» (ProcessCanvas, PromptCard). Место задают правила ниже. */
+.sp-delete {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--c-danger);
+  cursor: pointer;
+}
+.sp-delete:hover,
+.sp-delete:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+/* В панели шага — внизу колонки. */
+.sp-panel > .sp-delete {
+  align-self: flex-start;
+  margin-top: auto;
+}
+/* В подвале окна — у правого края ряда, после главной кнопки и «Отмена». */
+.ds-win-foot > .sp-delete {
+  margin-left: auto;
+}
+
+/* ── Шапка процесса (ProcessToolbar) ──
+   Одна строка: название слева, действия справа. */
+.proc-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 8px 16px 8px 20px;
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-bg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+}
+/* Заголовки h1 и h2 несут глобальные кегль, гарнитуру и трекинг (index.css) — здесь они
+   сброшены на язык экрана. */
+.proc-name {
+  min-width: 0;
+  margin: 0;
+  font-family: inherit;
+  letter-spacing: 0;
+  color: var(--c-fg);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+/* Поле названия у редактора: по ширине имени (невидимая копия в той же ячейке, приём
+   имени страницы объекта), выглядит текстом, подложка — при наведении. */
+.proc-name-fit {
+  position: relative;
+  display: inline-grid;
+  min-width: 0;
+  margin-left: -6px;
+}
+.proc-name-fit::after {
+  content: attr(data-value) " ";
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: pre;
+  padding: 2px 6px;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+.proc-name-input {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  color: var(--c-fg);
+  text-overflow: ellipsis;
+  outline: none;
+}
+.proc-name-input:hover {
+  background: var(--c-hover);
+}
+.proc-name-input:focus {
+  background: var(--c-bg);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.proc-head-acts {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+/* Отмена и повтор — тихими кнопками-значками (ui/ds.css, ds-icon-btn) вплотную. */
+.proc-iconbtn {
+  margin: 0 -10px 0 0;
+}
+.proc-iconbtn + .ds-add {
+  margin-left: 4px;
+}
+/* «Восстановить связи (N)»: шаги без связи — сигнал, текст цветом предупреждения. */
+.proc-reattach {
+  color: var(--c-warn);
+}
+/* «Фрагмент»: кнопка с меню; пока идёт протягивание диапазона — нажата. */
+.proc-menuwrap {
+  position: relative;
+  display: inline-flex;
+}
+.proc-chev {
+  display: inline-flex;
+  color: var(--c-fg-muted);
+}
+.ds-btn.is-pressed {
+  background: var(--c-accent-soft);
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+.proc-menu {
+  top: calc(100% + 4px);
+  right: 0;
+}
+.proc-menu .ds-menu-item.is-current {
+  background: var(--c-accent-soft);
+}
+
+/* Строки холста без диаграммы: загрузка, пустой процесс, сбой записи. */
+.proc-blank {
+  padding: 24px 20px;
+  font-size: var(--fs-body);
+  color: var(--c-fg-muted);
+}
+.proc-error {
+  padding: 8px 20px 0;
+  font-size: var(--fs-ui);
+  color: var(--c-danger);
+}
+/* Итог подхвата связей («Восстановлено связей: 2, осталось без связи: 1»): сводка, а не
+   ошибка, цветом предупреждения; щелчок гасит. */
+.proc-note {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-warn);
+  cursor: pointer;
+}
+/* Полоса «Протяните по шагам…» с «Отмена» — тост языка с кнопкой (ui/ds.css, ds-toast
+   ds-toast--action). Место прежнее: верх области диаграммы по центру, 10px от верха.
+   z-index 9: выше слоя выбора диапазона (SequenceDiagram, z-index 8, перекрывает весь
+   холст на время выбора) и полосы шапок участников. При z-index 7 слой лежал поверх полосы
+   и забирал щелчок мышью по «Отмена»: вместо отмены открывалось окно условия фрагмента
+   (хвост приёмки 13г). Ширина шире обычного тоста: на широкой диаграмме текст в одну
+   строку (в строку полоса занимает 556–568px по виду фрагмента, замер 13г), на узкой
+   переносится. */
+.ds-toast.proc-frag-hint {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  max-width: min(580px, calc(100% - 32px));
+}
+/* Пустой проект (ProcessWorkspace): одна строка и «Добавить» редактору. */
+.proc-empty {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--c-bg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  color: var(--c-fg-muted);
+}
+.proc-empty-err {
+  color: var(--c-danger);
+}
+
+/* ── Список процессов (ProcessRail) ── */
+/* Список стоит вне области .ds: гарнитура, кегль, интерлиньяж, трекинг и цвет заданы
+   здесь, иначе названия наследовали бы трекинг корня (index.css, 0.18px). */
+.pr-rail {
+  flex: none;
+  width: 248px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--c-line);
+  background: var(--c-bg-subtle);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  letter-spacing: 0;
+  color: var(--c-fg);
+}
+.pr-rail--collapsed {
+  width: 44px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+}
+.pr-top {
+  padding: 12px 16px 6px;
+}
+.pr-list {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 8px 8px;
+}
+.pr-hint {
+  padding: 6px 8px;
+  color: var(--c-fg-muted);
+}
+.pr-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 5px 4px 5px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.pr-row:hover {
+  background: var(--c-hover);
+}
+.pr-row.is-active {
+  background: var(--c-accent-soft);
+}
+.pr-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--c-accent);
+}
+.pr-row--new {
+  padding: 2px 0;
+  cursor: default;
+}
+.pr-row--new:hover {
+  background: none;
+}
+/* Название — до двух строк, дальше многоточие; полное имя в подсказке. */
+.pr-name {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.pr-input {
+  flex: 1;
+  min-width: 0;
+}
+.pr-dots {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 12px;
-  background: #eff6ff;
-  color: #2563eb;
-  border: 1px dashed #93c5fd;
-  border-radius: 8px;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--c-fg-muted);
   cursor: pointer;
-  font-size: 12.5px;
-  font-weight: 600;
-  transition: background 0.12s;
+  opacity: 0;
 }
-.bp-addpart:hover {
-  background: #dbeafe;
+.pr-row:hover .pr-dots,
+.pr-dots:focus-visible,
+.pr-dots[aria-expanded="true"] {
+  opacity: 1;
 }
-.bp-addparthint {
-  font-size: 10.5px;
-  font-weight: 500;
-  color: #60a5fa;
+.pr-dots:hover {
+  color: var(--c-fg);
+}
+.pr-menu {
+  top: calc(100% - 4px);
+  right: 4px;
+  min-width: 160px;
+}
+/* Сворачивание списка — тихая кнопка-значок (ui/ds.css, ds-icon-btn) внизу справа. */
+.pr-toggle--end {
+  align-self: flex-end;
+  margin: 4px 10px 10px 0;
 }
 
-/* Холст диаграммы в точку (viewer/editor body) */
-.bp-canvas {
-  background: #f8fafc;
-  background-image: radial-gradient(#e6ebf2 1px, transparent 1px);
-  background-size: 22px 22px;
+/* ── Окно «Импорт процессов» и «Заменить процесс» (ProcessImportModal) ──
+   Каркас — общий (ui/ds.css, ds-win; корень каркаса сам несёт ds и метрики языка). Под
+   черновиком только проблемы (ImportDraftIssues). */
+.pim {
+  /* Поля на 1px шире общих: до каркаса между краем окна и текстом стояла рамка
+     перетаскивания (16px до рамки, 1px рамка, 8px после), и окно сохраняет прежнюю
+     геометрию. */
+  --win-pad: 25px;
 }
-
-/* Поле ввода композитора: связь достраивается прямо в окне сообщения, поэтому
-   поля живут в его же стилевой системе (не в общих ui/styles холста). */
-.bp-input {
-  width: 100%;
+/* Рамка перетаскивания файлов: на всё окно, 16px от края, под содержимым. */
+.pim.is-drop::before {
+  content: "";
+  position: absolute;
+  inset: 16px;
+  z-index: -1;
+  border: 1px dashed var(--c-accent);
+  border-radius: var(--radius-lg);
+  background: var(--c-accent-soft);
+  pointer-events: none;
+}
+.pim-name {
   height: 32px;
-  padding: 0 9px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 12.5px;
-  color: #0f172a;
-  box-sizing: border-box;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  font-size: var(--fs-body);
 }
-.bp-input::placeholder { color: #94a3b8; }
-.bp-input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-.bp-input:disabled { background: #f8fafc; color: #94a3b8; }
-.bp-field-label {
+.pim-text {
   display: block;
-  margin-bottom: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
+  width: 100%;
+  min-height: 180px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-body);
+  color: var(--c-fg);
+  resize: vertical;
+}
+.pim-text::placeholder {
+  color: var(--c-fg-faint);
+}
+/* Фокус поля текста — кольцом нового языка, тем же, что у ds-input (ui/ds.css). */
+.app-modal .pim .pim-text:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
 
-/* Просмотр: подпись шага, к которому привязана схема логики, — ссылка на неё
-   (SequenceDiagram). Намёк спокойный — бледный пунктир под тёмным текстом: в
-   документированном процессе схема есть почти у каждого шага, и сплошь синие подписи
-   превратили бы диаграмму в страницу ссылок. При наведении — синяя. */
-.seq-doclink {
-  text-decoration: underline dotted rgba(37, 99, 235, 0.5);
-  text-underline-offset: 3px;
+/* Проблемы черновика: строки без коробок, списки по клику. */
+.pim-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-[data-mid]:hover .seq-doclink {
-  color: #1d4ed8;
-  text-decoration-color: currentColor;
+.pim-issues:empty {
+  display: none;
+}
+.pim-line {
+  margin: 0;
+}
+.pim-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pim-part {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.pim-part-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+/* Объект участника: значение-кнопка и плавающая панель выбора (NodeChoice). Панель —
+   fixed с координатами от кнопки (их ставит NodeChoice): прокрутка содержимого окна её
+   не обрезает. Подложка ловит клик мимо. Оболочка панели — как у меню (.ds-menu). */
+.pim-choice {
+  min-width: 0;
+}
+.pim-choice-text {
+  overflow-wrap: anywhere;
+}
+.pim-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.pim-pop {
+  position: fixed;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 8px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
+}
+.pim-pop .ds-input {
+  flex: none;
+}
+.pim-pop-list {
+  position: relative; /* опора offsetTop пунктов: список докручивается до пункта под клавиатурой */
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 0 -4px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.pim-pop-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.pim-pop-opt.is-active {
+  background: var(--c-hover);
+}
+.pim-pop-opt--none {
+  color: var(--c-fg-muted);
+}
+/* Черта между кандидатами по имени и остальными объектами. */
+.pim-pop-opt--sep {
+  position: relative;
+  margin-top: 9px;
+}
+.pim-pop-opt--sep::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 8px;
+  right: 8px;
+  border-top: 1px solid var(--c-line);
+}
+.pim-pop-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pim-pop-check {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-accent);
+}
+.pim-pop-note {
+  margin: 0;
+  padding: 0 4px;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+.pim-pop-note--err {
+  color: var(--c-danger);
+}
+.pim-exp-btn--warn,
+.pim-exp-btn--warn:hover {
+  color: var(--c-warn);
+}
+.pim-exp-btn--warn .ds-chev {
+  color: inherit;
+}
+.pim-exp-body {
+  margin: 4px 0 6px 18px;
+}
+.pim-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--c-fg-muted);
+}
+.pim-list li {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+.pim-list--mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+
+/* Несколько черновиков — строки: шеврон, название (правится на месте), число шагов,
+   крестик «убрать». Строка с проблемами раскрыта. */
+.pim-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+.pim-row {
+  border-top: 1px solid var(--c-line);
+}
+.pim-row:last-child {
+  border-bottom: 1px solid var(--c-line);
+}
+.pim-row-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+}
+.pim-row-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  cursor: pointer;
+}
+.pim-row-chev:hover {
+  background: var(--c-hover);
+}
+.pim-row-chev:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.pim-row-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-weight: 500;
+}
+.pim-row-steps {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}
+.pim-row:hover .ds-del,
+.pim-row:focus-within .ds-del {
+  opacity: 1;
+}
+.pim-row-body {
+  padding: 0 8px 10px 34px;
+}
+
+/* Футер окна импорта: «Выбрать файлы» слева, кнопки окна справа. */
+.pim-btns {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
 }

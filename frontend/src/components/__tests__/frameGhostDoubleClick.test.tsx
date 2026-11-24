@@ -2,8 +2,8 @@
 //   • рамка раскрытого узла — не узел и в этом не участвует: клик по плашке «🔍 имя ✕»
 //     сворачивает рамку сразу, как и прежде (попытка ждать двойного клика отменена
 //     пользователем);
-//   • панель гостя ведёт на страницу узла разделом «Документация → Открыть» (двойной клик
-//     по гостю сам больше не уводит); у пользователя (person) документации нет.
+//   • панель гостя ведёт на страницу узла кнопкой заголовка «Открыть страницу объекта»
+//     (двойной клик по гостю сам больше не уводит); у пользователя (person) страницы нет.
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ReactFlowProvider, type NodeProps } from "@xyflow/react";
 import type { ComponentType, ReactNode } from "react";
@@ -46,7 +46,7 @@ describe("плашка раскрытой рамки", () => {
   });
 });
 
-describe("панель гостя: «Документация → Открыть»", () => {
+describe("панель гостя: «Открыть страницу объекта»", () => {
   const ghost = (over: Partial<GhostNode> = {}): GhostNode => ({
     id: "g1", name: "Банк", role: null, technology: null, is_external: true, shape: "service",
     status: "existing", node_depth: 0, has_children: false, child_count: 0, element_effective: "container",
@@ -54,16 +54,15 @@ describe("панель гостя: «Документация → Открыть
     ...over,
   });
 
-  it("«Открыть» ведёт на страницу узла", () => {
+  it("кнопка заголовка ведёт на страницу узла", () => {
     const onNavigateNode = vi.fn();
-    render(<GhostInspector ghost={ghost()} onGoToSource={vi.fn()} onNavigateNode={onNavigateNode} />);
-    expect(screen.getByText("Документация")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    render(<GhostInspector ghost={ghost()} onShowOnMap={vi.fn()} onNavigateNode={onNavigateNode} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Открыть страницу объекта" }));
     expect(onNavigateNode).toHaveBeenCalledWith("g1");
   });
 
-  it("у пользователя документации нет", () => {
-    render(<GhostInspector ghost={ghost({ shape: "person" })} onGoToSource={vi.fn()} onNavigateNode={vi.fn()} />);
-    expect(screen.queryByText("Документация")).toBeNull();
+  it("у пользователя страницы нет", () => {
+    render(<GhostInspector ghost={ghost({ shape: "person" })} onShowOnMap={vi.fn()} onNavigateNode={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Открыть страницу объекта" })).toBeNull();
   });
 });

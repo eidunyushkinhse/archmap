@@ -1,5 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+// Шрифт интерфейса вшит в сборку (закрытый контур, без загрузки из интернета), токены
+// дизайн-системы — до index.css: шаблонные правила корня ссылаются на них.
+import '@fontsource-variable/inter'
+import './ui/tokens.css'
 import './index.css'
 import App from './App.tsx'
 import UpdateNotice from './ui/UpdateNotice.tsx'

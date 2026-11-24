@@ -1,25 +1,24 @@
-// Карточка «Связи» страницы объекта (вынесена из NodePage 2026-11-02 вместе с идеей
+// Раздел «Связи» страницы объекта (вынесен из NodePage 2026-11-02 вместе с идеей
 // владельца «связи без повторов»). Таблица — внешние связи поддерева объекта
 // (GET /nodes/{id}/edges). Одноимённые связи с одним соседом в одном направлении — одна
-// строка со счётчиком «×N»: десять «Пользователь → Заказы · пользуется» к разным объектам
-// внутри — одна строка, а не десять одинаковых. Архитектору клик по такой строке открывает
-// окно выбора, где каждая связь названа своим концом внутри объекта; одиночная строка, как
-// и раньше, сразу открывает редактор связи. Карточка сворачивается; состояние одно на все
-// страницы объектов и живёт в браузере.
-import { useCallback, useMemo, useState } from "react";
-import type { MouseEvent } from "react";
+// строка с тихим счётчиком «×N»: десять «Пользователь → Заказы · пользуется» к разным
+// объектам внутри — одна строка, а не десять одинаковых. Архитектору клик по такой строке
+// открывает окно выбора, где каждая связь названа своим концом внутри объекта; одиночная
+// строка сразу открывает редактор связи.
+//
+// Вид (редизайн, направление А «Документ»): тихая таблица из трёх колонок — «Объект»
+// (стрелка направления и сосед), «Описание», «Технология»; без счётчика и свёртки. Связей
+// нет — раздела нет.
+import { useMemo, useState } from "react";
 import type { NodeEdgeInfo } from "../../types";
-import { safeLocal } from "../../lib/safeStorage";
 import EdgeChoiceModal from "../EdgeChoiceModal";
-import { useShrinkAnchor } from "../useShrinkAnchor";
-import { GroupChevron } from "./DescendantGroups";
 import EdgeRow from "./EdgeRow";
-
-// "1" — карточка свёрнута; развёрнутая (дефолт) ключа не хранит.
-const COLLAPSED_KEY = "archmap-node-edges-collapsed";
+import Section from "../../ui/Section";
+import "../../ui/ds.css";
+import "./edges.css";
 
 // Строки таблицы: связи по ключу (направление, сосед, подпись, технология) в порядке
-// первого появления. Пустая подпись и её отсутствие — одна подпись (обе рисуются «–»).
+// первого появления. Пустая подпись и её отсутствие — одна подпись (обе рисуются «—»).
 function groupRows(edges: NodeEdgeInfo[]): NodeEdgeInfo[][] {
   const rows = new Map<string, NodeEdgeInfo[]>();
   for (const e of edges) {
@@ -40,64 +39,35 @@ export default function EdgesSection({ edges, nodeName, isArchitect, onNavigateN
   onEdit: (edgeId: string) => void;
 }) {
   const rows = useMemo(() => groupRows(edges), [edges]);
-  const [open, setOpen] = useState(() => safeLocal.getItem(COLLAPSED_KEY) !== "1");
   const [choice, setChoice] = useState<NodeEdgeInfo[] | null>(null);
-  const holdScroll = useShrinkAnchor();
-  const toggle = useCallback((e: MouseEvent<HTMLButtonElement>) => {
-    if (open) holdScroll(e.currentTarget);
-    const next = !open;
-    if (next) safeLocal.removeItem(COLLAPSED_KEY);
-    else safeLocal.setItem(COLLAPSED_KEY, "1");
-    setOpen(next);
-  }, [open, holdScroll]);
 
-  // Пустая карточка не сворачивается: сворачивать нечего.
-  if (edges.length === 0) {
-    return (
-      <div className="np-card">
-        <h3 className="np-card-title">Связи</h3>
-        <p className="np-empty">Связей нет</p>
-      </div>
-    );
-  }
+  if (edges.length === 0) return null;
 
   const first = choice?.[0];
   const isOut = first?.direction === "outgoing";
   return (
-    <div className="np-card">
-      <h3 className="np-card-title" style={open ? undefined : { marginBottom: 0 }}>
-        <button type="button" className="np-card-toggle" onClick={toggle} aria-expanded={open}>
-          <GroupChevron open={open} />
-          Связи
-          <span className="np-card-count">· {rows.length}</span>
-        </button>
-      </h3>
-      {open && (
-        <table className="np-edges-table">
-          <thead>
-            <tr>
-              <th>Вызывающий</th>
-              <th className="np-edge-arrowcol" aria-hidden="true" />
-              <th>Вызываемый</th>
-              <th>Описание</th>
-              <th style={{ width: 140 }}>Технология</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <EdgeRow
-                key={row[0].id}
-                edge={row[0]}
-                count={row.length}
-                nodeName={nodeName}
-                isArchitect={isArchitect}
-                onNavigateNode={onNavigateNode}
-                onOpen={() => (row.length > 1 ? setChoice(row) : onEdit(row[0].id))}
-              />
-            ))}
-          </tbody>
-        </table>
-      )}
+    <Section title="Связи">
+      <table className="ds-table np-edges">
+        <thead>
+          <tr>
+            <th className="np-edges-obj">Объект</th>
+            <th>Описание</th>
+            <th className="np-edges-tech">Технология</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <EdgeRow
+              key={row[0].id}
+              edge={row[0]}
+              count={row.length}
+              isArchitect={isArchitect}
+              onNavigateNode={onNavigateNode}
+              onOpen={() => (row.length > 1 ? setChoice(row) : onEdit(row[0].id))}
+            />
+          ))}
+        </tbody>
+      </table>
       {/* Выбор одной из одноимённых связей строки: каждая названа своим концом внутри
           объекта (сам объект или вложенный в него). Выбор открывает редактор связи. */}
       {choice && first && (
@@ -110,6 +80,6 @@ export default function EdgesSection({ edges, nodeName, isArchitect, onNavigateN
           onClose={() => setChoice(null)}
         />
       )}
-    </div>
+    </Section>
   );
 }

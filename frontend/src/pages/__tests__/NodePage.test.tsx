@@ -59,10 +59,12 @@ vi.mock("../../api/deployment", () => ({
 // В data-nodes выкладываем мету узлов, которую схема РИСУЕТ: по ней видно, доехала
 // ли правка страницы до данных схемы без перезагрузки.
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: ({ nodes }: { nodes: Node[] }) => (
+  default: ({ nodes, notice }: { nodes: Node[]; notice?: string | null }) => (
     <div
       data-testid="schema-block"
       data-nodes={nodes.map((n) => `${n.id}:${n.shape}:${n.status}:${n.name}`).join("|")}
+      // Текст тоста чужой правки схемы: сам тост рисует блок внутри своей рамки.
+      data-notice={notice ?? ""}
     >
       схема
     </div>
@@ -85,8 +87,8 @@ vi.mock("../../components/EdgeEditModal", () => ({
 // Окно «Список операций от агента»: маркер вместо настоящего окна — здесь проверяется вход в
 // него из меню «+ Добавить», а само окно покрыто своим тестом (ReconAgentModal.test).
 vi.mock("../../components/docsImport/ReconAgentModal", () => ({
-  default: ({ nodeName }: { nodeName: string }) => (
-    <div data-testid="recon-modal" data-node-name={nodeName} />
+  default: ({ nodeId }: { nodeId: string }) => (
+    <div data-testid="recon-modal" data-node-id={nodeId} />
   ),
 }));
 
@@ -239,6 +241,30 @@ describe("NodePage", () => {
     expect(screen.getByDisplayValue("Python")).toBeInTheDocument();
   });
 
+  it("описание стоит в шапке под названием, а не строкой свойств", async () => {
+    setup();
+    const desc = await screen.findByRole("textbox", { name: "Описание" });
+    expect(desc).toHaveValue("Приём платежей");
+    expect(desc.closest("header")).not.toBeNull();
+    expect(desc.closest(".np-props")).toBeNull();
+  });
+
+  it("пустое описание: у редактора поле «Добавьте описание», у читателя ничего", async () => {
+    const view = setup({ node: { description: null } });
+    expect(await screen.findByPlaceholderText("Добавьте описание")).toHaveValue("");
+    view.unmount();
+    setup({ node: { description: null }, isArchitect: false });
+    await screen.findByRole("heading", { name: "Сервис оплаты" });
+    expect(screen.queryByRole("textbox", { name: "Описание" })).toBeNull();
+    expect(document.querySelector(".np-desc")).toBeNull();
+  });
+
+  it("у читателя описание — абзац под названием", async () => {
+    setup({ isArchitect: false });
+    await screen.findByRole("heading", { name: "Сервис оплаты" });
+    expect(screen.getByText("Приём платежей")).toHaveClass("np-desc");
+  });
+
   it("внешняя система (Р42): своя технология полем, статуса страницы нет, размещение не ведётся", async () => {
     setup({ node: { is_external: true, element_effective: "system" } });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
@@ -255,6 +281,8 @@ describe("NodePage", () => {
   });
 
   // ── Таблица «Связи» без повторов (2026-11-02, идея владельца) ──
+  // С редизайна (направление А): три колонки «Объект» (стрелка и сосед), «Описание»,
+  // «Технология»; без счётчика в заголовке и без свёртки; связей нет — раздела нет.
   describe("таблица «Связи»", () => {
     beforeEach(() => localStorage.clear());
 
@@ -267,14 +295,16 @@ describe("NodePage", () => {
       id: "n1", label: "уведомляет", technology: "SMTP", direction: "outgoing", other_node_id: "user",
       other_node_name: "Пользователь", inner_node_id: "in-notify", inner_node_name: "Уведомления",
     });
-    const card = () => screen.getByRole("button", { name: /^Связи/ }).closest(".np-card") as HTMLElement;
+    const section = () => screen.getByRole("heading", { name: "Связи" }).closest("section") as HTMLElement;
 
     it("одноимённые связи с одним соседом — одна строка со счётчиком «×N» и подсказкой словами", async () => {
       setup({ edges: [bus[0], notify, bus[1], bus[2]] });
-      const toggle = await screen.findByRole("button", { name: /^Связи/ });
-      expect(toggle).toHaveTextContent("Связи· 2");
-      expect(toggle).toHaveAttribute("aria-expanded", "true");
-      const rows = within(card()).getAllByRole("row").slice(1);
+      const heading = await screen.findByRole("heading", { name: "Связи" });
+      // Ни счётчика строк, ни свёртки у заголовка.
+      expect(heading).toHaveTextContent(/^Связи$/);
+      expect(screen.queryByRole("button", { name: /^Связи/ })).toBeNull();
+      const [head, ...rows] = within(section()).getAllByRole("row");
+      expect(within(head).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Объект", "Описание", "Технология"]);
       expect(rows).toHaveLength(2);
       // порядок первого появления: сначала строка «пользуется», затем «уведомляет»
       expect(rows[0]).toHaveTextContent("пользуется×3");
@@ -285,59 +315,57 @@ describe("NodePage", () => {
       expect(rows[1]).toHaveAttribute("title", "Редактировать связь");
     });
 
+    it("колонка «Объект» — стрелка направления с подсказкой словами и сосед-ссылка", async () => {
+      setup({ edges: [bus[0], notify] });
+      await screen.findByRole("heading", { name: "Связи" });
+      const [, incoming, outgoing] = within(section()).getAllByRole("row");
+      expect(within(incoming).getByText("←")).toHaveAttribute("title", "вызывается из");
+      expect(within(outgoing).getByText("→")).toHaveAttribute("title", "вызывает");
+      // Своё имя в строке не повторяется: строка говорит о соседе.
+      expect(incoming).not.toHaveTextContent("Сервис оплаты");
+      await userEvent.click(within(outgoing).getByRole("button", { name: "Пользователь" }));
+      expect(nav.onNavigateNode).toHaveBeenCalledWith("user");
+      // Переход по соседу не открывает редактор строки.
+      expect(screen.queryByTestId("edge-edit")).toBeNull();
+    });
+
     it("клик по строке с несколькими связями — окно выбора по внутреннему концу, выбор открывает редактор", async () => {
       setup({ edges: [...bus, notify] });
-      await screen.findByRole("button", { name: /^Связи/ });
-      const [busRow] = within(card()).getAllByRole("row").slice(1);
+      await screen.findByRole("heading", { name: "Связи" });
+      const [busRow] = within(section()).getAllByRole("row").slice(1);
       await userEvent.click(within(busRow).getByText("пользуется"));
       const modal = screen.getByTestId("modal");
       expect(modal).toHaveTextContent("Выберите связь");
       expect(within(modal).getByText("Пользователь → Сервис оплаты")).toBeInTheDocument();
-      const choices = within(modal).getAllByRole("button");
-      expect(choices.map((b) => b.textContent)).toEqual(["пользуется→ Каталог", "пользуется→ Корзина", "пользуется→ Оплата"]);
+      const choices = within(within(modal).getByRole("list")).getAllByRole("button");
+      expect(choices.map((b) => b.textContent)).toEqual(["пользуется → Каталог", "пользуется → Корзина", "пользуется → Оплата"]);
       await userEvent.click(within(modal).getByRole("button", { name: "пользуется → Корзина" }));
       expect(screen.getByTestId("edge-edit")).toHaveAttribute("data-edge-id", "u2");
     });
 
     it("одиночная строка открывает редактор сразу", async () => {
       setup({ edges: [...bus, notify] });
-      await screen.findByRole("button", { name: /^Связи/ });
-      await userEvent.click(within(card()).getByText("уведомляет"));
+      await screen.findByRole("heading", { name: "Связи" });
+      await userEvent.click(within(section()).getByText("уведомляет"));
       expect(screen.queryByText("Выберите связь")).toBeNull();
       expect(screen.getByTestId("edge-edit")).toHaveAttribute("data-edge-id", "n1");
     });
 
     it("наблюдателю строки не кликабельны и окна выбора нет", async () => {
       setup({ edges: [...bus], isArchitect: false });
-      await screen.findByRole("button", { name: /^Связи/ });
-      const [busRow] = within(card()).getAllByRole("row").slice(1);
+      await screen.findByRole("heading", { name: "Связи" });
+      const [busRow] = within(section()).getAllByRole("row").slice(1);
       expect(busRow).not.toHaveAttribute("title");
       await userEvent.click(within(busRow).getByText("пользуется"));
       expect(screen.queryByText("Выберите связь")).toBeNull();
     });
 
-    it("карточка сворачивается, состояние запоминается в браузере на все страницы объектов", async () => {
-      const view = setup({ edges: [...bus] });
-      const toggle = await screen.findByRole("button", { name: /^Связи/ });
-      await userEvent.click(toggle);
-      expect(toggle).toHaveAttribute("aria-expanded", "false");
-      expect(within(card()).queryByRole("table")).toBeNull();
-      expect(localStorage.getItem("archmap-node-edges-collapsed")).toBe("1");
-
-      view.unmount();
-      setup({ edges: [...bus] });
-      const again = await screen.findByRole("button", { name: /^Связи/ });
-      expect(again).toHaveAttribute("aria-expanded", "false");
-      await userEvent.click(again);
-      expect(again).toHaveAttribute("aria-expanded", "true");
-      expect(within(card()).getByRole("table")).toBeInTheDocument();
-      expect(localStorage.getItem("archmap-node-edges-collapsed")).toBeNull();
-    });
-
-    it("пустая карточка — без шеврона", async () => {
+    it("связей нет — раздела нет", async () => {
       setup({ edges: [] });
-      await screen.findByText("Связей нет");
-      expect(screen.queryByRole("button", { name: /^Связи/ })).toBeNull();
+      await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
+      await waitFor(() => expect(nodesApi.getEdges).toHaveBeenCalled());
+      expect(screen.queryByRole("heading", { name: "Связи" })).toBeNull();
+      expect(screen.queryByText("Связей нет")).toBeNull();
     });
   });
 
@@ -346,21 +374,24 @@ describe("NodePage", () => {
     await waitFor(() => expect(screen.getByTestId("schema-block")).toBeInTheDocument());
   });
 
-  it("секция «Участвует в процессах»: клик ведёт в процесс", async () => {
+  it("раздел «Процессы»: строка — имя процесса, клик ведёт в процесс", async () => {
     const proc = {
       id: "p1", name: "Оплата заказа", scope_node_id: null, scope_name: null,
       message_count: 3, statuses: [],
     } as ProcessListItem;
     setup({ processes: [proc] });
-    const link = await screen.findByText("Оплата заказа");
-    await userEvent.click(link);
+    const row = await screen.findByRole("button", { name: "Оплата заказа" });
+    expect(screen.getByRole("heading", { name: "Процессы" })).toBeInTheDocument();
+    // Число сообщений в строке не пишется: о роли объекта в процессе оно не говорит.
+    expect(screen.queryByText(/сообщени/)).toBeNull();
+    await userEvent.click(row);
     expect(nav.onNavigateProcesses).toHaveBeenCalledWith("p1");
   });
 
-  it("без процессов секция «Участвует в процессах» скрыта", async () => {
+  it("без процессов раздела «Процессы» нет", async () => {
     setup({ processes: [] });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
-    expect(screen.queryByText("Участвует в процессах")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Процессы" })).not.toBeInTheDocument();
   });
 });
 
@@ -396,90 +427,74 @@ describe("NodePage: правила контейнеров", () => {
     return render(<NodePage nodeId="c1" isArchitect {...nav} />);
   }
 
-  it("объединение схем детей: левая часть открывает схему ребёнка напрямую, правая ведёт на его страницу", async () => {
+  it("объединение схем детей: строка открывает схему ребёнка напрямую, подпись подгруппы ведёт на его страницу", async () => {
     setupContainer({ children: [node("k1", { name: "Шлюз", docs: [docMeta()] })] });
     await screen.findByText("Схема оплаты");
-    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
-    // Левая (широкая) часть — открыть схему ребёнка напрямую: оверлей в контексте
-    // ребёнка (nodeId=k1, не контейнера) на конкретной схеме (d1).
+    // Строка — открыть схему ребёнка напрямую: оверлей в контексте ребёнка (nodeId=k1,
+    // не контейнера) на конкретной схеме (d1).
     const mainBtn = screen.getByText("Схема оплаты").closest("button");
     await userEvent.click(mainBtn as HTMLButtonElement);
     const overlay = screen.getByTestId("doc-overlay");
     expect(overlay).toHaveAttribute("data-node-id", "k1");
     expect(overlay).toHaveAttribute("data-doc-id", "d1");
     expect(overlay).toHaveAttribute("data-mode", "flowchart");
-    // Правая (узкая) часть — на страницу ребёнка.
-    const childBtn = screen.getByText("от Шлюз →").closest("button");
-    await userEvent.click(childBtn as HTMLButtonElement);
+    // Подпись подгруппы — имя ребёнка — ведёт на его страницу.
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest("section") as HTMLElement;
+    await userEvent.click(within(logic).getByRole("button", { name: "Шлюз" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
   });
 
-  it("группировка по детям: схемы ребёнка плоско, схемы внуков — в раскрываемой группе под родителем", async () => {
-    // k1 — непосредственный ребёнок со своей схемой, g1 — внук (parent_id=k1)
-    // со схемой: она уходит в группу под «Шлюз», свёрнутую по умолчанию.
+  it("подгруппы по детям всегда раскрыты: схемы ребёнка и внуков видны сразу, владелец внука назван справа", async () => {
+    // k1 — непосредственный ребёнок со своей схемой, g1 — внук (parent_id=k1) со
+    // схемой: она лежит в подгруппе «Шлюз» рядом со схемой ребёнка.
     const kid = node("k1", { name: "Шлюз", docs: [docMeta({ id: "dk", name: "Схема шлюза" })] });
     const grand = node("g1", { name: "Внук", parent_id: "k1", docs: [docMeta({ id: "dg", name: "Схема внука" })] });
     setupContainer({ children: [kid, grand] });
-    // Собственная схема ребёнка — плоская split-кнопка, видна сразу.
     await screen.findByText("Схема шлюза");
-    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
-    // Схема внука — в свёрнутой группе: скрыта, но есть кнопка-группа с именем
-    // ребёнка и счётчиком (aria-expanded=false).
-    expect(screen.queryByText("Схема внука")).not.toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 схема/ });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    // Клик раскрывает группу: схема внука видна, пометка «от Внук».
-    await userEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // Ни свёртки, ни счётчика: схема внука видна без клика.
     expect(screen.getByText("Схема внука")).toBeInTheDocument();
-    expect(screen.getByText("от Внук →")).toBeInTheDocument();
-    // Левая часть группы открывает схему внука в его контексте.
-    const deepBtn = screen.getByText("Схема внука").closest("button");
-    await userEvent.click(deepBtn as HTMLButtonElement);
+    expect(screen.queryByRole("button", { name: /1 схема/ })).toBeNull();
+    // Строка внука открывает его схему в его контексте.
+    await userEvent.click(screen.getByText("Схема внука").closest("button") as HTMLButtonElement);
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-node-id", "g1");
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "dg");
-    // Левая часть собственной схемы ребёнка — в контексте ребёнка.
-    const ownBtn = screen.getByText("Схема шлюза").closest("button");
-    await userEvent.click(ownBtn as HTMLButtonElement);
+    // Строка собственной схемы ребёнка — в контексте ребёнка.
+    await userEvent.click(screen.getByText("Схема шлюза").closest("button") as HTMLButtonElement);
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-node-id", "k1");
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "dk");
-    // Правая часть split-кнопки внука ведёт на его страницу.
-    await userEvent.click(screen.getByText("от Внук →"));
+    // Владелец глубже подгруппы назван тихой ссылкой справа и ведёт на свою страницу.
+    await userEvent.click(screen.getByRole("button", { name: "Внук" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
   });
 
-  it("спеки потомков: спека ребёнка плоско, спека внука — в раскрываемой группе", async () => {
+  it("спецификации потомков: спецификация ребёнка и внука видны сразу, внук назван справа", async () => {
     const kid = node("k1", { name: "Шлюз", openapi_spec: "openapi: 3.0.0" });
     const grand = node("g1", { name: "Внук", parent_id: "k1", openapi_spec: "openapi: 3.0.0" });
     setupContainer({ children: [kid, grand] });
-    // Спека ребёнка — плоская split-кнопка, видна сразу; спека внука скрыта
-    // в свёрнутой группе (видима только одна «Спецификация»).
-    await screen.findByText("Спецификация");
-    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
-    expect(screen.getAllByText("Спецификация")).toHaveLength(1);
-    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 спецификация/ });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await userEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await screen.findByTitle("Открыть спецификацию «Внук»");
     expect(screen.getAllByText("Спецификация")).toHaveLength(2);
-    // Левая часть спеки внука открывает оверлей в его контексте (режим openapi).
+    // Строка спецификации внука открывает оверлей в его контексте (режим openapi).
     await userEvent.click(screen.getByTitle("Открыть спецификацию «Внук»"));
     const overlay = screen.getByTestId("doc-overlay");
     expect(overlay).toHaveAttribute("data-node-id", "g1");
     expect(overlay).toHaveAttribute("data-mode", "openapi");
-    // Правая часть ведёт на страницу внука.
-    await userEvent.click(screen.getByText("от Внук →"));
+    // Ссылка справа ведёт на страницу внука, подпись подгруппы — на страницу ребёнка.
+    await userEvent.click(screen.getByRole("button", { name: "Внук" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
+    await userEvent.click(screen.getByRole("button", { name: "Шлюз" }));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
   });
 
   it("свои схемы: предупреждение и «Перенести документацию», создание скрыто", async () => {
     setupContainer({ own: { docs: [docMeta()] } });
     await screen.findByText("У контейнера есть свои схемы логики. Схемы описывают код, их можно перенести компонентам");
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
-    // Создания схем в «Логике» нет; «+ Добавить» в «OpenAPI» у контейнера есть — его
+    // Создания схем в «Логике» нет; «Добавить» в «OpenAPI» у контейнера есть — его
     // спецификация своя (Ф8).
-    const logic = screen.getByRole("heading", { name: "Логика" }).closest(".np-card") as HTMLElement;
-    expect(within(logic).queryByText("+ Добавить")).not.toBeInTheDocument();
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest("section") as HTMLElement;
+    expect(within(logic).queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
+    const api = screen.getByRole("heading", { name: "OpenAPI" }).closest("section") as HTMLElement;
+    expect(within(api).getByRole("button", { name: "Добавить" })).toBeInTheDocument();
   });
 
   it("система: технология — агрегированная из детей, только чтение", async () => {
@@ -545,7 +560,8 @@ describe("NodePage: правила контейнеров", () => {
     );
     // После успеха — итог в том же окне, «Закрыть» его закрывает.
     expect(await screen.findByText("Перенесено: 1 схема логики.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    // Кнопка подвала по тексту: у крестика окна то же имя «Закрыть».
+    await userEvent.click(screen.getByText("Закрыть", { selector: "button" }));
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
   });
 
@@ -602,7 +618,8 @@ describe("NodePage: правила контейнеров", () => {
     expect(screen.queryByRole("button", { name: "Перенести документацию" })).not.toBeInTheDocument();
 
     await userEvent.click(buttons[0]);
-    expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
+    // Строка компонента двумя колонками: имя и что у него есть (без склейки точкой).
+    expect(screen.getByText("2 параметра, спецификация").previousElementSibling).toHaveTextContent("api");
     // Своя спецификация контейнера в приоритете — фактом, без вопроса.
     expect(screen.getByText(
       "У контейнера есть своя спецификация, поэтому спецификация компонента «api» будет отброшена",
@@ -613,7 +630,8 @@ describe("NodePage: правила контейнеров", () => {
     expect(await screen.findByText("Собрано: 2 параметра.")).toBeInTheDocument();
     expect(screen.getByText("Отброшено: 1 спецификация.")).toBeInTheDocument();
     await waitFor(() => expect(nodesApi.collectPreview).toHaveBeenCalledTimes(2));
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    // Кнопка подвала по тексту: у крестика окна то же имя «Закрыть».
+    await userEvent.click(screen.getByText("Закрыть", { selector: "button" }));
     expect(screen.queryByText("Собрано: 2 параметра.")).not.toBeInTheDocument();
     vi.mocked(nodesApi.collectPreview).mockResolvedValue({
       components: [], param_clashes: [], specs: [], container_has_spec: false, single_spec_from: null,
@@ -790,6 +808,31 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await waitFor(() => expect(screen.getByText("Объект только что изменили в другом окне")).toBeInTheDocument(), ждать);
   });
 
+  // Механика тостов (редизайн, фазы 13а и 13б): чужая правка схемы передаёт текст тоста
+  // блоку схемы (сам тост рисует блок внутри рамки, embeddedSchemaNotice.test; срок —
+  // schemaSectionNotice.test), чужая правка объекта даёт тост страницы без роли и aria-live.
+  it("чужая правка (graph_rev): текст тоста у блока схемы и тост страницы без роли", async () => {
+    setupPoll({ name: "Сервис оплаты" });
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
+    // Раздел «Схема» грузится своим запросом после страницы: ждём блок, а не берём сразу.
+    expect(await screen.findByTestId("schema-block", {}, ждать)).toHaveAttribute("data-notice", "");
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Платёжный шлюз", version: 5 }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
+    await тик();
+
+    await waitFor(() => expect(screen.getByTestId("schema-block"))
+      .toHaveAttribute("data-notice", "Схему только что изменили в другом окне"), ждать);
+    // Своей плашки этого тоста у страницы нет: его место — внутри рамки схемы.
+    expect(screen.queryByText("Схему только что изменили в другом окне")).toBeNull();
+    const объект = await screen.findByText("Объект только что изменили в другом окне", {}, ждать);
+    expect(объект).not.toHaveAttribute("role");
+    expect(объект).not.toHaveAttribute("aria-live");
+    expect(объект).toHaveClass("ds-toast", "ds-toast--top-end");
+    expect(объект).not.toHaveClass("legacy-root");
+    expect(объект).not.toHaveAttribute("style");
+  });
+
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {
     setupPoll({ name: "Сервис оплаты" });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
@@ -884,7 +927,8 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await act(async () => { await Promise.resolve(); });
 
     await тик();
-    expect(screen.queryByText("Схему только что изменили в другом окне")).not.toBeInTheDocument();
+    // Тост чужой правки схемы рисует блок схемы по переданному тексту (notice): текста нет.
+    expect(await screen.findByTestId("schema-block", {}, ждать)).toHaveAttribute("data-notice", "");
     expect(screen.queryByText("Объект только что изменили в другом окне")).not.toBeInTheDocument();
   });
 });
@@ -924,7 +968,7 @@ describe("NodePage: документация по форме узла", () => {
     await waitFor(() => expect(screen.getByDisplayValue("Очередь")).toBeInTheDocument());
     expect(screen.queryByText("Логика")).not.toBeInTheDocument();
     expect(screen.queryByText("OpenAPI")).not.toBeInTheDocument();
-    expect(screen.getByText("Каналы")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Каналы" })).toBeInTheDocument();
   });
 
   it("«Каналы» — только у брокера: у сервиса их нет", async () => {
@@ -942,28 +986,32 @@ describe("NodePage: документация по форме узла", () => {
     expect(screen.getByText(/у этого объекта его нет\. Перенесите их объекту, который с ним работает\./)).toBeInTheDocument();
     expect(screen.getByText(/OpenAPI описывает HTTP-API/)).toBeInTheDocument();
     // Заводить новое всё равно нельзя — только унести существующее.
-    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest("section") as HTMLElement;
+    expect(within(logic).queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
+    const api = screen.getByRole("heading", { name: "OpenAPI" }).closest("section") as HTMLElement;
+    expect(within(api).queryByRole("button", { name: "Добавить" })).not.toBeInTheDocument();
   });
 
   // ── OpenAPI: окно спеки вместо отдельной модалки (вьюер v2) ───────────────
   async function меню_OpenAPI(пункт: string) {
-    const карточка = screen.getByText("OpenAPI").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    const раздел = screen.getByRole("heading", { name: "OpenAPI" }).closest("section") as HTMLElement;
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: пункт }));
   }
 
-  it("спеки нет: «+ Добавить → Вручную» открывает окно спеки сразу в редакторе", async () => {
+  it("спеки нет: «Добавить → Вручную» открывает окно спеки сразу в редакторе", async () => {
     setupShape({ shape: "service" });
-    await waitFor(() => expect(screen.getByText("Спецификация не описана")).toBeInTheDocument());
+    await screen.findByRole("heading", { name: "OpenAPI" });
+    expect(screen.queryByText("Спецификация не описана")).toBeNull();
     await меню_OpenAPI("Вручную");
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "openapi");
     expect(окно).toHaveAttribute("data-stage", "manual");
   });
 
-  it("спеки нет: «+ Добавить → Через ИИ-агента» открывает то же окно панелью агента", async () => {
+  it("спеки нет: «Добавить → Через ИИ-агента» открывает то же окно панелью агента", async () => {
     setupShape({ shape: "service" });
-    await waitFor(() => expect(screen.getByText("Спецификация не описана")).toBeInTheDocument());
+    await screen.findByRole("heading", { name: "OpenAPI" });
     await меню_OpenAPI("Через ИИ-агента");
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "openapi");
@@ -1025,9 +1073,10 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByText("email_senders")).toBeNull();
     expect(screen.queryByText(/описано \d+/)).toBeNull();
     expect(screen.queryByText("не описана")).toBeNull();
-    // Заголовок группы — только размер, без «остатка работы»; пустая группа не рисуется.
-    expect(screen.getByRole("button", { name: /^Операции/ })).toHaveTextContent("(1)");
-    expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
+    // Подгруппа — тихая подпись без счётчика и свёртки; пустая подгруппа не рисуется.
+    expect(screen.getByText("Операции")).toHaveClass("ds-sub");
+    expect(screen.queryByRole("button", { name: /^Операции/ })).toBeNull();
+    expect(screen.queryByText("Воркеры")).toBeNull();
   });
 
   it("блок «Не описано» свёрнут, в шапке счётчик в скобках как у групп; раскрывается кликом", async () => {
@@ -1045,8 +1094,8 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(шапка).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("GET /orders")).toBeInTheDocument();
     expect(screen.getByText("email_senders")).toBeInTheDocument();
-    // Блок — часть карточки «Логика» под чертой, а не карточка наравне с ней.
-    expect(шапка.closest(".np-card")).toBe(screen.getByText("Логика").closest(".np-card"));
+    // Блок — часть раздела «Логика» под чертой, а не раздел наравне с ним.
+    expect(шапка.closest("section")).toBe(screen.getByRole("heading", { name: "Логика" }).closest("section"));
   });
 
   it("заглушек нет — блока «Не описано» нет вовсе", async () => {
@@ -1056,11 +1105,11 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByRole("button", { name: "Описать все" })).toBeNull();
   });
 
-  it("одни заглушки: «Логика» говорит, что описанных пока нет, блок лежит ниже", async () => {
-    // Так выглядит объект сразу после разведки; «не описаны» тут соврало бы.
+  it("одни заглушки: в «Логике» только свёрнутый «Не описано», без пустой строки", async () => {
+    // Так выглядит объект сразу после разведки: бэклог со счётчиком говорит сам за себя.
     setupDocs([док({ id: "d2", name: "GET /orders", described: false })]);
-    await waitFor(() => expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(1)");
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(1)"));
+    expect(screen.queryByText("Описанных схем логики пока нет")).toBeNull();
   });
 
   it("кнопки «Описать все» у блока «Не описано» нет", async () => {
@@ -1080,36 +1129,29 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("двести схем: свёрнута только группа-стена, воркеры видны сразу", async () => {
+  it("двести схем: подгруппы всегда раскрыты, сворачивания по порогу нет (редизайн)", async () => {
     const много = Array.from({ length: 200 }, (_, i) => док({ id: `o${i}`, name: `GET /r${i}` }));
     setupDocs([
       ...много,
       док({ id: "w1", name: "email_senders", kind: "worker" }),
     ]);
-    // Стены из двухсот кнопок нет, а соседняя группа — не стена, и прятать её незачем.
     await waitFor(() => expect(screen.getByText("email_senders")).toBeInTheDocument());
-    expect(screen.queryByText("GET /r0")).toBeNull();
-    expect(screen.getByRole("button", { name: /^Операции/ })).toHaveTextContent("(200)");
-
-    await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
     expect(screen.getByText("GET /r0")).toBeInTheDocument();
     expect(screen.getByText("GET /r199")).toBeInTheDocument();
   });
 
-  it("двести заглушек: внутри «Не описано» группа-стена тоже свёрнута", async () => {
-    // Тот же порог, что и в «Логике»: раскрытый блок не должен разворачивать стену.
+  it("двести заглушек: «Не описано» свёрнут со счётчиком, раскрытый показывает все", async () => {
     const много = Array.from({ length: 200 }, (_, i) =>
       док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
     setupDocs([...много, док({ id: "w1", name: "email_senders", kind: "worker", described: false })]);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(201)");
+    expect(screen.queryByText("GET /r0")).toBeNull();
 
     await раскрытьНеОписано();
 
-    expect(screen.queryByText("GET /r0")).toBeNull();
-    expect(screen.getByText("email_senders")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
     expect(screen.getByText("GET /r199")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
   it("тринадцать схем: порог считается по группе, а не по объекту", async () => {
@@ -1127,23 +1169,21 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("в заголовке группы — число строк, и только оно", async () => {
+  it("подпись подгруппы — только название вида, без счётчика", async () => {
     setupDocs([
       док({ id: "d1", name: "POST /orders" }),
       док({ id: "d2", name: "GET /orders" }),
       док({ id: "d3", name: "email_senders", kind: "worker" }),
     ]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    const операции = screen.getByRole("button", { name: /^Операции/ });
-    expect(операции).toHaveTextContent("(2)");
-    expect(операции).not.toHaveTextContent("описано");
-    expect(screen.getByRole("button", { name: /^Воркеры/ })).toHaveTextContent("(1)");
+    expect(screen.getByText("Операции")).toHaveTextContent(/^Операции$/);
+    expect(screen.getByText("Воркеры")).toHaveTextContent(/^Воркеры$/);
   });
 
   it("пустая группа не рисуется вовсе", async () => {
     setupDocs([док({ id: "d1", name: "POST /orders" })]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
+    expect(screen.queryByText("Воркеры")).toBeNull();
   });
 
   // ── Неописанная строка открывает своё окно (внутри блока «Не описано») ─────
@@ -1184,7 +1224,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
   });
 
   it("у описанной строки кнопки «Описать» нет", async () => {
-    // Описанную открывают («открыть →»), описывать заново нечего.
+    // Описанную открывают кликом по строке, описывать заново нечего.
     setupDocs([
       док({ id: "d1", name: "POST /orders", described: true }),
     ]);
@@ -1192,37 +1232,34 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
   });
 
-  it("«+ Добавить → Вручную»: окно новой схемы, а не созданная заранее схема", async () => {
+  it("«Добавить → Вручную»: окно новой схемы, а не созданная заранее схема", async () => {
     setupDocs([]);
-    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
-    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    const раздел = (await screen.findByRole("heading", { name: "Логика" })).closest("section") as HTMLElement;
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "flowchart");
     expect(окно).toHaveAttribute("data-create", "true");
   });
 
-  it("«+ Добавить → Через ИИ-агента» в «Логике» — пакетная модалка", async () => {
+  it("«Добавить → Через ИИ-агента» в «Логике» — пакетная модалка", async () => {
     setupDocs([]);
-    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
-    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    const раздел = (await screen.findByRole("heading", { name: "Логика" })).closest("section") as HTMLElement;
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
     expect(screen.getByTestId("docs-modal")).toBeInTheDocument();
     expect(screen.queryByTestId("doc-overlay")).toBeNull();
   });
 
-  it("меню «+ Добавить» ведёт в составление списка операций", async () => {
+  it("меню «Добавить» ведёт в составление списка операций", async () => {
     setupDocs([]);
-    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    const раздел = (await screen.findByRole("heading", { name: "Логика" })).closest("section") as HTMLElement;
     expect(screen.queryByTestId("recon-modal")).toBeNull();
 
-    // «+ Добавить» на странице два (Логика и OpenAPI) — берём меню секции «Логика».
-    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
-    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    // «Добавить» на странице несколько (Логика, OpenAPI, Конфигурация) — берём раздел «Логика».
+    await userEvent.click(within(раздел).getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Составить список операций" }));
-    expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-name", "Сервис оплаты");
+    expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-id", "n1");
   });
 
   it("читателю видно состояние схем, но разведка ему не предлагается", async () => {
@@ -1239,8 +1276,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
     render(<NodePage nodeId="n1" isArchitect={false} {...nav} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
-    expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument();
-    expect(screen.queryByText("+ Добавить")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
     // «Описать» и «Описать все» — действия над документацией, читателю их не предлагаем.
     expect(screen.queryByRole("button", { name: "Описать все" })).toBeNull();
     await раскрытьНеОписано();
@@ -1267,15 +1303,16 @@ describe("NodePage: источник", () => {
     return render(<NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />);
   }
 
-  it("источник агентского узла показан видом и значением", async () => {
+  it("источник агентского узла показан одной строкой: репозиторий / путь", async () => {
     setupAnchor({ source: { repo: "github.com/org/mono", path: "services/orders", host: null } });
-    expect(await screen.findByText("код:")).toBeInTheDocument();
-    expect(screen.getByText("github.com/org/mono, путь services/orders")).toBeInTheDocument();
+    expect(await screen.findByText("github.com/org/mono / services/orders")).toBeInTheDocument();
+    expect(screen.queryByText("код:")).toBeNull();
   });
 
-  it("узел без источника говорит, по чему его тогда узнают", async () => {
+  it("узел без источника — тихое «не задан»", async () => {
     setupAnchor();
-    expect(await screen.findByText("нет, объект опознаётся по имени")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Задать источник" })).toHaveTextContent("не задан");
+    expect(screen.queryByText("нет, объект опознаётся по имени")).toBeNull();
   });
 
   it("правка источника уходит PATCH-ом со своим CAS, не трогая прочих свойств", async () => {
@@ -1287,7 +1324,7 @@ describe("NodePage: источник", () => {
     );
     setupAnchor({ version: 1 });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Изменить" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Задать источник" }));
     await userEvent.type(screen.getByLabelText("Репозиторий"), "https://github.com/org/repo.git");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
@@ -1304,9 +1341,9 @@ describe("NodePage: источник", () => {
 
   it("наблюдатель источник видит, но не правит", async () => {
     setupAnchor({ source: { repo: "github.com/org/repo", path: null, host: null } }, false);
-    expect(await screen.findByText("код:")).toBeInTheDocument();
+    expect(await screen.findByText("github.com/org/repo")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Источник/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Что такое источник" })).toBeInTheDocument();
   });
 });
 
@@ -1329,7 +1366,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     return render(<NodePage nodeId={n.id} isArchitect={isArchitect} {...nav} />);
   }
 
-  it("лист: пилюля рядом с именем, выбор «Согласовано» уходит PATCH-ом и красит пилюлю", async () => {
+  it("лист: статус рядом с именем, выбор «Согласовано» уходит PATCH-ом и красит пилюлю", async () => {
     vi.mocked(nodesApi.update).mockResolvedValue(
       node("n1", { approval: "approved", approval_effective: "approved", version: 2 }),
     );
@@ -1345,7 +1382,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     expect(await screen.findByRole("button", { name: /Согласовано/ })).toHaveClass("np-approval--ok");
   });
 
-  it("лист, читатель: пилюля без выпадашки", async () => {
+  it("лист, читатель: статус без выпадашки", async () => {
     const { container } = setupPage(node("n1"), [], false);
     await screen.findByText("Сервис оплаты");
     const pill = container.querySelector(".np-approval") as HTMLElement;
@@ -1362,7 +1399,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
       node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" }),
       kids, false,
     );
-    const pill = await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+    const pill = await screen.findByRole("button", { name: "Согласовано 1 из 2" }, ждать);
     await userEvent.click(pill);
     await userEvent.click(screen.getByRole("button", { name: "База платежей" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k2");
@@ -1375,7 +1412,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     ];
     const cont = node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" });
     setupPage(cont, kids);
-    await screen.findByRole("button", { name: /В работе · 0 из 2/ }, ждать);
+    await screen.findByRole("button", { name: "Согласовано 0 из 2" }, ждать);
 
     // Другая сессия согласовала одного ребёнка: статус системы тот же («в работе»),
     // его сигнатура не меняется — освежить счётчик обязано перечитывание детей.
@@ -1386,7 +1423,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     await waitFor(() => expect(nodesApi.getContextGraph).toHaveBeenCalled());
     await act(async () => { window.dispatchEvent(new Event("focus")); });
 
-    await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+    await screen.findByRole("button", { name: "Согласовано 1 из 2" }, ждать);
   });
 
   it("система: вложенные объекты не загрузились — причина и «Повторить», а не «нечего согласовывать»", async () => {
@@ -1397,10 +1434,10 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     // Потомков страница просит после загрузки самого объекта — первый запрос откажет.
     vi.mocked(nodesApi.getDescendants).mockRejectedValueOnce(new ApiError(500, "Сервер недоступен"));
     const alert = await screen.findByText("Не удалось загрузить вложенные объекты", {}, ждать);
-    expect(screen.queryByRole("button", { name: /В работе · / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Согласовано \d+ из/ })).not.toBeInTheDocument();
     await userEvent.click(within(alert.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Повторить" }));
     await waitFor(() => expect(screen.queryByText("Не удалось загрузить вложенные объекты")).not.toBeInTheDocument());
-    await screen.findByRole("button", { name: /В работе · 0 из 1/ }, ждать);
+    await screen.findByRole("button", { name: "Согласовано 0 из 1" }, ждать);
   });
 
   it("система: единицы — все вложенные объекты, кроме систем, в том числе компоненты контейнера", async () => {
@@ -1418,9 +1455,8 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
       node("s", { name: "Торговля", has_children: true, child_count: 2, element_effective: "system" }),
       kids, false,
     );
-    const pill = await screen.findByRole("button", { name: /В работе · 1 из 3/ }, ждать);
+    const pill = await screen.findByRole("button", { name: "Согласовано 1 из 3" }, ждать);
     await userEvent.click(pill);
-    expect(screen.getByText("Согласовано 1 из 3")).toBeInTheDocument();
     for (const name of ["Заказы", "Заказы-API", "Остатки"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
@@ -1445,7 +1481,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
 
 // ── ⋯-меню: история версий ────────────────────────────────────────────────────
 // Меню видно обеим ролям (docs/tasks/doc-versions.md §7): у читателя — пункты
-// просмотра («Открыть в редакторе», «Версии документации»), пункты правки — у редактора.
+// просмотра («Развернуть схему», «Версии документации»), пункты правки — у редактора.
 // Удалять версии может только владелец проекта — панель получает это по роли.
 describe("NodePage: ⋯-меню и версии документации", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -1466,7 +1502,8 @@ describe("NodePage: ⋯-меню и версии документации", () =
 
   it("читатель: меню есть, в нём только просмотр; пункт открывает панель без права правки", async () => {
     await openMenu(false, "reader");
-    expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Развернуть схему" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Открыть в редакторе" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Экспорт объекта с вложенными" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Удалить объект" })).toBeNull();
 
@@ -1494,6 +1531,68 @@ describe("NodePage: ⋯-меню и версии документации", () =
     await openMenu(true, "owner");
     await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
     expect(screen.getByTestId("versions-panel")).toHaveAttribute("data-can-delete", "true");
+  });
+
+  // Страховка механики меню перед общим хуком клавиатуры (редизайн, фаза 13в): зелёная и
+  // до него, и после. Щелчок мимо ловит подложка np-backdrop.
+  it("механика: кнопка открывает и закрывает, щелчок мимо закрывает, пункт закрывает и зовёт действие", async () => {
+    await openMenu(true, "editor");
+    const кнопка = screen.getByTitle("Действия");
+    const меню = () => document.querySelector(".np-dropdown");
+    expect(меню()).not.toBeNull();
+    await userEvent.click(кнопка);
+    expect(меню()).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(document.querySelector(".np-backdrop") as HTMLElement);
+    expect(меню()).toBeNull();
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
+    expect(screen.getByTestId("versions-panel")).toBeInTheDocument();
+    expect(меню()).toBeNull();
+  });
+
+  // Клавиатура меню «⋯» (редизайн, фаза 13в, общий хук ui/useMenu): раньше Escape его не
+  // закрывал, а по пунктам ходил только Tab.
+  it("клавиатура: стрелка вниз с кнопки на первый пункт, End на последний, Escape закрывает и возвращает фокус на кнопку", async () => {
+    await openMenu(true, "editor");
+    const кнопка = screen.getByTitle("Действия");
+    кнопка.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toHaveFocus();
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("button", { name: "Удалить объект" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".np-dropdown")).toBeNull();
+    expect(кнопка).toHaveFocus();
+  });
+
+  // Вход в экран схемы пунктом меню (фаза 13д): уровень родителя, объект подсвечен, возврат
+  // на страницу объекта. Обработчик один у обеих ролей; подпись — по роли.
+  it.each([
+    { who: "читатель", isArchitect: false, role: "reader" as ProjectRole, label: "Развернуть схему" },
+    { who: "редактор", isArchitect: true, role: "editor" as ProjectRole, label: "Открыть в редакторе" },
+  ])("$who: пункт «$label» первым, ведёт на уровень родителя с подсветкой и возвратом", async ({ isArchitect, role, label }) => {
+    const n = node("n1", { parent_id: "sys" });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([node("sys", { name: "Система" }), n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    render(
+      <ProjectRoleContext.Provider value={role}>
+        <NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />
+      </ProjectRoleContext.Provider>,
+    );
+    await userEvent.click(await screen.findByTitle("Действия"));
+    const items = [...document.querySelectorAll(".np-dropdown .ds-menu-item")].map((b) => b.textContent?.trim());
+    expect(items[0]).toBe(label);
+    await userEvent.click(screen.getByRole("button", { name: label }));
+    expect(nav.onNavigateMap).toHaveBeenCalledOnce();
+    expect(nav.onNavigateMap).toHaveBeenCalledWith("sys", { locate: "n1", ret: "node:n1" });
+    // Меню закрылось вместе с выбором пункта.
+    expect(document.querySelector(".np-dropdown")).toBeNull();
   });
 });
 
@@ -1527,6 +1626,49 @@ describe("NodePage: кнопка вложенного объекта в пуст
     unmount();
     setupLonely({ element_effective: "component", container_name: "orders" });
     expect(await screen.findByRole("button", { name: "Добавить компонент" })).toBeInTheDocument();
+  });
+});
+
+// ── Объект без внешних связей: совет про редактор — архитектору, вход — читателю ──
+// Редизайн, фаза 13в: читатель не правит схему, совет «Связи создаются в редакторе схемы» ему
+// не нужен; вместо него вторичная «Развернуть» — тот же вход, что пункт меню «⋯».
+describe("NodePage: пустая схема объекта у читателя и архитектора", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupEmpty(isArchitect: boolean) {
+    const n = node("n1", { parent_id: "sys" });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([node("sys", { name: "Система", has_children: true }), n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue({
+      nodes: [n], endpoints: [], edges: [], layout: {}, version: 1, graph_rev: 1, meta_rev: 1,
+    } as never);
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(
+      <ProjectRoleContext.Provider value={isArchitect ? "editor" : "reader"}>
+        <NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />
+      </ProjectRoleContext.Provider>,
+    );
+  }
+
+  it("читатель: совета про редактор нет, «Развернуть» открывает уровень родителя с подсветкой и возвратом", async () => {
+    setupEmpty(false);
+    const box = (await screen.findByText(/Внешних связей нет/)).closest(".np-schema-empty") as HTMLElement;
+    expect(within(box).queryByText("Связи создаются в редакторе схемы")).toBeNull();
+    const open = within(box).getByRole("button", { name: "Развернуть" });
+    expect(open).toHaveClass("ds-btn");
+    expect(open).not.toHaveClass("ds-btn--primary");
+    expect(within(box).getAllByRole("button")).toHaveLength(1);
+    await userEvent.click(open);
+    expect(nav.onNavigateMap).toHaveBeenCalledWith("sys", { locate: "n1", ret: "node:n1" });
+  });
+
+  it("архитектор: блок как раньше — совет и кнопки редактора, без «Развернуть»", async () => {
+    setupEmpty(true);
+    const box = (await screen.findByText(/Внешних связей нет/)).closest(".np-schema-empty") as HTMLElement;
+    expect(within(box).getByText("Связи создаются в редакторе схемы")).toBeInTheDocument();
+    expect(within(box).getAllByRole("button").map((b) => b.textContent)).toEqual(["Добавить вложенный объект", "Открыть в редакторе"]);
+    expect(within(box).queryByRole("button", { name: "Развернуть" })).toBeNull();
   });
 });
 
@@ -1569,9 +1711,9 @@ describe("NodePage: контейнер компонента и пилюля си
     const kids = [node("k1", { name: "Реплика", parent_id: "db", approval: "approved", approval_effective: "approved" })];
     vi.mocked(nodesApi.get).mockResolvedValue(db);
     setupPage(db, [db, ...kids], kids);
-    const pill = await screen.findByRole("button", { name: /В работе · 1 из 1/ }, ждать);
+    const pill = await screen.findByRole("button", { name: "Согласовано 1 из 1" }, ждать);
     await userEvent.click(pill);
-    expect(screen.getByText("Согласовано 1 из 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Реплика" })).toBeInTheDocument();
     expect(screen.queryByText("Загрузка")).toBeNull();
   });
 

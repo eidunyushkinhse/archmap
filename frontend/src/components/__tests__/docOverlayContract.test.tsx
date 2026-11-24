@@ -67,7 +67,7 @@ function setCode(text: string) {
   fireEvent.change(codeField()!, { target: { value: text } });
 }
 
-// Сохранение явное — кнопкой в шапке окна.
+// Сохранение явное — кнопкой в подвале окна.
 async function save() {
   await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 }
@@ -184,6 +184,37 @@ describe("окно схемы логики: контракты, пережива
   });
 });
 
+// Каркас нового языка (редизайн, фаза 7а): корень — область .ds, сцена чтения ровная.
+// Стадия «Вручную» — тоже новый язык (фаза 7б): тело и подвал без legacy-root.
+describe("окно схемы логики: каркас нового языка", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodeDocsApi.usage).mockResolvedValue([]);
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1")]);
+  });
+
+  it("чтение: корень .ds, сцена одного вида, тело без legacy-root, крестик ds-icon-btn", async () => {
+    render(<DocOverlay {...base} isArchitect initialDocId="d1" onDocEvent={vi.fn()} />);
+    await screen.findByTestId("mmd");
+    expect(document.querySelector(".doc-root")).toHaveClass("ds");
+    // Модификатора сцены чтения больше нет: вид сцены один (фаза 7б).
+    expect(document.querySelector(".doc-pv")?.className).toBe("doc-pv");
+    expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveClass("ds-icon-btn");
+  });
+
+  it("«Вручную»: тело и подвал на новом языке, «Сохранить» в подвале", async () => {
+    render(<DocOverlay {...base} isArchitect initialDocId="d1" onDocEvent={vi.fn()} />);
+    await openEditor();
+    expect(document.querySelector(".doc-body")).not.toHaveClass("legacy-root");
+    expect(document.querySelector(".doc-root .legacy-root")).toBeNull();
+    expect(screen.getByRole("button", { name: "Сохранить" })).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(screen.getByRole("button", { name: "Сохранить" }).closest(".doc-editfoot")).not.toBeNull();
+    // Хвоста названия в правке нет: вид и эндпоинт в полях.
+    expect(document.querySelector(".doc-headtail")).toBeNull();
+  });
+});
+
 describe("окно схемы логики: закрытие с несохранённой правкой", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -209,6 +240,23 @@ describe("окно схемы логики: закрытие с несохран
     const layer = document.querySelector(".doc-confirm") as HTMLElement;
     await userEvent.click(within(layer).getByRole("button", { name: "Закрыть" }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("вопрос на новом языке: «Вернуться к правке» главной кнопкой первой и в фокусе, «Закрыть» за ней", async () => {
+    render(<DocOverlay {...base} isArchitect initialDocId="d1" onDocEvent={vi.fn()} />);
+    await openEditor();
+    setCode("graph TD\n  правка");
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    const ask = screen.getByRole("alertdialog", { name: "Закрыть без сохранения?" });
+    expect(within(ask).getByRole("heading", { name: "Закрыть без сохранения?" })).toBeInTheDocument();
+    expect(within(ask).getByText("Несохранённые правки пропадут.")).toBeInTheDocument();
+    const [back, close] = within(ask).getAllByRole("button");
+    expect(back).toHaveTextContent("Вернуться к правке");
+    expect(back).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(back).toHaveFocus();
+    expect(close).toHaveTextContent("Закрыть");
+    expect(close).toHaveClass("ds-btn", "doc-confirm-close");
+    expect(close).not.toHaveClass("ds-btn--primary");
   });
 
   it("без правки крестик закрывает сразу", async () => {

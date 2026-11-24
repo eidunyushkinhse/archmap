@@ -11,9 +11,8 @@ import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
 import SchemaLegend from "./SchemaLegend";
 import type { SchemaView } from "./schemaView";
-import { responsiveCanvasHeight } from "./pageSchema";
 import "./EmbeddedSchemaBlock.css";
-import "../ui/smallButton.css";
+import "../ui/ds.css";
 
 interface Props {
   nodes: Node[];
@@ -44,7 +43,9 @@ interface Props {
   onSchemaViewChange: (v: SchemaView) => void;
   // Двойной клик по узлу → его страница
   onNavigateNode: (nodeId: string) => void;
-  // «Редактировать» → редактор-карта (архитектор)
+  // Вход в экран редактора схемы из строки заголовка: архитектору для правки
+  // («Редактировать»), читателю тот же экран в режиме просмотра («Развернуть»). Не передан —
+  // кнопки нет (пустой проект).
   onEdit?: () => void;
   // «Переразложить» → сброс раскладки вида фокуса (архитектор, только с персистом)
   onRelayout?: () => void;
@@ -54,44 +55,30 @@ interface Props {
   // Токен мутации страницы (правка/создание/удаление связей и узлов): стрелки с
   // изменившейся геометрией перерисовываются анимированно, новые рисуются (AN28а).
   mutationToken?: number;
-  // Высота блока
-  height: number;
-  // Заголовок тулбара (счётчик компонентов и т.п.)
-  toolbarHint?: string;
   // Показывать ли SchemaViewFilter (условие собирает showStatusControls: ведёт ли
   // переход ПРОЕКТ — состава одного уровня для этого мало)
   showViewFilter: boolean;
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
+  // Заголовок раздела (редизайн, направление А «Документ»): блок живёт разделом страницы
+  // нового языка: заголовок, вкладки вида и вход в экран схемы в одной строке, рамка 1px,
+  // высота окна — clamp от высоты экрана (CSS, .esb-wrap--page), а не от ширины. Запасной
+  // строки без заголовка нет (удалена в фазе 13б вместе с кнопкой прежнего вида).
+  title: string;
+  // Тост поверх схемы («Схему только что изменили в другом окне»): текст или null. Блок
+  // рисует его внутри рамки сверху по центру (ui/ds.css, ds-toast--frame), и у пустой
+  // схемы тоже; щелчки тост пропускает. Срок показа держит страница.
+  notice?: string | null;
 }
 
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, ancestorElements, ancestorExternals, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
-  height, toolbarHint, showViewFilter, empty,
+  showViewFilter, empty, title, notice,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-
-  // Ширина блока → пропорциональная высота схемы (страница во всю ширину,
-  // схемы масштабируются вместе с доступным пространством).
-  const [measuredWidth, setMeasuredWidth] = useState(0);
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) setMeasuredWidth(entry.contentRect.width);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Высота = ширина × коэффициент, с ограничениями. До первого замера — height из пропсов.
-  const responsiveHeight = useMemo(() => {
-    if (measuredWidth <= 0) return height;
-    return responsiveCanvasHeight(measuredWidth);
-  }, [measuredWidth, height]);
 
   // Esc — деактивация
   useEffect(() => {
@@ -183,19 +170,24 @@ export default function EmbeddedSchemaBlock({
   }), [onEdgesChoice]);
 
   return (
-    <div>
-      {/* Тулбар секции */}
-      <div className="esb-toolbar">
-        {toolbarHint && <span className="esb-hint">{toolbarHint}</span>}
-        <span style={{ flex: 1 }} />
-        {showViewFilter && (
-          <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} variant="inline" />
-        )}
-        {/* «Переразложить» переехало на холст (canvas-кнопка LevelGraph, правый
-            верхний угол) — единообразно с редактором-картой. Здесь осталась только
-            «Редактировать» (переход в редактор-карту). */}
-        {isArchitect && onEdit && (
-          <button className="btn-sm-primary" data-tour="schema-edit" onClick={onEdit}>Редактировать</button>
+    <div className="ds-sec">
+      {/* Строка заголовка раздела: вкладки вида и вход в экран схемы справа, у любой роли.
+          Подпись по роли: архитектору «Редактировать», читателю «Развернуть» (тот же экран в
+          режиме просмотра). «Переразложить» живёт на холсте (кнопка LevelGraph в правом
+          верхнем углу), как в редакторе-карте. */}
+      <div className="ds-sec-head">
+        <h3 className="ds-sec-title">{title}</h3>
+        {(showViewFilter || onEdit) && (
+          <div className="ds-sec-acts">
+            {showViewFilter && (
+              <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} />
+            )}
+            {onEdit && (
+              <button type="button" className="ds-btn" data-tour="schema-edit" onClick={onEdit}>
+                {isArchitect ? "Редактировать" : "Развернуть"}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -203,8 +195,7 @@ export default function EmbeddedSchemaBlock({
       <div
         ref={wrapRef}
         data-tour="schema-block"
-        className={"esb-wrap" + (active ? " esb-wrap--active" : "")}
-        style={{ height: responsiveHeight }}
+        className={"esb-wrap esb-wrap--page" + (active ? " esb-wrap--active" : "")}
       >
         {empty ? (
           <div className="esb-empty">{empty}</div>
@@ -248,6 +239,9 @@ export default function EmbeddedSchemaBlock({
             <SchemaLegend />
           </>
         )}
+        {/* Тост чужой правки: внутри рамки, а не на строке заголовка раздела (там он
+            закрывал вкладки вида и «Редактировать»). */}
+        {notice && <div className="ds-toast ds-toast--frame">{notice}</div>}
       </div>
 
       {/* Модалка выбора связи (общее плечо / несколько связей) */}

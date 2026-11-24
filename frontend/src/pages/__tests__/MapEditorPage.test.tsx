@@ -4,8 +4,9 @@
 // модалки и поллинг замоканы — тестируем оболочку редактора и её диспетчеры.
 import { render as rtlRender, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
+import { flushSync } from "react-dom";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
 import { nodesApi } from "../../api/nodes";
 import { ProjectRoleContext } from "../projectRole";
@@ -59,7 +60,14 @@ vi.mock("../../components/graph/interaction/useHistory", () => ({
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 vi.mock("../useSchemaAlerts", () => ({
   useSchemaAlerts: () => ({
-    alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [] },
+    // Полный пустой набор: настоящая панель «Рекомендации» (тест Escape) читает все разделы.
+    alerts: {
+      disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [],
+      persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [],
+      unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [],
+      broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [],
+      component_facts: [], code_changes: [],
+    },
     loaded: true,
     reload: vi.fn(),
   }),
@@ -112,6 +120,13 @@ vi.mock("../../components/inspector/ObjectInspector", () => ({
     return <div data-testid="object-inspector" />;
   },
 }));
+// Панель есть, только пока что-то выбрано (редизайн, фаза 4а): её открывает двойной клик
+// по объекту на холсте (onEditNode). Без выбора заглушки панели нет, а с ней и колбэков.
+async function выбрать(n: Node) {
+  const drill = levelGraphProps.current?.drill as { onEditNode: (n: Node) => void };
+  act(() => { drill.onEditNode(n); });
+  await screen.findByTestId("object-inspector");
+}
 // Окна создания связи: заглушки показывают, с какими концами их открыли.
 vi.mock("../../components/CrossLevelEdgePicker", () => ({
   default: (p: { title: string; sourceId: string; sourceLabel: string; rootParentId: string | null }) => (
@@ -145,19 +160,26 @@ const transitionProps = vi.hoisted(() => ({ current: null as Record<string, unkn
 vi.mock("../../components/TransitionConfirm", () => ({
   default: (p: Record<string, unknown>) => { transitionProps.current = p; return null; },
 }));
-vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
+vi.mock("../../components/RelayoutConfirm", () => ({ default: () => <div data-testid="relayout-confirm" /> }));
 // Кнопка «Рекомендации» (алерты): метка присутствия + кнопка, дёргающая
 // onOpenProcess — как строка процессного класса (AL26/AL27) в настоящей панели.
-vi.mock("../../components/SchemaAlerts", () => ({
-  default: ({ onOpenProcess }: { onOpenProcess?: (id: string) => void }) => (
-    <>
-      <span data-testid="recs-button" />
-      {onOpenProcess && (
-        <button data-testid="alert-proc" onClick={() => onOpenProcess("proc-7")}>алерт-процесс</button>
-      )}
-    </>
-  ),
-}));
+// realAlerts.current — настоящая кнопка с панелью (тест Escape при открытой панели).
+const realAlerts = vi.hoisted(() => ({ current: false }));
+vi.mock("../../components/SchemaAlerts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../components/SchemaAlerts")>();
+  const Real = actual.default;
+  return {
+    ...actual,
+    default: (p: Parameters<typeof Real>[0]) => realAlerts.current ? <Real {...p} /> : (
+      <>
+        <span data-testid="recs-button" />
+        {p.onOpenProcess && (
+          <button data-testid="alert-proc" onClick={() => p.onOpenProcess?.("proc-7")}>алерт-процесс</button>
+        )}
+      </>
+    ),
+  };
+});
 vi.mock("../../components/SchemaViewFilter", () => ({ SchemaViewFilter: () => null }));
 
 function node(id: string, over: Partial<Node> = {}): Node {
@@ -208,6 +230,7 @@ describe("MapEditorPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     role.current = "owner";
+    realAlerts.current = false;
     levelGraphProps.current = null;
     sessionStorage.clear();
     historyMock.canUndo.mockReturnValue(false);
@@ -279,6 +302,58 @@ describe("MapEditorPage", () => {
     expect(screen.getByRole("menuitem", { name: "Догрузить архив" })).toBeEnabled();
   });
 
+  // Редизайн, фаза 4б: «Скрыть подписи связей» и «Переразложить уровень» — пункты меню
+  // «Действия со схемой», отдельных кнопок в шапке нет.
+  it("подписи связей — пунктом меню: текст по состоянию, режим уходит холсту", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    expect(screen.queryByTitle("Скрыть подписи связей")).toBeNull();
+    const mode = () => levelGraphProps.current!.mode as { edgeLabelsHidden: boolean };
+    const before = mode().edgeLabelsHidden;
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: before ? "Показать подписи связей" : "Скрыть подписи связей" }));
+    expect(mode().edgeLabelsHidden).toBe(!before);
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: before ? "Скрыть подписи связей" : "Показать подписи связей" }));
+    expect(mode().edgeLabelsHidden).toBe(before);
+  });
+
+  it("«Переразложить уровень» — пункт меню редактора проекта: подтверждение, на пустом уровне выключен", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    expect(screen.queryByTitle("Переразложить уровень")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    expect(screen.getByRole("menuitem", { name: "Переразложить уровень" })).toBeDisabled();
+  });
+
+  it("«Переразложить уровень» открывает подтверждение", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")] }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Переразложить уровень" }));
+    expect(screen.getByTestId("relayout-confirm")).toBeInTheDocument();
+  });
+
+  it("читателю: подписи связей в меню есть, «Переразложить уровень» и «Принять переход» нет", async () => {
+    role.current = "reader";
+    try {
+      vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")], has_status_info: true }) as never);
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+      expect(screen.getByRole("menuitem", { name: /подписи связей/ })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Переразложить уровень" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Принять переход" })).toBeNull();
+      // Выход читателя — вторичная «Закрыть» (фаза 13д): «Готово» и главной кнопки нет.
+      expect(screen.getByRole("button", { name: "Закрыть" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Готово" })).toBeNull();
+    } finally {
+      role.current = "owner";
+    }
+  });
+
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       node("a", { name: "Корень", parent_id: null }),
@@ -290,6 +365,11 @@ describe("MapEditorPage", () => {
     // Текущий уровень — не ссылка (disabled)
     const current = screen.getByRole("button", { name: "Уровень B" });
     expect(current).toBeDisabled();
+    // Шапка в одну строку: имена звеньев могут обрезаться многоточием, полное — в
+    // подсказке. Корневая крошка не обрезается, подсказка ей не нужна.
+    expect(current).toHaveAttribute("title", "Уровень B");
+    expect(screen.getByRole("button", { name: "Корень" })).toHaveAttribute("title", "Корень");
+    expect(screen.getByRole("button", { name: "Проект" })).not.toHaveAttribute("title");
   });
 
   it("кнопка «Готово» вызывает onDone", async () => {
@@ -298,11 +378,214 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
+  // Выход из экрана по роли (фаза 13д). Редактору проекта: «Готово» — единственная главная
+  // кнопка шапки, последней в ряду кнопок, после «Принять переход».
+  it("редактор проекта: «Готово» — главная кнопка шапки, последней после «Принять переход»", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")], has_status_info: true }) as never);
+    const { container } = render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const done = screen.getByRole("button", { name: "Готово" });
+    expect(done.className).toBe("ds-btn ds-btn--primary");
+    expect(container.querySelectorAll(".ds-head .ds-btn--primary")).toHaveLength(1);
+    const btns = [...(container.querySelector(".ds-head-btns")?.querySelectorAll("button") ?? [])].map((b) => b.textContent);
+    expect(btns).toEqual(["Принять переход", "Готово"]);
+  });
+
+  // Читателю завершать нечего (экран в режиме просмотра): на месте «Готово» вторичная
+  // «Закрыть» с тем же onDone, главной кнопки в шапке нет вовсе.
+  it("читатель: на месте «Готово» вторичная «Закрыть», главной кнопки в шапке нет; зовёт onDone", async () => {
+    role.current = "reader";
+    try {
+      vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")], has_status_info: true }) as never);
+      const { container } = render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      const close = screen.getByRole("button", { name: "Закрыть" });
+      expect(close.className).toBe("ds-btn");
+      expect(close).toHaveAttribute("type", "button");
+      expect(close.closest(".ds-head-btns")).not.toBeNull();
+      expect(container.querySelectorAll(".ds-head .ds-btn--primary")).toHaveLength(0);
+      expect(screen.queryByRole("button", { name: "Готово" })).toBeNull();
+      const btns = [...(container.querySelector(".ds-head-btns")?.querySelectorAll("button") ?? [])].map((b) => b.textContent);
+      expect(btns).toEqual(["Закрыть"]);
+      await userEvent.click(close);
+      expect(props.onDone).toHaveBeenCalledOnce();
+    } finally {
+      role.current = "owner";
+    }
+  });
+
+  // Отказ загрузки уровня: выход назван по роли, зовёт тот же onDone.
+  it.each([
+    { who: "редактор проекта", r: "owner" as ProjectRole, label: "Закрыть редактор" },
+    { who: "читатель", r: "reader" as ProjectRole, label: "Закрыть" },
+  ])("отказ загрузки уровня, $who: выход «$label» зовёт onDone", async ({ r, label }) => {
+    role.current = r;
+    try {
+      vi.mocked(nodesApi.getGraph).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      render(<MapEditorPage {...props} nodeId={null} />);
+      const alert = await screen.findByRole("alert");
+      const inAlert = screen.getAllByRole("button").filter((b) => alert.contains(b));
+      expect(inAlert.map((b) => b.textContent)).toEqual(["Повторить", label]);
+      // У читателя «Закрыть» есть и в шапке: щёлкаем кнопку самого отказа.
+      await userEvent.click(inAlert[1] as HTMLElement);
+      expect(props.onDone).toHaveBeenCalledOnce();
+    } finally {
+      role.current = "owner";
+    }
+  });
+
   it("Esc вызывает onDone", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  // Escape в два шага (редизайн, фаза 4а): первый закрывает панель объекта, следующий —
+  // выход из редактора. Чужой Escape (окно, всплывающее, погашенный ближе к месту) не в счёт.
+  it("Esc при открытой панели закрывает панель, следующий — выходит из редактора", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("object-inspector")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  it("Esc при открытом окне не закрывает ни панель, ни редактор: окно закрывается само", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    document.body.append(dialog);
+    const e = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    dialog.dispatchEvent(e);
+    dialog.remove();
+    // Клавишу не гасим: её cancel нужен самому окну.
+    expect(e.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    expect(props.onDone).not.toHaveBeenCalled();
+  });
+
+  it("Esc не наш, если его погасили ближе к месту нажатия или открыто всплывающее", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    const prevented = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    prevented.preventDefault();
+    window.dispatchEvent(prevented);
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    // Меню «⋮» шапки закрывается своим обработчиком на документе: его кнопка помечена
+    // aria-expanded — Escape достаётся меню, а не панели.
+    const menuBtn = document.createElement("button");
+    menuBtn.setAttribute("aria-expanded", "true");
+    screen.getByTestId("level-graph").append(menuBtn);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    // Раскрытая ветка дерева — не всплывающее.
+    menuBtn.className = "nt-chevzone";
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("object-inspector")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+  });
+
+  // Escape при открытом всплывающем шапки (меню «Действия со схемой», панель
+  // «Рекомендации»): настоящие компоненты и настоящий ui/useDismiss. В браузере между
+  // слушателями одного события проходит контрольная точка микрозадач, и React успевает
+  // перерисовать меню, закрытое слушателем на document, ещё до слушателя редактора на
+  // window. Когда событие шлёт сам тест, jsdom такой точки не делает. Эмулируем её:
+  // слушатель, добавленный после открытия всплывающего (то есть после его собственного),
+  // досрочно выполняет отложенную работу React.
+  function escapeLikeBrowser(target: Element) {
+    const flush = () => { flushSync(() => {}); };
+    document.addEventListener("keydown", flush);
+    try {
+      act(() => {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      });
+    } finally {
+      document.removeEventListener("keydown", flush);
+    }
+  }
+
+  it("Esc при открытом меню «Действия со схемой» закрывает только меню, следующий выходит", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const btn = screen.getByRole("button", { name: "Действия со схемой" });
+    await userEvent.click(btn);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    escapeLikeBrowser(btn);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    escapeLikeBrowser(btn);
+    expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  it("Esc при открытой панели «Рекомендации» закрывает только её, следующий выходит", async () => {
+    realAlerts.current = true;
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const lamp = screen.getByRole("button", { name: "Рекомендации" });
+    await userEvent.click(lamp);
+    expect(lamp).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: "Рекомендации" })).toBeInTheDocument();
+    escapeLikeBrowser(lamp);
+    expect(screen.queryByRole("dialog", { name: "Рекомендации" })).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    escapeLikeBrowser(lamp);
+    expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  // Панель «Рекомендации» на новом языке (редизайн, фаза 10): лампа прямо в ряду значков
+  // шапки рядом с «Действиями со схемой», без обёртки прежнего вида (legacy-root).
+  it("лампа «Рекомендации» в ряду значков шапки, панель без обёртки прежнего вида", async () => {
+    realAlerts.current = true;
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const lamp = screen.getByRole("button", { name: "Рекомендации" });
+    const icons = lamp.closest(".ds-head-icons");
+    expect(icons).not.toBeNull();
+    expect(lamp.parentElement?.parentElement).toBe(icons);
+    expect(icons?.contains(screen.getByRole("button", { name: "Действия со схемой" }))).toBe(true);
+    expect(lamp.closest(".legacy-root")).toBeNull();
+    await userEvent.click(lamp);
+    expect(screen.getByRole("dialog", { name: "Рекомендации" }).closest(".legacy-root")).toBeNull();
+  });
+
+  it("Esc при открытом меню и открытой панели объекта: меню, потом панель, потом выход", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    await выбрать(node("n1"));
+    const btn = screen.getByRole("button", { name: "Действия со схемой" });
+    await userEvent.click(btn);
+    escapeLikeBrowser(btn);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByTestId("object-inspector")).toBeInTheDocument();
+    escapeLikeBrowser(btn);
+    expect(screen.queryByTestId("object-inspector")).toBeNull();
+    expect(props.onDone).not.toHaveBeenCalled();
+    escapeLikeBrowser(btn);
+    expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  it("корень, шапка, дерево и окна на новом языке; на прежних метриках только холст", async () => {
+    const { container } = render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const root = container.querySelector(".map-editor");
+    expect(root).toHaveClass("ds");
+    const head = container.querySelector(".ds-head");
+    expect(head?.parentElement).toBe(root);
+    expect(head?.closest(".legacy-root")).toBeNull();
+    const pinned = [...(root?.children ?? [])].filter((el) => el.classList.contains("legacy-root"));
+    // Обёртки окон больше нет (фаза 13б): окна на каркасе ds-win. В теле — область холста.
+    // Дерево — своя область .ds (NodeTreePanel).
+    expect(pinned).toHaveLength(0);
+    expect(container.querySelectorAll(".legacy-root")).toHaveLength(1);
+    expect(screen.getByTestId("tree-panel").closest(".legacy-root")).toBeNull();
+    expect(screen.getByTestId("level-graph").closest(".legacy-root")).not.toBeNull();
   });
 
   it("пустая история: undo-диспетчер ничего не применяет", async () => {
@@ -346,11 +629,15 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
-  // Рекомендации — только тем, кто правит проект (AL10): у читателя кнопки на холсте нет.
-  it("кнопка «Рекомендации» на холсте есть у владельца и нет у читателя проекта", async () => {
+  // Рекомендации — только тем, кто правит проект (AL10): у читателя кнопки нет. С холста
+  // кнопка ушла в шапку (редизайн, фаза 4б), перед меню «Действия со схемой».
+  it("кнопка «Рекомендации» в шапке есть у владельца и нет у читателя проекта", async () => {
     const { unmount } = render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
-    expect(screen.getByTestId("recs-button")).toBeInTheDocument();
+    const recs = screen.getByTestId("recs-button");
+    expect(recs.closest(".ds-head")).not.toBeNull();
+    const menuBtn = screen.getByRole("button", { name: "Действия со схемой" });
+    expect(recs.compareDocumentPosition(menuBtn) & document.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     unmount();
 
     // Роль возвращаем в finally: у соседних describe свои beforeEach без сброса роли.
@@ -519,6 +806,7 @@ describe("MapEditorPage: своя мутация без оптимистично
 
   it("удаление объекта", async () => {
     await открыть();
+    await выбрать(node("b"));
     const onNodeDeleted = inspectorProps.current.onNodeDeleted as (id: string, s: unknown) => void;
     await проверить(() => onNodeDeleted("b", снимок), { version: 4, nodes: [node("a")] });
   });
@@ -540,6 +828,7 @@ describe("MapEditorPage: своя мутация без оптимистично
 
   it("восстановление после удаления (Undo)", async () => {
     await открыть();
+    await выбрать(node("b"));
     vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ version: 4, nodes: [node("a")] }) as never);
     const onNodeDeleted = inspectorProps.current.onNodeDeleted as (id: string, s: unknown) => void;
     act(() => { onNodeDeleted("b", снимок); });
@@ -641,6 +930,7 @@ describe("MapEditorPage: палитра и бросок по месту назн
 
   it("смена типа в свойствах перечитывает дерево и родителя уровня", async () => {
     await openSystemLevel();
+    await выбрать(node("a"));
     const reloadBefore = treeProps.current.reloadToken;
     const onNodeSaved = inspectorProps.current.onNodeSaved as (saved: Node, isCreate: boolean, before?: Node) => void;
     act(() => { onNodeSaved(node("a", { element: "system" }), false, node("a", { element: null })); });
@@ -833,7 +1123,8 @@ describe("MapEditorPage: правка объекта в истории", () => {
   // Правка через панель: NodeInspector зовёт onNodeSaved(saved, false, before).
   async function поправить(before: Node, saved: Node) {
     render(<MapEditorPage {...props} nodeId={null} />);
-    await screen.findByTestId("object-inspector");
+    await screen.findByTestId("level-graph");
+    await выбрать(before);
     const onNodeSaved = inspectorProps.current.onNodeSaved as (s: Node, c: boolean, b?: Node) => void;
     await act(async () => { onNodeSaved(saved, false, before); });
     return historyMock.push.mock.calls[0][0] as { label: string; undo: () => void; redo: () => void };
@@ -915,7 +1206,7 @@ describe("MapEditorPage: правка объекта в истории", () => {
 
   // Двойной клик по ЛЮБОМУ узлу — сплошной фигуре — его панель свойств (решение
   // пользователя 2026-10-05): гость — проекция только для просмотра, свёрнутый контейнер
-  // гостя — по id. На страницу узла ведёт лишь «Документация → Открыть» в самой панели.
+  // гостя — по id. На страницу узла ведёт лишь кнопка заголовка самой панели.
   describe("двойной клик по узлу — панель свойств", () => {
     type Drill = {
       onInspectGhost: (g: unknown) => void;
@@ -924,6 +1215,54 @@ describe("MapEditorPage: правка объекта в истории", () => {
     type Sel = { kind: string; node?: { name: string }; ghost?: { name: string; ancestors: { name: string }[] } } | null;
     const drill = () => levelGraphProps.current?.drill as unknown as Drill;
     const selected = () => inspectorProps.current.selected as Sel;
+
+    it("без выбора панели нет; выбор её открывает, крестик и двойной клик по пустому холсту закрывают", async () => {
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+      expect(screen.queryByText(/Объект не выбран/)).toBeNull();
+      // Сворачивать панель больше незачем: её нет, пока ничего не выбрано.
+      expect(screen.queryByTitle("Свойства объекта")).toBeNull();
+
+      await выбрать(node("n1"));
+      act(() => { (inspectorProps.current.onClose as () => void)(); });
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+
+      await выбрать(node("n1"));
+      act(() => { (levelGraphProps.current?.drill as { onClearSelection: () => void }).onClearSelection(); });
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+    });
+
+    it("крестик гасит ещё не доехавшую догрузку объекта по id: панель сама не открывается", async () => {
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      await выбрать(node("n1"));
+      let answer: (all: Node[]) => void = () => {};
+      vi.mocked(nodesApi.getAll).mockReturnValueOnce(new Promise((r) => { answer = r; }) as never);
+      act(() => drill().onInspectNodeId("far"));
+      act(() => { (inspectorProps.current.onClose as () => void)(); });
+      await act(async () => { answer([node("far", { name: "Далёкий" })]); });
+      expect(screen.queryByTestId("object-inspector")).toBeNull();
+    });
+
+    it("«Показать на схеме» у гостя — уровень, где объект живёт, его панель и подсветка", async () => {
+      vi.mocked(nodesApi.getAll).mockResolvedValue([
+        node("sys", { name: "Система" }),
+        node("ext", { name: "Партнёр", is_external: true }),
+        node("ext-api", { name: "API партнёра", parent_id: "ext", is_external: true }),
+      ]);
+      render(<MapEditorPage {...props} nodeId="sys" />);
+      await screen.findByTestId("level-graph");
+      act(() => drill().onInspectGhost({ id: "ext-api", name: "API партнёра", ancestors: [{ id: "ext", name: "Партнёр" }] }));
+      const api = node("ext-api", { name: "API партнёра", parent_id: "ext", is_external: true });
+      vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ nodes: [api] }) as never);
+      await act(async () => { (inspectorProps.current.onShowGhost as (g: unknown) => void)(selected()!.ghost); });
+      await waitFor(() => expect(nodesApi.getGraph).toHaveBeenLastCalledWith("ext"));
+      await waitFor(() => expect(selected()).toMatchObject({ kind: "node", node: { name: "API партнёра" } }));
+      expect(levelGraphProps.current?.locate).toMatchObject({ kind: "node", ids: ["ext-api"] });
+      // На страницу объекта действие не уводит: страница — кнопка заголовка панели.
+      expect(props.onNavigateNode).not.toHaveBeenCalled();
+    });
 
     it("гость — панель проекции, на страницу не уводит", async () => {
       render(<MapEditorPage {...props} nodeId={null} />);
@@ -987,6 +1326,7 @@ describe("MapEditorPage: крошки перечитываются после п
     // «orders» сделали пустой системой в свойствах.
     const bSystem = node("b", { name: "orders", parent_id: "a", element: "system", element_effective: "system" });
     vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b: bSystem }));
+    await выбрать(b);
     act(() => { onNodeSaved()(bSystem, false, b); });
 
     await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "system"]));
@@ -1002,6 +1342,7 @@ describe("MapEditorPage: крошки перечитываются после п
 
     const aExternal = node("a", { name: "Торговля", is_external: true, has_children: true, element_effective: "system" });
     vi.mocked(nodesApi.get).mockImplementation(getBy({ a: aExternal, b }));
+    await выбрать(node("x"));
     act(() => { onNodeSaved()(node("x", { shape: "database" }), false, node("x")); });
 
     await waitFor(() => expect(levelGraphProps.current?.ancestorExternals).toEqual([true, false]));
@@ -1129,5 +1470,92 @@ describe("MapEditorPage: «+ Добавить связь» из окна выб�
     const quick = screen.getByTestId("edge-quick-create");
     expect(quick).toHaveAttribute("data-source", "user");
     expect(quick).toHaveAttribute("data-target", "cat");
+  });
+});
+
+// Страховка механики тостов колонки холста (редизайн, фаза 13а, меняется только вид): чужая
+// правка и итог «Принять переход» — без роли, отказ — role="alert"; все три в одной колонке;
+// гаснут ровно через 4, 5 и 6 с.
+describe("MapEditorPage: тосты колонки холста", () => {
+  type Drop = { onDropRefused: (t: string, d: string | null) => void };
+  const drop = () => levelGraphProps.current!.drop as Drop;
+  const ЧУЖАЯ = "Схему только что изменили в другом окне";
+  const ИТОГ = "Переход принят: 2 объекта переведено в существующие";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    role.current = "owner";
+    levelGraphProps.current = null;
+    sessionStorage.clear();
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ has_status_info: true }) as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  async function открыть() {
+    const { useRemoteSync } = await import("../useRemoteSync");
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    return vi.mocked(useRemoteSync).mock.calls.at(-1)?.[0] as { onRemoteChange: () => void };
+  }
+
+  it("чужая правка: тост без роли, гаснет через 4 с", async () => {
+    const sync = await открыть();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => { sync.onRemoteChange(); });
+    const тост = screen.getByText(ЧУЖАЯ);
+    expect(тост).not.toHaveAttribute("role");
+    expect(тост).not.toHaveAttribute("aria-live");
+    act(() => { vi.advanceTimersByTime(3999); });
+    expect(screen.getByText(ЧУЖАЯ)).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.queryByText(ЧУЖАЯ)).toBeNull();
+  });
+
+  it("итог «Принять переход»: тост без роли, гаснет через 5 с", async () => {
+    await открыть();
+    fireEvent.click(screen.getByRole("button", { name: "Принять переход" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => { (transitionProps.current!.onApplied as (m: string) => void)(ИТОГ); });
+    const тост = screen.getByText(ИТОГ);
+    expect(тост).not.toHaveAttribute("role");
+    expect(тост).not.toHaveAttribute("aria-live");
+    act(() => { vi.advanceTimersByTime(4999); });
+    expect(screen.getByText(ИТОГ)).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.queryByText(ИТОГ)).toBeNull();
+  });
+
+  it("отказ: тост role=alert, гаснет через 6 с", async () => {
+    await открыть();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    act(() => { drop().onDropRefused("component", null); });
+    expect(screen.getByRole("alert")).toHaveTextContent("Компонентом объект бывает только внутри контейнера");
+    act(() => { vi.advanceTimersByTime(5999); });
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("три тоста разом стоят в одной колонке: чужая правка, итог, отказ", async () => {
+    const sync = await открыть();
+    fireEvent.click(screen.getByRole("button", { name: "Принять переход" }));
+    await act(async () => { sync.onRemoteChange(); });
+    await act(async () => { (transitionProps.current!.onApplied as (m: string) => void)(ИТОГ); });
+    act(() => { drop().onDropRefused("component", null); });
+    const колонка = screen.getByText(ЧУЖАЯ).parentElement;
+    expect(колонка).not.toBeNull();
+    expect(screen.getByText(ИТОГ).parentElement).toBe(колонка);
+    expect(screen.getByRole("alert").parentElement).toBe(колонка);
+    // Вид (фаза 13а): колонка ds-toast-rail, в ней три тоста одного вида без инлайн-стиля.
+    expect(колонка).toHaveClass("ds-toast-rail");
+    expect(колонка).not.toHaveAttribute("style");
+    for (const тост of колонка!.children) {
+      expect(тост).toHaveClass("ds-toast");
+      expect(тост).not.toHaveAttribute("style");
+    }
+    expect([...колонка!.children].map((c) => c.textContent?.slice(0, 12))).toEqual([
+      ЧУЖАЯ.slice(0, 12), ИТОГ.slice(0, 12), "Компонентом ",
+    ]);
   });
 });

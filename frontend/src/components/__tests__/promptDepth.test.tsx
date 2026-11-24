@@ -26,7 +26,7 @@ vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const ИМЯ = "Например, «Платёжная платформа»";
+const ИМЯ = "например: Платёжная платформа";
 
 /** Глубина из ПОСЛЕДНЕГО вызова ручки промпта. */
 const глубина = () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-1)?.[0]?.depth;
@@ -44,7 +44,7 @@ function моки() {
 async function открытьСоздание() {
   render(<CreateProjectDialog projects={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
   await userEvent.click(screen.getByText("ИИ-агент"));
-  // Имя системы вшито в промпт ЛЮБОГО варианта — без имени вся тройка неактивна.
+  // Имя системы вшито в задание: без имени кнопка просит его, а не копирует.
   await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Платформа");
 }
 
@@ -57,18 +57,18 @@ interface Окно {
 const окна: Окно[] = [
   {
     имя: "создание проекта «ИИ-агент» (CreateProjectDialog)",
-    главная: "Скопировать промпт",
+    главная: "Скопировать задание",
     открыть: открытьСоздание,
   },
   {
     имя: "синк «Обновить из кода» (SyncRepoModal)",
-    главная: "Скопировать задание для агента",
+    главная: "Скопировать задание",
     открыть: async () => {
       render(<SyncRepoModal projectId="p1" onClose={vi.fn()} onApplied={vi.fn()} />);
       // Имя проекта приезжает запросом — до него кнопки неактивны.
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Скопировать задание для агента" }),
+          screen.getByRole("button", { name: "Скопировать задание" }),
         ).toBeEnabled(),
       );
     },

@@ -1,35 +1,42 @@
-// Секция «Конфигурация» на странице объекта: переменные окружения и параметры.
+// Раздел «Конфигурация» на странице объекта: переменные окружения и параметры.
 //
 // Третья семья фактов после структуры БД и каналов брокера, и САМАЯ ПЛОСКАЯ: у
 // параметра нет ни второго уровня (колонок/полей), ни групп, ни чужого владельца —
 // он принадлежит самому сервису (docs/plan-config-docs.md §2.1). Поэтому здесь нет ни
-// раскрывашек, ни группировки, которые есть у двух соседних секций: строка таблицы —
+// раскрывашек, ни группировки, которые есть у двух соседних разделов: строка таблицы —
 // исчерпывающее представление параметра.
 //
 // ЗНАЧЕНИЙ НЕТ НИГДЕ: «по умолчанию» — текст дефолта ИЗ КОДА, а не значение среды.
 // ArchMap не хранилище секретов, и поля под значение в модели нет вовсе.
 //
-// «Где используется» — разворот пометок «зависит от:» из схем логики этого объекта и,
-// если он контейнер, его компонентов: пометка ищет ручку у ближайшего контейнера
-// владельца схемы. Своя схема называется одним именем, схема компонента — с именем
-// компонента (у таблиц и каналов узел в строке есть всегда — там зовущий чужой).
+// «Зависит» — разворот пометок «зависит от:» из схем логики этого объекта и, если он
+// контейнер, его компонентов: пометка ищет ручку у ближайшего контейнера владельца схемы.
+// Своя схема называется одним именем, схема компонента — с именем компонента.
 //
-// По элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md): конфигурацию читает то,
-// что запускается, — контейнер. У системы её нет (меню «+ Параметр» нет, старые параметры —
-// с предупреждением и «Перенести документацию»); у компонента — текст со ссылкой на
-// контейнер и строка, от каких его параметров зависят схемы компонента.
+// Видимость (редизайн, направление А «Документ»): конфигурацию читает то, что
+// запускается, — контейнер или объект без вложенных вне контейнера. Там раздел подходит:
+// пустой — у редактора одна строка (заголовок и «Добавить»), у читателя раздела нет. У
+// системы и компонента раздела нет, пока у них не лежат старые параметры: тогда они
+// показаны с предупреждением (у системы — с «Перенести документацию»). Исключение —
+// компонент, схемы которого зависят от параметров контейнера: это факт о нём самом, и
+// раздел называет эти параметры одной строкой.
+//
+// Таблица тихая: поля выглядят текстом и растут по тексту (ui/GrowField) — ничего не
+// обрезается; крестик удаления виден при наведении на строку и при фокусе в ней.
 import { useState } from "react";
 import { configParamsApi } from "../api/nodes";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
-import type { ContainerLink, PageElement } from "./element/elementView";
+import type { PageElement } from "./element/elementView";
 import AddDocsMenu from "./AddDocsMenu";
-import InfoPopover from "../ui/InfoPopover";
 import ConfigAgentModal from "./docsImport/ConfigAgentModal";
 import type { ConfigParam, ConfigParamUsage } from "../types";
 import "./configParams.css";
 import { LimitNotice } from "./demo/DemoLimitNotice";
 import { freeName, useFactRows } from "./useFactRows";
 import { noAutofill } from "../ui/noAutofill";
+import GrowField from "../ui/GrowField";
+import Section from "../ui/Section";
+import "../ui/ds.css";
 
 interface Props {
   nodeId: string;
@@ -45,8 +52,6 @@ interface Props {
   onTransfer?: () => void;
   // «Собрать с компонентов» — у контейнера, у компонентов которого есть параметры.
   onCollect?: () => void;
-  // Переход на страницу контейнера (у компонента).
-  onNavigateNode: (id: string) => void;
 }
 
 const TYPE_TITLE =
@@ -57,15 +62,8 @@ const DEFAULT_TITLE =
   "хранятся, потому что ArchMap не хранилище секретов";
 const REQUIRED_TITLE = "Обязательный: без него сервис не стартует";
 
-// Пояснение «?» у заголовка: откуда берётся «Зависит от».
-function dependsHelp(element: PageElement): string {
-  const where = element.kind === "container" ? "этого контейнера и его компонентов" : "этого объекта";
-  return `«Зависит от» собирается из пометок «зависит от: ИМЯ» в схемах логики ${where}. ` +
-    "Своей формы ввода у зависимости нет.";
-}
-
 export default function ConfigParamsSection({
-  nodeId, element, isArchitect, allowed, onTransfer, onCollect, onNavigateNode,
+  nodeId, element, isArchitect, allowed, onTransfer, onCollect,
 }: Props) {
   const { rows: params, usage, error, limit, apply, reload } =
     useFactRows(nodeId, configParamsApi, "Не удалось загрузить конфигурацию");
@@ -93,41 +91,44 @@ export default function ConfigParamsSection({
     }));
   };
 
-  // Форме конфигурация не положена и записей нет — секции не существует. Пока список
-  // не приехал, тоже молчим: пустая карточка «Загрузка» у КАЖДОЙ базы и брокера была
-  // бы шумом ради случая, которого почти не бывает.
+  // Пока список не приехал, раздела нет: пустая строка «Загрузка» у КАЖДОЙ базы и
+  // брокера была бы шумом ради случая, которого почти не бывает.
+  if (params === null && error === null) return null;
   const empty = (params ?? []).length === 0;
-  if (!allowed && empty) return null;
   // Новые параметры заводят только там, где конфигурацию читают: у контейнера и у
-  // объекта без вложенных вне контейнера. У системы и компонента меню нет.
-  const canAdd = allowed && (kind === "leaf" || kind === "container");
-
-  if (params === null && error === null) {
-    return (
-      <div className="np-card">
-        <h3 className="np-card-title">Конфигурация</h3>
-        <p className="np-empty">Загрузка</p>
-      </div>
-    );
-  }
+  // объекта без вложенных вне контейнера. У системы и компонента раздела без старых
+  // параметров нет.
+  const suitable = allowed && (kind === "leaf" || kind === "container");
+  if (error === null && empty && dependsOn.length === 0 && (!suitable || !isArchitect)) return null;
 
   const usageOf = (paramId: string) => usage.filter((u) => u.param_id === paramId);
 
+  const actions = isArchitect && allowed ? (
+    <>
+      {/* Конфигурацию читает запускаемое целиком (Р19): у системы она не на месте,
+          у компонентов — тоже, контейнер собирает её к себе. */}
+      {onTransfer && !empty && (
+        <button type="button" className="ds-btn" onClick={onTransfer}>Перенести документацию</button>
+      )}
+      {onCollect && (
+        <button type="button" className="ds-btn" onClick={onCollect}>Собрать с компонентов</button>
+      )}
+      {/* Тот же вход, что у «Логики», OpenAPI, структуры базы и каналов: «вручную /
+          через агента» — пункты одного меню. */}
+      {suitable && (
+        <AddDocsMenu
+          align="right"
+          groups={[
+            [{ label: "Вручную", onSelect: addParam }],
+            [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
+          ]}
+        />
+      )}
+    </>
+  ) : null;
+
   return (
-    <div className="np-card">
-      <h3 className="np-card-title" style={{ display: "flex", alignItems: "center" }}>
-        Конфигурация
-        {/* Откуда берётся «зависит от:». Говорим это ОДИН раз на секцию, а не строкой у
-            каждого параметра, и прячем за «?» (решение пользователя 2026-09-28):
-            пояснение нужно раз, а видимый абзац под списком занимал место всегда. */}
-        {!empty && (
-          <span style={{ display: "inline-flex", marginLeft: 6, fontWeight: 400 }}>
-            <InfoPopover label="Откуда берётся «Зависит от»" width={340} iconSize={17}>
-              <p>{dependsHelp(element)}</p>
-            </InfoPopover>
-          </span>
-        )}
-      </h3>
+    <Section title="Конфигурация" actions={actions}>
       {error && <p className="np-warn">{error}</p>}
       {limit && <LimitNotice message={limit} />}
       {!allowed && (
@@ -136,10 +137,14 @@ export default function ConfigParamsSection({
           настроек нет. Перенесите параметры на контейнер, который с ним работает
         </p>
       )}
-      {component && <ComponentConfig container={component} dependsOn={dependsOn} onNavigateNode={onNavigateNode} />}
       {kind === "system" && !empty && (
         <p className="np-warn">
           Конфигурацию читают контейнеры, у системы её нет. Перенесите параметры одному из них
+        </p>
+      )}
+      {component && dependsOn.length > 0 && (
+        <p className="cfg-depends">
+          Схемы этого компонента зависят от параметров контейнера «{component.name}»: {dependsOn.join(", ")}
         </p>
       )}
       {component && !empty && (
@@ -147,23 +152,16 @@ export default function ConfigParamsSection({
           Конфигурацию читает контейнер целиком. Параметры можно перенести в «{component.name}» кнопкой «Собрать с компонентов» на его странице
         </p>
       )}
-      {empty ? (
-        kind === "system" ? (
-          <p className="np-empty">Это система, своей конфигурации у неё нет. Параметры можно описать у её контейнеров</p>
-        ) : component ? null : (
-          <p className="np-empty">Параметры не описаны</p>
-        )
-      ) : (
-        <div className="cfg-list">
+      {!empty && (
+        <div className={"cfg-table" + (isArchitect ? "" : " cfg-table--ro")} role="table" aria-label="Параметры конфигурации">
           {/* Шапка: без неё колонка типа неотличима от колонки дефолта. Ширины — те же
-              классы, что у строк, поэтому заголовки стоят ровно над своими полями. */}
-          <div className={"cfg-row cfg-head" + (isArchitect ? "" : " cfg-row--ro")} aria-hidden>
-            <span className="cfg-name">Параметр</span>
-            <span className="cfg-type">Тип</span>
-            <span className="cfg-req">обяз.</span>
-            <span className="cfg-default">По умолчанию</span>
-            <span className="cfg-desc">Что переключает</span>
-            {isArchitect && <span />}
+              треки, что у строк, поэтому заголовки стоят ровно над своими значениями. */}
+          <div className="cfg-row cfg-head" role="row">
+            <span role="columnheader">Параметр</span>
+            <span role="columnheader">Тип</span>
+            <span role="columnheader">Обязательный</span>
+            <span role="columnheader">По умолчанию</span>
+            <span role="columnheader">Что переключает</span>
           </div>
           {(params ?? []).map((p) => (
             <ParamRow
@@ -177,34 +175,6 @@ export default function ConfigParamsSection({
           ))}
         </div>
       )}
-      {isArchitect && allowed && (canAdd || (onTransfer && !empty) || onCollect) && (
-        <div className="cfg-actions">
-          {/* Тот же вход, что у «Логики», OpenAPI, структуры базы и каналов: одна
-              кнопка с шевроном, а «вручную / через агента» — пункты меню. Два способа
-              завести одну сущность не должны выглядеть как две разные кнопки. */}
-          {canAdd && (
-            <AddDocsMenu
-              label="+ Параметр"
-              groups={[
-                [{ label: "Вручную", onSelect: addParam }],
-                [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
-              ]}
-            />
-          )}
-          {/* Конфигурацию читает запускаемое целиком (Р19): у системы она не на месте,
-              у компонентов — тоже, контейнер собирает её к себе. */}
-          {onTransfer && !empty && (
-            <button type="button" className="np-addbtn" onClick={onTransfer}>
-              Перенести документацию
-            </button>
-          )}
-          {onCollect && (
-            <button type="button" className="np-addbtn" onClick={onCollect}>
-              Собрать с компонентов
-            </button>
-          )}
-        </div>
-      )}
       {agentOpen && (
         <ConfigAgentModal
           nodeId={nodeId}
@@ -212,33 +182,7 @@ export default function ConfigParamsSection({
           onApplied={reload}
         />
       )}
-    </div>
-  );
-}
-
-// Компонент: конфигурацию читает его контейнер. Ссылка «Открыть» ведёт на страницу
-// контейнера (нет id — цепочка предков разошлась — ссылки нет); строка зависимостей —
-// только когда они есть.
-function ComponentConfig({ container, dependsOn, onNavigateNode }: {
-  container: ContainerLink;
-  dependsOn: string[];
-  onNavigateNode: (id: string) => void;
-}) {
-  const id = container.id;
-  return (
-    <>
-      <p className="np-inherit">
-        Конфигурацию читает контейнер «{container.name}», параметры описаны у него
-        {id !== null && (
-          <button type="button" className="np-site-edit" onClick={() => onNavigateNode(id)}>
-            Открыть
-          </button>
-        )}
-      </p>
-      {dependsOn.length > 0 && (
-        <p className="np-inherit">Схемы этого компонента зависят от: {dependsOn.join(", ")}</p>
-      )}
-    </>
+    </Section>
   );
 }
 
@@ -256,58 +200,57 @@ function ParamRow({
       ...data, base_version: param.version,
     }));
 
-  // Строка использования — ТОЛЬКО когда ссылки есть: см. подсказку внизу секции.
+  // «Зависит» — ТОЛЬКО когда ссылки есть: тихой строкой под описанием параметра. Схема
+  // другого объекта — с его именем в скобках, своя — одним именем (без склейки «·»,
+  // редизайн, фаза 13в).
   const used = usage.length > 0 && (
     <div className="cfg-usage">
-      <span className="cfg-usagelabel">зависит:</span>
-      <span className="cfg-ro cfg-usagedocs">
-        {usage
-          .map((u) => (u.node_id === nodeId ? u.doc_name : `${u.doc_name} · ${u.node_name}`))
-          .join(", ")}
-      </span>
+      Зависит:{" "}
+      {usage
+        .map((u) => (u.node_id === nodeId ? u.doc_name : `${u.doc_name} (${u.node_name})`))
+        .join(", ")}
     </div>
   );
 
   if (!isArchitect) {
     return (
-      <div className="cfg-item">
-        <div className="cfg-row cfg-row--ro cfg-ro">
-          <span className="cfg-name">{param.name}</span>
-          <span className="cfg-type">{param.value_type}</span>
-          {/* Признак — ОДНОЙ ячейкой: иначе его отсутствие сдвигало бы соседние
-              колонки и строки перестали бы стоять друг под другом. */}
-          <span className="cfg-req">
-            {param.required && <span className="cfg-flag">обяз.</span>}
-          </span>
-          <span className="cfg-default">{param.default_value}</span>
-          <span className="cfg-desc">{param.description}</span>
-        </div>
-        {used}
+      <div className="cfg-row" role="row">
+        <span className="cfg-name" role="cell">{param.name}</span>
+        <span role="cell">{param.value_type}</span>
+        <span role="cell">{param.required ? "да" : ""}</span>
+        <span className="cfg-default" role="cell">{param.default_value}</span>
+        <span role="cell">
+          {param.description}
+          {used}
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="cfg-item">
-      <div className="cfg-row">
-        <input
+    <div className="cfg-row" role="row">
+      <span role="cell">
+        <GrowField
           {...noAutofill("config-params-section-1")}
-          className="np-field cfg-name"
-          defaultValue={param.name}
+          className="cfg-name"
+          aria-label="Параметр"
+          initial={param.name}
           key={`n:${param.id}:${param.version}`}
-          onBlur={(e) => { if (e.target.value !== param.name) patch({ name: e.target.value }); }}
+          onCommit={(v) => { if (v !== param.name) patch({ name: v }); }}
         />
-        <input
+      </span>
+      <span role="cell">
+        <GrowField
           {...noAutofill("config-params-section-2")}
-          className="np-field cfg-type"
-          placeholder="string/int/bool"
+          aria-label="Тип"
+          placeholder="—"
           title={TYPE_TITLE}
-          defaultValue={param.value_type}
+          initial={param.value_type}
           key={`t:${param.id}:${param.version}`}
-          onBlur={(e) => {
-            if (e.target.value !== param.value_type) patch({ value_type: e.target.value });
-          }}
+          onCommit={(v) => { if (v !== param.value_type) patch({ value_type: v }); }}
         />
+      </span>
+      <span role="cell" className="cfg-req">
         <input
           type="checkbox"
           className="cfg-check"
@@ -316,39 +259,42 @@ function ParamRow({
           aria-label="Обязательный параметр"
           onChange={(e) => patch({ required: e.target.checked })}
         />
-        <input
+      </span>
+      <span role="cell">
+        <GrowField
           {...noAutofill("config-params-section-3")}
-          className="np-field cfg-default"
-          placeholder="значение по умолчанию из кода"
+          className="cfg-default"
+          aria-label="По умолчанию"
+          placeholder="—"
           title={DEFAULT_TITLE}
-          defaultValue={param.default_value}
+          initial={param.default_value}
           key={`d:${param.id}:${param.version}`}
-          onBlur={(e) => {
-            if (e.target.value !== param.default_value) patch({ default_value: e.target.value });
-          }}
+          onCommit={(v) => { if (v !== param.default_value) patch({ default_value: v }); }}
         />
-        {/* «Что переключает», а не «описание»: имя ручки обычно и так читаемо, а
-            ценность несёт именно последствие её переключения. */}
-        <input
+      </span>
+      {/* «Что переключает», а не «описание»: имя ручки обычно и так читаемо, а
+          ценность несёт именно последствие её переключения. Поле растёт по тексту. */}
+      <span role="cell">
+        <GrowField
           {...noAutofill("config-params-section-4")}
-          className="np-field cfg-desc"
-          placeholder="что переключает"
-          defaultValue={param.description ?? ""}
+          aria-label="Что переключает"
+          placeholder="—"
+          multiline
+          initial={param.description ?? ""}
           key={`s:${param.id}:${param.version}`}
-          onBlur={(e) => {
-            if (e.target.value !== (param.description ?? "")) {
-              patch({ description: e.target.value });
-            }
-          }}
+          onCommit={(v) => { if (v !== (param.description ?? "")) patch({ description: v }); }}
         />
+        {used}
+      </span>
+      <span role="cell">
         <button
           type="button"
-          className="cfg-del"
+          className="ds-del"
           title="Удалить параметр"
+          aria-label={`Удалить параметр ${param.name}`}
           onClick={() => void apply(() => configParamsApi.delete(nodeId, param.id))}
         >×</button>
-      </div>
-      {used}
+      </span>
     </div>
   );
 }

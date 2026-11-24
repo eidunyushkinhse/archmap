@@ -133,7 +133,7 @@ describe("перестановки и добавления на холсте п�
     await open();
     await userEvent.click(screen.getByText("connect-pa-pb"));
     await userEvent.click(await screen.findByText("composer-added"));
-    expect(lastCmd()?.label).toBe("Добавление сообщения");
+    expect(lastCmd()?.label).toBe("Добавление шага");
     await lastCmd()?.undo();
     expect(processesApi.removeMessage).toHaveBeenCalledWith("p1", "m9");
     await lastCmd()?.redo();
@@ -145,7 +145,7 @@ describe("перестановки и добавления на холсте п�
 
   it("участники из пикера добавляются подряд с растущим порядком, каждый — командой истории", async () => {
     await open();
-    await userEvent.click(screen.getByRole("button", { name: "Участник" }));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить участника" }));
     await userEvent.click(await screen.findByText("pick-nc-nd"));
     await waitFor(() => expect(processesApi.addParticipant).toHaveBeenCalledTimes(2));
     expect(processesApi.addParticipant).toHaveBeenNthCalledWith(1, "p1", { node_id: "nc", order: 2 });

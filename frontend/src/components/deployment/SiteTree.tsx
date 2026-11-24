@@ -4,16 +4,16 @@
 // — та площадка, под которой нажали, поля «Внутри площадки» у создания нет. Что в
 // строке после шеврона, решает хозяин: галочка («Размещение») или кнопки («Площадки»).
 // Читателю «+» нет, и шеврон только у площадок с вложенными: раскрывать пустоту незачем.
+// Вид (редизайн, фаза 11): строки 30px на токенах, вложенные — колонкой со сдвигом
+// (deployment.css, .site-children), без инлайн-отступов.
 import { Fragment, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { SiteOut } from "../../types";
 import { ChevronIcon, PlusIcon, SiteKindIcon } from "../../ui/icons";
 import SiteForm, { type SiteFormValue } from "./SiteForm";
 import { siteForest, type SiteNode } from "./siteTree";
+import "../../ui/ds.css";
 import "./deployment.css";
-
-// Сдвиг вложенных строк: шеврон ребёнка — под иконкой родителя.
-const indent = (depth: number): number => 4 + depth * 22;
 
 export interface SiteRowInfo {
   depth: number;
@@ -66,12 +66,13 @@ export default function SiteTree({ sites, expanded, onToggle, row, editing, crea
     if (await create.onSubmit(creating.parentId, value)) setCreating(null);
   };
 
-  // «+» (или открытая форма) под списком: корневым или вложенных в parentId.
-  const adder = (parentId: string | null, depth: number, parentName?: string): ReactNode => {
+  // «+» (или открытая форма) под списком: корневым или вложенных в parentId. Сдвиг даёт
+  // колонка, в которой он стоит.
+  const adder = (parentId: string | null, parentName?: string): ReactNode => {
     if (!create) return null;
     if (creating && creating.parentId === parentId) {
       return (
-        <div className="site-new" style={{ marginLeft: indent(depth) }}>
+        <div className="site-new">
           <SiteForm
             submitLabel="Добавить"
             busy={create.busy}
@@ -86,7 +87,6 @@ export default function SiteTree({ sites, expanded, onToggle, row, editing, crea
       <button
         type="button"
         className="site-add"
-        style={{ paddingLeft: indent(depth) }}
         onClick={() => open(parentId)}
         disabled={disabled || create.busy}
         title={label}
@@ -105,9 +105,9 @@ export default function SiteTree({ sites, expanded, onToggle, row, editing, crea
     return (
       <Fragment key={site.id}>
         {editing?.id === site.id ? (
-          <div className="site-new" style={{ marginLeft: indent(depth) }}>{editing.form}</div>
+          <div className="site-new">{editing.form}</div>
         ) : (
-          <div className="site-row" style={{ paddingLeft: indent(depth) }}>
+          <div className="site-row">
             {expandable ? (
               <button
                 type="button"
@@ -126,10 +126,10 @@ export default function SiteTree({ sites, expanded, onToggle, row, editing, crea
           </div>
         )}
         {isOpen && (
-          <>
+          <div className="site-children">
             {children.map((c) => renderNode(c, depth + 1))}
-            {adder(site.id, depth + 1, site.name)}
-          </>
+            {adder(site.id, site.name)}
+          </div>
         )}
       </Fragment>
     );
@@ -137,9 +137,9 @@ export default function SiteTree({ sites, expanded, onToggle, row, editing, crea
 
   return (
     <div className="site-tree" role="group" aria-label="Площадки">
-      {forest.length === 0 && !creating && <p className="site-tree-empty">Площадок пока нет</p>}
+      {forest.length === 0 && !creating && <p className="ds-empty site-tree-empty">Площадок пока нет</p>}
       {forest.map((n) => renderNode(n, 0))}
-      {adder(null, 0)}
+      {adder(null)}
     </div>
   );
 }

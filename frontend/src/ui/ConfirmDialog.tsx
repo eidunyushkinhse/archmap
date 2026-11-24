@@ -1,33 +1,27 @@
-import type { CSSProperties, ReactNode } from "react";
+import { Children } from "react";
+import type { ReactNode } from "react";
 import Modal from "./Modal";
-import { dangerBtn, errText, primaryBtn, secondaryBtn } from "./styles";
+import "./ds.css";
 
 /**
- * Базовый компонент подтверждения (danger-вид): строка заголовка с плашкой-
- * предупреждением, lead-текст, произвольный контент (например, список связей),
- * ошибка и футер: главная кнопка слева, «Отмена» справа. Вопрос задаётся действием
- * («Удалить «X»?», «Переразложить уровень «X»?»), главная кнопка называет то же действие
- * («Удалить», «Переразложить»); кнопок «Да, удалить» и «Нет» нет (решение Р7 ревизии текстов
- * 2026-11). Единый источник вида для всех подтверждений (удаление объекта/объектов/
- * участника, «Переразложить») — раньше каждая модалка несла свою копию WARN_ICON и
- * ~6 стилей.
+ * Общее подтверждение на каркасе окна нового языка (.ds-win): заголовок-вопрос, тело
+ * (пояснение и перечень того, что затронет действие) и футер — главная кнопка первой,
+ * «Отмена» за ней, ряд слева. Вопрос задаётся действием («Удалить «X»?», «Переразложить
+ * уровень «X»?»), главная кнопка называет то же действие («Удалить», «Переразложить»);
+ * кнопок «Да, удалить» и «Нет» нет (решение Р7 ревизии текстов 2026-11). Опасность
+ * действия называет красная главная кнопка (tone="danger"); tone="neutral" — синяя
+ * кнопка для неразрушающего, но требующего согласия шага («Привязать» при расхождении
+ * имён, «В архив»). Крестика нет: окно закрывают «Отмена» и Escape.
  *
- * Обёртка: variant="modal" (по умолчанию, обычные модалки) или variant="card"
- * (оверлей редактора процесса, где второй <dialog> вкладывать нельзя). scroll —
- * ограничение высоты с прокруткой для длинных списков. tone="neutral" — для
- * неразрушающего, но требующего согласия шага («Привязать» при расхождении имён):
- * главная кнопка синяя, а не красная; плашка-предупреждение остаётся.
+ * Тело есть, только когда есть пояснение или содержимое; оно прокручивается само, окно
+ * не выше экрана (свойство .ds-win). confirmDisabled запирает главную кнопку (имя для
+ * удаления навсегда ещё не введено), onSubmit — Enter в поле окна (уходит в Modal; тот же
+ * обработчик, что у главной кнопки, со своей проверкой «заперта»).
+ *
+ * Обёртка: variant="modal" (по умолчанию, нативный <dialog>) или variant="card" — тот же
+ * каркас карточкой в оверлее редактора процесса, где второй <dialog> вкладывать нельзя.
+ * Класс ds на корне обязателен: без него окно получит прежние метрики (ui/tokens.css).
  */
-
-// Знак-предупреждение (линейный SVG, наследует цвет плашки через currentColor).
-const WARN_ICON = (
-  <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M12 4 L21.5 20 H2.5 Z" />
-    <path d="M12 10 V14.5" />
-    <circle cx="12" cy="17.5" r="0.6" fill="currentColor" stroke="none" />
-  </svg>
-);
 
 interface Props {
   title: ReactNode;
@@ -38,33 +32,45 @@ interface Props {
   busyLabel?: string;
   cancelLabel?: string;
   busy?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  onSubmit?: () => void;
   variant?: "modal" | "card";
-  scroll?: boolean;
   tone?: "danger" | "neutral";
 }
 
 export default function ConfirmDialog({
   title, lead, children, error,
-  confirmLabel, busyLabel, cancelLabel = "Отмена", busy = false,
-  onConfirm, onCancel,
-  variant = "modal", scroll = false, tone = "danger",
+  confirmLabel, busyLabel, cancelLabel = "Отмена", busy = false, confirmDisabled = false,
+  onConfirm, onCancel, onSubmit,
+  variant = "modal", tone = "danger",
 }: Props) {
-  const body = (
+  // Пустое содержимое (false от условного перечня) тела не заводит: иначе пустой блок
+  // добавил бы окну шаг между заголовком и кнопками.
+  const hasBody = lead != null || Children.toArray(children).length > 0;
+  const content = (
     <>
-      <div style={titleRow}>
-        <span style={warnPlaque} aria-hidden>{WARN_ICON}</span>
-        <h3 style={titleStyle}>{title}</h3>
+      <div className="ds-win-head">
+        <h2 className="ds-win-title">{title}</h2>
       </div>
-      {lead != null && <p style={leadStyle}>{lead}</p>}
-      {children}
-      {error && <p style={errText}>{error}</p>}
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button onClick={onConfirm} disabled={busy} style={tone === "danger" ? dangerBtn : primaryBtn}>
+      {hasBody && (
+        <div className="ds-win-body">
+          {lead != null && <p className="ds-confirm-lead">{lead}</p>}
+          {children}
+        </div>
+      )}
+      <div className="ds-win-foot">
+        {error && <p className="ds-danger ds-win-err">{error}</p>}
+        <button
+          type="button"
+          className={tone === "danger" ? "ds-btn ds-btn--danger" : "ds-btn ds-btn--primary"}
+          onClick={onConfirm}
+          disabled={busy || confirmDisabled}
+        >
           {busy && busyLabel ? busyLabel : confirmLabel}
         </button>
-        <button onClick={onCancel} disabled={busy} style={secondaryBtn}>
+        <button type="button" className="ds-btn" onClick={onCancel} disabled={busy}>
           {cancelLabel}
         </button>
       </div>
@@ -72,54 +78,11 @@ export default function ConfirmDialog({
   );
 
   if (variant === "card") {
-    return <div style={card}>{body}</div>;
+    return <div className="ds ds-win ds-win--card ds-confirm ds-confirm--card">{content}</div>;
   }
   return (
-    <Modal
-      onClose={onCancel}
-      closeButton={false}
-      boxStyle={{ width: 460, padding: 24, ...(scroll ? { maxHeight: "80vh", overflowY: "auto" } : {}) }}
-    >
-      {body}
+    <Modal onClose={onCancel} onSubmit={onSubmit} boxStyle={{ width: 440, padding: 0 }}>
+      <div className="ds ds-win ds-confirm">{content}</div>
     </Modal>
   );
 }
-
-const card: CSSProperties = {
-  width: 440,
-  background: "#fff",
-  border: "1px solid #e2e8f0",
-  borderRadius: 13,
-  boxShadow: "0 20px 56px rgba(15,23,42,.24)",
-  padding: 22,
-};
-const titleRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  marginBottom: 14,
-};
-const warnPlaque: CSSProperties = {
-  flexShrink: 0,
-  width: 36,
-  height: 36,
-  borderRadius: 10,
-  background: "#fee2e2",
-  color: "#dc2626",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 17,
-  fontWeight: 700,
-  color: "#1e293b",
-  lineHeight: 1.3,
-};
-const leadStyle: CSSProperties = {
-  color: "#475569",
-  margin: "0 0 8px",
-  fontSize: 14,
-  lineHeight: 1.5,
-};

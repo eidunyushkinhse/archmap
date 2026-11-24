@@ -33,6 +33,41 @@ describe("ErrorBoundary", () => {
     expect(screen.getByRole("button", { name: "К проектам" })).toBeInTheDocument();
   });
 
+  // Страховка вида карточки перед переводом на новый язык (редизайн, фаза 13б): заголовок,
+  // пояснение, строка с текстом ошибки (у ошибки без текста — её имя) и порядок кнопок.
+  it("карточка: заголовок, пояснение, текст ошибки строкой кода, кнопки по порядку", () => {
+    function Nameless(): never {
+      const e = new Error("");
+      e.name = "SyntaxError";
+      throw e;
+    }
+    render(<ErrorBoundary><Nameless /></ErrorBoundary>);
+    const card = screen.getByRole("alert");
+    expect(screen.getByRole("heading", { level: 2, name: "Что-то сломалось" })).toBeInTheDocument();
+    expect(card).toHaveTextContent(
+      "Страницу не удалось показать. Обновите её, а если не поможет, вернитесь к списку проектов и откройте страницу заново.",
+    );
+    expect(card.querySelector("code")).toHaveTextContent("SyntaxError");
+    expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Обновить страницу", "К проектам"]);
+    for (const b of card.querySelectorAll("button")) expect(b).toHaveAttribute("type", "button");
+  });
+
+  // Вид нового языка (фаза 13б): примитив ds-crash, корень сам несёт ds, колонка без
+  // коробки, кнопки языка («Обновить страницу» главная), ни одного инлайн-стиля.
+  it("вид: область ds-crash с корнем ds, колонка, строка кода, кнопки языка", () => {
+    render(<ErrorBoundary><Bomb /></ErrorBoundary>);
+    const card = screen.getByRole("alert");
+    expect(card).toHaveClass("ds", "ds-crash");
+    expect(card.firstElementChild).toHaveClass("ds-crash-col");
+    expect(screen.getByRole("heading", { level: 2, name: "Что-то сломалось" })).toHaveClass("ds-crash-title");
+    expect(card.querySelector("code")).toHaveClass("ds-crash-code");
+    expect(screen.getByRole("button", { name: "Обновить страницу" })).toHaveClass("ds-btn", "ds-btn--primary");
+    expect(screen.getByRole("button", { name: "К проектам" })).toHaveClass("ds-btn");
+    expect(screen.getByRole("button", { name: "К проектам" })).not.toHaveClass("ds-btn--primary");
+    expect(card).not.toHaveAttribute("style");
+    expect(card.querySelector("[style]")).toBeNull();
+  });
+
   it("«К проектам» ведёт на #/projects и даёт поддереву второй шанс", async () => {
     render(<ErrorBoundary><Bomb /></ErrorBoundary>);
     shouldThrow = false;

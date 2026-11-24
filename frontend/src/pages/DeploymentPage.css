@@ -1,5 +1,12 @@
-/* Режим «Развёртывание» (DeploymentPage): дерево объектов слева (NodeTreePanel), справа
-   тулбар над холстом и холст во всю высоту. */
+/* Режим «Развёртывание» (DeploymentPage, редизайн, фаза 11): дерево объектов слева
+   (NodeTreePanel), справа тулбар в одну строку и холст на весь экран — от дерева до правого
+   края окна и от тулбара до низа окна, без поля и рамки (как редактор-карта,
+   pages/MapEditorPage.css). Между ними волосяная линия; полоса режима размещения стоит в
+   потоке между тулбаром и холстом. Корень страницы — область нового языка (класс ds, ui/ds.css),
+   а опора холста (.dp-stage) помечена legacy-root: холст и легенда остаются на прежних
+   метриках, плавающая панель выделения снова несёт свой класс ds. Тост страницы — тост
+   нового языка (ui/ds.css, ds-toast) и задаёт свои метрики сам.
+   Значения — только токены ui/tokens.css. */
 .dp-page {
   flex: 1;
   min-width: 0;
@@ -8,95 +15,116 @@
   flex-direction: column;
 }
 
+/* Тулбар: слева путь уровня, справа ошибка действия и значки. Высота 55px с линией: середина
+   строки (27px от верха) — на середине поля поиска дерева слева (поле 30px под полем 12px,
+   components/NodeTreePanel.css, .nt-search), поэтому строка тулбара и поиск стоят на одной
+   высоте. */
 .dp-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px 0;
-  flex-shrink: 0;
-}
-
-/* Путь уровня текстом: «Весь проект» — ссылкой, если открыт уровень контейнера. */
-.dp-path {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 13px;
-  color: #0f172a;
-}
-.dp-path-root {
-  font: inherit;
-  padding: 3px 4px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: #2563eb;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.dp-path-root:hover {
-  text-decoration: underline;
-}
-.dp-path-sep {
-  color: #94a3b8;
-}
-.dp-path-current {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dp-error {
-  font-size: 12.5px;
-  color: #b91c1c;
-}
-
-/* Квадратные белые иконочные кнопки тулбара («Площадки», «Переразложить», тумблер
-   «Подписи связей») — как кнопки угла холста (lg-seg) и топбара редактора-карты. */
-.dp-iconbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
   flex: none;
-  padding: 0;
-  background: #fff;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.dp-iconbtn:hover:not(:disabled) {
-  background: #eff6ff;
-  border-color: #cbd5e1;
-  color: #1d4ed8;
-}
-.dp-iconbtn:active:not(:disabled) {
-  background: #dbeafe;
-}
-/* Нажатое состояние тумблера (aria-pressed): подписи скрыты. */
-.dp-iconbtn[aria-pressed="true"] {
-  background: #e2e8f0;
-  color: #1e293b;
-}
-.dp-iconbtn:disabled {
-  color: #cbd5e1;
-  cursor: default;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: 55px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--c-line);
 }
 
+/* ── Путь уровня крошками: тот же вид, что крошки шапки редактора-карты (MapEditorPage.css,
+   me-crumb*), свои правила — шапка редактора настроена под своё сжатие. «Весь проект» и
+   системы от корня до текущего уровня: звенья-предки тихие и нажимаются, текущий уровень
+   600 основным цветом и не нажимается, между звеньями шеврон. Путь в одну строку: при
+   нехватке места имена обрезаются многоточием, сначала у предков, текущий уровень
+   последним (коэффициенты сжатия — как у крошек редактора, там же объяснение). «Весь
+   проект» не сжимается. Минимум звена — шеврон и «…» (40px). */
+.dp-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.dp-path > .dp-crumb {
+  flex: none;
+}
+.dp-crumb-step {
+  display: flex;
+  align-items: center;
+  min-width: 40px;
+  flex: 0 1000000 auto;
+}
+.dp-crumb-step--current {
+  flex: 0 1 auto;
+}
+.dp-crumb {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+button.dp-crumb {
+  cursor: pointer;
+}
+button.dp-crumb:hover {
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+button.dp-crumb:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.dp-crumb--current {
+  font-weight: 600;
+  color: var(--c-fg);
+}
+.dp-crumb-chev {
+  flex: none;
+  display: inline-flex;
+  margin: 0 1px;
+  color: var(--c-fg-faint);
+}
+
+/* Ошибка действия тулбара («Переразложить») — перед значками; поле ds-danger снято
+   (селектор сильнее примитива: от порядка подключения стилей не зависит). */
+.dp-toolbar > .dp-error {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+/* Значки тулбара: «Площадки», «Переразложить», «Подписи связей» (ds-icon-btn). */
+.dp-icons {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Холст и полоса режима размещения: колонка до низа окна. */
 .dp-canvas {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 10px 12px 12px;
 }
 
-/* Опора холста, легенды и плавающей панели выделения. */
+/* Рамку и скругление холста рисует инлайн-стилем components/LevelGraph.tsx (файл движка,
+   в редизайне не правится): перебивается только !important, как в редакторе-карте. На
+   страницах объекта и проекта холст остаётся в рамке. */
+.dp-page .lg-canvas {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Опора холста, легенды и плавающей панели выделения (в разметке вместе с legacy-root). */
 .dp-stage {
   position: relative;
   flex: 1;
@@ -105,66 +133,55 @@
   flex-direction: column;
 }
 
+/* «Загрузка» и «Нет объектов для размещения» (вместе с ds-empty). */
 .dp-note {
-  padding: 24px;
-  font-size: 14px;
-  color: #64748b;
+  padding: var(--space-6);
 }
 
-/* Плавающая панель выделения: по центру сверху холста, тихо, одной строкой. */
+/* Плавающая панель выделения над холстом по центру: поверхность как у меню (ds-menu в
+   ui/ds.css: фон, рамка, радиус, тень), одной строкой. */
 .dp-selection {
   position: absolute;
-  top: 12px;
+  top: var(--space-3);
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 14px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  background: var(--c-bg);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--c-fg) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--c-fg) 6%, transparent);
   white-space: nowrap;
 }
-
 .dp-selection-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
-  margin-right: 4px;
+  margin-right: var(--space-1);
+  color: var(--c-fg);
 }
 
-/* Баннер режима размещения (D29): по образцу панели выделения, но голубой — холст ждёт
-   щелчка по площадке. Стоит В ПОТОКЕ между тулбаром и холстом, а не поверх него: поверх
-   он накрывал бы верхний ряд площадок, по которым и надо щёлкать (headless-проверка
-   2026-10-23). Виден и на время загрузки уровня. */
+/* Полоса режима размещения (D29): во всю ширину страницы между тулбаром и холстом, В ПОТОКЕ,
+   а не поверх холста — поверх она накрывала бы верхний ряд площадок, по которым и надо
+   щёлкать (headless-проверка 2026-10-23). Видна и на время загрузки уровня. Мягкий фон
+   акцента, снизу волосяная линия; текст — с x текста первого звена пути (поле тулбара и
+   поле крошки). Отказ записи — своей строкой. */
 .dp-placing {
   flex: none;
-  align-self: center;
-  max-width: 100%;
-  margin-bottom: 10px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 14px;
-  background: #eff6ff;
-  border: 1px solid #93c5fd;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + 7px);
+  background: var(--c-accent-soft);
+  border-bottom: 1px solid var(--c-line);
 }
-
 .dp-placing-text {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e3a8a;
-  margin-right: 4px;
+  margin-right: var(--space-1);
+  color: var(--c-fg);
 }
-
-.dp-placing-error {
+.dp-placing > .dp-placing-error {
   flex-basis: 100%;
-  font-size: 12.5px;
-  color: #dc2626;
+  margin: 0;
 }

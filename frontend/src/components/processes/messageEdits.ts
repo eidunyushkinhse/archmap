@@ -4,10 +4,11 @@ import type { MessageCreate, ProcessMessage } from "../../types";
 import type { ProcessEditCtx } from "./editCtx";
 import { addFromSnap, freshPartByNode, type MessageSnapshot } from "./stepSnapshot";
 
-// Правки шагов процесса (аудит F-2): добавление из композитора и самосообщение,
+// Правки шагов процесса (аудит F-2): добавление из композитора и шаг внутри участника,
 // подпись, привязка схемы, тип канала, удаление, перестановка — каждая с командой
 // истории. Зовётся на каждом рендере холста: замыкания видят свежий процесс, как и
-// раньше, когда функции жили в теле ProcessCanvas.
+// раньше, когда функции жили в теле ProcessCanvas. Подпись, схему, тип связи и удаление
+// правит панель шага (StepPanel): она не окно, закрывать после правки нечего.
 export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
   const { detail, reload, setOptimistic, runMutation, sortedMessages, msgById, partById, nodeOfPart, nextOrder } = proc;
   const closeOverlay = overlays.close;
@@ -40,7 +41,7 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
   function handleMessageAdded(created: ProcessMessage, payload: MessageCreate) {
     let mid = created.id;
     hist.push({
-      label: "Добавление сообщения",
+      label: "Добавление шага",
       undo: () => processesApi.removeMessage(id, mid),
       redo: async () => {
         const r = await processesApi.addMessage(id, payload);
@@ -66,7 +67,7 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
       const created = await processesApi.addMessage(id, payload);
       let mid = created.id;
       hist.push({
-        label: "Сообщение самому себе",
+        label: "Шаг внутри участника",
         undo: () => processesApi.removeMessage(id, mid),
         redo: async () => {
           // Участника могли пересоздать (undo его удаления) — тогда id сменился, а
@@ -81,7 +82,7 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
         },
       });
       closeOverlay("self");
-    }, "Не удалось добавить сообщение самому себе");
+    }, "Не удалось добавить шаг");
   }
   // Правка подписи шага. Подпись у шага всегда СВОЯ (вывод из канала снят), поэтому
   // пустое поле означает ровно «подписи нет», а не «взять метку связи».
@@ -90,7 +91,6 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
     const m = msgById.get(mid);
     if (!m) return;
     const next = caption.trim() || null;
-    closeOverlay("msg");
     if (next === m.caption) return; // ничего не меняли — не мусорим в истории
     const prev = m.caption;
     setOptimistic({
@@ -109,9 +109,8 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
       });
     }, "Не удалось изменить подпись шага");
   }
-  // Привязка шага к схеме логики. Карточку НЕ закрываем — как и тумблер канала, это
-  // контроль внутри карточки: человек привязал схему и тут же видит результат строкой.
-  // Набранная, но не сохранённая подпись при этом уцелеет (её пишет только «Сохранить»).
+  // Привязка шага к схеме логики: человек привязал схему и тут же видит результат строкой
+  // панели шага.
   async function linkDoc(mid: string, docId: string | null) {
     if (!detail) return;
     const m = msgById.get(mid);
@@ -127,14 +126,11 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
       });
     }, "Не удалось привязать схему");
   }
-  // Синхронность КАНАЛА под шагом. Живёт в карточке шага, а не в C4-модалке (решение
+  // Синхронность КАНАЛА под шагом. Живёт в панели шага, а не в C4-модалке (решение
   // пользователя 2026-08-11): состав плеч — вопрос процесса, в схеме объекта этот
   // признак не нужен. Правит связь целиком, поэтому задевает все шаги на ней —
-  // карточка про это говорит прямо.
-  // ⚠️ Карточку тут НЕ закрываем: тумблер — контроль ВНУТРИ карточки, а не выход из
-  // неё. Пока закрывали, набранная в поле подпись пропадала молча (её пишет только
-  // «Сохранить»), а результат переключения было не увидеть — карточка исчезала вместе
-  // с тумблером и предупреждением про плечи ответов (П3 челленджа 2026-08-16).
+  // подсказка строки «Тип» про это говорит прямо. Набранная подпись не теряется: уход
+  // из поля к выбору типа её записывает (П3 челленджа 2026-08-16).
   async function setChannelSync(edgeId: string, next: boolean) {
     await runMutation(async () => {
       await edgesApi.update(edgeId, { is_synchronous: next });
@@ -149,7 +145,6 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
     const m = msgById.get(mid);
     await runMutation(async () => {
       await processesApi.removeMessage(id, mid);
-      closeOverlay("msg");
       // Записываем в историю ТОЛЬКО восстановимое. Шаг без канала (связь удалили из
       // схемы) и шаг непривязанного участника воссоздать нечем: addMessage требует
       // edge_id у всего, кроме самосообщения. Прежде запись всё равно попадала в
@@ -167,7 +162,7 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
         };
         let restoredId: string | null = null;
         hist.push({
-          label: "Удаление сообщения",
+          label: "Удаление шага",
           undo: async () => {
             const partByNode = await freshPartByNode(id);
             const fromP = partByNode[snap.from_id];
@@ -181,7 +176,7 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
           },
         });
       }
-    }, "Не удалось удалить сообщение");
+    }, "Не удалось удалить шаг");
   }
 
   return { handleMessageAdded, createSelfMessage, saveCaption, linkDoc, setChannelSync, removeMessage, reorderMessages };

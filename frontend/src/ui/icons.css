@@ -1,0 +1,9 @@
+/* Место значков ui/icons.tsx в строке. Значки на заготовке base получают display="block"
+   атрибутом SVG; два значка с заливкой (кебаб и знак GitHub) — этим классом, шеврон «вниз»
+   отступает от текста слева на 2px. */
+.ico-block {
+  display: block;
+}
+.ico-chev-down {
+  margin-left: 2px;
+}

@@ -1,6 +1,7 @@
-// Кнопка BYOA-промпта — общая для ВСЕХ окон, где ArchMap выдаёт промпт агенту:
-// шесть окон дозаливки на странице объекта (логика, спека, структура БД, каналы,
-// конфигурация, разведка), создание проекта «ИИ-агент» и «Обновить из репозитория».
+// Кнопка BYOA-промпта — общая для ВСЕХ окон, где ArchMap выдаёт задание агенту:
+// окна дозаливки на странице объекта (схемы логики, структура БД, каналы, конфигурация,
+// список операций), стадия «Через ИИ-агента» окна схемы и окна спецификации, создание
+// проекта «ИИ-агент» и «Обновить из кода».
 //
 // Кнопка отдаёт ОРКЕСТРАТОРНЫЙ промпт: агент пользователя сам запускает субагентов
 // строителя и скептика и выдаёт пакет, уже проверенный по коду
@@ -12,24 +13,26 @@
 //
 // Компонент объявлен НА ВЕРХНЕМ УРОВНЕ модуля (инлайновый компонент ремаунтится
 // каждый рендер — ловушка проекта, см. memory «inline components break DnD»).
+//
+// Вид — новый язык (редизайн): кнопка ds-btn по своей ширине, текст для ручного
+// копирования на токенах (agentParts.css). Прежний вид на инлайн-стилях снят вместе с
+// последним окном прежнего вида (стадия агента окна документа, фаза 7в).
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import type { PromptVariant } from "../../types";
 import { CopyFailed } from "../../lib/copyText";
-import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import "../../ui/ds.css";
+import "./agentParts.css";
 
 // Сколько держится «скопировано».
 const COPIED_MS = 2000;
 
 interface Props {
-  /** Подпись главной кнопки в покое — своя у каждого окна, её не меняем. */
+  /** Подпись кнопки в покое — своя у каждого окна, её не меняем. */
   label: string;
   /** Её же подпись сразу после копирования (тоже своя у окна). */
   copiedLabel: string;
-  /** Вид главной кнопки: primary в окнах дозаливки, secondary в импорте и синке. */
+  /** Вид кнопки: secondary во всех окнах агента; primary — если задание главное действие окна. */
   kind: "primary" | "secondary";
-  /** Доводка стиля главной кнопки по месту: отступ, приглушение неактивной. */
-  buttonStyle?: CSSProperties;
   /**
    * Скопировать промпт варианта. Окно САМО делает запрос и пишет в буфер через
    * lib/copyText — так запись начинается в пределах жеста; промежуточных await между
@@ -41,7 +44,7 @@ interface Props {
   disabled?: boolean;
 }
 
-export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle, copy, disabled }: Props) {
+export default function PromptCopyButton({ label, copiedLabel, kind, copy, disabled }: Props) {
   const [copied, setCopied] = useState(false);
   // Текст, который не удалось положить в буфер: показываем его для ручного копирования.
   const [manual, setManual] = useState<string | null>(null);
@@ -63,10 +66,10 @@ export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle
   }
 
   return (
-    <div style={wrap}>
+    <div className="pcb">
       <button
         type="button"
-        style={{ ...(kind === "primary" ? primaryBtn : secondaryBtn), ...buttonStyle }}
+        className={`ds-btn${kind === "primary" ? " ds-btn--primary" : ""}`}
         disabled={disabled}
         onClick={click}
       >
@@ -74,14 +77,14 @@ export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle
       </button>
       {manual !== null && (
         <>
-          <p style={manualHint} role="status">
+          <p className="pcb-hint" role="status">
             Браузер не дал скопировать автоматически. Выделите текст ниже и скопируйте
             (Ctrl+C).
           </p>
           <textarea
             readOnly
             value={manual}
-            style={manualArea}
+            className="pcb-area"
             aria-label="Текст промпта"
             onFocus={(e) => e.currentTarget.select()}
             ref={(el) => el?.select()}
@@ -91,15 +94,3 @@ export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle
     </div>
   );
 }
-
-const manualHint: CSSProperties = { margin: "8px 0 4px", fontSize: 12, color: "#92400e" };
-const manualArea: CSSProperties = {
-  width: "100%",
-  minHeight: 120,
-  fontFamily: "monospace",
-  fontSize: 11,
-  boxSizing: "border-box",
-};
-
-// Колонка, а не просто div: кнопка внутри растягивается по ширине боковой колонки.
-const wrap: CSSProperties = { display: "flex", flexDirection: "column" };

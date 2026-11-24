@@ -59,10 +59,10 @@ interface Кейс {
 const кейсы: Кейс[] = [
   {
     окно: "логика (DocsAgentModal)",
-    подпись: "Скопировать промпт",
-    скопировано: "Скопировано ✓",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
-      render(<DocsAgentModal nodeId="n1" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()} />);
+      render(<DocsAgentModal nodeId="n1" onClose={vi.fn()} onApplied={vi.fn()} />);
       await Promise.resolve();
     },
     вариант: () => vi.mocked(docsImportApi.prompt).mock.calls.at(-1)?.[0]?.variant,
@@ -70,8 +70,8 @@ const кейсы: Кейс[] = [
   {
     // Отдельной модалки спеки больше нет: агент живёт в окне спеки (вьюер v2).
     окно: "спецификация (окно спецификации, «Через ИИ-агента»)",
-    подпись: "Скопировать промпт",
-    скопировано: "Скопировано ✓",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
       render(
         <OpenApiPane nodeId="n1" nodeName="orders" openapi="" isArchitect initialStage="agent"
@@ -83,8 +83,8 @@ const кейсы: Кейс[] = [
   },
   {
     окно: "структура БД (DataAgentModal)",
-    подпись: "Скопировать промпт",
-    скопировано: "Скопировано ✓",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
       render(<DataAgentModal nodeId="db1" nodeName="Хранилище" onClose={vi.fn()} onApplied={vi.fn()} />);
       await Promise.resolve();
@@ -94,8 +94,8 @@ const кейсы: Кейс[] = [
   },
   {
     окно: "каналы брокера (ChannelsAgentModal)",
-    подпись: "Скопировать промпт",
-    скопировано: "Скопировано ✓",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
       render(<ChannelsAgentModal nodeId="b1" nodeName="Кафка" onClose={vi.fn()} onApplied={vi.fn()} />);
       await Promise.resolve();
@@ -103,26 +103,26 @@ const кейсы: Кейс[] = [
     вариант: () => vi.mocked(channelsImportApi.prompt).mock.calls.at(-1)?.[0],
   },
   {
-    окно: "создание проекта «Из репозитория» (CreateProjectDialog)",
-    подпись: "Скопировать промпт",
-    скопировано: "Промпт скопирован ✓",
+    окно: "создание проекта «ИИ-агент» (CreateProjectDialog)",
+    подпись: "Скопировать задание",
+    скопировано: "Скопировано",
     открыть: async () => {
       render(<CreateProjectDialog projects={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
       await userEvent.click(screen.getByText("ИИ-агент"));
-      // Имя системы вшивается в промпт ЛЮБОГО варианта — без имени вся тройка мертва.
-      await userEvent.type(screen.getByPlaceholderText("Например, «Платёжная платформа»"), "Платформа");
+      // Имя системы вшивается в задание: без имени кнопка просит его, а не копирует.
+      await userEvent.type(screen.getByPlaceholderText("например: Платёжная платформа"), "Платформа");
     },
     вариант: () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-1)?.[0]?.variant,
   },
   {
     окно: "синк «Обновить из кода» (SyncRepoModal)",
-    подпись: "Скопировать задание для агента",
+    подпись: "Скопировать задание",
     скопировано: "Скопировано",
     открыть: async () => {
       render(<SyncRepoModal projectId="p1" onClose={vi.fn()} onApplied={vi.fn()} />);
       // Имя проекта приезжает запросом — до него кнопки неактивны.
       await waitFor(() =>
-        expect(screen.getByRole("button", { name: "Скопировать задание для агента" })).toBeEnabled(),
+        expect(screen.getByRole("button", { name: "Скопировать задание" })).toBeEnabled(),
       );
     },
     вариант: () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-1)?.[0]?.variant,

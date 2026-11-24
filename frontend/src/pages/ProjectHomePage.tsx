@@ -1,6 +1,7 @@
 // Страница проекта (корень) — вход в проект открывает её (pages_pivot).
-// Шапка: имя, описание, счётчики. Секция «Схема системы» = корневой уровень.
-// Секция «Бизнес-процессы» — список со счётчиком участников.
+// Редизайн (направление А «Документ»), та же колонка, что у страницы объекта: шапка —
+// название, меню ⋯ справа, описание; раздел «Схема» — корневой уровень; раздел
+// «Процессы» — строками, без процессов его нет.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
@@ -13,14 +14,14 @@ import { usePersistenceHost } from "./usePersistenceHost";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
 import { useToast } from "./useToast";
-import { remoteToastStyle } from "../ui/remoteToast";
 import { useRemoteSync } from "./useRemoteSync";
-import { projectSchemaHeight } from "../components/pageSchema";
-import { plural } from "../ui/plural";
 import VersionsPanel from "../components/nodePage/versions/VersionsPanel";
+import { DocRow, DocRowLabel } from "../components/docRow";
+import Section from "../ui/Section";
 import { useProjectRole } from "./projectRole";
 import "./NodePage.css";
-import "../ui/smallButton.css";
+import "../components/EmbeddedSchemaBlock.css";
+import "../ui/ds.css";
 
 interface Props {
   projectId: string;
@@ -116,125 +117,98 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const hasNodes = graphNodes.length + endpoints.length > 0;
   // Признак проектный, с сервера: статусы обычно лежат не на корневом уровне.
   const hasStatusInfo = showStatusControls(lvl.hasStatusInfo, graphNodes, endpoints);
-  const height = projectSchemaHeight(graphNodes.length);
 
   return (
-    <div className="np-page">
+    <div className="np-page ds">
       <div className="np-inner">
-        {/* ── Шапка проекта ─────────────────────────────────────── */}
-        <div className="np-header">
-          <div className="np-breadcrumb">
-            <span style={{ color: "#0f172a", fontWeight: 600 }}>Проект</span>
-          </div>
+        {/* ── Шапка проекта: название, меню ⋯, описание ───────────── */}
+        <header className="np-header">
           <div className="np-title-row">
-            <span className="np-glyph" style={{ background: "#2563eb" }}>
-              <svg width={20} height={20} viewBox="0 0 20 20" fill="none" stroke="#fff" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-                <rect x={2.5} y={3} width={15} height={14} rx={3} />
-                <path d="M2.5 7h15" />
-              </svg>
-            </span>
-            <span className="np-name">{project.name}</span>
-            <div className="np-menu-wrap">
-              <button className="np-menu-btn" onClick={() => setMenuOpen((o) => !o)} title="Действия">
-                ⋯
-              </button>
-              {menuOpen && (
-                <>
-                  <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
-                  <div className="np-dropdown">
-                    <button onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
-                      Версии документации
-                    </button>
-                  </div>
-                </>
-              )}
+            <h1 className="np-name">{project.name}</h1>
+            <div className="np-title-aside">
+              <div className="np-menu-wrap">
+                <button
+                  type="button"
+                  className="np-menu-btn"
+                  onClick={() => setMenuOpen((o) => !o)}
+                  title="Действия"
+                  aria-label="Действия"
+                  aria-expanded={menuOpen}
+                >
+                  ⋯
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
+                    <div className="np-dropdown ds-menu">
+                      <button type="button" className="ds-menu-item" onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
+                        Версии документации
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-          {project.description && (
-            <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "#475569", lineHeight: 1.55, maxWidth: 640 }}>
-              {project.description}
-            </p>
-          )}
-          <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-            <span className="np-count-chip">{project.object_count} {plural(project.object_count, ["объект", "объекта", "объектов"])}</span>
-            <span className="np-count-chip">{project.edge_count} {plural(project.edge_count, ["связь", "связи", "связей"])}</span>
-            <span className="np-count-chip">{processes.length} {plural(processes.length, ["процесс", "процесса", "процессов"])}</span>
-          </div>
-        </div>
+          {project.description && <p className="np-desc">{project.description}</p>}
+        </header>
 
-        {/* ── Схема системы ─────────────────────────────────────── */}
-        <div className="np-card">
-          <h3 className="np-card-title">Схема системы</h3>
-          <div style={{ position: "relative" }}>
-            {remoteToast && <div style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
-            {/* Пустой проект: над окном схемы кнопки «Редактировать» нет (onEdit не
-                передаём) — её место занимает «Начать наполнение» внутри пустого окна,
-                и ведёт она туда же, в редактор-карту (решение пользователя 2026-09-05;
-                прежняя «+ Объект» звала страницу объекта с пустым id и не делала ничего). */}
-            <EmbeddedSchemaBlock
-            nodes={graphNodes}
-            endpoints={endpoints}
-            edges={lvl.edges}
-            viewLayout={lvl.viewLayout}
-            containerId={null}
-            persistence={persistence}
-            ancestorNames={[]}
-            ancestorIds={[]}
-            ancestorElements={[]}
-            depth={0}
-            isArchitect={isArchitect}
-            schemaView={schemaView}
-            onSchemaViewChange={setSchemaView}
-            onNavigateNode={onNavigateNode}
-            onRelayout={handleRelayout}
-            relayoutToken={relayoutToken}
-            height={height}
-            showViewFilter={hasStatusInfo}
-            onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
-            empty={
-              hasNodes ? undefined : (
-                <span>
-                  Схема пуста
-                  {isArchitect && (
-                    <>
-                      <br />
-                      <button className="btn-sm-primary" style={{ marginTop: 10 }} onClick={() => onNavigateMap?.(null)}>
-                        Начать наполнение
-                      </button>
-                    </>
-                  )}
-                </span>
-              )
-            }
-            />
-          </div>
-        </div>
+        {/* ── Схема (корневой уровень) ──────────────────────────── */}
+        {/* Пустой проект: входа в экран схемы в строке заголовка нет ни у какой роли (onEdit
+            не передаём: ни «Редактировать», ни «Развернуть»). У архитектора его место
+            занимает «Начать наполнение» внутри пустой рамки, и ведёт она туда же, в
+            редактор-карту (решение пользователя 2026-09-05; прежняя «+ Объект» звала страницу
+            объекта с пустым id и не делала ничего); читателю остаётся «Схема пуста». Чужая
+            правка схемы: тост внутри рамки схемы, его рисует сам блок (notice). */}
+        <EmbeddedSchemaBlock
+          title="Схема"
+          notice={remoteToast ? "Схему только что изменили в другом окне" : null}
+          nodes={graphNodes}
+          endpoints={endpoints}
+          edges={lvl.edges}
+          viewLayout={lvl.viewLayout}
+          containerId={null}
+          persistence={persistence}
+          ancestorNames={[]}
+          ancestorIds={[]}
+          ancestorElements={[]}
+          depth={0}
+          isArchitect={isArchitect}
+          schemaView={schemaView}
+          onSchemaViewChange={setSchemaView}
+          onNavigateNode={onNavigateNode}
+          onRelayout={handleRelayout}
+          relayoutToken={relayoutToken}
+          showViewFilter={hasStatusInfo}
+          onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
+          empty={
+            hasNodes ? undefined : (
+              <span>
+                Схема пуста
+                {isArchitect && (
+                  <>
+                    <br />
+                    <button type="button" className="ds-btn ds-btn--primary esb-empty-act" onClick={() => onNavigateMap?.(null)}>
+                      Начать наполнение
+                    </button>
+                  </>
+                )}
+              </span>
+            )
+          }
+        />
 
-        {/* ── Бизнес-процессы ───────────────────────────────────── */}
+        {/* ── Процессы ──────────────────────────────────────────── */}
         {processes.length > 0 && (
-          <div className="np-card">
-            <h3 className="np-card-title">Бизнес-процессы</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <Section title="Процессы">
+            <div className="ds-rows">
               {processes.map((p) => (
-                <button
-                  key={p.id}
-                  className="np-doc-row"
-                  onClick={() => onNavigateProcesses?.(p.id)}
-                  title={`Открыть процесс «${p.name}»`}
-                >
-                  <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" />
-                    <path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
-                  </svg>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-                  <span style={{ color: "#94a3b8", fontSize: 12 }}>
-                    {p.message_count} {plural(p.message_count, ["сообщение", "сообщения", "сообщений"])}
-                  </span>
-                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                </button>
+                <DocRow key={p.id} onOpen={() => onNavigateProcesses?.(p.id)} title={`Открыть процесс «${p.name}»`}>
+                  <DocRowLabel name={p.name} />
+                </DocRow>
               ))}
             </div>
-          </div>
+          </Section>
         )}
       </div>
 
@@ -254,4 +228,5 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   );
 }
 
-// Тост «Схему только что изменили в другом окне» (remote-sync) — поверх окна схемы.
+// Тост «Схему только что изменили в другом окне» (remote-sync) рисует блок схемы внутри своей
+// рамки (EmbeddedSchemaBlock, notice).

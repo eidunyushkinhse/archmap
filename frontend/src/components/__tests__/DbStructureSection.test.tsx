@@ -63,10 +63,29 @@ function setup(tables: DbTable[], isArchitect = true) {
 describe("DbStructureSection", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("пустая структура предлагает завести таблицу", async () => {
+  it("пустая структура у редактора — заголовок и «Добавить», без пустой строки", async () => {
     setup([]);
-    await waitFor(() => expect(screen.getByText("Таблицы не описаны")).toBeInTheDocument());
-    expect(screen.getByText("+ Таблица")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Структура" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить" })).toBeInTheDocument();
+    expect(screen.queryByText("Таблицы не описаны")).toBeNull();
+    expect(screen.queryByText("Показать диаграмму")).toBeNull();
+  });
+
+  it("пустая структура у читателя — раздела нет", async () => {
+    const { container } = setup([], false);
+    await waitFor(() => expect(dbTablesApi.list).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it("таблица — имя, раздел и назначение полями; крестик назван по таблице", async () => {
+    vi.mocked(dbTablesApi.delete).mockResolvedValue(undefined as never);
+    setup([table({ description: "заказы покупателей" })]);
+    expect(await screen.findByRole("textbox", { name: "Таблица" })).toHaveValue("orders");
+    expect(screen.getByRole("textbox", { name: "Назначение таблицы" })).toHaveValue("заказы покупателей");
+    // Пустой раздел — поле есть (видно при наведении на запись), значение пустое.
+    expect(screen.getByRole("textbox", { name: "Раздел" })).toHaveValue("");
+    await userEvent.click(screen.getByRole("button", { name: "Удалить таблицу orders" }));
+    await waitFor(() => expect(dbTablesApi.delete).toHaveBeenCalledWith("n1", "t1"));
   });
 
   it("колонки видны только после раскрытия таблицы", async () => {
@@ -81,7 +100,7 @@ describe("DbStructureSection", () => {
     setup([table()]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
-    for (const заголовок of ["Колонка", "Тип", "ключ", "обяз.", "Ссылается на", "Смысл значения"]) {
+    for (const заголовок of ["Колонка", "Тип", "Ключ", "Обязательная", "Ссылается на", "Смысл значения"]) {
       expect(screen.getByText(заголовок)).toBeInTheDocument();
     }
     // Признаки названы ОДИН раз — в шапке. В строках только сами чекбоксы: подпись
@@ -103,7 +122,7 @@ describe("DbStructureSection", () => {
     // содержимое уходит из DOM, а список и карточка секции просто следуют за ним.
     setup([table(), table({ id: "t2", name: "audit", schema_name: "billing" })]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
-    await userEvent.click(screen.getByText("billing"));
+    await userEvent.click(screen.getByRole("button", { name: "billing" }));
     // Высоту ведёт ГОЛАЯ обёртка (.anim-box), а не сам блок с отступами: иначе
     // измерение врало бы на padding/border и margin, и соседи прыгали бы.
     const box = screen.getByDisplayValue("audit").closest(".anim-box") as HTMLElement;
@@ -114,7 +133,7 @@ describe("DbStructureSection", () => {
     setup([table(), table({ id: "t2", name: "audit", schema_name: "billing" })]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     expect(screen.getByText("без раздела")).toBeInTheDocument();
-    expect(screen.getByText("billing")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "billing" })).toBeInTheDocument();
   });
 
   it("правка имени таблицы уходит PATCH-ем с CAS-версией", async () => {
@@ -132,7 +151,7 @@ describe("DbStructureSection", () => {
     setup([table({ id: "t1", name: "таблица" })]);
     await waitFor(() => expect(screen.getByDisplayValue("таблица")).toBeInTheDocument());
     // Кнопка одна, способы — пункты меню (как у «Логики» и «OpenAPI»).
-    await userEvent.click(screen.getByText("+ Таблица"));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     expect(dbTablesApi.create).toHaveBeenCalledWith("n1", { name: "таблица_2", schema_name: "" });
   });
@@ -142,7 +161,7 @@ describe("DbStructureSection", () => {
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     // Пока меню не раскрыто, отдельного входа к агенту на странице нет.
     expect(screen.queryByText("Через ИИ-агента")).toBeNull();
-    await userEvent.click(screen.getByText("+ Таблица"));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
     expect(screen.getByTestId("data-agent")).toBeInTheDocument();
   });
@@ -216,7 +235,8 @@ describe("DbStructureSection", () => {
     setup([table({ columns: [column({ is_primary_key: true, nullable: false })] })], false);
     await waitFor(() => expect(screen.getByText("orders")).toBeInTheDocument());
     expect(screen.queryByDisplayValue("orders")).toBeNull();
-    expect(screen.queryByText("+ Таблица")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Удалить таблицу/ })).toBeNull();
     // И колонки тоже читаются, а не правятся: признаки — текстом, полей ввода нет.
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
     expect(screen.getByText("status")).toBeInTheDocument();

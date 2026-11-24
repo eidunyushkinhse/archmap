@@ -6,12 +6,12 @@ import type { FragmentKind, ProcessParticipant } from "../../types";
 // остальных. Раньше каждое окно было своим useState, порядок наложения — зашит в разметку,
 // а приоритет Escape — отдельным списком; подтверждение удаления участника, открытое из
 // панели «Участники», оказывалось ПОД панелью. Набранный текст и занятость окна живут
-// в его записи: открытие начинает с чистого, закрытие уносит их с собой.
+// в его записи: открытие начинает с чистого, закрытие уносит их с собой. Панель шага
+// (StepPanel) сюда не входит: она часть раскладки экрана, а не окно поверх холста.
 export type Overlay =
   | { kind: "parts" }
   | { kind: "composer"; from: string; to: string }
   | { kind: "self"; pid: string; caption: string }
-  | { kind: "msg"; mid: string; caption: string }
   | { kind: "doc"; docId: string; nodeId: string; nodeName: string }
   | { kind: "delPart"; part: ProcessParticipant; busy: boolean; error: string | null }
   | { kind: "branch"; fid: string; index: number | null; guard: string }

@@ -1,8 +1,8 @@
-// Тексты панели версий документации (docs/tasks/doc-versions.md §7): строка статуса
-// элемента, путь объекта перед именем, заголовок экрана элемента, перечень
-// незафиксированных изменений, «дата · автор», пояснение окна отката и строка его
-// замечаний. Чистые функции над контрактом — словарь подписей и слов статуса один, в
-// nodeTerms.
+// Тексты окна версий документации (docs/tasks/doc-versions.md §7): строка статуса
+// элемента, путь объекта перед именем, заголовок экрана элемента и его уточнение,
+// перечень незафиксированных изменений, дата версии и подпись «автор, дата», пояснение
+// окна отката и строка его замечаний. Чистые функции над контрактом — словарь подписей и
+// слов статуса один, в nodeTerms.
 import { VERSION_CATEGORY } from "../../nodeTerms";
 import { plural } from "../../../ui/plural";
 import type { RestorePreview, VersionItem, VersionOut } from "../../../types";
@@ -41,12 +41,14 @@ export function pathPrefix(item: VersionItem): string {
   return path.endsWith(tail) ? path.slice(0, -tail.length) : path;
 }
 
-/** Заголовок экрана элемента «категория · имя». У спеки имя совпадает с категорией
- *  («OpenAPI») — вместо него путь объекта, а у корня среза одна категория. */
-export function itemTitle(item: VersionItem): string {
+/** Заголовок экрана элемента и тихое уточнение за ним. Обычно заголовок — имя элемента,
+ *  уточнение — название категории («Создать заказ» и «Схема логики»). У спецификации имя
+ *  совпадает с категорией («OpenAPI»): заголовок — категория, уточнение — путь объекта (у
+ *  корня среза пустое). */
+export function itemTitle(item: VersionItem): { title: string; sub: string } {
   const label = VERSION_CATEGORY[item.category].label;
-  if (item.name !== label) return `${label} · ${item.name}`;
-  return item.node_path ? `${label} · ${item.node_path}` : label;
+  if (item.name !== label) return { title: item.name, sub: label };
+  return { title: label, sub: item.node_path };
 }
 
 /** Элемент внутри фразы: «схема логики «Создать заказ»», «конфигурация «Заказы /
@@ -57,8 +59,8 @@ function inlineName(item: VersionItem): string {
   return subject ? `${inline} «${subject}»` : inline;
 }
 
-/** «изменения с v3: схема логики «Создать заказ», конфигурация и ещё 2» — строка над
- *  списком версий (с «Есть …») и подзаголовок окна фиксации. */
+/** «изменения с v3: схема логики «Создать заказ», конфигурация и ещё 2» — строка
+ *  состояния списка версий (с «Есть …») и первый абзац окна фиксации (fixLead). */
 export function changesPhrase(latest: number, items: VersionItem[]): string {
   const head = `изменения с v${latest}`;
   if (items.length === 0) return head;
@@ -67,9 +69,17 @@ export function changesPhrase(latest: number, items: VersionItem[]): string {
   return `${head}: ${shown}${rest > 0 ? ` и ещё ${rest}` : ""}`;
 }
 
+/** Первый абзац окна «Зафиксировать версию»: что войдёт в версию, той же фразой с
+ *  заглавной буквы («Изменения с v3: …»). У первой версии перечислять не с чем — null. */
+export function fixLead(latest: number | null, items: VersionItem[]): string | null {
+  if (latest === null) return null;
+  const phrase = changesPhrase(latest, items);
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
 /** Дата версии — как на карточке проекта («19 окт.»); у прошлых лет — с годом, иначе
  *  история за несколько лет читалась бы двусмысленно. */
-function versionDate(iso: string): string {
+export function versionDate(iso: string): string {
   const d = new Date(iso);
   const sameYear = d.getFullYear() === new Date().getFullYear();
   return d.toLocaleDateString("ru-RU", sameYear
@@ -77,9 +87,11 @@ function versionDate(iso: string): string {
     : { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** «19 окт. · petrova»; автора удалили — прочерк (история остаётся без автора). */
-export function versionMeta(v: VersionOut): string {
-  return `${versionDate(v.created_at)} · ${v.author ?? "—"}`;
+/** Подпись под комментарием на экране версии: «petrova, 19 окт.»; автора удалили —
+ *  только дата (история остаётся без автора). */
+export function versionByline(v: VersionOut): string {
+  const date = versionDate(v.created_at);
+  return v.author ? `${v.author}, ${date}` : date;
 }
 
 /** Пояснение окна «Восстановить версию N?» (прототип, openRestore): к чему вернётся

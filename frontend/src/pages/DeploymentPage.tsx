@@ -6,12 +6,15 @@
 // сворачиваются в карточку), представитель — карточка в каждой площадке, где он стоит:
 // единица (контейнер, лист или с компонентами) или цельная система одной карточкой;
 // без размещения — в пунктирной группе. Уровень (объём холста) — из адреса
-// #/p/<pid>/deploy/<уровень?>, в тулбаре — путь текстом и справа квадратные иконки
-// «Площадки», «Переразложить» (архитектор) и тумблер «Подписи связей» (CV32: холст в
-// управляемом режиме, свой тумблер в углу не рисует). Архитектору — расстановка (драг,
-// персист ключами deploy:…, undo), «Переразложить» и размещение; читателю — просмотр.
-// Связи — как на холсте объектов: двойной клик по стрелке (или клик по плашке)
-// подсвечивает её и оба конца, несколько связей в пучке — окно выбора (useEdgeChoice).
+// #/p/<pid>/deploy/<уровень?>, в тулбаре — путь уровня крошками (звенья-предки ведут на
+// свой уровень) и справа значки «Площадки», «Переразложить» (архитектор) и тумблер
+// «Подписи связей» (CV32: холст в управляемом режиме, свой тумблер в углу не рисует).
+// Архитектору — расстановка (драг, персист ключами deploy:…, undo), «Переразложить» и
+// размещение; читателю — просмотр. Связи — как на холсте объектов: двойной клик по стрелке
+// (или клик по плашке) подсвечивает её и оба конца, несколько связей в пучке — окно
+// выбора (useEdgeChoice).
+// Вид (редизайн, фаза 11): корень страницы — область нового языка (ds), холст на весь
+// экран без поля и рамки, как в редакторе-карте (DeploymentPage.css).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Node as AppNode, AncestorRef, LevelEdge, ViewLayoutPayload } from "../types";
 import LevelGraph from "../components/LevelGraph";
@@ -33,9 +36,7 @@ import { isConflict } from "../api/client";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import LoadError from "../ui/LoadError";
-import { listToast } from "../ui/pageChrome";
-import { primaryBtn } from "../ui/styles";
-import { EdgeLabelsIcon, RelayoutIcon, SiteKindIcon } from "../ui/icons";
+import { ChevronIcon, EdgeLabelsIcon, RelayoutIcon, SiteKindIcon } from "../ui/icons";
 import { loadErrorText } from "../ui/loadErrorText";
 import { plural } from "../ui/plural";
 import { useDeploymentGraph } from "./useDeploymentGraph";
@@ -43,6 +44,7 @@ import { useDeploymentPlacing } from "./useDeploymentPlacing";
 import { usePersistenceHost } from "./usePersistenceHost";
 import { useRemoteSync } from "./useRemoteSync";
 import { useMessageToast } from "./useToast";
+import "../ui/ds.css";
 import "./DeploymentPage.css";
 
 interface Props {
@@ -110,7 +112,6 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
   // Путь уровня в тулбаре и глубина цвета карточек: корни объёма — дети системы
   // уровня, их архитектурная глубина — длина её цепочки (0 у всего проекта).
   const chain = useMemo(() => levelChain(allNodes, level), [allNodes, level]);
-  const path = chain.map((n) => n.name).join(" › ");
   const proj = useMemo(() => (dep.graph ? projectDeployment(dep.graph, chain.length) : null), [dep.graph, chain.length]);
 
   // Выбранная связь (двойной клик по стрелке или клик по плашке): подсветка её и обоих
@@ -358,53 +359,76 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
         onPlace={isArchitect ? placingMode.start : undefined}
         placingId={placing?.id ?? null}
       />
-      <div className="dp-page">
+      <div className="dp-page ds">
         <div className="dp-toolbar">
-          {/* Путь уровня текстом; уровень выбирают в дереве слева. */}
+          {/* Путь уровня крошками, как в шапке редактора-карты: «Весь проект» и системы от
+              корня до текущего уровня. Звенья-предки ведут на свой уровень, текущий не
+              нажимается; полное имя — в подсказке (длинный путь обрезает имена). Уровень
+              выбирают и в дереве слева. */}
           <nav className="dp-path" aria-label="Уровень">
             {level === null ? (
-              <span className="dp-path-current">Весь проект</span>
+              <span className="dp-crumb dp-crumb--current">Весь проект</span>
             ) : (
               <>
-                <button type="button" className="dp-path-root" onClick={() => onNavigateLevel(null)}>
+                <button type="button" className="dp-crumb" onClick={() => onNavigateLevel(null)}>
                   Весь проект
                 </button>
-                <span className="dp-path-sep" aria-hidden>›</span>
-                <span className="dp-path-current">{path || "Загрузка"}</span>
+                {chain.length === 0 ? (
+                  // Состав проекта ещё грузится: вместо звеньев — «Загрузка».
+                  <span className="dp-crumb-step dp-crumb-step--current">
+                    <span className="dp-crumb-chev" aria-hidden="true"><ChevronIcon /></span>
+                    <span className="dp-crumb dp-crumb--current">Загрузка</span>
+                  </span>
+                ) : chain.map((n, i) => {
+                  const current = i === chain.length - 1;
+                  return (
+                    <span key={n.id} className={"dp-crumb-step" + (current ? " dp-crumb-step--current" : "")}>
+                      <span className="dp-crumb-chev" aria-hidden="true"><ChevronIcon /></span>
+                      {current ? (
+                        <span className="dp-crumb dp-crumb--current" title={n.name}>{n.name}</span>
+                      ) : (
+                        <button type="button" className="dp-crumb" title={n.name} onClick={() => onNavigateLevel(n.id)}>
+                          {n.name}
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
               </>
             )}
           </nav>
-          <span style={{ flex: 1 }} />
-          {actionError && <span role="alert" className="dp-error">{actionError}</span>}
-          {/* Квадратные иконки (приёмка 2026-10-27): «Площадки» — тот же знак вида площадки,
-              что на карточках и плашках площадок (вид по умолчанию «другое»); «Переразложить»
-              и тумблер «Подписи связей» — сосед «Переразложить», как в углу холста на
-              страницах и в топбаре редактора (CV32). */}
-          <button type="button" className="dp-iconbtn" onClick={() => setSitesOpen(true)} title="Площадки" aria-label="Площадки">
-            <SiteKindIcon kind="other" size={17} />
-          </button>
-          {isArchitect && (
+          {actionError && <span role="alert" className="ds-danger dp-error">{actionError}</span>}
+          {/* Значки (приёмка 2026-10-27; вид нового языка, ds-icon-btn): «Площадки» — тот же
+              знак вида площадки, что на карточках и плашках площадок (вид по умолчанию
+              «другое»); «Переразложить» и тумблер «Подписи связей» — сосед «Переразложить»,
+              как в углу холста на страницах (CV32). */}
+          <div className="dp-icons">
+            <button type="button" className="ds-icon-btn" onClick={() => setSitesOpen(true)} title="Площадки" aria-label="Площадки">
+              <SiteKindIcon kind="other" size={17} />
+            </button>
+            {isArchitect && (
+              <button
+                type="button"
+                className="ds-icon-btn"
+                onClick={() => { void handleRelayout(); }}
+                disabled={!hasObjects}
+                title="Переразложить уровень"
+                aria-label="Переразложить"
+              >
+                <RelayoutIcon />
+              </button>
+            )}
             <button
               type="button"
-              className="dp-iconbtn"
-              onClick={() => { void handleRelayout(); }}
-              disabled={!hasObjects}
-              title="Переразложить уровень"
-              aria-label="Переразложить"
+              className="ds-icon-btn"
+              onClick={() => setEdgeLabelsHidden((v) => !v)}
+              aria-pressed={edgeLabelsHidden}
+              title={edgeLabelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
+              aria-label="Подписи связей"
             >
-              <RelayoutIcon />
+              <EdgeLabelsIcon off={edgeLabelsHidden} />
             </button>
-          )}
-          <button
-            type="button"
-            className="dp-iconbtn"
-            onClick={() => setEdgeLabelsHidden((v) => !v)}
-            aria-pressed={edgeLabelsHidden}
-            title={edgeLabelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
-            aria-label="Подписи связей"
-          >
-            <EdgeLabelsIcon off={edgeLabelsHidden} />
-          </button>
+          </div>
         </div>
 
         <div className="dp-canvas">
@@ -415,25 +439,28 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             <div className="dp-placing" role="status">
               <span className="dp-placing-text">Куда поставить «{placing.name}»? Щёлкните площадку</span>
               {placingMode.hasOwn && (
-                <button type="button" className="btn-soft" onClick={placingMode.unplace} disabled={placingMode.busy}>
+                <button type="button" className="ds-btn" onClick={placingMode.unplace} disabled={placingMode.busy}>
                   Снять размещение
                 </button>
               )}
-              <button type="button" className="btn-soft" onClick={placingMode.cancel}>
+              <button type="button" className="ds-btn" onClick={placingMode.cancel}>
                 Отмена
               </button>
-              {placingMode.error && <span className="dp-placing-error" role="alert">{placingMode.error}</span>}
+              {placingMode.error && <span className="ds-danger dp-placing-error" role="alert">{placingMode.error}</span>}
             </div>
           )}
           {dep.error ? (
             <LoadError what="схему развёртывания" error={dep.error} onRetry={dep.retry} />
           ) : dep.loading || !dep.graph || !proj || !projection ? (
-            <div className="dp-note">Загрузка</div>
+            <div className="ds-empty dp-note">Загрузка</div>
           ) : !hasObjects ? (
-            <div className="dp-note">Нет объектов для размещения</div>
+            <div className="ds-empty dp-note">Нет объектов для размещения</div>
           ) : (
-            // data-tour — холст площадок для обучающего тура (шаг «Развёртывание»)
-            <div className="dp-stage" data-tour="deploy-diagram">
+            // data-tour — холст площадок для обучающего тура (шаг «Развёртывание»).
+            // legacy-root держит прежние метрики текста у всего, что лежит на холсте поверх
+            // него (якорь легенды): холст и легенда не меняются от области нового языка
+            // (ui/tokens.css), как область холста редактора-карты.
+            <div className="dp-stage legacy-root" data-tour="deploy-diagram">
               <LevelGraph
                 nodes={proj.nodes}
                 endpoints={proj.endpoints}
@@ -457,15 +484,16 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
               />
               <SchemaLegend variant="deployment" />
               {isArchitect && !placing && selectedObjects.length > 0 && (
-                <div className="dp-selection" role="status">
+                // Своя область нового языка внутри области холста (legacy-root у опоры).
+                <div className="ds dp-selection" role="status">
                   <span className="dp-selection-count">
                     {plural(selectedObjects.length, ["Выбран", "Выбрано", "Выбрано"])} {selectedObjects.length}{" "}
                     {plural(selectedObjects.length, ["объект", "объекта", "объектов"])}
                   </span>
-                  <button type="button" style={selectionMainBtn} onClick={() => setPlacementOpen(true)}>
+                  <button type="button" className="ds-btn ds-btn--primary" onClick={() => setPlacementOpen(true)}>
                     Указать размещение
                   </button>
-                  <button type="button" className="btn-soft" onClick={() => setClearToken((t) => t + 1)}>
+                  <button type="button" className="ds-btn" onClick={() => setClearToken((t) => t + 1)}>
                     Снять выделение
                   </button>
                 </div>
@@ -506,18 +534,15 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             busy={placingMode.busy}
             onConfirm={() => { void placingMode.confirmPlace(); }}
             onCancel={placingMode.cancelConfirm}
-            scroll
           >
             <PlacementConflictList items={placingMode.confirm.conflicts} />
           </ConfirmDialog>
         )}
         {/* Окно выбора связи (несколько связей в пучке) — рендерит useEdgeChoice */}
         {choiceModal}
-        {toast && <div style={listToast} aria-live="polite">{toast}</div>}
+        {/* Тост итога: низ окна по центру, щелчки проходят сквозь него (ui/ds.css). */}
+        {toast && <div className="ds-toast ds-toast--bottom" aria-live="polite">{toast}</div>}
       </div>
     </>
   );
 }
-
-// Главная кнопка панели выделения — та же, что в окнах, но ниже ростом (панель тихая).
-const selectionMainBtn = { ...primaryBtn, padding: "6px 12px", fontSize: 13 };

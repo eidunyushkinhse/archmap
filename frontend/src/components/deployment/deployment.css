@@ -1,44 +1,46 @@
-/* Окна «Размещение» и «Площадки» (components/deployment): дерево площадок (SiteTree),
-   форма площадки, футер. Тихо: строки без рамок, второстепенное — серым. */
-.site-tree {
+/* Окна «Размещение» и «Площадки» (components/deployment, редизайн, фаза 11): каркас окна
+   нового языка (ui/ds.css, ds-win), здесь только своё окон: дерево площадок (SiteTree),
+   форма площадки (SiteForm), строка «о ком речь» окна «Размещение» и значки строки окна
+   «Площадки». Значения — только токены ui/tokens.css. */
+
+/* ── Дерево площадок ─────────────────────────────────────────────────────
+   Строка 30px: шеврон (или его место), дальше то, что решает хозяин окна. Вложенные
+   площадки — в своей колонке со сдвигом 22px: шеврон ребёнка стоит под значком вида
+   родителя, «+» и форма новой площадки — в той же колонке. */
+.site-tree,
+.site-children {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-bottom: 10px;
+  min-width: 0;
+}
+.site-children {
+  margin-left: 22px;
 }
 
+/* «Площадок пока нет» и «Загрузка» (вместе с ds-empty). */
 .site-tree-empty {
-  margin: 0 0 8px;
-  font-size: 13.5px;
-  color: #64748b;
+  margin: 0;
 }
 
 .site-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 30px;
-  padding-right: 6px;
-  border-radius: 7px;
-  font-size: 14px;
-  color: #0f172a;
+  box-sizing: border-box;
+  padding: 0 var(--space-1) 0 4px;
+  border-radius: var(--radius);
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
 }
 .site-row:hover {
-  background: #f8fafc;
+  background: var(--c-hover);
 }
 
-/* Галочка с именем — одна подпись на всю строку (окно «Размещение»). */
-.site-row-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  cursor: pointer;
-}
-
-/* Шеврон раскрытия — зона 22×22, как у дерева объектов (NodeTreePanel .nt-chevhit);
-   раскрытый повёрнут вниз. Спейсер той же ширины держит строки без шеврона в ряд. */
+/* Шеврон раскрытия — зона 22×22, как у дерева объектов (NodeTreePanel .nt-chevhit):
+   тихий, раскрытый повёрнут вниз; под курсором подложка темнее подложки строки. Спейсер
+   той же ширины держит строки без шеврона в ряд. */
 .site-row-chev {
   display: inline-flex;
   align-items: center;
@@ -47,34 +49,85 @@
   height: 22px;
   flex: none;
   padding: 0;
-  border: none;
-  border-radius: 6px;
+  border: 0;
+  border-radius: var(--radius);
   background: none;
-  color: #94a3b8;
+  color: var(--c-fg-muted);
   cursor: pointer;
 }
 .site-row-chev svg {
-  transition: transform 0.15s ease;
+  transition: transform 0.12s ease;
 }
 .site-row-chev--open svg {
   transform: rotate(90deg);
 }
 .site-row-chev:hover {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--c-line);
+  color: var(--c-fg);
+}
+.site-row-chev:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-row-chev svg {
+    transition: none;
+  }
 }
 .site-row-chevspacer {
   width: 22px;
   flex: none;
 }
 
-/* «+» под вложенными площадками и под корнями: строка с одной кнопкой на месте шеврона. */
+/* Значок вида, имя и технология (SiteRowTitle). Имя не сжимается первым: в тесной строке
+   усекается технология, а имя остаётся целым (до половины строки). */
+.site-row-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-fg-muted);
+}
+.site-row-name {
+  flex: 0 0 auto;
+  max-width: 48%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--c-fg);
+}
+.site-row-muted {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
+}
+
+/* Галочка с именем — одна подпись на всю строку (окно «Размещение»): флажок без своих
+   полей, как галочка окна нового языка (ds-check); кольцо фокуса — правилом окна
+   (ui/ds.css, .app-modal .ds-win input[type="checkbox"]). */
+.site-row-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  cursor: pointer;
+}
+.site-row-label input {
+  flex: none;
+  margin: 0;
+}
+
+/* «+» под вложенными площадками и под корнями: строка с одной кнопкой, значок на месте
+   шеврона, тихий; под курсором подложка. */
 .site-add {
   display: flex;
   align-items: center;
-  min-height: 28px;
-  padding-right: 6px;
-  border: none;
+  min-height: 30px;
+  padding: 0 var(--space-1) 0 4px;
+  border: 0;
   background: none;
   cursor: pointer;
 }
@@ -84,138 +137,111 @@
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 6px;
-  color: #94a3b8;
+  border-radius: var(--radius);
+  color: var(--c-fg-muted);
 }
 .site-add:hover:not(:disabled) .site-add-glyph {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--c-hover);
+  color: var(--c-fg);
+}
+.site-add:focus-visible {
+  outline: none;
+}
+.site-add:focus-visible .site-add-glyph {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
 }
 .site-add:disabled {
   cursor: default;
-  opacity: 0.5;
+}
+.site-add:disabled .site-add-glyph {
+  color: var(--c-fg-faint);
 }
 
-.site-row-icon {
-  display: inline-flex;
-  color: #64748b;
-  flex: none;
-}
-
-.site-row-name {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  /* Имя площадки не сжимается первым: в тесной строке усекается технология
-     (серая), а имя остаётся целым (до половины строки). */
-  flex: 0 0 auto;
-  max-width: 48%;
-}
-
-.site-row-muted {
-  font-size: 12.5px;
-  color: #94a3b8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-/* Карандаш и корзина строки окна «Площадки». */
-.site-row-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex: none;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: #64748b;
-  cursor: pointer;
-}
-.site-row-btn:hover:not(:disabled) {
-  background: #e2e8f0;
-  color: #0f172a;
-}
-.site-row-btn:disabled {
-  color: #cbd5e1;
-  cursor: default;
-}
-
-.site-row-link {
-  font: inherit;
-  font-size: 12.5px;
-  padding: 2px 4px;
-  border: none;
-  background: none;
-  color: #2563eb;
-}
-.site-row-link:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
+/* ── Форма площадки на месте строки (SiteForm): рамка без подложки, строки «подпись слева,
+   значение справа» (ds-props), под ними кнопки. Отступ слева — как у строки. */
 .site-new {
-  margin: 4px 0 10px;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #f8fafc;
+  margin: var(--space-1) 0 var(--space-1) 4px;
+  padding: var(--space-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+}
+.site-form-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
-.site-form {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 10px;
-}
-
-.site-form-field {
+/* ── Окно «Размещение» (PlacementDialog) ─────────────────────────────────
+   О ком речь — первым абзацем тела: имя объекта или «3 объекта» основным цветом, у одной
+   системы под ним тихо — кому достанутся площадки. */
+.pl-who {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #475569;
+  gap: 2px;
 }
-.site-form-field input,
-.site-form-field select,
-.site-form-field textarea {
+.pl-who-name {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  overflow-wrap: anywhere;
+}
+.pl-who-note {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-ui);
+  color: var(--c-fg-muted);
+}
+/* «Повторить» в строке отказа загрузки контейнеров: тихая кнопка-текст акцентного цвета в
+   той же строке (как «Повторить» строки свойства на странице объекта, nodePage/propRows.css). */
+.pl-retry {
+  padding: 0;
+  border: 0;
+  background: none;
   font: inherit;
-  font-size: 13.5px;
-  font-weight: 400;
-  padding: 6px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  background: #fff;
-  color: #0f172a;
+  color: var(--c-accent);
+  cursor: pointer;
 }
-.site-form-field textarea {
-  resize: vertical;
+.pl-retry:hover {
+  text-decoration: underline;
 }
-/* описание и родитель — во всю ширину формы */
-.site-form-field--wide {
-  grid-column: 1 / -1;
+.pl-retry:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
 }
-
-.site-form-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  gap: 8px;
-  margin-top: 2px;
+/* «Загрузка» в подвале: состав проекта для систем ещё грузится. */
+.pl-loading {
+  font-size: var(--fs-caption);
+  color: var(--c-fg-muted);
 }
 
-.site-dialog-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
+/* ── Окно «Площадки» (SitesDialog) ───────────────────────────────────────
+   Карандаш и корзина (ds-icon-btn) у правого края строки: видны под курсором и при фокусе
+   клавиатуры внутри строки (прозрачность, а не скрытие: значки остаются в порядке Tab;
+   :focus-visible, а не :focus-within: щелчок мышью по шеврону значки не закрепляет); на
+   устройствах без наведения видны всегда. Подложка значка под курсором темнее подложки
+   строки, как у шеврона. */
+.site-row-acts {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  opacity: 0;
 }
-
-/* Окно «Размещение»: состав проекта для предупреждения о контейнере ещё грузится. */
-.placement-loading {
-  font-size: 12.5px;
-  color: #94a3b8;
+.site-row:hover .site-row-acts,
+.site-row:has(:focus-visible) .site-row-acts {
+  opacity: 1;
+}
+@media (hover: none) {
+  .site-row-acts {
+    opacity: 1;
+  }
+}
+.site-row-acts .ds-icon-btn:hover:not(:disabled) {
+  background: var(--c-line);
+}
+/* Отказ записи — абзацем в конце тела окна. */
+.site-err {
+  margin: 0;
 }

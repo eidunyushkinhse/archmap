@@ -1,4 +1,4 @@
-// Пилюля «Обучение» в шапке гостя (docs/tasks/demo-tour-2.md, п.2–3): на месте
+// Кнопка «Обучение» в шапке гостя (docs/tasks/demo-tour-2.md, п.2–3): на месте
 // прежних «Песочница» + «?», то же действие — пройти обучение заново. Не гостю её нет.
 // Пока тур на паузе (docs/tasks/demo-tour-pause.md) — «Продолжить обучение».
 import { act, render, screen } from "@testing-library/react";
@@ -14,7 +14,7 @@ describe("TourHelpButton", () => {
   let off: (() => void) | null = null;
   afterEach(() => { off?.(); off = null; setTourPaused(false); });
 
-  it("гостю — пилюля «Обучение», нажатие запускает обучение заново", async () => {
+  it("гостю — кнопка «Обучение», нажатие запускает обучение заново", async () => {
     const restart = vi.fn();
     off = onTourRestart(restart);
     render(<TourHelpButton />);
@@ -35,6 +35,29 @@ describe("TourHelpButton", () => {
     expect(resume).toHaveBeenCalledOnce();
     act(() => setTourPaused(false));
     expect(screen.getByRole("button", { name: "Обучение" })).not.toHaveClass("tour-pill--resume");
+  });
+
+  it("оба состояния — цель сворачивания карточки (data-tour-pill) со своей подсказкой", () => {
+    render(<TourHelpButton />);
+    const idle = screen.getByRole("button", { name: "Обучение" });
+    expect(idle).toHaveAttribute("data-tour-pill");
+    expect(idle).toHaveAttribute("type", "button");
+    act(() => setTourPaused(true));
+    const paused = screen.getByRole("button", { name: "Продолжить обучение" });
+    expect(paused).toHaveAttribute("data-tour-pill");
+    expect(paused).toHaveAttribute("title", "Вернуться к шагу обучения");
+    expect(paused).toHaveAttribute("type", "button");
+    expect(screen.queryByRole("button", { name: "Обучение" })).toBeNull();
+  });
+
+  // Хвост приёмки фазы 12б: на паузе кнопка своего вида, не главная кнопка страницы (в
+  // шапке редактора рядом стоит главная «Готово»).
+  it("кнопка паузы — не главная кнопка страницы", () => {
+    render(<TourHelpButton />);
+    act(() => setTourPaused(true));
+    const paused = screen.getByRole("button", { name: "Продолжить обучение" });
+    expect(paused).toHaveClass("ds-btn", "tour-pill--resume");
+    expect(paused).not.toHaveClass("ds-btn--primary");
   });
 
   it("не гостю — ничего", () => {

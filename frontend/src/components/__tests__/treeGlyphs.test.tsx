@@ -1,11 +1,10 @@
-// Глифы дерева и шапки страницы по элементу архитектуры (Ф8 эпика
+// Глифы дерева по элементу архитектуры (Ф8 эпика
 // docs/plan-c4-elements.md, Р24): вид узла решает чистый types/treeNesting — система и
 // составной компонент рисуются пунктирным прямоугольником (эхо рамки на холсте),
 // контейнер с компонентами — «коробкой с крышкой», объект без вложенных — своей формой.
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ShapeGlyph } from "../nodeTree.shared";
-import HeaderGlyph from "../nodePage/HeaderGlyph";
 import { treeNesting } from "../../types";
 import type { Node, TreeNesting } from "../../types";
 
@@ -37,7 +36,7 @@ function drawn(svg: SVGElement | null): "dashed" | "box" | "shape" {
   return "shape";
 }
 
-describe("ShapeGlyph и HeaderGlyph", () => {
+describe("ShapeGlyph", () => {
   const cases: [TreeNesting, "dashed" | "box" | "shape"][] = [
     ["system", "dashed"], ["component", "dashed"], ["container", "box"], ["leaf", "shape"],
   ];
@@ -46,15 +45,6 @@ describe("ShapeGlyph и HeaderGlyph", () => {
     for (const [nesting, look] of cases) {
       const { container, unmount } = render(<ShapeGlyph nesting={nesting} shape="service" />);
       expect(container.querySelector(".nt-glyph")?.getAttribute("data-nesting")).toBe(nesting);
-      expect(drawn(container.querySelector("svg"))).toBe(look);
-      unmount();
-    }
-  });
-
-  it("шапка страницы — тот же словарь", () => {
-    for (const [nesting, look] of cases) {
-      const { container, unmount } = render(<HeaderGlyph nesting={nesting} shape="service" />);
-      expect(container.querySelector("svg")?.getAttribute("data-nesting")).toBe(nesting);
       expect(drawn(container.querySelector("svg"))).toBe(look);
       unmount();
     }

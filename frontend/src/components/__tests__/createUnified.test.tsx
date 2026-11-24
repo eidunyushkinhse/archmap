@@ -119,7 +119,7 @@ const ОТЧЁТ: ArchiveImportResult = {
 };
 
 const onCreated = vi.fn();
-const ИМЯ = "Например, «Платёжная платформа»";
+const ИМЯ = "например: Платёжная платформа";
 
 /** Открыть окно на табе «Импорт» — единой панели ввоза. */
 async function открыть() {
@@ -157,8 +157,9 @@ describe("единый ввоз · создание проекта", () => {
 
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));
 
-    expect(await screen.findByText(/Имя и описание из архива/, {}, { timeout: 3000 }))
-      .toHaveTextContent("«Ярмарка v2»");
+    // Вместо полей — значения из архива: название с пометкой «из архива» и описание.
+    expect(await screen.findByText("из архива", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("из архива").parentElement).toHaveTextContent("Ярмарка v2 из архива");
     expect(screen.getByText("демо-проект")).toBeInTheDocument();
     // П3: полей нет вовсе, и кнопка активна без единого символа имени.
     expect(screen.queryByPlaceholderText(ИМЯ)).toBeNull();
@@ -197,13 +198,14 @@ describe("единый ввоз · создание проекта", () => {
 
     // Спор стал ВОПРОСОМ разбора: секции «Споры содержимого» с радиокнопками нет,
     // кандидаты подписаны источником знания, и ничего не предвыбрано.
-    expect(await screen.findByText(/Без ваших решений не объединить/, {}, { timeout: 3000 }))
+    expect(await screen.findByText("Вопрос 1 из 1", {}, { timeout: 3000 }))
       .toBeInTheDocument();
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «Оформление заказа» в разных файлах разные схемы с одинаковым"
-      + " названием. Какую считаем правильной?");
-    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+      "У объекта «orders» в разных файлах разные схемы логики «Оформление заказа»."
+      + " Какую считаем правильной?");
+    await userEvent.click(screen.getByRole("button", { name: "Почему возник вопрос" }));
+    expect(screen.getByRole("dialog", { name: "Почему возник вопрос" }).textContent).toContain(
       "будут добавлены все схемы");
     expect(document.querySelectorAll(".rq-opt--on")).toHaveLength(0);
 
@@ -236,7 +238,7 @@ describe("единый ввоз · создание проекта", () => {
     );
 
     expect(await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.getByText("вопрос 1 из 2")).toBeInTheDocument();
+    expect(screen.getByText("Вопрос 1 из 2")).toBeInTheDocument();
     // Вопрос о поле: значения вариантами, источник — подписью.
     await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
     // Второй вопрос — о связи в контейнер; «как сейчас» в применение не едет.
@@ -266,8 +268,10 @@ describe("единый ввоз · создание проекта", () => {
     await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 });
     await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
 
-    // Правка YAML пересчитывает превью: тот же вопрос — ответ на месте.
-    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+    // Правка YAML пересчитывает превью: тот же вопрос — ответ на месте. Текст файла
+    // открывается по его имени в списке.
+    await userEvent.click(screen.getByRole("button", { name: "b.yaml" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Текст b.yaml" }), {
       target: { value: "nodes:\n  - name: Ярмарка" },
     });
     await waitFor(
@@ -277,12 +281,12 @@ describe("единый ввоз · создание проекта", () => {
 
     // А теперь вопрос из сводки пропал — ответ отбрасывается, в применение не едет.
     vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью({ c4: c4({ files: 2 }) }));
-    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Текст b.yaml" }), {
       target: { value: "nodes:\n  - name: Ярмарка v2" },
     });
     await waitFor(
       () => expect(projectsApi.unifiedPreview).toHaveBeenCalledTimes(3), { timeout: 3000 });
-    await waitFor(() => expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull());
+    await waitFor(() => expect(document.querySelector(".rq-block")).toBeNull());
 
     await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Федерация");
     // Пока свежая сводка не пришла, кнопка гаснет — дожидаемся её.
@@ -294,14 +298,15 @@ describe("единый ввоз · создание проекта", () => {
 
   it("yaml + zip: имя обязательно, входы едут в порядке «тексты, потом архивы»", async () => {
     await открыть();
-    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+    await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
+    fireEvent.change(screen.getByPlaceholderText("Вставьте сюда YAML"), {
       target: { value: "nodes:\n  - name: Ярмарка" },
     });
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));
 
     await waitFor(() => expect(projectsApi.unifiedPreview).toHaveBeenCalled(), { timeout: 3000 });
-    // Норматив порядка: непустые YAML в порядке чипов, затем архивы. Вставленный
-    // текстом YAML едет БЕЗ имени — подпись его источника бэк строит номером чипа
+    // Норматив порядка: непустые YAML в порядке списка, затем архивы. Вставленный
+    // текстом YAML едет БЕЗ имени — подпись его источника бэк строит номером входа
     // («Из файла 1»), а не выдуманным «Файл 1.yaml» (правка Ф2г).
     await waitFor(() => expect(входы()).toEqual(["", "archmap.zip"]));
 

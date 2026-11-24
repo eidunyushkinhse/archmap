@@ -2,14 +2,18 @@
 // ТЗ). Две роли: просмотр (isArchitect=false — только рендер, код по «Показать
 // код» наблюдателя) и ручная правка (isArchitect=true). Пишет в БД не он: правка
 // уходит наверх черновиком (onDraft), сохраняет окно кнопкой «Сохранить».
+// Новый язык (редизайн, фазы 7а и 7б): спецификация колонкой до 860 px на ровном фоне,
+// без карточки, при чтении и при правке; колонка кода — на токенах.
 // Ввод валидируется с дебаунсом 500ms (swagger-ui тяжёлый — на каждый символ
-// не перерисовываем); при ошибке превью держит последнюю корректную версию с
-// amber-баннером, статус-строка ведёт кареткой на строку ошибки.
+// не перерисовываем); при ошибке превью держит последнюю корректную версию со строкой
+// предупреждения над собой, строка состояния ведёт кареткой на строку ошибки.
 import { useCallback, useEffect, useRef, useState } from "react";
 import OpenApiViewer from "../OpenApiViewer";
-import { NOT_OPENAPI_MESSAGE, nowHHMM, parseOpenApiText } from "./docValidate";
+import { NOT_OPENAPI_MESSAGE, parseOpenApiText } from "./docValidate";
 import type { SpecStatus } from "./docValidate";
-import { DocEditorColumn, StatusError, StatusOk, StatusReadOnly } from "./docShared";
+import { DocEditorColumn, StatusError } from "./docShared";
+import "../../ui/ds.css";
+import "./docOverlay.css";
 
 interface Props {
   initial: string; // спека на момент открытия (сырой текст; черновик живёт внутри)
@@ -18,48 +22,32 @@ interface Props {
   showCode: boolean; // наблюдатель нажал «Показать код»
   // Каждая правка текста (ввод, файл) — окну: оно держит черновик до «Сохранить».
   onDraft?: (value: string) => void;
-  // Версия из последнего валидного парса — для тега формата в шапке оверлея
-  onVersion?: (version: string | undefined) => void;
 }
 
 interface OasState {
   status: SpecStatus;
-  // Последняя корректная версия спеки; time null — «из БД», времени правки нет
-  lastGood: { spec: object; time: string | null } | null;
+  // Последняя корректная версия спеки: её держит превью, пока в тексте ошибка.
+  lastGood: { spec: object } | null;
 }
 
-export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, onVersion }: Props) {
+export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft }: Props) {
   const [code, setCode] = useState(initial);
   // Первое открытие: сохранённое значение парсится сразу, без дебаунса
   const [st, setSt] = useState<OasState>(() => {
     const s = parseOpenApiText(initial);
-    return { status: s, lastGood: s.kind === "ok" ? { spec: s.spec, time: null } : null };
+    return { status: s, lastGood: s.kind === "ok" ? { spec: s.spec } : null };
   });
   // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
   // правки: как только в поле что-то меняется, статус снова про разбор спеки.
   const [fileError, setFileError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // Версию для тега шапки сообщаем на маунте (первичный парс) и при каждом
-  // валидном перепарсе; на невалидном вводе тег держит последнее валидное.
-  const onVersionRef = useRef(onVersion);
-  useEffect(() => {
-    onVersionRef.current = onVersion;
-  });
-  useEffect(() => {
-    const s = st.status;
-    if (s.kind === "ok") onVersionRef.current?.(s.version);
-    // только маунт: дальнейшие обновления шлёт applyText
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const applyText = useCallback((text: string) => {
     const s = parseOpenApiText(text);
     setSt((prev) => ({
       status: s,
-      lastGood: s.kind === "ok" ? { spec: s.spec, time: nowHHMM() } : prev.lastGood,
+      lastGood: s.kind === "ok" ? { spec: s.spec } : prev.lastGood,
     }));
-    if (s.kind === "ok") onVersionRef.current?.(s.version);
   }, []);
 
   // Дебаунс перепарса при печати
@@ -79,10 +67,9 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
   const { status, lastGood } = st;
 
   // Отказ по файлу перекрывает статус разбора: пока он висит, в поле лежит не то,
-  // что пользователь выбрал, и сообщать про синтаксис старого текста — врать.
-  const statusRow = !isArchitect ? (
-    <StatusReadOnly />
-  ) : fileError ? (
+  // что пользователь выбрал, и сообщать про синтаксис старого текста — врать. Ошибки нет —
+  // слева пусто. У читателя строки состояния нет вовсе (колонка readOnly).
+  const statusRow = !isArchitect ? null : fileError ? (
     <StatusError text={fileError} />
   ) : status.kind === "yaml-error" ? (
     <StatusError
@@ -92,26 +79,20 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
     />
   ) : status.kind === "not-openapi" ? (
     <StatusError text={NOT_OPENAPI_MESSAGE} />
-  ) : (
-    <StatusOk />
-  );
+  ) : null;
 
-  // Превью: валидная спека — карточка Swagger UI; ошибка — lastGood с баннером
-  // (или «превью недоступно», если корректной версии не было); пусто — заглушка.
+  // Превью: валидная спека — Swagger UI; ошибка — lastGood со строкой предупреждения
+  // над ним (или «превью недоступно», если корректной версии не было); пусто — заглушка.
+  // Время последнего удачного разбора в строке не пишем: оно ничего не решает.
   const broken = status.kind === "yaml-error" || status.kind === "not-openapi";
   let banner: string | null = null;
   if (broken) {
-    banner = lastGood
-      ? "Показан последний текст без ошибок" + (lastGood.time ? ` · ${lastGood.time}` : "")
-      : "В спецификации ошибка, превью недоступно";
+    banner = lastGood ? "Показан последний текст без ошибок" : "В спецификации ошибка, превью недоступно";
   }
 
-  return (
-    <>
-      {(isArchitect || showCode) && (
+  const column = (isArchitect || showCode) && (
         <DocEditorColumn
           width={460}
-          title="Код · OpenAPI 3.0 (YAML)"
           placeholder={"openapi: 3.0.0\ninfo:\n  title: My API\n  version: 1.0.0"}
           value={code}
           readOnly={!isArchitect}
@@ -124,17 +105,13 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
           fileTitle="Взять спецификацию из файла (.yaml / .yml / .json)."
           onFileError={setFileError}
         />
-      )}
+  );
+
+  return (
+    <>
+      {column}
       <div className="doc-pv">
-        {banner && (
-          <div className="doc-banner">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-              <path d="M8 2.2 14.6 13H1.4Z" strokeLinejoin="round" />
-              <path d="M8 6.5v3M8 11.6h.01" strokeLinecap="round" />
-            </svg>
-            {banner}
-          </div>
-        )}
+        {banner && <p className="ds-warn doc-pvwarn" role="status">{banner}</p>}
         <div className="doc-pvscroll">
           {status.kind === "empty" && !lastGood ? (
             <div className="doc-pvcenter"><span className="doc-pvempty">Нет спецификации</span></div>

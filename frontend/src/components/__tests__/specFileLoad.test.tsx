@@ -1,5 +1,5 @@
-// Загрузка OpenAPI-спеки из файла: кнопка в шапке редактора и перетаскивание на
-// поле. Содержимое кладётся в редактор ОБЫЧНОЙ правкой, поэтому дальше работают
+// Загрузка OpenAPI-спеки из файла: кнопка в строке состояния под кодом и
+// перетаскивание на поле. Содержимое кладётся в редактор ОБЫЧНОЙ правкой, поэтому дальше работают
 // разбор, превью и привычное сохранение — отдельного канала записи нет.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -145,7 +145,8 @@ describe("OpenAPI: загрузка спеки из файла", () => {
     await userEvent.upload(fileInput(container), mkFile(json, "openapi.json"));
 
     await waitFor(() => expect(field().value).toBe(json));
-    await screen.findByText("Синтаксис корректен");
+    // Разобрался без ошибки: слева в строке состояния пусто.
+    await waitFor(() => expect(document.querySelector(".doc-edbar-msg")).toBeEmptyDOMElement());
   });
 
   it("битый файл принимается, но статус говорит про ошибку разбора", async () => {
@@ -212,7 +213,7 @@ describe("Логика: загрузка mermaid-схемы из файла", ()
 
   it("загруженная схема уходит окну черновиком — пишет её «Сохранить» окна", async () => {
     // Отдельного канала записи нет: файл — обычная правка. Сохраняет окно явной
-    // кнопкой в шапке (вьюер v2), своего «Сохранить» у колонки кода больше нет.
+    // кнопкой в подвале, своего «Сохранить» у колонки кода нет.
     const { container, onDraft } = renderChart();
 
     await userEvent.upload(fileInput(container), mkFile(CHART, "logic.mmd"));

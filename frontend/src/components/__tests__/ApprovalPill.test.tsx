@@ -1,8 +1,9 @@
-// Пилюля статуса страницы у имени объекта (docs/tasks/page-status.md).
+// Статус страницы у имени объекта (docs/tasks/page-status.md); с редизайна — тихий текст
+// с точкой, а не пилюля.
 //
 // Что закрепляем: у листа и у контейнера с компонентами (Р14 эпика элементов) редактор
 // выбирает статус из выпадашки (выбор зовёт onPick, текущий помечен), читатель видит
-// пилюлю без стрелки и без выпадашки; у системы обе роли видят счётчик «N из M» и
+// статус без стрелки и без выпадашки; у системы обе роли видят «Согласовано N из M» и
 // список единиц с точками, клик по строке открывает его страницу; Escape и клик мимо
 // закрывают выпадашку. Система — по element_effective, её статус — approval_effective:
 // сам компонент правил не знает.
@@ -52,7 +53,7 @@ describe("ApprovalPill", () => {
     const { onPick } = renderPill();
     const pill = screen.getByRole("button", { name: /В работе/ });
     expect(pill.className).toContain("np-approval--work");
-    expect(pill.textContent).toContain("▾");
+    expect(pill.querySelector(".np-approval-chev svg")).toBeTruthy();
 
     fireEvent.click(pill);
     expect(screen.getByText("Статус страницы")).toBeTruthy();
@@ -74,7 +75,7 @@ describe("ApprovalPill", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
-  it("лист + читатель: пилюля без стрелки и без выпадашки", () => {
+  it("лист + читатель: статус без стрелки и без выпадашки", () => {
     const { container: root, onPick } = renderPill({ isArchitect: false });
     expect(screen.queryByRole("button")).toBeNull();
     const pill = root.querySelector(".np-approval") as HTMLElement;
@@ -100,7 +101,7 @@ describe("ApprovalPill", () => {
     expect(onPick).toHaveBeenCalledWith("approved");
   });
 
-  it("компонент + читатель: пилюля без выпадашки, как у листа", () => {
+  it("компонент + читатель: статус без выпадашки, как у листа", () => {
     const { container: root } = renderPill({
       node: makeNode({ id: "a", name: "api", parent_id: "o", element_effective: "component" }),
       isArchitect: false,
@@ -109,13 +110,14 @@ describe("ApprovalPill", () => {
     expect((root.querySelector(".np-approval") as HTMLElement).title).toBe("Статус меняет редактор проекта");
   });
 
-  it("система: счётчик, список единиц с точками, клик по строке открывает его страницу", () => {
+  it("система: «Согласовано N из M», список единиц с точками, клик по строке открывает его страницу", () => {
     const { onNavigateNode, onPick } = renderPill({ node: container, units: kids, isArchitect: false });
-    expect(screen.getByRole("button", { name: /В работе · 2 из 3/ }).title).toBe(
-      "Статус системы складывается из вложенных объектов",
-    );
-    fireEvent.click(screen.getByRole("button", { name: /В работе · 2 из 3/ }));
-    expect(screen.getByText("Согласовано 2 из 3")).toBeTruthy();
+    const pill = screen.getByRole("button", { name: "Согласовано 2 из 3" });
+    expect(pill.title).toBe("Статус системы складывается из вложенных объектов");
+    // статус системы — «в работе», пока согласовано не всё: точка жёлтая
+    expect(pill.className).toContain("np-approval--work");
+    expect(pill.textContent).not.toContain("·");
+    fireEvent.click(pill);
     const row = screen.getByRole("button", { name: "База заказов" });
     expect(row.querySelector(".np-approval-dot--work")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kafka заказов" }).querySelector(".np-approval-dot--ok")).toBeTruthy();
@@ -123,7 +125,7 @@ describe("ApprovalPill", () => {
     fireEvent.click(row);
     expect(onNavigateNode).toHaveBeenCalledWith("b");
     expect(onPick).not.toHaveBeenCalled();
-    expect(screen.queryByText("Согласовано 2 из 3")).toBeNull();
+    expect(screen.queryByRole("button", { name: "База заказов" })).toBeNull();
   });
 
   it("система: зелёный по вычисленному статусу сервера, а не по хранимому", () => {
@@ -131,7 +133,7 @@ describe("ApprovalPill", () => {
       node: { ...container, approval: "in_progress", approval_effective: "approved" },
       units: kids.map((k) => ({ ...k, approval: "approved" as const, approval_effective: "approved" as const })),
     });
-    const pill = screen.getByRole("button", { name: /Согласовано · 3 из 3/ });
+    const pill = screen.getByRole("button", { name: "Согласовано 3 из 3" });
     expect(pill.className).toContain("np-approval--ok");
   });
 

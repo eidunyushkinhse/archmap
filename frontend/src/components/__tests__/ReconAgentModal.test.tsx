@@ -32,13 +32,13 @@ const item = (over: Partial<ReconItem> = {}): ReconItem => ({
 function open() {
   const onApplied = vi.fn();
   const onClose = vi.fn();
-  render(<ReconAgentModal nodeId="n1" nodeName="backend" onClose={onClose} onApplied={onApplied} />);
+  render(<ReconAgentModal nodeId="n1" onClose={onClose} onApplied={onApplied} />);
   return { onApplied, onClose };
 }
 
 // Перечень вставляется текстом: файловый ввод в jsdom тестировать нечем, путь тот же.
 async function вставить(текст: string) {
-  await userEvent.click(screen.getByText("+ вставить из буфера"));
+  await userEvent.click(screen.getByRole("button", { name: "Вставить текст" }));
   const area = screen.getByPlaceholderText("вставьте содержимое файла");
   await userEvent.clear(area);
   await userEvent.type(area, текст);
@@ -68,8 +68,7 @@ describe("ReconAgentModal", () => {
 
   it("слова «разведка» нет в названии окна и в отчёте превью", async () => {
     // Название выбрано пользователем «без слова „разведка“ и без „точек входа“».
-    // В подзаголовке «проведет разведку» — дословный текст пользователя (2026-09-29),
-    // поэтому сторож проверяет всё, кроме подзаголовка.
+    // Вступления у окна больше нет (редизайн, фаза 6г), сторож проверяет всё окно.
     await превью(report({
       items: [
         item({ name: "POST /messages", action: "described", doc_name: "Отправка" }),
@@ -77,9 +76,7 @@ describe("ReconAgentModal", () => {
       ],
     }));
     await waitFor(() => expect(screen.getByText(/Повторный сбор списка не затирает работу/)).toBeInTheDocument());
-    const sub = screen.getByText(/он перечислит все операции и воркеры/);
-    const rest = (document.body.textContent ?? "").replace(sub.textContent ?? "", "");
-    expect(rest).not.toMatch(/разведк/i);
+    expect(document.body.textContent ?? "").not.toMatch(/разведк/i);
   });
 
   it("превью группируется по действию, числа — в заголовках групп", async () => {
@@ -98,8 +95,9 @@ describe("ReconAgentModal", () => {
     expect(screen.getByRole("button", { name: /^Неописанные схемы уже есть\s*1$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Уже описаны, их не тронем\s*1$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Есть в документации, но не найдено в коде\s*1$/ })).toBeInTheDocument();
-    // Объект, которому уедет перечень, назван: адрес мог прийти из самого файла.
-    expect(screen.getByText(/объект «Zulip \/ backend»/)).toBeInTheDocument();
+    // Объект, которому уедет перечень, назван тихой подписью под сводкой: адрес мог
+    // прийти из самого файла.
+    expect(screen.getByText("Zulip / backend")).toBeInTheDocument();
   });
 
   it("группы с нулём строк не показываются вовсе", async () => {

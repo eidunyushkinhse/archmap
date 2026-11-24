@@ -1,15 +1,27 @@
-// Пан/зум превью диаграммы в DocOverlay: колесо — зум к курсору, drag — пан,
-// программные zoomIn/zoomOut/fit для пилюли контролов, двойной клик — fit.
-// Хук отдаёт style (transform) для обёртки контента и обработчики контейнера.
-// Wheel вешается нативным addEventListener с passive:false: React-обработчик
-// wheel пассивен и не может звать preventDefault (страница бы скроллилась).
+// Пан/зум превью диаграммы: окно схемы логики (чтение и превью при правке), ER-диаграмма
+// во весь экран, просмотр документа в вопросах слияния. Схему открывают, чтобы ПРОЧИТАТЬ,
+// поэтому:
+//   • первое открытие — вид для чтения (readingView): текст не мельче 0,9 от натурального,
+//     высокая схема стоит верхом у поля, а не сжимается целиком в окно;
+//   • колесо прокручивает схему (по вертикали; по горизонтали — deltaX тачпада или Shift),
+//     не уводя её за края (wheelPan); Ctrl или ⌘ с колесом (так же приходит щипок тачпада)
+//     — зум к курсору;
+//   • drag — пан, двойной клик и «Вписать» — схема целиком, −/+ — зум к центру.
+// Хук отдаёт style (transform) для обёртки контента и обработчики контейнера. Wheel
+// вешается нативным addEventListener с passive:false: React-обработчик wheel пассивен и не
+// может звать preventDefault (страница под окном прокручивалась бы).
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from "react";
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 4;
 const SCALE_STEP = 1.15;
-const FIT_PAD = 24; // поля вокруг вписанной диаграммы
+const FIT_PAD = 24; // поля вокруг вписанной диаграммы и край прокрутки колесом
+// Нижний предел масштаба при открытии для чтения: мельче текст схемы не прочитать
+// (урок фазы 3а редизайна: предел 0,6 дал текст 7,4 px).
+const READ_MIN_SCALE = 0.9;
+// Строка колеса (deltaMode 1, Firefox) в пикселях.
+const WHEEL_LINE = 16;
 
 interface PanZoom {
   x: number;
@@ -17,8 +29,60 @@ interface PanZoom {
   scale: number;
 }
 
+/** Сцена (cw × ch) и схема в масштабе 1 (bw × bh). */
+interface ViewSize {
+  cw: number;
+  ch: number;
+  bw: number;
+  bh: number;
+}
+
 function clampScale(s: number): number {
   return Math.min(SCALE_MAX, Math.max(SCALE_MIN, s));
+}
+
+/**
+ * Вид при открытии для чтения. s_all — масштаб, при котором схема целиком помещается в
+ * сцену с полями FIT_PAD.
+ *   • s_all ≥ 0,9: масштаб min(s_all, 1), схема по центру (мелкую не раздуваем сверх 100%);
+ *   • s_all < 0,9: масштаб по ширине сцены, но не меньше 0,9 и не больше 1; верх схемы у
+ *     верхнего поля; по горизонтали по центру, а шире сцены — левым краем у левого поля.
+ * Дальше человек читает схему колесом сверху вниз.
+ */
+export function readingView({ cw, ch, bw, bh }: ViewSize): PanZoom {
+  const roomW = cw - FIT_PAD * 2;
+  const roomH = ch - FIT_PAD * 2;
+  const all = Math.min(roomW / bw, roomH / bh);
+  if (all >= READ_MIN_SCALE) {
+    const scale = Math.min(all, 1);
+    return { x: (cw - bw * scale) / 2, y: (ch - bh * scale) / 2, scale };
+  }
+  const scale = Math.min(1, Math.max(READ_MIN_SCALE, roomW / bw));
+  const w = bw * scale;
+  return { x: w <= roomW ? (cw - w) / 2 : FIT_PAD, y: FIT_PAD, scale };
+}
+
+/**
+ * Сдвиг колесом по одной оси: pos — положение края схемы, size — её размер на экране,
+ * view — размер сцены, delta — прокрутка (положительная — вниз или вправо, схема уезжает
+ * вверх или влево). Схема, которая по оси помещается в сцену с полями, по ней не двигается.
+ * Не помещается — край схемы не отходит от края сцены дальше поля. Схему, которую уже
+ * увели за поле перетаскиванием, колесо назад не дёргает: только не даёт уйти дальше.
+ */
+export function wheelAxis(pos: number, delta: number, size: number, view: number): number {
+  if (delta === 0 || size <= view - FIT_PAD * 2) return pos;
+  const next = pos - delta;
+  if (delta > 0) return Math.max(next, Math.min(view - FIT_PAD - size, pos));
+  return Math.min(next, Math.max(FIT_PAD, pos));
+}
+
+/** Прокрутка колесом по обеим осям в текущем масштабе. */
+export function wheelPan(t: PanZoom, dx: number, dy: number, size: ViewSize): PanZoom {
+  return {
+    ...t,
+    x: wheelAxis(t.x, dx, size.bw * t.scale, size.cw),
+    y: wheelAxis(t.y, dy, size.bh * t.scale, size.ch),
+  };
 }
 
 // mermaid отдаёт svg с width:100%/max-width — для пан/зума фиксируем натуральный
@@ -51,7 +115,7 @@ export function usePanZoom(
 
   // Габариты контента в масштабе 1 (текущий rect, поделённый на текущий scale) +
   // размеры контейнера. null — мерить нечего (нет DOM или контент пуст).
-  const measure = useCallback(() => {
+  const measure = useCallback((): ViewSize | null => {
     const box = containerRef.current;
     const content = contentRef.current;
     if (!box || !content) return null;
@@ -62,20 +126,19 @@ export function usePanZoom(
     return { bw: r.width / s, bh: r.height / s, cw: box.clientWidth, ch: box.clientHeight };
   }, [containerRef, contentRef]);
 
-  // Вписать контент целиком по центру. maxScale ограничивает раздувание:
-  // первичное открытие не увеличивает мелкую диаграмму сверх 100%.
-  const fitTo = useCallback(
-    (maxScale: number = SCALE_MAX) => {
-      const m = measure();
-      if (!m) return;
-      const raw = Math.min((m.cw - FIT_PAD * 2) / m.bw, (m.ch - FIT_PAD * 2) / m.bh);
-      const s = clampScale(Math.min(raw, maxScale));
-      setT({ x: (m.cw - m.bw * s) / 2, y: (m.ch - m.bh * s) / 2, scale: s });
-    },
-    [measure],
-  );
-  const fit = useCallback(() => fitTo(), [fitTo]);
-  const fitInitial = useCallback(() => fitTo(1), [fitTo]);
+  // «Вписать» и двойной клик: контент целиком по центру, мелкий — крупнее.
+  const fit = useCallback(() => {
+    const m = measure();
+    if (!m) return;
+    const raw = Math.min((m.cw - FIT_PAD * 2) / m.bw, (m.ch - FIT_PAD * 2) / m.bh);
+    const s = clampScale(raw);
+    setT({ x: (m.cw - m.bw * s) / 2, y: (m.ch - m.bh * s) / 2, scale: s });
+  }, [measure]);
+  // Первое открытие (и смена ширины сцены у читателя): вид для чтения.
+  const fitInitial = useCallback(() => {
+    const m = measure();
+    if (m) setT(readingView(m));
+  }, [measure]);
 
   // Зум к точке (cx, cy) в координатах контейнера: точка под курсором остаётся на месте.
   const zoomAt = useCallback((cx: number, cy: number, factor: number) => {
@@ -102,13 +165,31 @@ export function usePanZoom(
     const box = containerRef.current;
     if (!box) return;
     const onWheel = (e: WheelEvent) => {
+      // Колесо над сценой гасится всегда, и когда схема упёрлась в край: страница под
+      // окном прокручиваться не должна.
       e.preventDefault();
-      const r = box.getBoundingClientRect();
-      zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? SCALE_STEP : 1 / SCALE_STEP);
+      if (e.ctrlKey || e.metaKey) {
+        if (e.deltaY === 0) return;
+        const r = box.getBoundingClientRect();
+        zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? SCALE_STEP : 1 / SCALE_STEP);
+        return;
+      }
+      const m = measure();
+      if (!m) return;
+      const kx = e.deltaMode === 1 ? WHEEL_LINE : e.deltaMode === 2 ? box.clientWidth : 1;
+      const ky = e.deltaMode === 1 ? WHEEL_LINE : e.deltaMode === 2 ? box.clientHeight : 1;
+      let dx = e.deltaX * kx;
+      let dy = e.deltaY * ky;
+      // Shift с колесом мыши — прокрутка вбок (браузер сам меняет оси не везде).
+      if (e.shiftKey && dx === 0) {
+        dx = dy;
+        dy = 0;
+      }
+      setT((prev) => wheelPan(prev, dx, dy, m));
     };
     box.addEventListener("wheel", onWheel, { passive: false });
     return () => box.removeEventListener("wheel", onWheel);
-  }, [containerRef, zoomAt]);
+  }, [containerRef, zoomAt, measure]);
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {

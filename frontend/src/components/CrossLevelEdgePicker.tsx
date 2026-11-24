@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactElement, ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { ReactElement, ReactNode } from "react";
 import type { Edge, Node } from "../types";
 import { compareByRank } from "../types";
 import Modal from "../ui/Modal";
-import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
+import { CheckIcon, ChevronIcon, CloseIcon, SwapIcon } from "../ui/icons";
 import { LimitText } from "./demo/DemoLimitToast";
 import { useEdgeCreate } from "./useEdgeCreate";
 import { noAutofill } from "../ui/noAutofill";
+import "../ui/ds.css";
+import "./edgeWindows.css";
 
 interface Props {
   title: string;
-  subtitle?: string;
   // Узел, от которого протянули стрелку (ближний конец связи). Хэндл жеста связь
   // больше не несёт (R3): геометрию пучка display-пары сохраняет MapEditorPage после
   // onCreated (направление выводит из created.source_id).
@@ -33,19 +34,26 @@ interface Props {
 }
 
 /**
- * Поповер выбора дальнего конца межуровневой связи: визуальный «маршрут»
- * [источник] → [слот цели] над деревом узлов-кандидатов (собирается на клиенте
- * из плоского списка по parent_id). Один компонент для двух жестов: «связь внутрь
- * контейнера» (скоуп — поддерево, rootParentId = контейнер) и «связь к узлу вне
- * уровня» (скоуп — вся схема, rootParentId = null, недоступные узлы в excludeIds).
- * Поиск фильтрует дерево на месте (совпадения + их предки, авто-раскрытие), а не
- * открывает отдельный дропдаун. Направление по умолчанию — от источника к цели;
- * кнопка на линии разворачивает, не меняя элементы местами.
+ * Окно выбора дальнего конца межуровневой связи (редизайн, фаза 9в: каркас окна нового
+ * языка ui/ds.css, ds-win). Под заголовком строка «маршрута»: источник обычным текстом,
+ * соединитель с наконечником у цели связи и кнопкой разворота, слот цели. Ниже поиск и
+ * дерево объектов-кандидатов (собирается на клиенте из плоского списка по parent_id), под
+ * ним строки «Описание» и «Технология». Один компонент для двух жестов: «связь внутрь
+ * контейнера» (скоуп — поддерево, rootParentId = контейнер) и «связь к объекту вне
+ * уровня» (скоуп — вся схема, rootParentId = null, недоступные объекты в excludeIds).
+ * Поиск фильтрует дерево на месте (совпадения и их предки, ветки к ним раскрыты), а не
+ * открывает отдельный список. Направление по умолчанию — от источника к цели; кнопка на
+ * соединителе разворачивает его, не меняя элементы местами (источник всегда слева,
+ * направление видно по стороне наконечника).
+ *
+ * Окно прижато к верху, как «Новый объект» (NodeModal: отступ 8vh, ds-win--top): поиск и
+ * раскрытие веток меняют высоту дерева, и окно по центру прыгало бы верхним краем.
  */
 export default function CrossLevelEdgePicker({
-  title, subtitle, sourceId, sourceLabel,
+  title, sourceId, sourceLabel,
   loadNodes, scopeKey, rootParentId, excludeIds, slotPlaceholder, onClose, onCreated,
 }: Props) {
+  const uid = useId();
   const [allNodes, setAllNodes] = useState<Node[] | null>(null);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Node | null>(null);
@@ -116,7 +124,7 @@ export default function CrossLevelEdgePicker({
     return ids;
   }, [allNodes, q, filtering, excluded, byId, rootParentId]);
 
-  // Путь от корня скоупа до узла (без него самого) — подпись под именем в слоте.
+  // Путь от корня скоупа до узла (без него самого) — тихий префикс имени в слоте.
   const pathOf = (n: Node): string => {
     const parts: string[] = [];
     let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
@@ -163,7 +171,7 @@ export default function CrossLevelEdgePicker({
     return (
       <>
         {name.slice(0, idx)}
-        <mark style={markStyle}>{name.slice(idx, idx + q.length)}</mark>
+        <mark className="clp-mark">{name.slice(idx, idx + q.length)}</mark>
         {name.slice(idx + q.length)}
       </>
     );
@@ -182,34 +190,32 @@ export default function CrossLevelEdgePicker({
       <div key={n.id}>
         <div
           ref={isPicked ? pickedRowRef : undefined}
+          className={"clp-row" + (isPicked ? " is-picked" : "") + (isExcluded ? " is-off" : "")}
+          // Отступ вложенности — от глубины: 16px на уровень.
+          style={{ paddingLeft: 8 + depth * 16 }}
           // Недоступный узел (текущего уровня / источник) не выбираем, но дерево
           // оставляем проходимым — его потомки могут быть валидными целями.
           onClick={() => { if (!isExcluded) selectNode(n); }}
-          style={{
-            ...treeRow,
-            paddingLeft: 8 + depth * 16,
-            background: isPicked ? "#eff6ff" : undefined,
-            cursor: isExcluded ? "default" : "pointer",
-            color: isExcluded ? "#94a3b8" : undefined,
-          }}
         >
           {showChev ? (
             <button
+              type="button"
+              className={"clp-chev" + (isOpen ? " is-open" : "")}
               onClick={(e) => { e.stopPropagation(); toggle(n.id); }}
-              style={chevBtn}
               title={isOpen ? "Свернуть" : "Развернуть"}
+              aria-expanded={isOpen}
             >
-              <span style={{ ...chevIcon, transform: isOpen ? "rotate(90deg)" : "none" }}>▸</span>
+              <ChevronIcon size={12} />
             </button>
           ) : (
-            <span style={leafMark}>●</span>
+            <span className="clp-leaf" aria-hidden="true" />
           )}
-          <span style={{ flex: 1, fontWeight: isPicked ? 600 : undefined, color: isPicked ? "#1d4ed8" : undefined }}>
+          <span className="clp-name">
             {highlight(n.name)}
-            {n.role && <span style={roleMuted}>({n.role})</span>}
-            {isExcluded && <span style={roleMuted}>на этом уровне</span>}
+            {n.role && <span className="clp-quiet">{n.role}</span>}
+            {isExcluded && <span className="clp-quiet">на этом уровне</span>}
           </span>
-          {isPicked && <span style={checkMark}>✓</span>}
+          {isPicked && <span className="clp-check"><CheckIcon /></span>}
         </div>
         {isOpen && visibleKids.map((k) => renderNode(k, depth + 1))}
       </div>
@@ -238,268 +244,129 @@ export default function CrossLevelEdgePicker({
   const submit = () => { if (canCreate) void handleCreate(); };
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 440 }}>
-      <h2 style={{ margin: subtitle ? "0 0 6px" : "0 0 16px", fontSize: 18, color: "#1e293b" }}>{title}</h2>
-      {subtitle && <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>{subtitle}</p>}
-
-      {/* Маршрут: чип источника ——стрелка——> слот цели. Позиции фиксированы
-          (источник всегда слева); направление показывает только сторона стрелки. */}
-      <div style={routeRow}>
-        <span style={chip}>{sourceLabel}</span>
-        <div style={routeLine}>
-          {/* стрелка у левого конца при "in" (смотрит в источник) */}
-          {direction === "in" && <span style={arrowLeft} />}
-          <div style={routeRule} />
-          {/* стрелка у правого конца при "out" (смотрит в слот) */}
-          {direction === "out" && <span style={arrowRight} />}
-          <button
-            onClick={() => setDirection((d) => (d === "out" ? "in" : "out"))}
-            style={swapBtn}
-            title="Поменять направление"
-          >⇄</button>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 480, padding: 0, margin: "8vh auto auto" }}>
+      <div className="ds ds-win ds-win--top">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">{title}</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
         </div>
-        {picked ? (
-          <div style={slotFilled} onClick={() => setPicked(null)} title="Снять выбор">
-            <span style={slotName}>{picked.name}</span>
-            {pickedPath && <span style={slotPath}>{pickedPath}</span>}
+
+        <div className="ds-win-body">
+          {/* Маршрут: источник ——соединитель——> слот цели. Позиции фиксированы (источник
+              всегда слева); направление показывает только сторона наконечника. */}
+          <div className="clp-route">
+            <span className="clp-src" title={sourceLabel}>{sourceLabel}</span>
+            <div className="clp-conn">
+              {direction === "in" && <Head dir="left" />}
+              <span className="clp-conn-line" />
+              {direction === "out" && <Head dir="right" />}
+              <button
+                type="button"
+                className="ds-icon-btn clp-swap"
+                onClick={() => setDirection((d) => (d === "out" ? "in" : "out"))}
+                title="Поменять направление"
+                aria-label="Поменять направление"
+              >
+                <SwapIcon />
+              </button>
+            </div>
+            {picked ? (
+              // Выбранная цель — значение-кнопка: щелчок снимает выбор. Путь к ней — тихим
+              // префиксом, он и обрезается первым: черта и имя видны всегда.
+              <button type="button" className="ds-value-btn clp-slot" onClick={() => setPicked(null)} title="Снять выбор">
+                {pickedPath && (
+                  <>
+                    <span className="clp-slot-path">{pickedPath}</span>
+                    <span className="clp-slot-sep">{" / "}</span>
+                  </>
+                )}
+                <span className="clp-slot-name">{picked.name}</span>
+              </button>
+            ) : (
+              <span className="clp-slot ds-empty">{slotPlaceholder}</span>
+            )}
           </div>
-        ) : (
-          <span style={slotEmpty}>{slotPlaceholder}</span>
-        )}
-      </div>
 
-      {/* Поиск фильтрует дерево на месте (без дропдауна) */}
-      <input
-        {...noAutofill("cross-level-edge-picker-1")}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Поиск по имени"
-        style={{ ...input, marginBottom: 10 }}
-        data-autofocus
-      />
-
-      {/* Дерево: по умолчанию только прямые дети корня; при поиске — отфильтровано */}
-      <div style={listBox}>
-        {allNodes === null ? (
-          <div style={hint}>Загрузка</div>
-        ) : roots.length === 0 ? (
-          <div style={hint}>Нет объектов</div>
-        ) : visibleIds && visibleIds.size === 0 ? (
-          <div style={hint}>Ничего не найдено</div>
-        ) : (
-          roots.map((n) => renderNode(n, 0))
-        )}
-      </div>
-
-      {/* Описание и технология — в одну строку */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-        <div>
-          <label style={labelStyle}>Описание</label>
+          {/* Поиск фильтрует дерево на месте (без выпадающего списка) */}
           <input
-            {...noAutofill("cross-level-edge-picker-2")}
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="например, запрос или событие"
-            style={{ ...input, marginBottom: 0 }}
+            {...noAutofill("cross-level-edge-picker-1")}
+            className="ds-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по имени"
+            aria-label="Поиск по имени"
+            data-autofocus
           />
-        </div>
-        <div>
-          <label style={labelStyle}>Технология</label>
-          <input
-            {...noAutofill("cross-level-edge-picker-3")}
-            value={technology}
-            onChange={(e) => setTechnology(e.target.value)}
-            placeholder="например, REST или Kafka"
-            style={{ ...input, marginBottom: 0 }}
-          />
-        </div>
-      </div>
 
-      {error && <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }}>{error}</p>}
-      {limit && (
-        <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }} role="alert">
-          <LimitText message={limit} />
-        </p>
-      )}
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={submit} disabled={!canCreate} style={primaryBtn}>
-          {saving ? "Создаём" : "Создать связь"}
-        </button>
-        <button onClick={onClose} style={secondaryBtn}>Отмена</button>
+          {/* Дерево: по умолчанию только прямые дети корня; при поиске — отфильтровано */}
+          <div className="clp-tree">
+            {allNodes === null ? (
+              <p className="clp-note ds-empty">Загрузка</p>
+            ) : roots.length === 0 ? (
+              <p className="clp-note ds-empty">Нет объектов</p>
+            ) : visibleIds && visibleIds.size === 0 ? (
+              <p className="clp-note ds-empty">Ничего не найдено</p>
+            ) : (
+              roots.map((n) => renderNode(n, 0))
+            )}
+          </div>
+
+          <dl className="ds-props">
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor={`${uid}-label`}>Описание</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  {...noAutofill("cross-level-edge-picker-2")}
+                  id={`${uid}-label`}
+                  className="ds-field"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder="например, запрос или событие"
+                />
+              </dd>
+            </div>
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor={`${uid}-tech`}>Технология</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  {...noAutofill("cross-level-edge-picker-3")}
+                  id={`${uid}-tech`}
+                  className="ds-field"
+                  value={technology}
+                  onChange={(e) => setTechnology(e.target.value)}
+                  placeholder="например, REST или Kafka"
+                />
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="ds-win-foot">
+          {error && <p className="ds-danger ds-win-err">{error}</p>}
+          {limit && <p className="ds-danger ds-win-err" role="alert"><LimitText message={limit} /></p>}
+          <button type="button" className="ds-btn ds-btn--primary" onClick={submit} disabled={!canCreate}>
+            {saving ? "Создаём" : "Создать связь"}
+          </button>
+          <button type="button" className="ds-btn" onClick={onClose}>Отмена</button>
+        </div>
       </div>
     </Modal>
   );
 }
 
-// --- Маршрут (шапка) ---
-const routeRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  marginBottom: 16,
-};
-const chip: CSSProperties = {
-  flex: "none",
-  padding: "7px 13px",
-  border: "1.5px solid #cbd5e1",
-  borderRadius: 10,
-  background: "#fff",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#475569",
-  boxShadow: "0 1px 2px rgba(15,23,42,.08)",
-};
-const routeLine: CSSProperties = {
-  position: "relative",
-  flex: 1,
-  minWidth: 56,
-  height: 24,
-  display: "flex",
-  alignItems: "center",
-};
-const routeRule: CSSProperties = {
-  flex: 1,
-  height: 2,
-  background: "#94a3b8",
-};
-// Треугольники-наконечники на концах линии (CSS-бордеры).
-const arrowRight: CSSProperties = {
-  width: 0,
-  height: 0,
-  borderTop: "5px solid transparent",
-  borderBottom: "5px solid transparent",
-  borderLeft: "8px solid #94a3b8",
-  flex: "none",
-};
-const arrowLeft: CSSProperties = {
-  width: 0,
-  height: 0,
-  borderTop: "5px solid transparent",
-  borderBottom: "5px solid transparent",
-  borderRight: "8px solid #94a3b8",
-  flex: "none",
-};
-const swapBtn: CSSProperties = {
-  position: "absolute",
-  left: "50%",
-  top: "50%",
-  transform: "translate(-50%,-50%)",
-  width: 24,
-  height: 24,
-  borderRadius: "50%",
-  border: "1px solid #e2e8f0",
-  background: "#fff",
-  boxShadow: "0 1px 3px rgba(15,23,42,.15)",
-  cursor: "pointer",
-  fontSize: 12,
-  lineHeight: 1,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#475569",
-  padding: 0,
-};
-const slotBase: CSSProperties = {
-  flex: "none",
-  maxWidth: 170,
-  borderRadius: 10,
-  transition: "border-color .12s ease, background .12s ease",
-};
-const slotEmpty: CSSProperties = {
-  ...slotBase,
-  padding: "7px 13px",
-  border: "1.5px dashed #60a5fa",
-  background: "#eff6ff",
-  fontSize: 13,
-  fontWeight: 500,
-  color: "#60a5fa",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-const slotFilled: CSSProperties = {
-  ...slotBase,
-  display: "flex",
-  flexDirection: "column",
-  gap: 1,
-  padding: "5px 13px",
-  border: "1.5px solid #2563eb",
-  background: "#dbeafe",
-  cursor: "pointer",
-};
-const slotName: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#1d4ed8",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-const slotPath: CSSProperties = {
-  fontSize: 10.5,
-  color: "#3b82f6",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-
-// --- Дерево ---
-const listBox: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-  maxHeight: 200,
-  overflowY: "auto",
-  marginBottom: 14,
-};
-const treeRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "6px 8px",
-  fontSize: 14,
-};
-const chevBtn: CSSProperties = {
-  border: "none",
-  background: "none",
-  cursor: "pointer",
-  padding: 0,
-  width: 20,
-  flexShrink: 0,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#94a3b8",
-};
-const chevIcon: CSSProperties = {
-  display: "inline-block",
-  fontSize: 15,
-  transition: "transform 0.12s ease",
-};
-const leafMark: CSSProperties = {
-  width: 20,
-  flexShrink: 0,
-  textAlign: "center",
-  color: "#cbd5e1",
-  fontSize: 12,
-};
-const roleMuted: CSSProperties = {
-  color: "#94a3b8",
-  marginLeft: 6,
-  fontSize: 12,
-};
-const checkMark: CSSProperties = {
-  marginLeft: "auto",
-  color: "#2563eb",
-  fontWeight: 700,
-};
-const markStyle: CSSProperties = {
-  background: "#dbeafe",
-  color: "#1d4ed8",
-  borderRadius: 2,
-};
-const hint: CSSProperties = {
-  padding: "12px",
-  color: "#64748b",
-  fontSize: 13,
-  textAlign: "center",
-};
+// Наконечник соединителя у цели связи: часть линии маршрута, а не значок хрома; сторона
+// зависит от направления.
+function Head({ dir }: { dir: "left" | "right" }) {
+  return (
+    <svg
+      className="clp-conn-head"
+      width="7" height="10" viewBox="0 0 7 10" aria-hidden
+      fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round"
+    >
+      {dir === "right" ? <path d="M1.5 1.5 L5.5 5 L1.5 8.5" /> : <path d="M5.5 1.5 L1.5 5 L5.5 8.5" />}
+    </svg>
+  );
+}

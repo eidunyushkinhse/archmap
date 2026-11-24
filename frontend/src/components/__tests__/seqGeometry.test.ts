@@ -1,9 +1,11 @@
 // Геометрия sequence-диаграммы (processes/sequence/geometry) — без DOM: колонки и живая
 // перестановка участников, строки и высота подписей, фрагменты и их вложенность,
 // перенос шага, строка-призрак и ограничения граней (аудит F-4: раньше геометрия
-// проверялась только селекторами по готовой разметке).
+// проверялась только селекторами по готовой разметке). Промежутки между колонками — по
+// содержимому (редизайн, фаза 3а): ширины подписей и шапок тесты подают руками, в jsdom
+// замеров нет.
 import { describe, expect, it } from "vitest";
-import { computeSeqGeometry, type SeqGeometryInput } from "../processes/sequence/geometry";
+import { computeColumns, computeSeqGeometry, fitLabelCap, LABEL_GAP, type SeqGeometryInput } from "../processes/sequence/geometry";
 import type { SeqFragment, SeqMessage, SeqParticipant } from "../processes/sequence/layout";
 import { SQ } from "../processes/tokens";
 
@@ -24,15 +26,200 @@ function geo(over: Partial<SeqGeometryInput> = {}) {
   });
 }
 
-describe("геометрия sequence-диаграммы", () => {
-  it("колонки по порядку участников, ширина — от крайних колонок", () => {
+// Наименьший промежуток: две шапки наименьшей ширины и воздух между ними.
+const MIN_GAP = SQ.HEAD_MIN + SQ.HEAD_GAP;
+const gapsOf = (g: { colX: (id: string) => number }, ids = ["a", "b", "c", "d"]) =>
+  ids.slice(1).map((id, k) => g.colX(id) - g.colX(ids[k]));
+
+describe("колонки по содержимому", () => {
+  it("без замеров промежутки задают шапки, ширина — от крайних колонок с полями", () => {
     const g = geo();
-    expect(["a", "b", "c", "d"].map(g.colX)).toEqual([0, 1, 2, 3].map((k) => SQ.MARGIN + k * SQ.COL_W));
-    expect(g.W).toBe(SQ.MARGIN * 2 + 3 * SQ.COL_W);
+    expect(gapsOf(g)).toEqual([MIN_GAP, MIN_GAP, MIN_GAP]);
+    expect(g.colX("a")).toBe(SQ.SIDE);
+    expect(g.W).toBe(SQ.SIDE * 2 + 3 * MIN_GAP);
+  });
+
+  it("подпись между соседями раздвигает только их промежуток: не уже подписи плюс поля", () => {
+    const g = geo({ labelW: { m1: 250 } }); // шаг b→c
+    const [ab, bc, cd] = gapsOf(g);
+    expect(bc).toBe(250 + SQ.LABEL_SIDE);
+    expect(ab).toBe(MIN_GAP);
+    expect(cd).toBe(MIN_GAP);
+  });
+
+  it("короткая подпись промежуток не сужает: минимум задают шапки", () => {
+    const g = geo({ labelW: { m1: 40 } });
+    expect(gapsOf(g)).toEqual([MIN_GAP, MIN_GAP, MIN_GAP]);
+  });
+
+  it("подпись шире предела считается по пределу — она переносится", () => {
+    const g = geo({ labelW: { m1: 500 } });
+    expect(gapsOf(g)[1]).toBe(SQ.LABEL_MAX + SQ.LABEL_SIDE);
+    const narrow = geo({ labelW: { m1: 500 }, labelCap: 200 });
+    expect(gapsOf(narrow)[1]).toBe(200 + SQ.LABEL_SIDE);
+  });
+
+  it("подпись через несколько колонок раскладывает недостачу поровну на свои промежутки", () => {
+    // Шаг a→d накрывает три промежутка; суммы шапок (3 × MIN_GAP) ему мало.
+    const wide = [M("m0", 0, "a", "d")];
+    const need = 3 * MIN_GAP + 90;
+    const g = geo({ messages: wide, labelW: { m0: need - SQ.LABEL_SIDE }, labelCap: 1000 });
+    expect(gapsOf(g)).toEqual([MIN_GAP + 30, MIN_GAP + 30, MIN_GAP + 30]);
+  });
+
+  it("широкий шаг не трогает промежутки, которые уже раздвинули узкие", () => {
+    // b→c раздвинут подписью 300; шагу a→c (две колонки) этой суммы хватает.
+    const msgs2 = [M("m0", 0, "b", "c"), M("m1", 1, "a", "c")];
+    const g = geo({ messages: msgs2, labelW: { m0: 260, m1: 300 } });
+    const [ab, bc] = gapsOf(g);
+    expect(bc).toBe(260 + SQ.LABEL_SIDE);
+    expect(ab).toBe(MIN_GAP);
+  });
+
+  it("широкая шапка раздвигает соседей; ширина шапки зажата в пределы", () => {
+    const g = geo({ headW: { b: 130 } });
+    const [ab, bc] = gapsOf(g);
+    expect(ab).toBe((SQ.HEAD_MIN + 130) / 2 + SQ.HEAD_GAP);
+    expect(bc).toBe(ab);
+    const huge = geo({ headW: { b: 900 } });
+    expect(gapsOf(huge)[0]).toBe((SQ.HEAD_MIN + SQ.HEAD_MAX) / 2 + SQ.HEAD_GAP);
+  });
+
+  it("подпись не уже своего самого длинного слова: предел раздвигается под него", () => {
+    // Слово в 200 px при пределе 110: подпись — по слову с запасом на масштаб.
+    const g = geo({ labelW: { m1: 500 }, labelMinW: { m1: 200 }, labelCap: 110 });
+    const floor = Math.ceil(200 * 1.03) + 2;
+    expect(g.labelCapOf("m1")).toBe(floor);
+    expect(gapsOf(g)[1]).toBe(floor + SQ.LABEL_SIDE);
+    // Короткие слова предел не трогают.
+    expect(geo({ labelMinW: { m1: 60 }, labelCap: 110 }).labelCapOf("m1")).toBe(110);
+  });
+
+  it("подпись занимает место, которое у неё уже есть: шапки раздвинули промежуток шире предела", () => {
+    const heads = { a: 140, b: 140, c: 140, d: 140 };
+    const g = geo({ headW: heads, labelW: { m1: 400 }, labelCap: 110 });
+    // Промежуток b→c задан шапками (140 + воздух), подпись — во всю его ширину без полей.
+    expect(g.labelCapOf("m1")).toBe(140 + SQ.HEAD_GAP - SQ.LABEL_SIDE);
+    // Ширину холста это не меняет.
+    expect(g.W).toBe(geo({ headW: heads, labelCap: 110 }).W);
+  });
+
+  it("шапка: по естественной ширине имени, длинное — не уже самого длинного слова", () => {
+    expect(geo({ headW: { b: 80 } }).headWOf("b")).toBe(80);
+    expect(geo({ headW: { b: 20 } }).headWOf("b")).toBe(SQ.HEAD_MIN);
+    expect(geo({ headW: { b: 900 } }).headWOf("b")).toBe(SQ.HEAD_MAX);
+    expect(geo({ headW: { b: 900 }, headMinW: { b: 200 } }).headWOf("b")).toBe(200);
+  });
+
+  it("подпись шага внутри последнего участника уходит в правое поле", () => {
+    const self = [M("m0", 0, "d", "d")];
+    const base = geo({ messages: self });
+    const g = geo({ messages: self, labelW: { m0: 200 } });
+    expect(g.W - g.colX("d")).toBe(SQ.SELF_OFF + 200 + SQ.LABEL_SIDE / 2);
+    expect(g.W).toBeGreaterThan(base.W);
+  });
+});
+
+// Шапка фрагмента (плашка вида с условием) и плашка условия ветви — над подписью первого
+// шага своего участка (правки приёмки фазы 3а, П4): высота подписи входит в отступ.
+describe("шапка фрагмента и условие ветки не наезжают на подпись шага", () => {
+  // Плашка вида с условием — около 22 px от верха рамки; плашка условия ветви — около
+  // 10 px выше и ниже линии разделителя.
+  const TAG = 22;
+  const HALF = 10;
+  const lineH = (n: number) => Math.round(17.4 * n + 2);
+  const labelTop = (g: ReturnType<typeof geo>, r: number, lh: number) => g.rowY(r) - lh - LABEL_GAP;
+
+  for (const lines of [1, 2, 3]) {
+    it(`подпись в ${lines} строк${lines === 1 ? "у" : "и"}: шапка и условие ветви выше неё и ниже стрелки строкой выше`, () => {
+      const lh = lineH(lines);
+      const labelH = { m0: lh, m1: lh, m2: lh };
+      const g = geo({ fragments: [F("f1", 1, 2, [2])], labelH });
+      const [box] = g.fragBoxes;
+      expect(box.top + TAG).toBeLessThanOrEqual(labelTop(g, 1, lh));
+      expect(box.top).toBeGreaterThan(g.rowY(0) + 18);
+      const [b] = box.branches;
+      expect(b.y + HALF).toBeLessThanOrEqual(labelTop(g, 2, lh));
+      expect(b.y - HALF).toBeGreaterThan(g.rowY(1) + 8);
+    });
+  }
+
+  it("с первого шага процесса: шапка под полосой шапок участников", () => {
+    const g = geo({ fragments: [F("f1", 0, 1)], labelH: { m0: lineH(3) } });
+    const [box] = g.fragBoxes;
+    expect(box.top).toBeGreaterThan(g.lifeTop);
+    expect(box.top + TAG).toBeLessThanOrEqual(labelTop(g, 0, lineH(3)));
+  });
+
+  it("вложенный фрагмент с того же шага: внешняя шапка над внутренней, обе над подписью", () => {
+    const lh = lineH(2);
+    const g = geo({ fragments: [F("f1", 0, 2), F("f2", 0, 1)], labelH: { m0: lh } });
+    const [o, i] = g.fragBoxes;
+    expect(i.top + TAG).toBeLessThanOrEqual(labelTop(g, 0, lh));
+    expect(o.top + TAG).toBeLessThanOrEqual(i.top);
+  });
+
+  it("фрагмент внутри ветви с её первого шага: условие ветви над шапкой вложенного", () => {
+    const lh = lineH(2);
+    const g = geo({ fragments: [F("f1", 0, 2, [1]), F("f2", 1, 2)], labelH: { m1: lh } });
+    const [o, i] = g.fragBoxes;
+    expect(o.branches[0].y + HALF).toBeLessThanOrEqual(i.top);
+    expect(i.top + TAG).toBeLessThanOrEqual(labelTop(g, 1, lh));
+    expect(o.branches[0].y - HALF).toBeGreaterThan(g.rowY(0) + 8);
+  });
+
+  it("строка с полосами добавляет их высоту один раз со своим воздухом", () => {
+    const base = geo();
+    const g = geo({ fragments: [F("f1", 0, 2, [1, 2])] });
+    expect(g.rowY(0) - base.rowY(0)).toBe(SQ.FRAG_HEAD + SQ.FRAG_PRE);
+    expect(g.rowY(1) - base.rowY(1)).toBe(SQ.FRAG_HEAD + SQ.ELSE_GAP + 2 * SQ.FRAG_PRE);
+    expect(g.rowY(2) - base.rowY(2)).toBe(SQ.FRAG_HEAD + 2 * SQ.ELSE_GAP + 3 * SQ.FRAG_PRE);
+  });
+});
+
+describe("вписывание: предел ширины подписи", () => {
+  const input = { participants: parts, messages: msgs, labelW: { m0: 400, m1: 400, m2: 400 } };
+
+  it("влезает целиком — предел наибольший", () => {
+    expect(fitLabelCap(input, 10_000)).toBe(SQ.LABEL_MAX);
+  });
+
+  it("не влезает — предел опускается ровно до того, при котором холст не шире окна", () => {
+    const maxW = computeColumns({ ...input, labelCap: 220 }).W;
+    const cap = fitLabelCap(input, maxW);
+    expect(cap).toBe(220);
+    expect(computeColumns({ ...input, labelCap: cap + 10 }).W).toBeGreaterThan(maxW);
+  });
+
+  it("не влезает и на нижнем пределе — остаётся нижний", () => {
+    expect(fitLabelCap(input, 100)).toBe(SQ.LABEL_MIN);
+  });
+
+  it("не влезает, а промежутки задают шапки — наибольший предел с той же шириной", () => {
+    // Шапки по 140: промежуток 152 вмещает подпись до 136 px, ниже холст не сужается —
+    // лишний перенос только растил бы строки.
+    const heads = { participants: parts, messages: msgs, labelW: input.labelW, headW: { a: 140, b: 140, c: 140, d: 140 } };
+    const cap = fitLabelCap(heads, 100);
+    expect(computeColumns({ ...heads, labelCap: cap }).W).toBe(computeColumns({ ...heads, labelCap: SQ.LABEL_MIN }).W);
+    expect(computeColumns({ ...heads, labelCap: cap + 10 }).W).toBeGreaterThan(computeColumns({ ...heads, labelCap: cap }).W);
+    expect(cap).toBeGreaterThan(SQ.LABEL_MIN);
+  });
+});
+
+describe("геометрия sequence-диаграммы", () => {
+  it("перестановка с разными промежутками: цель — ближайший центр колонки", () => {
+    // Промежуток b→c широкий: курсор чуть правее середины между b и c — ещё «b».
+    const g0 = geo({ labelW: { m1: 400 } });
+    const mid = (g0.PX(1) + g0.PX(2)) / 2;
+    expect(geo({ labelW: { m1: 400 }, reorder: { fromK: 0, px: mid - 5 } }).reorderToK).toBe(1);
+    expect(geo({ labelW: { m1: 400 }, reorder: { fromK: 0, px: mid + 5 } }).reorderToK).toBe(2);
+    // Деление на постоянную ширину колонки здесь дало бы другую колонку.
+    expect(g0.slotAt(g0.PX(3) + 1000)).toBe(3);
+    expect(g0.slotAt(-1000)).toBe(0);
   });
 
   it("живая перестановка: тянущийся идёт за курсором, соседи до цели сдвигаются", () => {
-    const px = SQ.MARGIN + 2 * SQ.COL_W; // курсор над колонкой «c»
+    const px = geo().PX(2); // курсор над колонкой «c»
     const g = geo({ reorder: { fromK: 0, px } });
     expect(g.colX("a")).toBe(px);
     expect(g.colX("b")).toBe(g.PX(0));
@@ -56,8 +243,8 @@ describe("геометрия sequence-диаграммы", () => {
     const outer = F("f1", 0, 2);
     const inner = F("f2", 1, 1);
     const g = geo({ fragments: [outer, inner] });
-    expect(g.rowY(0) - base.rowY(0)).toBe(SQ.FRAG_HEAD);
-    expect(g.rowY(1) - base.rowY(1)).toBe(2 * SQ.FRAG_HEAD);
+    expect(g.rowY(0) - base.rowY(0)).toBe(SQ.FRAG_HEAD + SQ.FRAG_PRE);
+    expect(g.rowY(1) - base.rowY(1)).toBe(2 * (SQ.FRAG_HEAD + SQ.FRAG_PRE));
     const [o, i] = g.fragBoxes;
     expect(o.f.id).toBe("f1");
     expect(i.f.id).toBe("f2");

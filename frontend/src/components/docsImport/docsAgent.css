@@ -1,0 +1,63 @@
+/* Окно «Описать схемы логики с помощью ИИ-агента» (DocsAgentModal, DocsAgentPlan): одна
+   колонка на общем каркасе окна (ui/ds.css: ds-win, блоки ds-win-block, строки ds-prop).
+   Зона файлов и выбор языка — общие части окон ввоза (importParts.css), отчёт превью —
+   общий вид окон дозаливки от агента (agentParts.css: apl-*). Здесь только своё: место
+   окна, галочка «Заменять уже описанное», операция и вид схемы в строке плана. Значения —
+   только токены ui/tokens.css. */
+
+/* Окно прижато к верху (8vh, DocsAgentModal): не выше экрана без этого отступа и 24px
+   снизу, прокручивается только тело. */
+.ds-win.dap-win {
+  max-height: calc(92vh - 24px);
+}
+.dap-modes {
+  align-self: flex-start;
+}
+
+/* «Заменять уже описанное» — общая галочка окон (ds-check в ui/ds.css), здесь только
+   отступ от отчёта. */
+.dap-check {
+  margin-top: var(--space-1);
+}
+
+/* Строка плана: текст имени и вида стоит на x своей колонки (у полей 6px слева и такой же
+   отрицательный отступ), у «что будет» тот же отступ сверху (apl-act). */
+.dap-op {
+  line-height: var(--lh-ui);
+}
+/* Вид схемы: тихий select на вид значения-кнопки (ds-value-btn), шеврон при наведении. */
+.dap-kind {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: -6px;
+}
+.dap-kind select {
+  appearance: none;
+  margin: 0;
+  padding: 3px 22px 3px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  line-height: var(--lh-ui);
+  color: var(--c-fg);
+  cursor: pointer;
+}
+.dap-kind select:hover {
+  background: var(--c-hover);
+}
+.app-modal .ds-win .dap-kind select:focus {
+  outline: none;
+  border-color: transparent;
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.dap-kind .ds-value-chev {
+  position: absolute;
+  right: 4px;
+  pointer-events: none;
+}
+.dap-kind:hover .ds-value-chev,
+.dap-kind:focus-within .ds-value-chev {
+  opacity: 1;
+}

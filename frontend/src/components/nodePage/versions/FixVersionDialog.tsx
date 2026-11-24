@@ -1,25 +1,29 @@
-// Окно «Зафиксировать версию» (docs/tasks/doc-versions.md §7): одна строка «объект ·
-// изменения с vN: …», поле комментария, «Зафиксировать» слева, «Отмена» справа.
+// Окно «Зафиксировать версию» (docs/tasks/doc-versions.md §7; редизайн, фаза 9ж — каркас
+// окна нового языка ds-win, ui/ds.css): первым абзацем перечень того, что войдёт в версию
+// («Изменения с v3: …»; у первой версии абзаца нет), строка «Комментарий» с полем,
+// «Зафиксировать» первой, «Отмена» за ней.
 // Комментарий обязателен — по нему версию потом ищут (номер релиза или задачи), поэтому
-// пустой не отправляется вовсе. Поле однострочное: комментарий — короткая метка
-// («orders 2.4 · ORD-430»), и Enter подтверждает окно (Modal onSubmit), как в прототипе.
+// пустой не отправляется вовсе. Поле однострочное: комментарий — короткая метка, и Enter
+// подтверждает окно (Modal onSubmit), как в прототипе.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import Modal from "../../../ui/Modal";
-import DialogTitle from "../../../ui/DialogTitle";
-import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../../ui/styles";
+import { CloseIcon } from "../../../ui/icons";
 import { noAutofill } from "../../../ui/noAutofill";
 import { loadErrorText } from "../../../ui/loadErrorText";
 import { limitMessage } from "../../demo/demoLimits";
 import { LimitText } from "../../demo/DemoLimitToast";
 import { versionsApi } from "../../../api/versions";
+import "../../../ui/ds.css";
+import "./versions.css";
 
 interface Props {
   nodeId: string | null;
-  // «Сервис заказов · изменения с v3: …» — та же строка, что над списком версий.
-  lead: string;
+  // «Изменения с v3: …» — та же фраза, что в строке состояния списка версий; null у
+  // первой версии (перечислять не с чем).
+  lead: string | null;
   onClose: () => void;
-  // Версия записана: панель перечитывает список и закрывает окно.
+  // Версия записана: окно версий перечитывает список и закрывает это окно.
   onDone: () => void;
 }
 
@@ -43,25 +47,41 @@ export default function FixVersionDialog({ nodeId, lead, onClose, onDone }: Prop
   }
 
   return (
-    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 480, padding: 24 }}>
-      <DialogTitle lead={lead}>Зафиксировать версию</DialogTitle>
-      <label style={labelStyle} htmlFor="version-comment">Комментарий: номер версии, релиза или задачи</label>
-      <input
-        {...noAutofill("version-comment")}
-        id="version-comment"
-        type="text"
-        data-autofocus
-        style={{ ...input, marginBottom: 0 }}
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="orders 2.4 · ORD-430"
-      />
-      {error && <p style={errText} role="alert">{error}</p>}
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button type="button" style={primaryBtn} disabled={!canSubmit} onClick={submit}>
-          {busy ? "Фиксируем" : "Зафиксировать"}
-        </button>
-        <button type="button" style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 480, padding: 0 }}>
+      <div className="ds ds-win">
+        <div className="ds-win-head">
+          <h2 className="ds-win-title">Зафиксировать версию</h2>
+          <button type="button" className="ds-icon-btn ds-win-close" aria-label="Закрыть" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="ds-win-body">
+          {lead && <p className="vp-fix-lead">{lead}</p>}
+          <dl className="ds-props">
+            <div className="ds-prop">
+              <dt className="ds-prop-term"><label htmlFor="version-comment">Комментарий</label></dt>
+              <dd className="ds-prop-value">
+                <input
+                  {...noAutofill("version-comment")}
+                  id="version-comment"
+                  type="text"
+                  className="ds-input"
+                  data-autofocus
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="номер версии, релиза или задачи"
+                />
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="ds-win-foot">
+          {error && <p className="ds-danger ds-win-err" role="alert">{error}</p>}
+          <button type="button" className="ds-btn ds-btn--primary" disabled={!canSubmit} onClick={submit}>
+            {busy ? "Фиксируем" : "Зафиксировать"}
+          </button>
+          <button type="button" className="ds-btn" disabled={busy} onClick={onClose}>Отмена</button>
+        </div>
       </div>
     </Modal>
   );
