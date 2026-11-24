@@ -115,13 +115,13 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(run(at("components"), [BACK]).step).toBe("docs");
   });
 
-  it("после процессов — «Развёртывание» (оболочка «Ярмарки», режим переключает тур), затем логотип", () => {
+  it("после процессов — «Развёртывание» (оболочка «Ярмарки», режим переключает тур, камера — к площадке), затем логотип", () => {
     expect(run(at("processes"), [NEXT]).step).toBe("deploy");
     expect(run(at("deploy"), [NEXT]).step).toBe("leave-yar");
     expect(run(at("leave-yar"), [BACK]).step).toBe("deploy");
     expect(STEPS.deploy).toMatchObject({
-      kind: "info", mode: "deploy", screen: { kind: "yar-shell" },
-      target: { kind: "pair", main: { kind: "tour", key: "mode-deploy" }, zone: { kind: "tour", key: "deploy-diagram" } },
+      kind: "info", mode: "deploy", screen: { kind: "yar-shell" }, fitSite: true,
+      target: { kind: "pair", main: { kind: "tour", key: "mode-deploy" }, zone: { kind: "deploy" } },
     });
   });
 

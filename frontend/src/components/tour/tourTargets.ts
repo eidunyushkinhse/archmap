@@ -2,6 +2,7 @@
 // React Flow. Возвращает вырезы, якорь для карточки и то, что карточка не должна
 // закрывать. Прямоугольники — видимые части элементов (с учётом прокрутки и
 // обрезки холстом), в координатах окна.
+import { siteKey, UNPLACED } from "../deployment/deploymentProjection";
 import { intersect, padHole, union, type Hole, type Rect } from "./tourGeometry";
 import type { TourVars } from "./tourMachine";
 import type { RehangDemo } from "./tourDemo";
@@ -137,8 +138,27 @@ function processKeep(diagram: Element): Rect[] {
   return keep;
 }
 
+/** Площадка холста «Развёртывание», где больше всего карточек объектов: рамка и её
+ *  карточки (ключи холста — deploymentProjection: рамка siteKey, карточка
+ *  «deploy:<объект>@<площадка>»). Считаются карточки, стоящие прямо на площадке; группа
+ *  «Размещение не указано» площадкой не считается; при равенстве — первая на холсте.
+ *  Холст не отрисован или площадок с карточками нет — null. */
+export function busiestSite(): { frame: Element; ids: string[] } | null {
+  const prefix = siteKey("");
+  let best: { frame: Element; siteId: string; cards: string[] } | null = null;
+  for (const frame of Array.from(document.querySelectorAll(`.react-flow__node[data-id^="${prefix}"]`))) {
+    const siteId = frame.getAttribute("data-id")?.slice(prefix.length);
+    if (!siteId || siteId === UNPLACED) continue;
+    const cards = Array.from(document.querySelectorAll(`.react-flow__node[data-id^="deploy:"][data-id$="@${siteId}"]`))
+      .map((el) => el.getAttribute("data-id") ?? "");
+    if (cards.length > (best?.cards.length ?? 0)) best = { frame, siteId, cards };
+  }
+  return best && { frame: best.frame, ids: [siteKey(best.siteId), ...best.cards] };
+}
+
 /** Часть составной цели в DOM: элемент data-tour, холст редактора, узел «система»,
- *  диаграмма процесса (keep — что на ней карточка не закрывает). */
+ *  диаграмма процесса и холст «Развёртывание» (keep — что на них карточка не
+ *  закрывает). */
 function findPart(
   part: TargetPart, systemId: string | undefined,
 ): { el: Element; rect: Rect; keep?: Rect[] } | null {
@@ -152,6 +172,13 @@ function findPart(
     case "process": {
       const hit = firstVisible(byTour("process-diagram"));
       return hit ? { ...hit, keep: processKeep(hit.el) } : null;
+    }
+    case "deploy": {
+      const hit = firstVisible(byTour("deploy-diagram"));
+      if (!hit) return null;
+      const site = busiestSite();
+      const rect = site ? visibleRect(site.frame) : null;
+      return { ...hit, keep: rect ? [rect] : [] };
     }
   }
 }

@@ -1,7 +1,7 @@
 // Поиск цели в DOM: видимая цель даёт вырез, цель за краем холста или ниже сгиба
 // страницы подводится в вид («вписать схему» React Flow или прокрутка).
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { hiddenTarget, resolveTarget, revealTarget, type TargetCtx } from "../tourTargets";
+import { busiestSite, hiddenTarget, resolveTarget, revealTarget, type TargetCtx } from "../tourTargets";
 
 const CTX: TargetCtx = {
   yarProjectId: "aaaa-0001",
@@ -110,6 +110,42 @@ describe("составные цели", () => {
       { x: 250, y: 100, w: 760, h: 70 },
       { x: 280, y: 190, w: 300, h: 50 },
     ]);
+  });
+
+  it("холст «Развёртывание» — зона; карточка не закрывает площадку, где больше всего карточек", () => {
+    const host = el(
+      '<div data-tour="mode-deploy"></div><div data-tour="deploy-diagram">'
+      + '<div class="react-flow__node" data-id="deploy:site:cloud"></div>'
+      + '<div class="react-flow__node" data-id="deploy:site:prod"></div>'
+      + '<div class="react-flow__node" data-id="deploy:site:vm"></div>'
+      + '<div class="react-flow__node" data-id="deploy:site:unplaced"></div>'
+      + '<div class="react-flow__node" data-id="deploy:a@prod"></div>'
+      + '<div class="react-flow__node" data-id="deploy:b@prod"></div>'
+      + '<div class="react-flow__node" data-id="deploy:c@vm"></div>'
+      + '<div class="react-flow__node" data-id="deploy:d@unplaced"></div>'
+      + '<div class="react-flow__node" data-id="deploy:e@unplaced"></div>'
+      + '<div class="react-flow__node" data-id="deploy:f@unplaced"></div></div>',
+    );
+    withRect(host.querySelector('[data-tour="mode-deploy"]')!, { x: 520, y: 8, w: 110, h: 40 });
+    withRect(host.querySelector('[data-tour="deploy-diagram"]')!, { x: 320, y: 114, w: 1120, h: 786 });
+    withRect(host.querySelector('[data-id="deploy:site:prod"]')!, { x: 420, y: 260, w: 500, h: 400 });
+    // объекты «Размещение не указано» не площадка; у «Облака» карточек прямо на ней нет
+    expect(busiestSite()?.ids).toEqual(["deploy:site:prod", "deploy:a@prod", "deploy:b@prod"]);
+    const res = resolveTarget({ kind: "pair", main: { kind: "tour", key: "mode-deploy" }, zone: { kind: "deploy" } }, CTX)!;
+    expect(res.holes).toHaveLength(2);
+    expect(res.holes[1]).toMatchObject({ x: 314, y: 108, quiet: true });
+    expect(res.avoid).toEqual([res.holes[0], { x: 420, y: 260, w: 500, h: 400 }]);
+  });
+
+  it("холст «Развёртывание» без площадок с карточками — площадки нет, зона без запрета", () => {
+    const host = el('<div data-tour="mode-deploy"></div><div data-tour="deploy-diagram">'
+      + '<div class="react-flow__node" data-id="deploy:site:unplaced"></div>'
+      + '<div class="react-flow__node" data-id="deploy:a@unplaced"></div></div>');
+    withRect(host.querySelector('[data-tour="mode-deploy"]')!, { x: 520, y: 8, w: 110, h: 40 });
+    withRect(host.querySelector('[data-tour="deploy-diagram"]')!, { x: 320, y: 114, w: 1120, h: 786 });
+    expect(busiestSite()).toBeNull();
+    const res = resolveTarget({ kind: "pair", main: { kind: "tour", key: "mode-deploy" }, zone: { kind: "deploy" } }, CTX)!;
+    expect(res.avoid).toEqual([res.holes[0]]);
   });
 
   it("рамка системы — зона второго выреза", () => {

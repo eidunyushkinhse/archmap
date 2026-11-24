@@ -291,6 +291,27 @@ describe("DemoTour", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
+  it("«Развёртывание»: камера вписывает площадку, где больше всего карточек, один раз за вход в шаг", async () => {
+    window.location.hash = `/p/${YAR}/deploy`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "deploy", variant: "full", dir: 1, vars: {} }));
+    const asks: TourFocus[] = [];
+    const off = onTourFocusRequest((f) => { asks.push(f); });
+    target("mode-deploy", { x: 400, y: 10, w: 140, h: 32 });
+    target("deploy-diagram", { x: 300, y: 80, w: 700, h: 600 });
+    render(<DemoTour />);
+    expect(await screen.findByRole("dialog", { name: "Развёртывание" })).toBeInTheDocument();
+    expect(asks).toEqual([]); // холст ещё не отрисован
+    rfNode("deploy:site:vm", { x: 320, y: 100, w: 200, h: 120 });
+    rfNode("deploy:x@vm", { x: 330, y: 110, w: 160, h: 80 });
+    rfNode("deploy:site:prod", { x: 560, y: 100, w: 400, h: 300 });
+    rfNode("deploy:a@prod", { x: 570, y: 110, w: 160, h: 80 });
+    rfNode("deploy:b@prod", { x: 760, y: 110, w: 160, h: 80 });
+    await waitFor(() => expect(asks).toEqual([{ kind: "nodes", ids: ["deploy:site:prod", "deploy:a@prod", "deploy:b@prod"] }]));
+    await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+    expect(asks).toHaveLength(1);
+    off();
+  });
+
   it("шаг перевеса связи: плашки подписей пропускают нажатия к ручке конца", async () => {
     window.location.hash = `/p/${OWN}/map`;
     localStorage.setItem(KEY, JSON.stringify({

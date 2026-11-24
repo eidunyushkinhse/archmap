@@ -27,7 +27,7 @@ import { dropStaleTours, loadTour, saveTour } from "./tourPersist";
 import {
   markExitToPill, onTourRestart, onTourResume, setTourPaused, setTourTypeLock, takeExitToPill,
 } from "./tourStore";
-import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
+import { busiestSite, hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
 import { SectionScroll } from "./tourScroll";
@@ -404,6 +404,15 @@ function TourRuntime({ userId }: { userId: string }) {
           if (ids && ids.every((id) => document.querySelector(rfNodeSel(id)))) {
             done.focus = true;
             requestTourFocus({ kind: "nodes", ids });
+          }
+        }
+        // Площадка целиком (fitSite): рамка вместе с карточками на ней, когда холст
+        // «Развёртывание» отрисован.
+        if (step.fitSite && screenOk && !dialog && !done.focus) {
+          const site = busiestSite();
+          if (site) {
+            done.focus = true;
+            requestTourFocus({ kind: "nodes", ids: site.ids });
           }
         }
         const tctx = { yarProjectId: en.yarProjectId, yarObjects: en.yarObjects, vars: st.vars };

@@ -31,6 +31,7 @@ import PlacementDialog from "../components/deployment/PlacementDialog";
 import PlacementConflictList from "../components/deployment/PlacementConflictList";
 import { PLACE_LEAD, placeQuestion, UNPLACE_LEAD, unplaceQuestion } from "../components/deployment/placementConflicts";
 import SitesDialog from "../components/deployment/SitesDialog";
+import { onTourFocusRequest } from "../components/tour/tourBus";
 import { nodesApi } from "../api/nodes";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import ConfirmDialog from "../ui/ConfirmDialog";
@@ -148,23 +149,41 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
   const [mutationToken, setMutationToken] = useState(0);
   const [toast, showToast] = useMessageToast(4000);
 
-  // Показ объекта на холсте (D28): выделить его карточки (selectRequest) и, по щелчку в
-  // дереве, навести камеру на первую (locate). Токен растёт с каждым запросом; ids: [] —
-  // запроса нет (так его снимает смена уровня, не сбрасывая счёт токенов).
-  const [focus, setFocus] = useState<{ ids: string[]; token: number; locate: boolean }>(
-    { ids: [], token: 0, locate: false },
+  // Показ объекта на холсте (D28): выделить его карточки (select → selectRequest) и, по
+  // щелчку в дереве, навести камеру на первую (locate). Камера обучающего тура демо (шаг
+  // «Развёртывание» вписывает площадку, tourBus) — тот же locate, что у редактора-карты,
+  // без выделения и без вспышки: цель тур подсвечивает сам. Токен у обоих один и растёт с
+  // каждым запросом; пустой запрос (select: [], locate: null) снимает смена уровня, не
+  // сбрасывая счёт токенов.
+  const [focus, setFocus] = useState<{ select: string[]; locate: LocateRequest | null; token: number }>(
+    { select: [], locate: null, token: 0 },
   );
   const showCards = useCallback((ids: string[], locate: boolean) => {
-    setFocus((f) => ({ ids, token: f.token + 1, locate }));
+    setFocus((f) => {
+      const token = f.token + 1;
+      return { select: ids, locate: locate && ids.length > 0 ? { kind: "node", ids: [ids[0]], token } : null, token };
+    });
   }, []);
+  // Камеру ведёт тур: вписывание холста при загрузке (fitOnLoad) выключается. Оно ждёт
+  // тишины после раскладки и перебило бы камеру тура, пришедшую раньше (тур просит её, как
+  // только карточки на холсте). Сбрасывается сменой уровня: новый холст вписывается сам.
+  const [tourCamera, setTourCamera] = useState(false);
+  useEffect(() => onTourFocusRequest((f) => {
+    setTourCamera(true);
+    setFocus((cur) => {
+      const token = cur.token + 1;
+      const locate: LocateRequest = f.kind === "level" ? { kind: "level", ids: [], token, flash: false }
+        // несколько целей — группа: вписывается их общая рамка с запасом
+        : f.kind === "nodes" ? { kind: "group", ids: f.ids, token, flash: false }
+        : { kind: "node", ids: [f.id], token, flash: false };
+      return { select: [], locate, token };
+    });
+  }), []);
   const selectRequest = useMemo(
-    () => (focus.ids.length > 0 ? { ids: focus.ids, token: focus.token } : null),
+    () => (focus.select.length > 0 ? { ids: focus.select, token: focus.token } : null),
     [focus],
   );
-  const locate = useMemo<LocateRequest | null>(
-    () => (focus.ids.length > 0 && focus.locate ? { kind: "node", ids: [focus.ids[0]], token: focus.token } : null),
-    [focus],
-  );
+  const locate = focus.locate;
   // Объект из дерева, чьи карточки выделить, когда загрузится граф его уровня (уровень
   // родителя: там лист всегда свой представитель).
   const [pendingShow, setPendingShow] = useState<{ nodeId: string; level: string | null } | null>(null);
@@ -208,10 +227,10 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     arrangeOnly: true,
     // связи инспектируются и в просмотре: подсветка пути и окно выбора у пучка
     edgesInspectable: true,
-    fitOnLoad: true,
+    fitOnLoad: !tourCamera,
     ignorePersistedExpanded: false,
     edgeLabelsHidden,
-  }), [edgeLabelsHidden]);
+  }), [edgeLabelsHidden, tourCamera]);
 
   const projection = useMemo<LevelProjectionProps | undefined>(() => (proj
     ? {
@@ -238,7 +257,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     setShownLevel(level);
     setSelectedIds([]);
     setSelectedEdge(null);
-    setFocus((f) => ({ ids: [], token: f.token, locate: false }));
+    setFocus((f) => ({ select: [], locate: null, token: f.token }));
+    setTourCamera(false);
     if (pendingShow && pendingShow.level !== level) setPendingShow(null);
     host.dropRetry();
   }

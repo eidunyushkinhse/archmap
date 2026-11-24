@@ -19,6 +19,7 @@ import type NodeTreePanel from "../../components/NodeTreePanel";
 import { deploymentApi } from "../../api/deployment";
 import { nodesApi, viewsApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
+import { requestTourFocus } from "../../components/tour/tourBus";
 import type { DeploymentGraph, DeploymentNode, Node as AppNode, SiteOut } from "../../types";
 
 type LGProps = ComponentProps<typeof LevelGraph>;
@@ -253,6 +254,28 @@ describe("DeploymentPage", () => {
     act(() => { treeProps().onPickObject(pnode("a", "A", null)); });
     expect(props().projection?.selectRequest).toEqual({ ids: ["deploy:a@s1", "deploy:a@t"], token: 1 });
     expect(props().locate).toEqual({ kind: "node", ids: ["deploy:a@s1"], token: 1 });
+  });
+
+  it("камера тура демо: группа вписывается без выделения и без вспышки, потом показ из дерева — со своим токеном", async () => {
+    await setup();
+    act(() => { requestTourFocus({ kind: "nodes", ids: ["deploy:site:s1", "deploy:a@s1"] }); });
+    expect(props().locate).toEqual({ kind: "group", ids: ["deploy:site:s1", "deploy:a@s1"], token: 1, flash: false });
+    expect(props().projection?.selectRequest).toBeNull();
+    act(() => { treeProps().onPickObject(pnode("a", "A", null)); });
+    expect(props().locate).toEqual({ kind: "node", ids: ["deploy:a@s1"], token: 2 });
+    act(() => { requestTourFocus({ kind: "level" }); });
+    expect(props().locate).toEqual({ kind: "level", ids: [], token: 3, flash: false });
+  });
+
+  it("камеру ведёт тур: холст не вписывает себя при загрузке, новый уровень — снова вписывает", async () => {
+    const { goTo } = await setup();
+    expect(props().mode?.fitOnLoad).toBe(true);
+    act(() => { requestTourFocus({ kind: "nodes", ids: ["deploy:site:s1", "deploy:a@s1"] }); });
+    expect(props().mode?.fitOnLoad).toBe(false);
+    goTo("c1");
+    await waitFor(() => expect(props().containerId).toBe("c1"));
+    expect(props().mode?.fitOnLoad).toBe(true);
+    expect(props().locate).toBeNull();
   });
 
   it("объект из дерева с другого уровня: уровень родителя и выделение после загрузки его графа", async () => {
