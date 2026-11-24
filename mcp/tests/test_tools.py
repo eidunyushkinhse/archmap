@@ -626,6 +626,16 @@ async def test_удаление_только_пачкой_с_версией() ->
     assert '"DELETE"' not in source
 
 
+def test_правка_объекта_называет_удаление_пачкой() -> None:
+    # Находка 3 (2026-11-24): описание правки объекта говорило агенту «удаления объектов
+    # через MCP нет», хотя есть archmap_delete. Теперь оно называет его, а статус
+    # deprecated оставляет для того, что выводят из эксплуатации.
+    desc = next(t["description"] for t in tools.TOOLS if t["name"] == "archmap_update_node")
+    assert "archmap_delete" in desc and "status=deprecated" in desc
+    for t in tools.TOOLS:
+        assert "Удаления объектов через MCP нет" not in t["description"], t["name"]
+
+
 async def test_удаление_пачкой_тело_по_схеме_бэкенда_и_отчёт(api: FakeApi, client) -> None:
     schemas = backend("schemas.deletions")
     cache, edge, doc, shop = (str(uuid.uuid4()) for _ in range(4))
