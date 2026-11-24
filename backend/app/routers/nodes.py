@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app import deletions, element_change, identity, reparent, restore, tree
@@ -358,9 +358,15 @@ def search_nodes(
 ) -> list[Node]:
     if not q.strip():
         return []
+    # Порядок один и тот же при каждом запросе (находка 10, 2026-11-24): сначала имена,
+    # начинающиеся с запроса, затем остальные; внутри группы по имени без учёта регистра,
+    # при равенстве по id. Срез в 20 — после сортировки. lower() на SQLite кириллицу не
+    # сворачивает, но порядок и там однозначный: решает id.
+    starts_first = case((Node.name.ilike(f"{q}%"), 0), else_=1)
     nodes = (
         db.query(Node)
         .filter(Node.project_id == project.id, Node.name.ilike(f"%{q}%"))
+        .order_by(starts_first, func.lower(Node.name), Node.id)
         .limit(20)
         .all()
     )
