@@ -6,7 +6,7 @@
 //     derived/повтор/не-конфликт → onPersistError;
 //   • канал переигровки retryPatch → одноразовый (по token) коммит исходного патча;
 //   • производные интенты конвейера (intents) → commitLayout("derived");
-//   • гейты: не-архитектор и read-only гасят запись.
+//   • гейты: read-only гасит запись, не-архитектор не пишет (слой холста, задание П2).
 // Зависимости (RF/конвейер/хуки) замоканы через levelGraphHarness; тестируются
 // настоящие commitLayout/persistFenced из LevelGraphInner (через getCb).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -288,11 +288,15 @@ describe("LevelGraph orchestration: персист раскладки", () => {
     expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ g1: { x: 5, y: 6 } });
   });
 
-  it("не-архитектор: commitLayout гасится (нет зеркала и PUT)", async () => {
+  // С задания П2 (решение владельца 2026-11-24) читатель расставляет на время просмотра:
+  // коммит ложится слоем в память холста (true — раскладка сменится), но ни зеркала
+  // родителю, ни PUT нет (слой — levelGraph.reader.test.tsx).
+  it("не-архитектор: коммит — слоем холста, без зеркала и PUT", async () => {
     const { props } = await renderGraph({ isArchitect: false, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
-    const committed = getCb().commitLayout({ n1: { x: 10, y: 20 } });
-    expect(committed).toBe(false);
+    let committed = false;
+    act(() => { committed = getCb().commitLayout({ n1: { x: 10, y: 20 } }); });
+    expect(committed).toBe(true);
     expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
     await flushPersist();
     expect(apiNodesMock.viewsApi.saveLayout).not.toHaveBeenCalled();

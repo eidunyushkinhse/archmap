@@ -8,7 +8,7 @@
 //    (sizesVersion ≥ 1), БЕЗ анимации — правит «спозание» декларативного fitView,
 //    который сгорает на первом проходе и оставляет схему «вверху и мелко».
 //  - Раскрытие/сворачивание/«Переразложить» (fitOnExpand): по запросу autoFitRef
-//    (взводят commitExpanded и эффект relayoutToken), С анимацией
+//    (взводят commitExpanded и команда «Переразложить уровень» — useLevelRelayout), С анимацией
 //    (duration = ANIM_MOVE_MS) — по оседании переезда узлов.
 // Оба — через SCHEMA_FIT_OPTIONS (== кнопка «Центрировать»). Не fitOnLoad/Expand
 // (редактор-карта) — эффект no-op, центрирование редактора не меняется.
@@ -90,9 +90,9 @@ export function useLevelAutoFit({
     };
     attempt(0);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // relayoutToken в зависимостях НЕТ намеренно: запрос взводится в момент сброса, а
-    // фитить надо по ПРИШЕДШЕЙ раскладке (layout) — перезапуск по токену стартовал бы
-    // отсчёт до рефетча и центрировал старую геометрию.
+    // Сигнала сброса в зависимостях НЕТ намеренно: запрос взводится в момент сброса, а
+    // фитить надо по ПРИШЕДШЕЙ раскладке (layout) — перезапуск по сигналу стартовал бы
+    // отсчёт до прогона конвейера и центрировал старую геометрию.
   }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, animActive,
     lastRfCommitRef, didLoadFitRef, autoFitRef]);
 }

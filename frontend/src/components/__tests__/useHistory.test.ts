@@ -133,4 +133,36 @@ describe("createHistory", () => {
     expect(log[0]).toBe("undo:59");
     expect(log[log.length - 1]).toBe("undo:10");
   });
+
+  // Команда, чья запись окончательно не прошла, снимает себя (history.md U26): где бы она
+  // ни лежала — в стеке отмены, повтора или в буфере жеста; соседи и порядок целы.
+  it("remove снимает команду по идентичности из обоих стеков и буфера жеста", () => {
+    const log: string[] = [];
+    const h = createHistory();
+    const a = cmd(log, "A");
+    const b = cmd(log, "B");
+    const c = cmd(log, "C");
+    h.push(a);
+    h.push(b);
+    h.push(c);
+    h.remove(b);
+    expect(h.undo()).toBe(true);
+    expect(h.undo()).toBe(true);
+    expect(h.undo()).toBe(false);
+    expect(log).toEqual(["undo:C", "undo:A"]);
+    // c и a теперь в стеке повтора: снятие оттуда
+    h.remove(c);
+    expect(h.redo()).toBe(true);
+    expect(h.redo()).toBe(false);
+    expect(log).toEqual(["undo:C", "undo:A", "redo:A"]);
+    // буфер жеста
+    h.beginGroup();
+    h.push(b);
+    h.remove(b);
+    h.commitGroup();
+    expect(h.peekUndo()).toBe(a);
+    // чужая команда — ничего
+    h.remove(cmd(log, "X"));
+    expect(h.canUndo()).toBe(true);
+  });
 });

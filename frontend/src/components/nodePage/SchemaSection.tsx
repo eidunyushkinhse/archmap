@@ -132,32 +132,18 @@ export default function SchemaSection({
   // сессией): перечитать контекст — курсоры и раскладка к истине.
   const host = usePersistenceHost(refetch);
 
-  // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
-  // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
-  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
-    if (!isArchitect) return undefined;
-    return {
-      onLayoutChanged: handleLayoutChanged,
-      onPersistError: host.resync,
-      onPersistConflict: host.onConflict,
-      retryPatch: host.retryPatch,
-      viewMeta: metaCursorRef,
-      gestureActiveRef,
-    };
-  }, [isArchitect, handleLayoutChanged, host.resync, host.onConflict, host.retryPatch, metaCursorRef]);
+  // Бандл канала — обеим ролям: расстановка у обеих, пишет вид только архитектор, у
+  // читателя — слой на время просмотра (задание П2; роль решает холст, флаг жеста
+  // нужен поллингу и читателю).
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: handleLayoutChanged,
+    onPersistError: host.resync,
+    onPersistConflict: host.onConflict,
+    retryPatch: host.retryPatch,
+    viewMeta: metaCursorRef,
+    gestureActiveRef,
+  }), [handleLayoutChanged, host.resync, host.onConflict, host.retryPatch, metaCursorRef]);
 
-  // «Переразложить»: сброс раскладки вида фокуса → рефетч (свежий ELK). Реф-замок
-  // от повторных кликов (relayout идемпотентен, но незачем спамить ресинками).
-  const relayoutInflight = useRef(false);
-  // Токен свершившегося сброса: блок схемы анимирует переезд на авто-позиции.
-  const [relayoutToken, setRelayoutToken] = useState(0);
-  const handleRelayout = useCallback(() => {
-    if (relayoutInflight.current) return;
-    relayoutInflight.current = true;
-    nodesApi.relayoutContext(node.id)
-      .then(() => { setRelayoutToken((t) => t + 1); refetch(); })
-      .finally(() => { relayoutInflight.current = false; });
-  }, [node.id, refetch]);
 
   // ДАННЫЕ СХЕМЫ = ответ сервера + СВОИ правки меты, влитые точечно (withOwnEdits,
   // context.md X20): страница уже держит свежий узел (patch.node — ответ PATCH), и
@@ -277,8 +263,6 @@ export default function SchemaSection({
       onSchemaViewChange={setSchemaView}
       onNavigateNode={onNavigateNode}
       onEdit={onEdit}
-      onRelayout={handleRelayout}
-      relayoutToken={relayoutToken}
       mutationToken={mutationToken}
       showViewFilter={hasStatusInfo}
       title="Схема"

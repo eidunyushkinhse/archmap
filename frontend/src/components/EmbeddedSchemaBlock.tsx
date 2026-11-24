@@ -27,8 +27,9 @@ interface Props {
   // Ключ ВИДА для персиста раскладки (страница объекта: node.id — вид фокуса),
   // если отличается от структурного containerId. Пробрасывается в LevelGraph.
   layoutViewId?: string;
-  // Персист раскладки (архитектор на странице объекта). Передан → включается
-  // arrangeOnly (драг + запись вида фокуса); не передан → блок чисто read-only.
+  // Канал раскладки вида (зеркало, ресинк, 409, флаг жеста для поллинга). Расстановка
+  // включена у обеих ролей: архитектор пишет вид, читатель двигает на время просмотра
+  // без записи (задание П2, view.md V25 v2) — роль решает холст.
   persistence?: LevelPersistenceProps;
   ancestorNames: string[];
   ancestorIds: string[];
@@ -47,11 +48,6 @@ interface Props {
   // («Редактировать»), читателю тот же экран в режиме просмотра («Развернуть»). Не передан —
   // кнопки нет (пустой проект).
   onEdit?: () => void;
-  // «Переразложить» → сброс раскладки вида фокуса (архитектор, только с персистом)
-  onRelayout?: () => void;
-  // Токен свершившейся переразкладки (инкрементит хозяин после сброса): приход
-  // свежей раскладки анимируется чистым переездом узлов.
-  relayoutToken?: number;
   // Токен мутации страницы (правка/создание/удаление связей и узлов): стрелки с
   // изменившейся геометрией перерисовываются анимированно, новые рисуются (AN28а).
   mutationToken?: number;
@@ -74,7 +70,7 @@ interface Props {
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, ancestorElements, ancestorExternals, depth, isArchitect,
-  schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
+  schemaView, onSchemaViewChange, onNavigateNode, onEdit, mutationToken,
   showViewFilter, empty, title, notice,
 }: Props) {
   const [active, setActive] = useState(false);
@@ -136,24 +132,27 @@ export default function EmbeddedSchemaBlock({
 
   // Бандлы пропсов LevelGraph (Фаза 3д): мемоизированы, чтобы не создавать новый
   // объект-литерал на каждый рендер. Структура всегда read-only (создание/удаление/
-  // связи — в редакторе-карте); расстановка — только у архитектора с персистом.
+  // связи — в редакторе-карте); расстановка — у обеих ролей (задание П2).
   const mode = useMemo<LevelModeFlags>(() => ({
-    // Структурная правка выключена всегда; arrangeOnly включает драг+персист,
-    // не трогая canStructure (нет хэндлов/создания/удаления/quick-connect).
+    // Структурная правка выключена всегда; arrangeOnly включает драг, рамку выделения,
+    // стрелки и историю, не трогая canStructure (нет хэндлов/создания/удаления/
+    // quick-connect). Пишет вид только архитектор; у читателя — слой на время просмотра.
     readOnly: true,
-    // Персист передан (архитектор) → драг и запись вида фокуса доступны.
-    arrangeOnly: !!persistence,
-    // С персистом инлайн-раскрытия вида фокуса восстанавливаются при перезаходе
-    // (раскрытия — часть раскладки страницы); без персиста (наблюдатель) стартуем
-    // свёрнутыми. Авто-центрирование — по оседании раскладки + при раскрытии лупой.
-    ignorePersistedExpanded: !persistence,
+    arrangeOnly: true,
+    // У архитектора инлайн-раскрытия вида фокуса восстанавливаются при перезаходе
+    // (раскрытия — часть раскладки страницы); читатель стартует свёрнутым, его
+    // раскрытия эфемерны. Авто-центрирование — по оседании раскладки + при раскрытии лупой.
+    ignorePersistedExpanded: !isArchitect,
     fitOnLoad: true,
     fitOnExpand: true,
     // Инспекция связей в read-only просмотре (двойной клик по стрелке): подсветка
     // полного пути + модалка выбора у пучка из нескольких связей.
     edgesInspectable: true,
     schemaView,
-  }), [schemaView, persistence]);
+    // «Переразложить» в углу холста: команда самого холста (сброс каналом раскладки,
+    // переезд, шаг истории — history.md U26); видна там, где расстановка доступна.
+    relayoutButton: true,
+  }), [schemaView, isArchitect]);
 
   // Панели у страничной схемы нет: двойной клик по любому узлу — свёрнутому контейнеру
   // гостя тоже — ведёт на его страницу.
@@ -230,8 +229,6 @@ export default function EmbeddedSchemaBlock({
                 mode={mode}
                 drill={drill}
                 edgeCallbacks={edgeCallbacks}
-                onRelayout={onRelayout}
-                relayoutToken={relayoutToken}
                 mutationToken={mutationToken}
               />
             </div>

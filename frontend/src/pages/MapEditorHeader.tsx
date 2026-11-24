@@ -56,7 +56,8 @@ export default function MapEditorHeader({
 }: Props) {
   const items: SchemaMenuItem[] = [
     { label: edgeLabelsHidden ? "Показать подписи связей" : "Скрыть подписи связей", onSelect: onToggleEdgeLabels },
-    ...(isArchitect ? [{ label: "Переразложить уровень", onSelect: onRelayout, disabled: !canRelayout }] : []),
+    // обеим ролям: читатель переразлагает на время просмотра, без записи (задание П2)
+    { label: "Переразложить уровень", onSelect: onRelayout, disabled: !canRelayout },
   ];
   return (
     <header className="ds-head">

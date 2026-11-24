@@ -29,17 +29,35 @@
 // а конвейер успевает записать производную раскладку раньше ответа GET графа. Пока
 // страница перечитывает уровень (viewMeta.refreshing), задача очереди ждёт его и берёт
 // версию из ответа, иначе ушла бы со старой и словила бы самоконфликт 409 и ресинк.
-import { useCallback, useEffect, useRef, useState } from "react";
+//
+// ЧИТАТЕЛЬ (решение владельца 2026-11-24, задание П2; view.md V25 v2): тот же канал, но
+// БЕЗ ЗАПИСИ. Его перемещения, «Переразложить» и их отмена ложатся слоем в память холста
+// (readerLayer) поверх серверной раскладки; хук отдаёт действующую раскладку (layout), и
+// её читают конвейер, раскрытия и перераскладка. Ни одного запроса записи, ни зеркала
+// родителю; уход с вида слой забывает, перезагрузка показывает раскладку архитектора.
+// Засев до первой правки читателя в слой не идёт (первый показ — как раньше), а копится
+// и ложится в слой вместе с первым перемещением: невладеемые объекты не переезжают от
+// него (V22). Раскрытия у читателя эфемерны своим путём (useLevelDrill), слой их не берёт.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { viewsApi } from "../../../api/nodes";
 import { isConflict } from "../../../api/client";
 import type { ViewLayout, ViewLayoutPayload } from "../../../types";
 import type { LayoutPatch, ViewMetaRef } from "../types";
 import { planPersistFailure, type CommitOrigin } from "./persistGuard";
+import {
+  applyReaderLayer, EMPTY_LAYER, pendingSeeds, readerLayerPatch, type ReaderLayer,
+} from "./readerLayer";
+
+// Обратные вызовы окончательного отказа записи, ждущие переигровки 409 (history.md U26):
+// хозяин возвращает тот же объект патча (retryPatch), часто уже новому маунту холста после
+// ресинка, поэтому карта живёт в модуле, а ключ — сам патч.
+const failedOnRetry = new WeakMap<LayoutPatch, () => void>();
 
 interface UseLevelPersistenceArgs {
   containerId: string | null;
   isArchitect: boolean;
-  // персист раскладки разрешён (arrangeOnly || !readOnly); структурная правка — отдельно
+  // расстановка разрешена (arrangeOnly || !readOnly); структурная правка — отдельно.
+  // Архитектору — с записью, читателю — слоем в памяти холста
   canArrange: boolean;
   // зеркало раскладки вида (единое хранилище view_layout) — база дедупа и merge
   viewLayout: ViewLayout;
@@ -58,20 +76,26 @@ interface UseLevelPersistenceArgs {
 
 export interface LevelPersistence {
   // Единая запись раскладки: дедуп+merge поверх зеркала → PUT + зеркало родителю.
-  // origin "derived" при 409 НЕ переигрывается (конвейер пересчитает сам).
+  // origin "derived" при 409 НЕ переигрывается (конвейер пересчитает сам). onFailed —
+  // запись этого батча окончательно не прошла (не 409 с переигровкой): уровень уже
+  // ресинкается, плашка показана; команда истории, чья это запись, снимает себя (U26).
   commitLayout: (
     patch: LayoutPatch,
     origin?: CommitOrigin,
     isRetry?: boolean,
+    onFailed?: () => void,
   ) => boolean;
   // Стабильная обёртка для долгоживущих замыканий (команды undo/redo): всегда зовёт
   // СВЕЖИЙ commitLayout (дедуп сравнивает с актуальным зеркалом, а не со снимком).
-  commitLayoutStable: (patch: LayoutPatch) => boolean;
+  commitLayoutStable: (patch: LayoutPatch, onFailed?: () => void) => boolean;
   // Последняя запись раскладки не прошла (не 409-переигровка): холст показывает плашку
   // — раньше узлы после ресинка молча прыгали назад (аудит R-11). Одна на серию отказов,
   // гаснет на следующей удачной записи или по крестику.
   persistFailed: boolean;
   dismissPersistFailed: () => void;
+  // ДЕЙСТВУЮЩАЯ раскладка вида: серверная, у читателя — с его слоем поверх. Без слоя —
+  // та же ссылка, что пришла пропом.
+  layout: ViewLayout;
 }
 
 export function useLevelPersistence({
@@ -87,6 +111,17 @@ export function useLevelPersistence({
 }: UseLevelPersistenceArgs): LevelPersistence {
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const [persistFailed, setPersistFailed] = useState(false);
+  // Слой читателя привязан к виду: смена вида его забывает (сравнением ключа в рендере,
+  // без эффекта сброса). active — читатель уже правил этот вид; seeds — засев до того.
+  const [readerState, setReaderState] = useState<{ view: string | null; layer: ReaderLayer }>(
+    () => ({ view: containerId, layer: EMPTY_LAYER }),
+  );
+  const readerLayer = !isArchitect && canArrange && readerState.view === containerId
+    ? readerState.layer : EMPTY_LAYER;
+  const layout = useMemo(() => applyReaderLayer(viewLayout, readerLayer), [viewLayout, readerLayer]);
+  const readerSeedsRef = useRef<{ view: string | null; active: boolean; seeds: Record<string, { x: number; y: number } | null> }>(
+    { view: containerId, active: false, seeds: {} },
+  );
   const dismissPersistFailed = useCallback(() => setPersistFailed(false), []);
   const persistFenced = useCallback(
     (
@@ -94,6 +129,7 @@ export function useLevelPersistence({
       patch: LayoutPatch,
       origin: CommitOrigin,
       isRetry: boolean,
+      onFailed?: () => void,
     ): void => {
       persistChainRef.current = persistChainRef.current
         .then(() => viewMeta?.current.refreshing)
@@ -118,11 +154,15 @@ export function useLevelPersistence({
                 planPersistFailure(isConflict(e), origin, isRetry) === "retry-after-resync" &&
                 onPersistConflict
               ) {
+                // Отвергнутая переигровка — тоже окончательный отказ: вызов переживает путь
+                // через хозяина по идентичности патча.
+                if (onFailed) failedOnRetry.set(patch, onFailed);
                 onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
                 return;
               }
               setPersistFailed(true);
               void onPersistError?.(e);
+              onFailed?.();
             }),
         );
     },
@@ -133,8 +173,31 @@ export function useLevelPersistence({
       patch: LayoutPatch,
       origin: CommitOrigin = "user",
       isRetry = false,
+      onFailed?: () => void,
     ): boolean => {
-      if (!isArchitect || !canArrange) return false;
+      if (!canArrange) return false;
+      if (!isArchitect) {
+        // Читатель: правка слоя, без записи и без зеркала родителю.
+        let buf = readerSeedsRef.current;
+        if (buf.view !== containerId) buf = readerSeedsRef.current = { view: containerId, active: false, seeds: {} };
+        const next = readerLayerPatch(patch, layout);
+        if (origin === "derived" && !buf.active) {
+          Object.assign(buf.seeds, next);
+          return false;
+        }
+        if (Object.keys(next).length === 0) return false;
+        // Первая правка вида: накопленный засев — тем, кого она не трогает, если это
+        // перемещение. Сброс «Переразложить» засев выбрасывает: раскладка — с нуля.
+        const seeds = !buf.active && Object.values(next).some((p) => p !== null)
+          ? pendingSeeds(buf.seeds, layout) : {};
+        buf.active = true;
+        buf.seeds = {};
+        setReaderState((cur) => ({
+          view: containerId,
+          layer: { ...seeds, ...(cur.view === containerId ? cur.layer : EMPTY_LAYER), ...next },
+        }));
+        return true;
+      }
       // Нормализация payload для сравнения с зеркалом: null-поля эквивалентны
       // отсутствию (сервер выкидывает их exclude_none).
       const norm = (v: ViewLayoutPayload | null | undefined): string => {
@@ -153,11 +216,11 @@ export function useLevelPersistence({
         items[k] = merged;
       }
       if (Object.keys(items).length === 0) return false;
-      persistFenced(items, patch, origin, isRetry);
+      persistFenced(items, patch, origin, isRetry, onFailed);
       onLayoutChanged?.(items);
       return true;
     },
-    [isArchitect, canArrange, viewLayout, persistFenced, onLayoutChanged],
+    [isArchitect, canArrange, viewLayout, layout, containerId, persistFenced, onLayoutChanged],
   );
   // Исполнитель переигровки 409 (проп retryPatch из MapEditorPage): одноразово (token)
   // коммитит исходный патч заново — commitLayout здесь из deps, т.е. замкнут на
@@ -167,7 +230,9 @@ export function useLevelPersistence({
   useEffect(() => {
     if (!retryPatch || retryPatch.token === retryDoneRef.current) return;
     retryDoneRef.current = retryPatch.token;
-    commitLayout(retryPatch.patch, "user", true);
+    const onFailed = failedOnRetry.get(retryPatch.patch);
+    failedOnRetry.delete(retryPatch.patch);
+    commitLayout(retryPatch.patch, "user", true, onFailed);
   }, [retryPatch, commitLayout]);
   // СТАБИЛЬНАЯ обёртка коммита для долгоживущих замыканий (команды undo/redo в
   // истории живут произвольно долго): всегда зовёт СВЕЖИЙ commitLayout. Иначе
@@ -178,9 +243,9 @@ export function useLevelPersistence({
   const commitLayoutRef = useRef(commitLayout);
   useEffect(() => { commitLayoutRef.current = commitLayout; });
   const commitLayoutStable = useCallback(
-    (patch: LayoutPatch) => commitLayoutRef.current(patch),
+    (patch: LayoutPatch, onFailed?: () => void) => commitLayoutRef.current(patch, "user", false, onFailed),
     [],
   );
 
-  return { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed };
+  return { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed, layout };
 }

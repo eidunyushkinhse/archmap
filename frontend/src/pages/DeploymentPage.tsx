@@ -7,16 +7,16 @@
 // единица (контейнер, лист или с компонентами) или цельная система одной карточкой;
 // без размещения — в пунктирной группе. Уровень (объём холста) — из адреса
 // #/p/<pid>/deploy/<уровень?>, в тулбаре — путь уровня крошками (звенья-предки ведут на
-// свой уровень) и справа значки «Площадки», «Переразложить» (архитектор) и тумблер
+// свой уровень) и справа значки «Площадки», «Переразложить» и тумблер
 // «Подписи связей» (CV32: холст в управляемом режиме, свой тумблер в углу не рисует).
 // Архитектору — расстановка (драг, персист ключами deploy:…, undo), «Переразложить» и
-// размещение; читателю — просмотр. Связи — как на холсте объектов: двойной клик по стрелке
+// размещение; читателю — расстановка на время просмотра без записи (задание П2). Связи — как на холсте объектов: двойной клик по стрелке
 // (или клик по плашке) подсвечивает её и оба конца, несколько связей в пучке — окно
 // выбора (useEdgeChoice).
 // Вид (редизайн, фаза 11): корень страницы — область нового языка (ds), холст на весь
 // экран без поля и рамки, как в редакторе-карте (DeploymentPage.css).
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Node as AppNode, AncestorRef, LevelEdge, ViewLayoutPayload } from "../types";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Node as AppNode, AncestorRef, LevelEdge } from "../types";
 import LevelGraph from "../components/LevelGraph";
 import NodeTreePanel from "../components/NodeTreePanel";
 import SchemaLegend from "../components/SchemaLegend";
@@ -31,13 +31,11 @@ import PlacementDialog from "../components/deployment/PlacementDialog";
 import PlacementConflictList from "../components/deployment/PlacementConflictList";
 import { PLACE_LEAD, placeQuestion, UNPLACE_LEAD, unplaceQuestion } from "../components/deployment/placementConflicts";
 import SitesDialog from "../components/deployment/SitesDialog";
-import { nodesApi, viewsApi } from "../api/nodes";
-import { isConflict } from "../api/client";
+import { nodesApi } from "../api/nodes";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import LoadError from "../ui/LoadError";
 import { ChevronIcon, EdgeLabelsIcon, RelayoutIcon, SiteKindIcon } from "../ui/icons";
-import { loadErrorText } from "../ui/loadErrorText";
 import { plural } from "../ui/plural";
 import { useDeploymentGraph } from "./useDeploymentGraph";
 import { useDeploymentPlacing } from "./useDeploymentPlacing";
@@ -186,19 +184,18 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     onToast: showToast,
   });
 
-  // Персист раскладки (архитектор): зеркало, ресинк при отказе, переигровка 409.
+  // Канал раскладки: зеркало, ресинк при отказе, переигровка 409. Обеим ролям: пишет
+  // вид только архитектор, читатель расставляет на время просмотра без записи (задание
+  // П2; роль решает холст, флаг жеста нужен поллингу и читателю).
   const host = usePersistenceHost(dep.reload);
-  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
-    if (!isArchitect) return undefined;
-    return {
-      onLayoutChanged: dep.mergeLayout,
-      onPersistError: host.resync,
-      onPersistConflict: host.onConflict,
-      retryPatch: host.retryPatch,
-      viewMeta: dep.viewMetaRef,
-      gestureActiveRef: dep.gestureActiveRef,
-    };
-  }, [isArchitect, dep.mergeLayout, dep.viewMetaRef, dep.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: dep.mergeLayout,
+    onPersistError: host.resync,
+    onPersistConflict: host.onConflict,
+    retryPatch: host.retryPatch,
+    viewMeta: dep.viewMetaRef,
+    gestureActiveRef: dep.gestureActiveRef,
+  }), [dep.mergeLayout, dep.viewMetaRef, dep.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
 
   // «Скрыть подписи связей» (CV32) — тумблер в тулбаре страницы (управляемый режим
   // холста, как в редакторе-карте): настройка на проект, общая со схемой объектов.
@@ -207,13 +204,14 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
 
   const mode = useMemo<LevelModeFlags>(() => ({
     readOnly: true,
-    arrangeOnly: isArchitect,
+    // расстановка — обеим ролям (читателю на время просмотра, задание П2)
+    arrangeOnly: true,
     // связи инспектируются и в просмотре: подсветка пути и окно выбора у пучка
     edgesInspectable: true,
     fitOnLoad: true,
     ignorePersistedExpanded: false,
     edgeLabelsHidden,
-  }), [isArchitect, edgeLabelsHidden]);
+  }), [edgeLabelsHidden]);
 
   const projection = useMemo<LevelProjectionProps | undefined>(() => (proj
     ? {
@@ -229,10 +227,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
       }
     : undefined), [proj, clearToken, placingMode.pickFrame, selectRequest]);
 
-  // Ошибка действия тулбара («Переразложить»); смена уровня её снимает.
-  const [actionError, setActionError] = useState<string | null>(null);
   // Уровень сменился (дерево, двойной клик по системе, «назад» браузера): выделение,
-  // показ объекта, ошибка и отложенная переигровка 409 прежнего уровня снимаются прямо в
+  // показ объекта и отложенная переигровка 409 прежнего уровня снимаются прямо в
   // рендере (приём React «adjust state when props change»: setState в эффекте — каскад
   // рендеров). Переигровку — обязательно: у нового холста счётчик токенов с нуля.
   // Режим размещения смена уровня не сбрасывает; отложенный показ объекта — только если
@@ -243,7 +239,6 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     setSelectedIds([]);
     setSelectedEdge(null);
     setFocus((f) => ({ ids: [], token: f.token, locate: false }));
-    setActionError(null);
     if (pendingShow && pendingShow.level !== level) setPendingShow(null);
     host.dropRetry();
   }
@@ -289,45 +284,11 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     onClearSelection: () => setSelectedEdge(null),
   }), [openCard]);
 
-  // «Переразложить» (архитектор): снять все ключи deploy: этого вида одним батчем и
-  // вторым вернуть свёрнутым площадкам expanded: false (список — из зеркала до сброса:
-  // переразложить — значит сбросить расстановку, а не раскрыть всё), перечитать граф —
-  // холст разложит заново и анимирует переезд (relayoutToken). 409 любого батча — один
-  // раз перечитать и повторить оба.
-  const [relayoutToken, setRelayoutToken] = useState(0);
-  const relayoutInflight = useRef(false);
-  const handleRelayout = useCallback(async () => {
-    if (relayoutInflight.current) return;
-    relayoutInflight.current = true;
-    setActionError(null);
-    const keys = Object.keys(dep.layout).filter((k) => k.startsWith("deploy:"));
-    const collapsed = keys.filter((k) => k.startsWith("deploy:site:") && dep.layout[k]?.expanded === false);
-    const save = (items: Record<string, ViewLayoutPayload | null>): Promise<void> =>
-      viewsApi.saveLayout(level, items, dep.viewMetaRef.current.version).then((res) => {
-        dep.viewMetaRef.current = { ...dep.viewMetaRef.current, version: res.version, graphRev: res.graph_rev };
-      });
-    const reset = async (): Promise<void> => {
-      if (keys.length > 0) await save(Object.fromEntries(keys.map((k) => [k, null])));
-      if (collapsed.length > 0) await save(Object.fromEntries(collapsed.map((k) => [k, { expanded: false }])));
-    };
-    try {
-      try {
-        await reset();
-      } catch (e) {
-        // Вид изменили в другой сессии: перечитать и повторить один раз от свежей версии.
-        if (!isConflict(e)) throw e;
-        await dep.reload();
-        await reset();
-      }
-      setRelayoutToken((t) => t + 1);
-      await dep.reload();
-    } catch (e) {
-      setActionError(`Не удалось переразложить. ${loadErrorText(e)}`);
-      void dep.reload();
-    } finally {
-      relayoutInflight.current = false;
-    }
-  }, [dep, level]);
+  // «Переразложить» (D16, D25): значок тулбара шлёт запрос холсту, а сброс — команда
+  // самого холста (history.md U26): позиции ключей deploy: этого вида снимаются одним
+  // батчем каналом раскладки (fence, одна переигровка 409), свёрнутые площадки остаются
+  // свёрнутыми, переезд анимирован, Ctrl+Z возвращает прежнюю расстановку.
+  const [relayoutRequest, setRelayoutRequest] = useState(0);
 
   // Объекты есть — есть хоть один представитель (система без единиц не рисуется).
   const hasObjects = (proj?.siteOf.size ?? 0) > 0;
@@ -397,7 +358,6 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
               </>
             )}
           </nav>
-          {actionError && <span role="alert" className="ds-danger dp-error">{actionError}</span>}
           {/* Значки (приёмка 2026-10-27; вид нового языка, ds-icon-btn): «Площадки» — тот же
               знак вида площадки, что на карточках и плашках площадок (вид по умолчанию
               «другое»); «Переразложить» и тумблер «Подписи связей» — сосед «Переразложить»,
@@ -406,18 +366,16 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             <button type="button" className="ds-icon-btn" onClick={() => setSitesOpen(true)} title="Площадки" aria-label="Площадки">
               <SiteKindIcon kind="other" size={17} />
             </button>
-            {isArchitect && (
-              <button
-                type="button"
-                className="ds-icon-btn"
-                onClick={() => { void handleRelayout(); }}
-                disabled={!hasObjects}
-                title="Переразложить уровень"
-                aria-label="Переразложить"
-              >
-                <RelayoutIcon />
-              </button>
-            )}
+            <button
+              type="button"
+              className="ds-icon-btn"
+              onClick={() => setRelayoutRequest((t) => t + 1)}
+              disabled={!hasObjects}
+              title="Переразложить уровень"
+              aria-label="Переразложить"
+            >
+              <RelayoutIcon />
+            </button>
             <button
               type="button"
               className="ds-icon-btn"
@@ -477,7 +435,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
                 mode={mode}
                 drill={drill}
                 edgeCallbacks={edgeCallbacks}
-                relayoutToken={relayoutToken}
+                relayoutRequest={relayoutRequest}
                 mutationToken={mutationToken}
                 locate={locate}
                 projection={projection}

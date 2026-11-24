@@ -2,10 +2,9 @@
 // Редизайн (направление А «Документ»), та же колонка, что у страницы объекта: шапка —
 // название, меню ⋯ справа, описание; раздел «Схема» — корневой уровень; раздел
 // «Процессы» — строками, без процессов его нет.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
-import { nodesApi } from "../api/nodes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import type { LevelPersistenceProps, NavigateMap } from "../components/graph/types";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
@@ -62,41 +61,25 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     },
   });
 
-  // ── Персист раскладки корневого уровня (архитектор) ────────────────
-  // Корень — тот же level-конвейер, что и страница объекта: архитектору доступна
-  // расстановка (драг + запись вида view_id=null), наблюдателю — read-only.
+  // ── Канал раскладки корневого уровня ────────────────────────────────
+  // Корень — тот же level-конвейер, что и страница объекта: расстановка у обеих ролей —
+  // архитектор пишет вид view_id=null, читатель двигает на время просмотра без записи
+  // (задание П2; роль решает холст, бандл нужен ему и ради флага жеста для поллинга).
   // Зеркало записанных батчей держит useLevelSchema (mergeLayout). Ресинк при
   // ошибке персиста и переигровка 409 (корневой вид изменён другой сессией) —
   // перезагрузка уровня из БД.
   const host = usePersistenceHost(lvl.reload);
 
-  // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
-  // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
   // layoutViewId НЕ задаём: корень персистится в вид view_id=null (containerId=null).
-  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
-    if (!isArchitect) return undefined;
-    return {
-      onLayoutChanged: lvl.mergeLayout,
-      onPersistError: host.resync,
-      onPersistConflict: host.onConflict,
-      retryPatch: host.retryPatch,
-      viewMeta: lvl.viewMetaRef,
-      gestureActiveRef: lvl.gestureActiveRef,
-    };
-  }, [isArchitect, lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: lvl.mergeLayout,
+    onPersistError: host.resync,
+    onPersistConflict: host.onConflict,
+    retryPatch: host.retryPatch,
+    viewMeta: lvl.viewMetaRef,
+    gestureActiveRef: lvl.gestureActiveRef,
+  }), [lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
 
-  // «Переразложить»: сброс раскладки корневого уровня → перезагрузка (свежий ELK).
-  // Реф-замок от повторных кликов (relayout идемпотентен, но незачем спамить).
-  const relayoutInflight = useRef(false);
-  // Токен свершившегося сброса: блок схемы анимирует переезд на авто-позиции.
-  const [relayoutToken, setRelayoutToken] = useState(0);
-  const handleRelayout = useCallback(() => {
-    if (relayoutInflight.current) return;
-    relayoutInflight.current = true;
-    nodesApi.relayoutLevel(null)
-      .then(() => { setRelayoutToken((t) => t + 1); return lvl.reload(); })
-      .finally(() => { relayoutInflight.current = false; });
-  }, [lvl]);
 
   const loadFailure = meta.error ?? lvl.error;
   if (loadFailure) {
@@ -177,8 +160,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
           schemaView={schemaView}
           onSchemaViewChange={setSchemaView}
           onNavigateNode={onNavigateNode}
-          onRelayout={handleRelayout}
-          relayoutToken={relayoutToken}
           showViewFilter={hasStatusInfo}
           onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
           empty={

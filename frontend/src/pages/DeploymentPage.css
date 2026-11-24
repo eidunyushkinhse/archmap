@@ -92,14 +92,6 @@ button.dp-crumb:focus-visible {
   color: var(--c-fg-faint);
 }
 
-/* Ошибка действия тулбара («Переразложить») — перед значками; поле ds-danger снято
-   (селектор сильнее примитива: от порядка подключения стилей не зависит). */
-.dp-toolbar > .dp-error {
-  flex: 0 1 auto;
-  min-width: 0;
-  margin: 0;
-}
-
 /* Значки тулбара: «Площадки», «Переразложить», «Подписи связей» (ds-icon-btn). */
 .dp-icons {
   flex: none;

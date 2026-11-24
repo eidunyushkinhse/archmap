@@ -9,7 +9,7 @@ import { nodesApi } from "../../api/nodes";
 import { useRemoteSync } from "../../pages/useRemoteSync";
 import type { Node } from "../../types";
 
-vi.mock("../../api/nodes", () => ({ nodesApi: { getContextGraph: vi.fn(), relayoutContext: vi.fn() } }));
+vi.mock("../../api/nodes", () => ({ nodesApi: { getContextGraph: vi.fn() } }));
 vi.mock("../../pages/useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 vi.mock("../EmbeddedSchemaBlock", () => ({
   default: ({ title, notice }: { title: string; notice?: string | null }) => (

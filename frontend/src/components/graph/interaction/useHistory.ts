@@ -42,6 +42,10 @@ export interface History {
   // одну команду → один push → ветка redo обрывается один раз, лимит считает её за шаг.
   beginGroup: () => void;
   commitGroup: (label?: string) => void;
+  // Снять команду из истории, где бы она ни лежала (оба стека, буфер жеста), по
+  // идентичности объекта. Для команды, чья запись окончательно не прошла: после ресинка
+  // её «было/стало» уже не описывает экран, и отмена вела бы в пустоту (history.md U26).
+  remove: (cmd: HistoryCommand) => void;
   clear: () => void;
 }
 
@@ -125,6 +129,12 @@ export function createHistory(): History {
           for (const c of cmds) c.redo();
         },
       });
+    },
+    remove(cmd) {
+      for (const stack of [undoStack, redoStack, group ?? []]) {
+        const i = stack.indexOf(cmd);
+        if (i >= 0) stack.splice(i, 1);
+      }
     },
     // Сброс истории (например, при логауте). NB: при навигации между уровнями НЕ
     // чистим — история теперь сквозная, кросс-уровневый Undo редиректит на нужный уровень.

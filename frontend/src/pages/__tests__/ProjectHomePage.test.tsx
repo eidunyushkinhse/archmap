@@ -15,16 +15,22 @@ import { useRemoteSync } from "../useRemoteSync";
 
 vi.mock("../../api/projects", () => ({ projectsApi: { get: vi.fn() } }));
 vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
-vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
+vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 // onEdit блока (вход в экран схемы из строки заголовка) — маркером: передан ли и куда ведёт.
+// Пропсы блока целиком — наружу (перераскладка схемы корня).
+const schemaProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: ({ title, notice, empty, onEdit }: { title: string; notice?: string | null; empty?: ReactNode; onEdit?: () => void }) => (
-    <div data-testid="schema" data-title={title} data-notice={notice ?? ""} data-edit={onEdit ? "есть" : "нет"}>
-      {empty}
-      {onEdit && <button type="button" data-testid="schema-edit" onClick={onEdit} />}
-    </div>
-  ),
+  default: (p: { title: string; notice?: string | null; empty?: ReactNode; onEdit?: () => void }) => {
+    schemaProps.current = p;
+    const { title, notice, empty, onEdit } = p;
+    return (
+      <div data-testid="schema" data-title={title} data-notice={notice ?? ""} data-edit={onEdit ? "есть" : "нет"}>
+        {empty}
+        {onEdit && <button type="button" data-testid="schema-edit" onClick={onEdit} />}
+      </div>
+    );
+  },
 }));
 // Панель версий — маркер с пропсами: здесь проверяется вход из ⋯-меню проекта, сама
 // панель покрыта своим тестом (VersionsPanel.test).
@@ -268,5 +274,43 @@ describe("ProjectHomePage: вход в экран схемы", () => {
       </ProjectRoleContext.Provider>,
     );
     expect(await screen.findByTestId("schema")).toHaveAttribute("data-edit", "нет");
+  });
+});
+
+// «Переразложить» схемы корня (кнопка в углу холста) с 2026-11-24 — команда самого холста
+// (history.md U26): сброс каналом раскладки по персисту, который страница отдаёт блоку.
+// Своего сброса и перечитывания уровня у страницы нет.
+describe("ProjectHomePage: «Переразложить» схемы корня", () => {
+  const withNodes = { ...graph, nodes: [{ id: "a", name: "Заказы", shape: "service" }] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(withNodes as never);
+  });
+
+  it("архитектор: блоку схемы — персист вида корня, своего сброса у страницы нет", async () => {
+    render(
+      <ProjectRoleContext.Provider value="owner">
+        <ProjectHomePage {...props} isArchitect />
+      </ProjectRoleContext.Provider>,
+    );
+    await screen.findByTestId("schema");
+    expect(schemaProps.current?.persistence).toBeDefined();
+    expect(schemaProps.current).not.toHaveProperty("onRelayout");
+    expect(schemaProps.current).not.toHaveProperty("relayoutToken");
+    expect(nodesApi.getGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it("читатель: тот же канал блоку схемы — расстановка на время просмотра (пишет только архитектор)", async () => {
+    render(
+      <ProjectRoleContext.Provider value="reader">
+        <ProjectHomePage {...props} />
+      </ProjectRoleContext.Provider>,
+    );
+    await screen.findByTestId("schema");
+    expect(schemaProps.current?.isArchitect).toBe(false);
+    expect(schemaProps.current?.persistence).toBeDefined();
   });
 });

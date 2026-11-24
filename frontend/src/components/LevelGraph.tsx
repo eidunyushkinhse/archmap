@@ -68,6 +68,7 @@ import { useLevelEdgeChoice } from "./graph/interaction/useLevelEdgeChoice";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
+import { useLevelRelayout } from "./graph/interaction/useLevelRelayout";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
 import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
 import { useOncePerViewToast } from "./graph/interaction/useOncePerViewToast";
@@ -170,13 +171,11 @@ interface LevelGraphProps {
   // Undo/Redo: history, onUndo, onRedo (общая история + дисптчеры страницы-хозяина;
   // без бандла канвас заводит локальную историю). Состав — LevelUndoProps.
   undo?: LevelUndoProps;
-  // «Переразложить» — canvas-кнопка в правом верхнем углу холста (архитектор).
-  // Передан → кнопка видна; редактор-карта НЕ передаёт (у него своя в топбаре).
-  onRelayout?: () => void;
-  // Сигнал свершившейся переразкладки (токен инкрементится страницей-хозяином
-  // после сброса): приход свежей раскладки режиссируется чистым переездом
-  // видимых узлов/рамок (planRelayout), без сворачивания раскрытий.
-  relayoutToken?: number;
+  // ЗАПРОС «Переразложить уровень» от хозяина, чья кнопка живёт вне холста (пункт меню
+  // редактора, значок тулбара «Развёртывания»): рост токена — команда холста
+  // (useLevelRelayout, history.md U26): сброс каналом раскладки, переезд, шаг истории.
+  // Значение на маунте не исполняется. Кнопка в углу холста страниц — mode.relayoutButton.
+  relayoutRequest?: number;
   // Сигнал мутации страницы (создание/удаление узлов и связей, правка связи):
   // стрелки с изменившейся геометрией в следующем применении перерисовываются
   // анимированно (drawIn), новые — рисуются (окно мутаций, AN28а).
@@ -191,7 +190,7 @@ interface LevelGraphProps {
 function LevelGraphInner({
   nodes,
   endpoints,
-  viewLayout = EMPTY_VIEW_LAYOUT,
+  viewLayout: serverLayout = EMPTY_VIEW_LAYOUT,
   edges,
   depth,
   containerId,
@@ -211,8 +210,7 @@ function LevelGraphInner({
   delete: deleteCallbacks,
   drop,
   undo,
-  onRelayout,
-  relayoutToken,
+  relayoutRequest,
   mutationToken,
   projection,
 }: LevelGraphProps) {
@@ -227,6 +225,7 @@ function LevelGraphInner({
     readOnly = false, edgesInspectable, nodesDraggable: nodesDraggableProp,
     arrangeOnly = false, ignorePersistedExpanded = false, fitOnLoad = false,
     fitOnExpand = false, schemaView = "all", edgeLabelsHidden: edgeLabelsHiddenMode,
+    relayoutButton = false,
   } = mode ?? {};
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange } = drill;
   const {
@@ -258,6 +257,12 @@ function LevelGraphInner({
   // canStructure — создание/удаление связей и узлов, дроп шаблонов.
   const canArrange = arrangeOnly || !isReadOnly;
   const canStructure = !isReadOnly;
+  // Читатель на просмотровых поверхностях (схемы страниц, «Развёртывание» — readOnly):
+  // холст тянется ЛЕВОЙ кнопкой, как до задания П2, потому что смотреть схему — его
+  // главный жест. Расстановка при этом работает за сам объект (драг, Ctrl/⌘-группа,
+  // стрелки); рамки выделения по перетаскиванию пустого места у него нет (canvas.md CV1).
+  // В редакторе у читателя readOnly нет: там, как и раньше, пан правой и рамка.
+  const readerViewPan = isReadOnly && !isArchitect;
   // Инспекция связей — просмотр, не правка: доступна и в read-only, если явно
   // включена (встроенные блоки). Дефолт — прежнее поведение (гейт readOnly).
   const canInspectEdges = edgesInspectable ?? !isReadOnly;
@@ -382,17 +387,6 @@ function LevelGraphInner({
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
   // (свежую раскладку нового уровня применит сборщик).
   useEffect(() => { resetAnim(); }, [containerId, resetAnim]);
-  // «Переразложить»: страница-хозяин свершила сброс (токен) — интент держится в
-  // хуке до прихода свежего прогона и режиссирует его чистым переездом. На
-  // страничных схемах (fitOnExpand) сброс раскладки — ещё и запрос на анимированное
-  // центрирование: состав прежний, но геометрия новая, и результат хочется видеть
-  // целиком по центру — как после раскрытия/сворачивания. Фит идёт ПОСЛЕ оседания
-  // переезда (гейт !animActive в эффекте центрирования), не поверх него.
-  useEffect(() => {
-    if (!relayoutToken) return;
-    noteRelayout();
-    if (fitOnExpand) autoFitRef.current = performance.now();
-  }, [relayoutToken, noteRelayout, fitOnExpand]);
   // Мутация страницы (создание/удаление узлов и связей): окно мутаций — стрелки
   // с изменившейся геометрией перерисуются анимированно, новые нарисуются (AN28а).
   useEffect(() => { if (mutationToken) noteMutation(); }, [mutationToken, noteMutation]);
@@ -406,8 +400,11 @@ function LevelGraphInner({
   // view_id записи раскладки: ключ ВИДА (layoutViewId), а не структурный containerId.
   // На странице объекта раскладка персистится в вид фокуса (node.id), тогда как
   // containerId (= parent_id) продолжает ключить структуру/предков/глубину ниже.
-  const { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed } = useLevelPersistence({
-    containerId: layoutViewId ?? containerId, isArchitect, canArrange, viewLayout,
+  // viewLayout ниже — ДЕЙСТВУЮЩАЯ раскладка: серверная (проп), у читателя — с его слоем
+  // расстановки поверх (задание П2, view.md V25 v2). Её читают конвейер, раскрытия и
+  // «Переразложить»; у архитектора это та же ссылка, что пришла пропом.
+  const { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed, layout: viewLayout } = useLevelPersistence({
+    containerId: layoutViewId ?? containerId, isArchitect, canArrange, viewLayout: serverLayout,
     onPersistError, onPersistConflict, onLayoutChanged, viewMeta, retryPatch,
   });
 
@@ -456,16 +453,32 @@ function LevelGraphInner({
   const { guides, setGuides, clearGuides } = useAlignmentGuides();
 
   // История Undo/Redo: адаптер со штампом уровня, запуск отмены/повтора и глобальные
-  // клавиши (только архитектор и не контекст — read-only).
+  // клавиши (там, где расстановка доступна, обеим ролям; не контекст — read-only).
   const { history, runUndo, runRedo } = useLevelHistory({
-    historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: isArchitect && canArrange,
+    historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: canArrange,
+  });
+
+  // «Переразложить уровень» — команда холста (history.md U26): сброс расстановки тем же
+  // каналом раскладки, переезд на сбросе, отмене и повторе (интент держится в хуке
+  // анимации до прихода свежего прогона), шаг истории. На страничных схемах
+  // (fitOnExpand) переезд — ещё и запрос на анимированное центрирование: состав прежний,
+  // геометрия новая, результат хочется видеть целиком по центру, как после раскрытия.
+  // Фит идёт ПОСЛЕ оседания переезда (гейт !animActive в эффекте центрирования). Запрос
+  // приходит от хозяина (relayoutRequest) или от кнопки в углу холста (relayoutButton).
+  const noteRelayoutMove = useCallback(() => {
+    noteRelayout();
+    if (fitOnExpand) autoFitRef.current = performance.now();
+  }, [noteRelayout, fitOnExpand]);
+  const relayout = useLevelRelayout({
+    layout: viewLayout, commitLayout: commitLayoutStable, history,
+    enabled: canArrange, request: relayoutRequest, onMove: noteRelayoutMove,
   });
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
   // кладёт в историю, обязаны коммитить через СВЕЖЕЕ зеркало (см. commitLayoutStable).
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, disabled: !canArrange,
+    rfNodes, onNodesChange, setGuides, disabled: !canArrange,
     ancestorIds, ancestorNames, commitLayout: commitLayoutStable, push: history.push,
     noteGesture, // флаш клавиатурной серии открывает окно жеста, как отпускание драга
   });
@@ -1127,22 +1140,23 @@ function LevelGraphInner({
           </marker>
         </defs>
       </svg>
-      {/* Тулбар Undo/Redo (архитектор, расстановка доступна). Кнопка надёжнее клавиш —
-          не зависит от фокуса. Гейт canArrange (= arrangeOnly || !readOnly): тулбар
-          виден и в редакторе, и на страничных схемах с персистом (arrangeOnly), но
-          скрыт у наблюдателя. Обе зовут дисптчеры из MapEditorPage (кросс-уровневый
-          редирект); на страницах (undo-бандл не передан) — локальная ownHistory. */}
-      {isArchitect && canArrange && (
+      {/* Тулбар Undo/Redo (расстановка доступна, обеим ролям: у читателя отменяются его
+          перемещения и перераскладки на время просмотра, задание П2). Кнопка надёжнее
+          клавиш — не зависит от фокуса. Гейт canArrange (= arrangeOnly || !readOnly):
+          тулбар виден в редакторе, на страничных схемах и в «Развёртывании». Обе зовут
+          дисптчеры из MapEditorPage (кросс-уровневый редирект); на страницах (undo-бандл
+          не передан) — локальная ownHistory. */}
+      {canArrange && (
         <HistoryToolbar onUndo={runUndo} onRedo={runRedo} canUndo={history.canUndo()} canRedo={history.canRedo()} />
       )}
-      {/* ПРАВЫЙ верхний угол: «Переразложить» (архитектор, передан onRelayout) +
-          тумблер «Скрыть подписи связей» (CV32, все роли — просмотровый режим, не
-          правка). Стилистика едина с тулбаром Undo/Redo (тот же класс lg-seg).
-          Редактор-карта не передаёт onRelayout И владеет тумблером сама (управляемый
-          mode.edgeLabelsHidden): её угол холста занят рейлом алертов (AL10), поэтому
-          там обе кнопки живут в топбаре, а здесь угол остаётся пустым. */}
+      {/* ПРАВЫЙ верхний угол: «Переразложить» (страничные схемы, mode.relayoutButton,
+          там, где расстановка доступна) + тумблер «Скрыть подписи связей» (CV32, все
+          роли — просмотровый режим, не правка). Стилистика едина с тулбаром Undo/Redo
+          (тот же класс lg-seg). Редактор-карта и «Развёртывание» кнопку не просят и
+          владеют тумблером сами (управляемый mode.edgeLabelsHidden): их кнопки живут в
+          шапке и тулбаре страницы, а здесь угол остаётся пустым. */}
       <ViewToolbar
-        onRelayout={isArchitect ? onRelayout : undefined}
+        onRelayout={relayoutButton ? relayout : undefined}
         labels={edgeLabelsHiddenMode === undefined ? { hidden: labelsHidden, onToggle: toggleEdgeLabels } : undefined}
       />
       {/* Легенда статусов и переключатель «Вид схемы» живут в правой панели схемы
@@ -1260,9 +1274,10 @@ function LevelGraphInner({
         // ЛЕВАЯ кнопка тянет рамку прямоугольного выделения нескольких узлов
         // (selectionOnDrag). Ctrl/⌘ добавляет/убирает узлы из выделения кликом.
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
-        // частично. В read-only без драга узлов — панорамирование левой кнопкой.
-        panOnDrag={dragNodes ? PAN_RIGHT_BUTTON : (isReadOnly ? true : PAN_RIGHT_BUTTON)}
-        selectionOnDrag={dragNodes && canArrange && !picking}
+        // частично. В read-only без драга узлов и у читателя на просмотровых
+        // поверхностях (readerViewPan) — панорамирование левой кнопкой, без рамки.
+        panOnDrag={dragNodes && !readerViewPan ? PAN_RIGHT_BUTTON : (isReadOnly ? true : PAN_RIGHT_BUTTON)}
+        selectionOnDrag={dragNodes && canArrange && !picking && !readerViewPan}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={MULTI_SELECT_KEYS}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
