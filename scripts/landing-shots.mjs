@@ -1,49 +1,63 @@
-// Скриншоты РЕАЛЬНОГО интерфейса ArchMap для лендинга: кадры демо-проекта
-// «Маркетплейс «Ярмарка»» вместо нарисованных мокапов. Один прогон снимает все
-// кадры подряд; повторный прогон после правок UI перезаписывает PNG.
+// Скриншоты РЕАЛЬНОГО интерфейса ArchMap для лендинга: неподвижные кадры демо-проекта
+// «Маркетплейс «Ярмарка»» вместо нарисованных мокапов. Один прогон снимает все кадры
+// подряд; повторный прогон после правок UI перезаписывает PNG. Ролики снимает
+// scripts/landing-videos.mjs.
 //
-// Запуск (dev-стек поднят через ./dev.sh):
-//   node scripts/landing-shots.mjs                      # все кадры «Ярмарки» → landing-shots/
-//   node scripts/landing-shots.mjs --only hero,depth    # выборочно (имена — ниже, в SHOTS)
-//   node scripts/landing-shots.mjs --out /tmp/shots     # другой каталог
-//   node scripts/landing-shots.mjs --project "Имя"      # другой проект (по умолчанию «… v2»)
-// Кадры shot-* — запасная анимация видео на лендинге; crop-* — врезки (вкладки «Не только
-// схема», карточка «Схемы с навигацией», импорт, холст «Развёртывание»). Кадры «Ярмарки»
-// снимать лучше на КОПИИ эталона («Новый проект» → «Копия», имя демо «Маркетплейс
-// «Ярмарка»»): сам эталон «… v2» не трогаем, из него пересобирается демо-шаблон. Кадр
-// depth-canvas снимается ТОЛЬКО на копии: в ней через интерфейс готовится схема страницы
-// «Сервиса поиска» (что именно — в комментарии сцены).
+// Запуск (стек поднят через ./dev.sh; другой стенд — ARCHMAP_FRONTEND и ARCHMAP_BACKEND):
+//   node scripts/landing-shots.mjs                          # кадры копии «Ярмарки» → landing-shots/
+//   node scripts/landing-shots.mjs --only process,crop-db   # выборочно (имена — ниже, в SHOTS)
+//   node scripts/landing-shots.mjs --out /tmp/shots         # другой каталог
+//   node scripts/landing-shots.mjs --project "Имя"          # другой проект (по умолчанию копия «Ярмарки»)
+//   node scripts/landing-shots.mjs --only embed --embed frontend/dist-embed   # картинка живой схемы
+// Кадры: crop-* — врезки (вкладки «Не только схема», карточка «Схемы с навигацией», вопрос
+// импорта, холст «Развёртывание»), shot-process — раздел «Процессы», embed-still — живая
+// схема на телефоне (сцена embed снимает свежую сборку npm run build:embed и без --embed
+// пропускается).
 //
-// Моки (MOCKS ниже): разделы «As-is и to-be на одной схеме» (кадр статусов) и «Где что
-// крутится» (холст «Развёртывание») показывают не «Ярмарку», а маленькие придуманные проекты
-// из scripts/fixtures/landing-status.yaml и landing-deploy.yaml: на большой схеме смена
-// статусов и площадки тонут в объектах. Сцена мока снимается только на своём моке, прогон
-// по «Ярмарке» её пропускает, а прогон по моку — все остальные:
-//   node scripts/landing-shots.mjs --only status --project "Уведомления заказов"
+// Правило масштаба: текст интерфейса читается на странице лендинга. Колонка страницы
+// 1200 px: кадр во всю ширину снимается окном около 1280×800 при DSF 2 (в широком окне
+// интерфейс на странице выходит мелким); врезка вкладки показывается на 760 px, её файл
+// около 1700 px; основной текст (13 px) на странице не мельче 11 px. Сцены печатают расчёт.
+//
+// Кадры «Ярмарки» снимаются на КОПИИ эталона («Новый проект» → «Копия» из «… v2», имя демо
+// «Маркетплейс «Ярмарка»», описание как у демо в app/demo.py): сам эталон «… v2» не трогаем,
+// из него пересобирается демо-шаблон. Копию до съёмки готовят через интерфейс: на корне
+// карты «Переразложить уровень», для кадра depth-canvas — схема страницы «Сервиса поиска»
+// (что именно — в комментарии сцены).
+//
+// Мок (MOCKS ниже): раздел «Где что крутится» (холст «Развёртывание») показывает не
+// «Ярмарку», а маленький придуманный проект «Онлайн-касса» из scripts/fixtures/
+// landing-deploy.yaml: на большой схеме площадки тонут в объектах. Сцена мока снимается
+// только на своём моке, прогон по «Ярмарке» её пропускает, а прогон по моку — все остальные:
 //   node scripts/landing-shots.mjs --only deploy-canvas --project "Онлайн-касса"
-// Моки живут в dev-базе рядом с эталоном; пересоздание из фикстур и ручная расстановка —
-// docs/plan-landing-docs-2026-11.md §2.4.
+// Второй мок, «Уведомления заказов» (landing-status.yaml), нужен только ролику статусов
+// (landing-videos.mjs). Моки живут в базе рядом с эталоном; пересоздание из фикстур и
+// расстановка — docs/plan-landing-docs-2026-11.md §2.4.
 // Учётка — ARCHMAP_USERNAME/ARCHMAP_PASSWORD из окружения, иначе из mcp/.env
 // (учётка демо-проекта). Токен в вывод не печатается.
 //
 // Правила съёмки (ТЗ дизайнера):
-//  • Chromium, deviceScaleFactor 2, светлая тема, ru-RU, размер окна — по кадру;
+//  • Chromium, светлая тема, ru-RU, размер окна и DSF — по кадру;
 //  • перед кадром — networkidle + оседание раскладки (счётчик __archmapLayoutInflight,
 //    индикатор .lg-busy, стабильная сигнатура узлов/рёбер/вьюпорта) + 800 мс;
 //  • состояние наводится ТОЛЬКО через UI: клики, URL, колесо и пан вьюпорта. В DOM и
-//    данные ничего не подмешивается. Стилем скрыты лишь артефакты съёмки — тосты
-//    холста и оверлей ошибок Vite (их появление пишется в лог); каретку прячет сам
-//    Playwright (caret: "hide"), курсор паркуется на пустой шапке.
+//    данные ничего не подмешивается. Стилем скрыты лишь артефакты съёмки: тосты холста,
+//    оверлей ошибок Vite (их появление пишется в лог), кнопки холста у врезок холста,
+//    строка или подпись, которую режет край кадра, и то, что лежит в кадре за пределами
+//    снимаемого блока (оформление врезки, как поле вокруг неё);
+//    каретку прячет сам Playwright (caret: "hide"), курсор паркуется на пустой шапке.
 //  • БД НЕ МЕНЯЕТСЯ: сетевой сторож обрывает любой не-GET запрос к API, кроме двух
 //    заведомо сухих превью (data-refs/preview — обращения схемы логики,
 //    projects/import/unified-preview — сводка импорта). Попытка записи — кадр
 //    считается проваленным, скрипт выходит с кодом 1. Поэтому кадры выбраны там, где
-//    UI ничего не пишет: раскрытие лупой — на странице системы «Заказы», где оно уже
-//    сохранено в виде (клик гасится дедупом), статусы и холст «Развёртывание» — на моках
-//    с сохранённой расстановкой.
+//    UI ничего не пишет: раскрытие лупой — на схеме страницы «Сервиса поиска», где оно уже
+//    сохранено в виде (клик гасится дедупом), холст «Развёртывание» — на моке с
+//    сохранённой расстановкой. Первый показ любого вида пишет его раскладку, поэтому
+//    вид, который ни разу не открывали, до съёмки открывают через интерфейс.
 import { readFileSync, mkdirSync, existsSync, statSync } from "node:fs";
+import { createServer } from "node:http";
 import { spawnSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -61,13 +75,13 @@ const CHROME_LIBS = process.env.CHROME_LIBS
 const args = process.argv.slice(2);
 const argOf = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const OUT = resolve(argOf("--out") ?? join(ROOT, "landing-shots"));
-const PROJECT_NAME = argOf("--project") ?? "Маркетплейс «Ярмарка» v2";
+const PROJECT_NAME = argOf("--project") ?? "Маркетплейс «Ярмарка»";
 const ONLY = argOf("--only")?.split(",").map((s) => s.trim()).filter(Boolean) ?? null;
+const EMBED_DIR = argOf("--embed") ? resolve(argOf("--embed")) : null;
 const DSF = 2;
 
 // ── Имена демо-проекта (всё резолвится по именам через API, id не зашиты) ────────
 const N = {
-  orders: "Заказы",
   orderApi: "Order API",
   ordersDb: "БД заказов",
   kafka: "Kafka",
@@ -82,16 +96,16 @@ const DOC_LOGIC = "Создание заказа";
 const CHANNEL = "catalog.product-events";
 const PROCESS = "Оформление заказа";
 
-// ── Моки лендинга: сцена раздела снимается на своём маленьком проекте ──────────
-// scenes — сцены мока; frame — объекты, по которым кадрируется холст (сцена status).
+// ── Мок лендинга: сцена раздела снимается на своём маленьком проекте ───────────
 // Имена «Ярмарки» (N) в моке не ищутся.
 const MOCKS = {
-  "Уведомления заказов": { scenes: ["status"], frame: ["Заказы", "SMS-рассыльщик", "Центр уведомлений", "SMS-провайдер"] },
-  "Онлайн-касса": { scenes: ["deploy-canvas"], frame: [] },
+  "Онлайн-касса": { scenes: ["deploy-canvas"] },
 };
 const MOCK = MOCKS[PROJECT_NAME] ?? null;
 // Сцена → мок, на котором она снимается; сцены без мока — на «Ярмарке» или её копии
 const MOCK_OF = Object.fromEntries(Object.entries(MOCKS).flatMap(([p, m]) => m.scenes.map((sc) => [sc, p])));
+// Сцены без проекта: снимают не стенд, а собранную страницу (живая схема)
+const LOCAL = new Set(["embed"]);
 
 // Вторая «пара» к scripts/fixtures/mock-import.yaml для кадра импорта: прогон агента в другом
 // репозитории той же демо-системы «Плёнка» (мульти-репо сценарий «Из репозитория»). У объектов с
@@ -176,26 +190,25 @@ async function resolveScene(token) {
   const project = projects.find((p) => p.name === PROJECT_NAME);
   if (!project) throw new Error(`Проект «${PROJECT_NAME}» не найден`);
   const pid = project.id;
+  if (MOCK) return { pid };
   const nodes = await api(token, "/nodes/all", pid);
   const idOf = (name) => {
     const hits = nodes.filter((n) => n.name === name);
     if (hits.length !== 1) throw new Error(`Объект «${name}»: найдено ${hits.length}`);
     return hits[0].id;
   };
-  if (MOCK) return { pid, frame: MOCK.frame.map(idOf) };
   const ids = {};
   for (const [key, name] of Object.entries(N)) ids[key] = idOf(name);
   const channels = await api(token, `/nodes/${ids.kafka}/channels`, pid);
-  const channel = channels.find((c) => c.name === CHANNEL);
-  if (!channel) throw new Error(`Канал «${CHANNEL}» не найден`);
+  if (!channels.some((c) => c.name === CHANNEL)) throw new Error(`Канал «${CHANNEL}» не найден`);
   const processes = await api(token, "/processes", pid);
   const proc = processes.find((p) => p.name === PROCESS);
   if (!proc) throw new Error(`Процесс «${PROCESS}» не найден`);
   const detail = await api(token, `/processes/${proc.id}`, pid);
-  // Шаг для карточки: первый по порядку, чья схема логики — «Создание заказа»
+  // Шаг для панели шага: первый по порядку, чья схема логики — «Создание заказа»
   const step = [...detail.messages].sort((a, b) => a.order - b.order).find((m) => m.doc_name === DOC_LOGIC);
   if (!step) throw new Error(`В процессе нет шага со схемой «${DOC_LOGIC}»`);
-  return { pid, ids, channelId: channel.id, stepCaption: step.caption };
+  return { pid, ids, stepCaption: step.caption };
 }
 
 // ── Браузер ──────────────────────────────────────────────────────────────────
@@ -219,8 +232,8 @@ async function newPage(browser, token, pid, w, h, shot, dsf = DSF) {
   // Токен и проект — в localStorage ДО старта приложения (App читает их при маунте)
   await ctx.addInitScript(([t, p, css]) => {
     try {
-      localStorage.setItem("access_token", t);
-      localStorage.setItem("archmap.lastProjectId", p);
+      if (t) localStorage.setItem("access_token", t);
+      if (p) localStorage.setItem("archmap.lastProjectId", p);
     } catch { /* приватный режим — не наш случай */ }
     const add = () => {
       const s = document.createElement("style");
@@ -273,15 +286,17 @@ async function settle(page, extraMs = 800) {
   await page.waitForTimeout(extraMs);
 }
 
-// Прокрутка страницы объекта так, чтобы карточка встала к верху (как колесом —
-// скролл-контейнер страницы .np-page; упирается в конец страницы, это нормально).
-// Подгонка повторяется: карточки выше (схема страницы) дорастают до своей высоты
-// уже после первого сдвига и толкают цель вниз.
-async function scrollCardToTop(page, title, offset = 70) {
-  const card = page.locator(`.np-card:has(h3:text-is("${title}"))`).first();
-  await card.waitFor();
+// Раздел страницы объекта по заголовку: «Схема», «Конфигурация», «Каналы»…
+const section = (page, title) => page.locator(`.ds-sec:has(h3.ds-sec-title:text-is("${title}"))`).first();
+
+// Прокрутка страницы объекта так, чтобы блок встал верхом на offset px от верха окна (как
+// колесом — скролл-контейнер страницы .np-page; упирается в конец страницы, это нормально).
+// Подгонка повторяется: блоки выше (схема страницы) дорастают до своей высоты уже после
+// первого сдвига и толкают цель вниз.
+async function scrollToTop(page, block, offset) {
+  await block.waitFor();
   for (let i = 0; i < 6; i++) {
-    const moved = await card.evaluate((e, off) => {
+    const moved = await block.evaluate((e, off) => {
       const sc = e.closest(".np-page");
       if (!sc) return 0;
       const before = sc.scrollTop;
@@ -291,7 +306,6 @@ async function scrollCardToTop(page, title, offset = 70) {
     await page.waitForTimeout(500);
     if (moved < 1) break;
   }
-  return card;
 }
 
 // PNG: ширина/высота из заголовка IHDR — для отчёта в пикселях
@@ -316,58 +330,6 @@ async function shoot(page, file) {
   const size = pngSize(path);
   results.push({ file, ...size });
   console.log(`  ✓ ${file} ${size.w}×${size.h}`);
-}
-
-// Рамка вокруг набора узлов: колесом зумим к центру набора, затем правой кнопкой
-// (panOnDrag=[2]) тащим пустое место холста, чтобы набор встал в центр.
-async function frameNodes(page, ids, fill = 0.8) {
-  const measure = () => page.evaluate((list) => {
-    const rs = list.map((id) => document.querySelector(`.react-flow__node[data-id="${id}"]`)?.getBoundingClientRect()).filter(Boolean);
-    const p = document.querySelector(".react-flow").getBoundingClientRect();
-    return {
-      n: rs.length,
-      x0: Math.min(...rs.map((r) => r.left)), y0: Math.min(...rs.map((r) => r.top)),
-      x1: Math.max(...rs.map((r) => r.right)), y1: Math.max(...rs.map((r) => r.bottom)),
-      px0: p.left, py0: p.top, px1: p.right, py1: p.bottom,
-    };
-  }, ids);
-  let m = await measure();
-  if (m.n !== ids.length) throw new Error(`на холсте ${m.n} из ${ids.length} целевых узлов`);
-  // Щелчок колеса RF ≈ ×2^0.2 вокруг курсора; крутим, пока набор после щелчка
-  // ещё влезает в долю fill холста по обеим осям.
-  const STEP = 2 ** 0.2;
-  for (let i = 0; i < 12; i++) {
-    const fits = (m.x1 - m.x0) * STEP <= fill * (m.px1 - m.px0) && (m.y1 - m.y0) * STEP <= fill * (m.py1 - m.py0);
-    if (!fits) break;
-    await page.mouse.move((m.x0 + m.x1) / 2, (m.y0 + m.y1) / 2);
-    await page.mouse.wheel(0, -100);
-    await page.waitForTimeout(250);
-    m = await measure();
-  }
-  await settle(page, 300);
-  m = await measure();
-  const dx = (m.px0 + m.px1) / 2 - (m.x0 + m.x1) / 2;
-  const dy = (m.py0 + m.py1) / 2 - (m.y0 + m.y1) / 2;
-  // Точка хвата — пустой холст (узел панораму не начинает), и после сдвига в пределах холста
-  const start = await page.evaluate(({ dx, dy, m }) => {
-    for (let gy = 0.1; gy <= 0.9; gy += 0.05) {
-      for (let gx = 0.1; gx <= 0.9; gx += 0.05) {
-        const x = m.px0 + (m.px1 - m.px0) * gx;
-        const y = m.py0 + (m.py1 - m.py0) * gy;
-        const ex = x + dx, ey = y + dy;
-        if (ex < m.px0 + 10 || ex > m.px1 - 10 || ey < m.py0 + 10 || ey > m.py1 - 10) continue;
-        const el = document.elementFromPoint(x, y);
-        if (el && el.classList.contains("react-flow__pane")) return { x, y };
-      }
-    }
-    return null;
-  }, { dx, dy, m });
-  if (!start) throw new Error("не нашлось пустого места холста для пана");
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down({ button: "right" });
-  await page.mouse.move(start.x + dx, start.y + dy, { steps: 15 });
-  await page.mouse.up({ button: "right" });
-  await settle(page, 300);
 }
 
 // ── Врезка: крупный фрагмент холста без UI ────────────────────────────────────
@@ -495,82 +457,91 @@ async function shootClip(page, file, clip) {
 }
 
 // ── Врезки вкладок «Не только схема» ─────────────────────────────────────────
-// Окно вкладок на лендинге ~590×384 (16:10.4, object-fit: contain): врезка — блок
-// интерфейса шириной ~800 CSS px (окно съёмки 960 px), на сайте он идёт в масштабе ~0.75
-// и читается. Высота — не больше пропорции окна, лишнее снизу отрезается.
+// Окно вкладок на лендинге 16:10.4 шириной 760 px: врезка — блок интерфейса шириной около
+// 850 CSS px (файл около 1700 px), на сайте он идёт в масштабе около 0,9 и читается.
+// Высота — ровно пропорция окна: при переключении вкладок картинка не прыгает.
 const STAGE_RATIO = 16 / 10.4;
-// Врезка «плоским окном»: блок интерфейса без своих скруглений, рамки и тени — рамку и
-// скругление рисует окно вкладок лендинга, и в углах не выступает подложка (затемнение под
-// окном, фон страницы). Кадр ровно в пропорции окна: при переключении вкладок картинка не
-// прыгает. Короткий блок добирается своим белым фоном; строка текста на нижнем крае кадра
-// скрывается целиком (cutText), а не режется пополам — у схем край холста естественен.
-async function shootFlat(page, file, target, { maxWidth = Infinity, cutText = true } = {}) {
+const STAGE_W = 760;
+// Размер основного текста интерфейса (13 px) на лендинге при ширине кадра w CSS px
+const onStage = (w, px = 13) => `${px} px → ${(px * STAGE_W / w).toFixed(1)} px на лендинге`;
+// Окна поверх страницы (схема логики, спецификация, ER-диаграмма) снимаются «плоским
+// окном»: без своих скруглений, рамки и тени — рамку и скругление рисует окно вкладок
+// лендинга, и в углах не выступает подложка (затемнение под окном, фон страницы).
+// Строка текста на нижнем крае кадра скрывается целиком (cutText), а не режется пополам —
+// у схем край холста естественен.
+async function shootFlat(page, file, target, { cutText = true } = {}) {
   await page.addStyleTag({ content: "dialog::backdrop{background:transparent!important}" });
+  // Скругление и тень бывают и у самого dialog, и у его корня внутри
   await target.evaluate((e) => {
-    for (const [k, v] of [["border-radius", "0"], ["box-shadow", "none"], ["border-color", "transparent"], ["outline", "none"]]) {
-      e.style.setProperty(k, v, "important");
+    for (const el of [e, e.firstElementChild].filter(Boolean)) {
+      for (const [k, v] of [["border-radius", "0"], ["box-shadow", "none"], ["border-color", "transparent"], ["outline", "none"]]) {
+        el.style.setProperty(k, v, "important");
+      }
     }
   });
-  let box = await target.boundingBox();
-  const width = Math.round(Math.min(box.width, maxWidth));
+  const box = await target.boundingBox();
+  const width = Math.round(box.width);
   const height = Math.round(width / STAGE_RATIO);
-  if (box.height < height) {
-    await target.evaluate((e, h) => e.style.setProperty("min-height", `${h}px`, "important"), height);
-    box = await target.boundingBox();
-  }
+  if (box.height < height) throw new Error(`окно ${width}×${Math.round(box.height)} ниже кадра ${width}×${height} — увеличьте высоту окна сцены`);
   const clip = { x: Math.round(box.x), y: Math.round(box.y), width, height };
-  if (cutText) {
-    // По текстовым узлам, а не по элементам: текст бывает прямо в ячейке рядом с вложенными.
-    // Поля ввода (textarea описания у архитектора) текстовых узлов не имеют — их край ловится
-    // по самому элементу; строка свойств (термин + значение) при этом прячется целиком, иначе
-    // у нижнего края остался бы термин без значения.
-    await target.evaluate((e, edge) => {
-      const crosses = (r) => r.top < edge && r.bottom > edge;
-      const hide = (el) => el.style.setProperty("visibility", "hidden", "important");
-      const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
-      for (let n; (n = w.nextNode());) {
-        if (!n.textContent.trim()) continue;
-        const rg = document.createRange();
-        rg.selectNodeContents(n);
-        for (const r of rg.getClientRects()) {
-          if (crosses(r)) { hide(n.parentElement); break; }
-        }
-      }
-      for (const f of e.querySelectorAll("textarea, input, select")) {
-        if (!crosses(f.getBoundingClientRect())) continue;
-        const value = f.closest(".np-value");
-        if (value) {
-          hide(value);
-          const term = value.previousElementSibling;
-          if (term && term.classList.contains("np-term")) hide(term);
-        } else hide(f);
-      }
-    }, clip.y + clip.height);
-  }
+  if (cutText) await hideCutText(target, clip.y + clip.height);
+  console.log(`  окно ${width} px: ${onStage(width)}`);
   await shootClip(page, file, clip);
 }
-// Пилюля масштаба просмотрщика схем (− 80% + □) — в углу кадра её срезал бы край
-async function hideZoomPill(dlg) {
-  await dlg.locator('button[aria-label="Увеличить"]').first().evaluate((b) => { b.parentElement.style.visibility = "hidden"; });
+// Текст, который режет нижний край кадра edge, прячется целиком: по текстовым узлам, а не по
+// элементам (текст бывает прямо в ячейке рядом с вложенными). Поля ввода (у архитектора)
+// текстовых узлов не имеют — их край ловится по самому элементу.
+async function hideCutText(root, edge) {
+  await root.evaluate((e, edge) => {
+    const crosses = (r) => r.top < edge && r.bottom > edge;
+    const hide = (el) => el.style.setProperty("visibility", "hidden", "important");
+    const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+    for (let n; (n = w.nextNode());) {
+      if (!n.textContent.trim()) continue;
+      const rg = document.createRange();
+      rg.selectNodeContents(n);
+      for (const r of rg.getClientRects()) {
+        if (crosses(r)) { hide(n.parentElement); break; }
+      }
+    }
+    for (const f of e.querySelectorAll("textarea, input, select")) {
+      if (crosses(f.getBoundingClientRect())) hide(f);
+    }
+  }, edge);
 }
-// Левую панель (дерево) — в рельс: блоку страницы достаётся вся ширина окна
+// Врезка блока страницы объекта (раздел, шапка со свойствами): колонка документа с полем
+// PAD вокруг, от верха блока first до низа блока last на высоту пропорции окна. Всё, что на
+// странице ниже last, в кадр не идёт — прячется (оформление кадра: иначе снизу торчал бы
+// верх следующего раздела); короткий блок добирается белым полем страницы.
+const PAD = 16;
+async function shootBlock(page, file, first, last = first) {
+  const col = await page.locator(".np-header").boundingBox();
+  const top = await first.boundingBox();
+  const width = Math.round(col.width + 2 * PAD);
+  const clip = { x: Math.round(col.x - PAD), y: Math.round(top.y - PAD), width, height: Math.round(width / STAGE_RATIO) };
+  const vp = page.viewportSize();
+  if (clip.y + clip.height > vp.height) throw new Error(`кадр ${width}×${clip.height} выходит за окно ${vp.width}×${vp.height} — увеличьте высоту окна сцены`);
+  const bottom = await last.evaluate((e) => {
+    // Следом идущее на каждом уровне вверх до колонки документа — прячем
+    for (let el = e; el && !el.classList.contains("np-inner"); el = el.parentElement) {
+      for (let n = el.nextElementSibling; n; n = n.nextElementSibling) n.style.setProperty("visibility", "hidden", "important");
+    }
+    return e.getBoundingClientRect().bottom;
+  });
+  if (bottom > clip.y + clip.height) {
+    warnings.push(`${file}: блок ниже кадра на ${Math.round(bottom - clip.y - clip.height)} px — низ блока срезан`);
+    await hideCutText(last, clip.y + clip.height);
+  }
+  console.log(`  колонка ${Math.round(col.width)} px, кадр ${width} px: ${onStage(width)}; блок занимает ${Math.round(100 * (Math.min(bottom, clip.y + clip.height) - clip.y + PAD) / clip.height)}% высоты кадра`);
+  await shootClip(page, file, clip);
+}
+// Левую панель (дерево) — в полосу: блоку страницы достаётся вся ширина окна
 async function collapseTree(page) {
   await page.getByRole("button", { name: "Свернуть панель" }).first().click();
   await page.locator('button[title="Развернуть панель"]').first().waitFor();
   await page.waitForTimeout(400);
 }
-// Просмотрщик схемы (usePanZoom): колесо масштабирует вокруг курсора с шагом 1.15 —
-// крутим над точкой, пока подпись масштаба не дойдёт до target %, затем тащим схему
-// левой кнопкой на (dx, dy).
-async function zoomViewer(page, at, target) {
-  const pct = async () => Number((await page.locator("dialog[open]").getByText(/^\d+%$/).first().textContent()).replace("%", ""));
-  await page.mouse.move(at.x, at.y);
-  for (let i = 0; i < 20 && (await pct()) < target; i++) {
-    await page.mouse.wheel(0, -100);
-    await page.waitForTimeout(150);
-  }
-  return pct();
-}
+// Просмотрщик схемы (usePanZoom): перетаскивание левой кнопкой — пан.
 async function dragViewer(page, from, dx, dy) {
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -584,69 +555,58 @@ async function svgNodeBox(page, text) {
   await n.waitFor();
   return n.boundingBox();
 }
-const centerOf = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+// Подпись масштаба просмотрщика («90%»)
+const viewerZoom = async (dlg) => (await dlg.getByText(/^\d+%$/).first().textContent()).trim();
 
-// Что карточка «Схемы с навигацией» показывает из кадра 840×560: окно картинки на лендинге
-// той же пропорции 3:2 (object-fit: contain) на любой ширине — 466×311 в три колонки
-// (от 1420 px), 404–639 px в карточке-строке (900–1419 px), до 807×538 в одну колонку,
-// 348×232 на телефоне, — то есть кадр целиком, без обрезки.
-const CARD_WINDOWS = [[0, 0, 840, 560]];
+// Что карточка «Схемы с навигацией» показывает из кадра 640×427: окно картинки на лендинге
+// той же пропорции 3:2 шириной 440 px (object-fit: contain) — кадр целиком, без обрезки.
+const CARD_WINDOWS = [[0, 0, 640, 427]];
+const CARD_W = 440;
+
+// Живая схема: статическая раздача папки сборки (npm run build:embed) на свободном порту
+function serveDir(dir) {
+  const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".wasm": "application/wasm" };
+  const server = createServer((req, res) => {
+    const path = resolve(dir, "." + decodeURIComponent(new URL(req.url, "http://x").pathname));
+    if (!path.startsWith(dir + sep) || !existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { "Content-Type": types[extname(path)] ?? "application/octet-stream" });
+    res.end(readFileSync(path));
+  });
+  return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok(server)));
+}
 
 // ── Кадры ────────────────────────────────────────────────────────────────────
-// Каждый кадр — своё окно (размер по ТЗ) в свежем контексте браузера.
+// Каждый кадр — своё окно в свежем контексте браузера; size — окно, dsf — плотность
+// (по умолчанию 2), подобранная так, чтобы файл врезки был около 1700 px.
 const SHOTS = {
-  // Весь интерфейс: уровень «Заказы» в редакторе-карте (вход по URL уровня,
-  // не лупой), крошки «Маркетплейс «Ярмарка»» → «Заказы», дерево слева,
-  // дети + гости соседних уровней со связями; правая панель свёрнута.
-  hero: { size: [1600, 1000], async run(page, s) {
-    await go(page, `/p/${s.pid}/map/${s.ids.orders}`);
-    await page.getByRole("button", { name: "Свернуть панель" }).last().click(); // правая (левая — первая)
-    await page.locator('button[title="Развернуть панель"]').last().waitFor();
-    await page.waitForTimeout(500);
-    await page.locator(".react-flow__controls-fitview").click();
-    await settle(page);
-    await shoot(page, "shot-hero.png");
-  } },
-
-  // Глубина: страница системы «Заказы» — дерево развёрнуто до его детей, он выделен;
-  // на схеме он раскрыт лупой на месте (рамка с детьми). В виде этой страницы раскрытие
-  // и позиции детей уже сохранены — клик лупой гасится дедупом и в БД не пишет.
-  depth: { size: [1600, 1200], async run(page, s) {
-    await go(page, `/p/${s.pid}/nodes/${s.ids.orders}`);
-    const chev = page.locator(".nt-row--current .nt-chevzone");
-    if ((await chev.getAttribute("aria-expanded")) !== "true") await chev.click();
-    const card = await scrollCardToTop(page, "Схема");
-    await card.locator(".esb-activate").click(); // схема страницы инертна до клика
-    const node = card.locator(`.react-flow__node[data-id="${s.ids.orders}"]`);
-    await node.hover();
-    await node.locator('button[title="Раскрыть содержимое"]').click();
-    await card.locator(`.react-flow__node[data-id="${s.ids.orderApi}"]`).waitFor();
-    await settle(page);
-    await page.keyboard.press("Escape"); // деактивация схемы (синяя рамка «в работе»)
-    await settle(page);
-    await shoot(page, "shot-depth.png");
-  } },
-
-  // Врезка для карточки «Схемы с навигацией». Мысль кадра: система раскрывается прямо на
-  // схеме — внутри рамки видны её части, соседи остаются на местах, а связи доходят до
-  // конкретной части. Кадр 3:2 (840×560 CSS → 1680×1120), только холст: схема страницы
-  // «Сервиса поиска», он раскрыт лупой — в рамке «🔍 Сервис поиска ×» рядом Elasticsearch и
-  // Search API; над ними свёрнутая система «Сервис каталога» (лупа, «1 из 4»: связь идёт от
-  // его «Индексатора товаров») и API Gateway; обе стрелки входят в рамку сверху, каждая к своему
-  // объекту. Кадр — ровно эта группа: рамка «Маркетплейса», в которую она вложена, остаётся за
-  // краем, иначе две пунктирные рамки спорят, какая из них раскрыта.
+  // Врезка для карточки «Схемы с навигацией». Мысль кадра: систему раскрыли прямо на схеме,
+  // внутри рамки её объекты, а стрелки соседей идут внутрь рамки, каждая к своему объекту.
+  // Кадр 3:2 (640×427 CSS → 1280×854), только холст: схема страницы «Сервиса поиска», он
+  // раскрыт лупой — в рамке «🔍 Сервис поиска ×» Elasticsearch и Search API в ряд; над ними
+  // свёрнутая система «Сервис каталога» (лупа, «1 из 4»: связь идёт от её «Индексатора
+  // товаров») и API Gateway, обе стрелки входят в рамку сверху. Подписи связей скрыты
+  // тумблером холста (настройка вида в браузере, в БД не пишет): на карточке 440 px они
+  // выходят около 9 px (11 px × 1,19 × 440/640), мельче заголовков, и только шумят, а мысль
+  // кадра несут стрелки. Кадр — ровно эта группа: рамка
+  // «Маркетплейса», в которую она вложена, остаётся за краем, иначе две пунктирные рамки
+  // спорят, какая из них раскрыта.
   // ⚠ Только на КОПИИ эталона, подготовленной через интерфейс: открыта страница «Сервиса
-  // поиска» (первый показ вида сам пишет раскладку), он раскрыт лупой на её схеме, Search API
-  // перетащен под API Gateway, а Elasticsearch — под «Сервис каталога», в ряд с Search API.
-  // Страничные схемы стартуют свёрнутыми, и клик лупой по уже сохранённому раскрытию гасится
-  // дедупом — в БД не пишет. На эталоне «… v2» эта страница не открывалась: сторож оборвёт её
-  // первую запись, и кадр провалится.
-  "depth-canvas": { size: [1600, 1300], async run(page, s) {
+  // поиска» (первый показ вида сам пишет раскладку), он раскрыт лупой на её схеме, API
+  // Gateway сдвинут вплотную к «Сервису каталога» (шаг столбцов 260), Elasticsearch и Search
+  // API перетащены в ряд под «Сервис каталога» и API Gateway (шаг рядов около 175): группа
+  // плотная, и на карточке 440 px заголовки блоков не мельче 10 px. Страничные схемы
+  // стартуют свёрнутыми, и клик лупой по уже сохранённому раскрытию гасится дедупом — в БД
+  // не пишет. На эталоне «… v2» эта страница не открывалась: сторож оборвёт её первую
+  // запись, и кадр провалится.
+  "depth-canvas": { size: [1280, 900], async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.search}`);
-    const card = await scrollCardToTop(page, "Схема");
+    const card = section(page, "Схема");
+    await scrollToTop(page, card, 70);
+    await card.locator(".esb-activate").click(); // схема страницы инертна до клика
+    const labels = card.getByRole("button", { name: "Подписи связей" });
+    if ((await labels.getAttribute("aria-pressed")) !== "true") await labels.click();
     // кнопки зума, мини-карта и прочие панели холста — не в кадр (только в этой сцене)
     await page.addStyleTag({ content: ".react-flow__controls, .react-flow__minimap, .react-flow__panel { display: none !important; }" });
-    await card.locator(".esb-activate").click();
     const node = card.locator(`.react-flow__node[data-id="${s.ids.search}"]`);
     await node.hover();
     await node.locator('button[title="Раскрыть содержимое"]').click();
@@ -655,10 +615,10 @@ const SHOTS = {
     const canvas = card.locator(".react-flow").first();
     const cb = await canvas.boundingBox();
     // кадр — по центру холста: его кнопки по углам остаются снаружи
-    const area = { w: 840, h: 560 };
+    const area = { w: CARD_WINDOWS[0][2], h: CARD_WINDOWS[0][3] };
     area.x = Math.round((cb.width - area.w) / 2);
     area.y = Math.round((cb.height - area.h) / 2);
-    if (area.x < 100 || area.y < 0) throw new Error(`холст ${Math.round(cb.width)}×${Math.round(cb.height)} мал для кадра ${area.w}×${area.h}`);
+    if (area.x < 90 || area.y < 0) throw new Error(`холст ${Math.round(cb.width)}×${Math.round(cb.height)} мал для кадра ${area.w}×${area.h}`);
     const texts = await flowTexts(canvas);
     const v0 = await rfView(canvas);
     const toFlow = (b) => ({ x0: (b.x - cb.x - v0.tx) / v0.k, y0: (b.y - cb.y - v0.ty) / v0.k, x1: (b.x + b.width - cb.x - v0.tx) / v0.k, y1: (b.y + b.height - cb.y - v0.ty) / v0.k });
@@ -683,32 +643,30 @@ const SHOTS = {
     const cut = [...new Set(now.filter((t) => cutBy(t, (area.x + win[0] - v1.tx) / v1.k, (area.y + win[1] - v1.ty) / v1.k,
       (area.x + win[2] - v1.tx) / v1.k, (area.y + win[3] - v1.ty) / v1.k)).map((t) => t.text))];
     if (cut.length) warnings.push(`crop-depth-canvas.png: краем режутся надписи — ${cut.join("; ")}`);
-    // на лендинге кадр уменьшается до 466 px (три колонки) и 348 px (телефон)
+    // на лендинге кадр показывается в окне карточки шириной 440 px
     const title = 13 * v1.k;
-    console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок узла ≈ ${title.toFixed(1)} px в кадре, ${(title * 466 / area.w).toFixed(1)} px в три колонки, ${(title * 348 / area.w).toFixed(1)} px на телефоне`);
+    console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок блока ≈ ${title.toFixed(1)} px в кадре, ${(title * CARD_W / area.w).toFixed(1)} px на карточке ${CARD_W} px`);
     await shootClip(page, "crop-depth-canvas.png", { x: cb.x + area.x, y: cb.y + area.y, width: area.w, height: area.h });
   } },
 
   // Врезка раздела «Развёртывание» — на моке «Онлайн-касса» (scripts/fixtures/landing-deploy.yaml):
-  // холст «Развёртывание» всего проекта. Рамка «Облако» с двумя кластерами Kubernetes,
-  // площадкой «Managed PostgreSQL» и ВМ брокера; «API кассы» стоит в обоих кластерах (пометки «1/2»
-  // и «2/2»), стрелка от «Веб-кабинета» идёт к ближайшему экземпляру; внешний «Оператор фискальных
-  // данных» на этом холсте не рисуется: внешняя система не размещается (Р42), поэтому группы
-  // «Размещение не указано» в кадре нет. Кадр 16:10 (1280×800 CSS → 2560×1600), только холст;
-  // подписи связей скрыты тумблером тулбара (aria-pressed — «скрыты»; настройка вида в
-  // localStorage, в БД не пишет): семь подписей, три из них повторяют соседние, перегружают
-  // кадр и ложатся на плашки площадок. Дерево слева свёрнуто — холсту вся ширина окна.
-  // ⚠ Карточки мока расставлены перетаскиванием (авто-раскладка холста для врезки разрежена):
-  // «Облако» — три ряда, сверху ВМ брокера, посередине Кластер A (Веб-кабинет, API кассы 1/2)
-  // и Кластер B (API кассы 2/2, Фискализатор), снизу Managed PostgreSQL. Первый показ
-  // холста пишет раскладку вида, поэтому холст мока до съёмки открывается и расставляется
-  // через интерфейс (§2.4 плана), а сцена только читает.
+  // холст «Развёртывание» всего проекта. Мысль кадра: площадки вложены рамками, сервис в двух
+  // кластерах стоит дважды с пометками «1/2» и «2/2». Рамка «Облако» в три ряда: сверху ВМ
+  // брокера, посередине Кластер A (Веб-кабинет, API кассы 1/2) и Кластер B (API кассы 2/2,
+  // Фискализатор), снизу Managed PostgreSQL; внешний «Оператор фискальных данных» на этом
+  // холсте не рисуется: внешняя система не размещается (Р42), поэтому группы «Размещение не
+  // указано» в кадре нет. Кадр 16:10 (1280×800 CSS → 2560×1600, на лендинге во всю колонку
+  // 1200 px), только холст; подписи связей скрыты тумблером холста (aria-pressed — «скрыты»;
+  // настройка вида в браузере, в БД не пишет): семь подписей, три из них повторяют соседние,
+  // перегружают кадр и ложатся на плашки площадок. Дерево слева свёрнуто — холсту вся ширина.
+  // ⚠ Карточки мока расставлены заранее (авто-раскладка холста для врезки разрежена): первый
+  // показ холста пишет раскладку вида, поэтому холст мока до съёмки открывается и
+  // расставляется (§2.4 плана), а сцена только читает.
   "deploy-canvas": { size: [1600, 1100], async run(page, s) {
     await go(page, `/p/${s.pid}/deploy`);
     await page.locator(".react-flow__node").first().waitFor();
     await settle(page);
-    await page.getByRole("button", { name: "Свернуть панель" }).first().click(); // дерево → рельс
-    await page.locator('button[title="Развернуть панель"]').first().waitFor();
+    await collapseTree(page);
     const labels = page.getByRole("button", { name: "Подписи связей" });
     if ((await labels.getAttribute("aria-pressed")) !== "true") await labels.click();
     await settle(page);
@@ -741,260 +699,272 @@ const SHOTS = {
     await settle(page, 300);
     const v1 = await rfView(canvas);
     const title = 13 * v1.k;
-    console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок карточки ≈ ${title.toFixed(1)} px в кадре, ${(title * 944 / area.w).toFixed(1)} px на лендинге (944 px)`);
+    console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок карточки ≈ ${title.toFixed(1)} px в кадре, ${(title * 1200 / area.w).toFixed(1)} px на лендинге (1200 px)`);
     await shootClip(page, "crop-deploy-canvas.png", { x: cb.x + area.x, y: cb.y + area.y, width: area.w, height: area.h });
   } },
 
-  // Страница Order API: конфигурация (страница упирается в конец — на кадре заодно
-  // карточки «Логика» с привязками схем к операциям и «OpenAPI»), окна схемы логики
-  // и спеки — просмотром, как их открывает клик по строке.
-  "order-api": { size: [1600, 1200], async run(page, s) {
-    await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
-    await scrollCardToTop(page, "Конфигурация");
-    await shoot(page, "shot-config.png");
-
-    await page.locator(`button[title="Открыть схему «${DOC_LOGIC}»"]`).click();
-    await page.locator("dialog[open] svg").first().waitFor();
-    await settle(page, 1200);
-    await shoot(page, "shot-logic.png");
-    await page.keyboard.press("Escape");
-    await page.locator("dialog[open]").waitFor({ state: "detached" });
-
-    await page.locator('.np-card:has(h3:text-is("OpenAPI")) .np-doc-row').click();
-    await page.locator("dialog[open] .opblock").nth(1).waitFor();
-    await settle(page, 1200);
-    // Отметок «операция ↔ схема логики» в Swagger-просмотре нет: они в карточке
-    // «Логика» страницы (METHOD /path у схемы) — она видна на кадре shot-config.
-    await shoot(page, "shot-openapi.png");
-  } },
-
-  // Структура БД заказов: ER-диаграмма в карточке и во весь экран.
-  db: { size: [1600, 1200], async run(page, s) {
-    await go(page, `/p/${s.pid}/nodes/${s.ids.ordersDb}`);
-    await page.getByRole("button", { name: "Показать диаграмму" }).click();
-    const card = await scrollCardToTop(page, "Структура");
-    await card.locator("svg").first().waitFor();
-    await settle(page, 1200);
-    await shoot(page, "shot-db.png");
-    await card.getByText("во весь экран").click();
-    await page.locator("dialog[open] svg").first().waitFor();
-    await settle(page, 1200);
-    await shoot(page, "shot-db-full.png");
-  } },
-
-  // Канал Kafka: раскрыт catalog.product-events — тип, гарантия, срок хранения, поля.
-  broker: { size: [1600, 1200], async run(page, s) {
-    await go(page, `/p/${s.pid}/nodes/${s.ids.kafka}`);
-    await page.locator(`.bch-channel[data-flip-id="${s.channelId}"] .bch-chev`).click();
-    await scrollCardToTop(page, "Каналы");
-    await shoot(page, "shot-broker.png");
-  } },
-
-  // Якорь: редактор-карта уровня «Заказы», двойной клик по Order API —
-  // узел выделен, в правой панели свойства с якорем (репозиторий и путь).
-  anchor: { size: [1600, 1200], async run(page, s) {
-    await go(page, `/p/${s.pid}/map/${s.ids.orders}`);
-    const box = await page.locator(`.react-flow__node[data-id="${s.ids.orderApi}"]`).boundingBox();
-    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-    await page.getByText("github.com/yarmarka/orders").first().waitFor();
-    await settle(page);
-    await shoot(page, "shot-anchor.png");
-  } },
-
-  // Процесс «Оформление заказа» открыт на чтение, список процессов свёрнут в рейл —
-  // статичная картинка раздела «Процессы» лендинга (кадр 16:10 под его рамку; с
-  // 2026-10-28 вместо ролика vid-process и кадра шага shot-process-step).
-  process: { size: [1600, 1000], async run(page, s) {
+  // Раздел «Процессы» (кадр 16:10 во всю колонку 1200 px). Мысль кадра: процесс собран из
+  // объектов архитектуры, а от шага один шаг до схемы логики. Процесс «Оформление заказа» в
+  // чтении: участники сверху, пронумерованные шаги; выбран шаг, у которого есть схема логики
+  // («Создание заказа»), справа его панель со строкой «Схема логики». Список процессов свёрнут:
+  // ширина нужнее диаграмме. Выбор шага и свёртка списка — состояние экрана, в БД не пишут.
+  // Окно 1280×800 при DSF 2: на колонке 1200 px подпись шага (12 px) выходит 11,3 px.
+  process: { size: [1280, 800], async run(page, s) {
     await go(page, `/p/${s.pid}`);
-    await page.locator('button[title="Бизнес-процессы"]').click();
-    await page.getByText(PROCESS, { exact: true }).first().click();
+    await page.getByRole("button", { name: "Процессы", exact: true }).first().click(); // вкладка шапки
     await settle(page);
-    await page.locator('button[title="Свернуть в рейл"]').click();
+    await page.locator(".pr-row", { hasText: PROCESS }).first().click();
     await settle(page);
+    await page.getByRole("button", { name: "Свернуть список процессов" }).click();
+    await settle(page);
+    await page.locator(".seq-label").filter({ hasText: s.stepCaption }).first().click();
+    await page.getByText("Схема логики", { exact: true }).first().waitFor();
+    await settle(page);
+    // Диаграмма длиннее окна и уходит за нижний край. Подпись шага, которую режет край окна,
+    // прячется целиком (как строка у края врезки): иначе внизу висел бы обрывок подписи.
+    const vh = page.viewportSize().height;
+    const cut = await page.locator(".seq-label").evaluateAll((els, edge) => els.filter((e) => {
+      const r = e.getBoundingClientRect();
+      if (!(r.top < edge && r.bottom > edge)) return false;
+      e.style.setProperty("visibility", "hidden", "important");
+      return true;
+    }).map((e) => e.textContent.trim().slice(0, 30)), vh);
+    if (cut.length) console.log(`  у нижнего края скрыта подпись шага: ${cut.join("; ")}`);
+    const fs = await page.locator(".seq-label").first().evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+    console.log(`  окно 1280 px на колонке 1200 px: подпись шага ${fs} px → ${(fs * 1200 / 1280).toFixed(1)} px, основной текст 13 px → ${(13 * 1200 / 1280).toFixed(1)} px`);
     await shoot(page, "shot-process.png");
   } },
 
-  // Статусы — на моке «Уведомления заказов» (scripts/fixtures/landing-status.yaml): корень
-  // редактора-карты в виде «Переход», в кадре все четыре объекта ромбом — «Заказы» слева,
-  // внешний «SMS-провайдер» справа, между ними проектируемый «Центр уведомлений» над
-  // выводимым «SMS-рассыльщиком». Расстановка ручная, сохранена в виде корня мока. Кадр —
-  // постер ролика vid-status и его запасная картинка на лендинге, поэтому окно то же, что у
-  // сцены status в landing-videos.mjs: 1400×600 (21:9, как рамка раздела), холст в масштабе
-  // около 1.
-  status: { size: [1400, 600], async run(page, s) {
-    await go(page, `/p/${s.pid}/map`);
-    await page.getByRole("button", { name: "Свернуть панель" }).last().click(); // правая
-    await page.getByRole("button", { name: "Свернуть панель" }).first().click(); // левая
-    await page.getByRole("radio", { name: "Переход", exact: true }).click(); // вид «все статусы»
-    await settle(page);
-    await page.locator(".react-flow__controls-fitview").click();
-    await settle(page);
-    await frameNodes(page, s.frame, 0.8);
-    const k = await page.evaluate(() => /scale\(([-\d.]+)\)/.exec(document.querySelector(".react-flow__viewport").style.transform)?.[1]);
-    console.log(`  масштаб холста ${Number(k).toFixed(2)}`);
-    await shoot(page, "shot-status.png");
-  } },
-
-  // Импорт YAML: «Новый проект» → «Импорт» (из свитчера проектов — фоном демо-проект,
-  // а не список всех проектов), пара YAML, живой статус и разбор остатка. НИЧЕГО не
-  // создаётся: имени нет, кнопка «Создать проект» неактивна, окно закрываем «Отменой».
-  // Окно выше остальных: врезке нужен блок вопросов целиком в видимой части тела модалки.
-  import: { size: [1600, 1500], async run(page, s) {
+  // Импорт YAML, врезка блока «Доверить агенту». Мысль кадра: при слиянии файлов от разных
+  // агентов ArchMap задаёт понятный вопрос с вариантами ответа. «Новый проект» → «Импорт» (из
+  // переключателя проектов — фоном демо-проект, а не список всех проектов), пара YAML вставкой
+  // текста, живой статус и разбор остатка. В кадре строка статуса «Не всё сошлось идеально» и
+  // блок вопроса целиком (счётчик «Вопрос 1 из N», вопрос, варианты, один «по умолчанию»,
+  // «Назад/Дальше»), без зоны файлов и подвала окна (замечание владельца 2026-10-16). Окно
+  // узкое (440 px, окно ввоза — во всю ширину без полей): вопрос переносится на четыре
+  // строки, и врезка выходит почти квадратной, как место под неё на лендинге; плотность
+  // подобрана под файл 1088 px в ширину. НИЧЕГО не создаётся: имени нет, кнопка «Создать
+  // проект» неактивна, окно закрываем «Отменой».
+  import: { size: [440, 1100], dsf: 1088 / 408, async run(page, s) {
     await go(page, `/p/${s.pid}`);
-    await page.locator("button", { hasText: PROJECT_NAME }).first().click();
-    await page.getByRole("button", { name: "Новый проект" }).click();
+    await page.locator("button.ps-trigger").click();
+    await page.locator("button.ds-menu-item", { hasText: "Новый проект" }).click();
     const dlg = page.locator("dialog[open]");
     await dlg.getByRole("button", { name: "Импорт", exact: true }).click();
     const preview = () => page.waitForResponse((r) => r.url().includes("/projects/import/unified-preview"), { timeout: 20000 });
-    let wait = preview();
-    await dlg.locator("textarea").last().fill(readFileSync(join(ROOT, "scripts", "fixtures", "mock-import.yaml"), "utf8"));
-    await wait;
-    await dlg.locator('button[title="Добавить ещё один YAML вставкой"]').click();
-    wait = preview();
-    await dlg.locator("textarea").last().fill(SECOND_YAML);
-    await wait;
-    await dlg.locator(".rq-st").first().waitFor();
-    await settle(page);
-    // Тело модалки — к ряду чипов «Файл 1 · Файл 2»: видны вставки, статус и вопрос
-    await dlg.locator(".cp-chip").first().evaluate((chip) => {
-      let sc = chip.parentElement;
-      while (sc && !(sc.scrollHeight > sc.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
-      if (sc) sc.scrollTop += chip.getBoundingClientRect().top - sc.getBoundingClientRect().top - 8;
-    });
-    // Поле вставки — к началу текста (после вставки оно прокручено к каретке в конце)
-    await dlg.locator("textarea").last().evaluate((t) => { t.scrollTop = 0; });
-    await shoot(page, "shot-import.png");
-    // Врезка блока «Доверить агенту» — ОПРОСНИК: строка статуса «Не всё сошлось идеально»
-    // и блок вопросов целиком (вопрос, варианты, сноска, «Назад/Дальше»), без чипов файлов
-    // и вставки YAML — они новому пользователю ни о чём не говорят (замечание владельца
-    // 2026-10-16). Тело модалки прокручивается к строке статуса, поле вокруг — белое поле
-    // окна, рамку и тень рисует сам лендинг.
-    const PAD = 16;
+    for (const text of [readFileSync(join(ROOT, "scripts", "fixtures", "mock-import.yaml"), "utf8"), SECOND_YAML]) {
+      await dlg.getByRole("button", { name: "Вставить текст" }).click();
+      const wait = preview();
+      await dlg.locator("textarea.fz-paste").fill(text);
+      await wait;
+    }
     const status = dlg.locator(".rq-st").first();
     const block = dlg.locator(".rq-block").first();
-    const view = await status.evaluate((el, pad) => {
+    await block.getByText(/^Вопрос 1 из \d+$/).waitFor();
+    await settle(page);
+    // Поле врезки: по бокам 24 px (варианты ответа шире блока на 10 px), сверху и снизу не
+    // меньше 16 px. Пропорция — как у прежнего файла (1088×1096): лендинг держит место под
+    // почти квадратную картинку, поэтому короткий блок встаёт посередине по высоте.
+    const PAD_Q = 16, PAD_X = 24, RATIO = 1088 / 1096;
+    // Поле вставки над строкой статуса и свёртка «Придется подправить вручную» под блоком в
+    // кадр не входят, а их края попадали бы в поля врезки — прячем всё, что выше строки
+    // статуса и ниже блока.
+    await block.evaluate((b) => {
+      const hide = (n) => n.style.setProperty("visibility", "hidden", "important");
+      for (let n = b.nextElementSibling; n; n = n.nextElementSibling) hide(n);
+      const result = b.closest(".cp-result") ?? b.parentElement;
+      for (let n = result.previousElementSibling; n; n = n.previousElementSibling) hide(n);
+    });
+    const st0 = await status.boundingBox();
+    const bl0 = await block.boundingBox();
+    const content = bl0.y + bl0.height - st0.y;
+    const width = Math.round(bl0.width + 2 * PAD_X);
+    const height = Math.max(Math.round(width / RATIO), Math.round(content + 2 * PAD_Q));
+    if (height > Math.round(width / RATIO)) warnings.push(`crop-import.png: блок выше пропорции ${width}×${Math.round(width / RATIO)} — кадр ${width}×${height}`);
+    const above = Math.floor((height - content) / 2);
+    // Строка статуса — на above px ниже верха области прокрутки окна: над кадром шапка окна
+    const scrollTop = await status.evaluate((el, off) => {
       let sc = el.parentElement;
-      while (sc && !(sc.scrollHeight > sc.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
-      if (!sc) throw new Error("не нашлось прокручиваемой колонки окна");
-      // Тело окна — фиксированные 560 px, блок вопросов целиком в них не влезает: на время
-      // врезки тело выше (оформление кадра, как min-height в shootFlat; данных не касается).
-      sc.parentElement.style.setProperty("height", "1000px", "important");
-      sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - pad;
-      // Свёртка «Придется подправить вручную» под блоком в кадр не входит, а её верх
-      // попадал бы в нижнее поле врезки — прячем всё, что ниже блока.
-      for (let n = sc.querySelector(".rq-block")?.nextElementSibling; n; n = n.nextElementSibling) {
-        n.style.setProperty("visibility", "hidden", "important");
-      }
-      return sc.getBoundingClientRect().bottom;
-    }, PAD);
+      while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+      if (!sc) return 0;
+      const top = sc.getBoundingClientRect().top;
+      sc.scrollTop += el.getBoundingClientRect().top - (top + off);
+      return top;
+    }, above);
     await page.waitForTimeout(300);
     const st = await status.boundingBox();
     const bl = await block.boundingBox();
-    if (bl.y + bl.height + PAD > view) throw new Error("блок вопросов не помещается в видимую часть окна — увеличьте высоту окна кадра");
-    await shootClip(page, "crop-import.png", {
-      x: Math.round(bl.x - PAD), y: Math.round(st.y - PAD),
-      width: Math.round(bl.width + 2 * PAD), height: Math.round(bl.y + bl.height - st.y + 2 * PAD),
-    });
+    const clip = { x: Math.round(bl.x - PAD_X), y: Math.round(st.y - above), width, height };
+    if (clip.y < scrollTop || clip.y + height > page.viewportSize().height) throw new Error("блок вопросов не помещается в окно — увеличьте высоту окна сцены");
+    console.log(`  врезка ${clip.width}×${clip.height} CSS px; основной текст 13 px → ${(13 * 544 / clip.width).toFixed(1)} px при показе шириной 544 px`);
+    await shootClip(page, "crop-import.png", clip);
     await dlg.getByRole("button", { name: "Отмена" }).click();
   } },
 
   // ── Врезки вкладок: каждая — блок интерфейса крупно (STAGE_RATIO, см. shootFlat) ──
-  // Схема логики «Создание заказа»: окно просмотра, схема приближена над развилкой
-  // «Позиций не больше лимита?» — видны заголовок окна, начало схемы и обе ветки (та же
-  // логика, что текстом в блоке «Для агента» на лендинге).
-  "crop-logic": { size: [960, 760], async run(page, s) {
+  // Схема логики «Создание заказа». Мысль кадра: алгоритм обработчика нарисован блок-схемой.
+  // Окно на чтение (окно схемы 848 px: шапка «Order API · Создание заказа · POST /orders»),
+  // масштаб на шаг мельче открытого (87 %): под шапкой ромб «Позиций не больше лимита?»,
+  // обе ветки и блоки под ними целиком — отказ «422: слишком много позиций» и расчёт суммы.
+  // Блок проверки над ромбом в кадр уже не влезает: при 87 % текст схемы на лендинге
+  // 12,5 px, а мельче шаг масштаба (76 %) дал бы меньше 11 px.
+  "crop-logic": { size: [912, 760], async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
     await page.locator(`button[title="Открыть схему «${DOC_LOGIC}»"]`).click();
     const dlg = page.locator("dialog[open]");
     await dlg.locator("svg").first().waitFor();
     await settle(page, 600);
-    await zoomViewer(page, centerOf(await svgNodeBox(page, "Позиций не больше")), 68);
-    // Проверка лимита (узел над развилкой) — сразу под заголовок окна; тащим за пустое поле
+    await dlg.getByRole("button", { name: "Уменьшить" }).click(); // шаг к центру, как щелчок по «−»
+    await page.waitForTimeout(400);
+    // Ромб — под шапку окна с полем 20 px (стрелка в него сверху уходит под шапку); тащим за
+    // пустое поле слева от схемы
     const box = await dlg.boundingBox();
-    const head = await dlg.getByRole("button", { name: "Изменить" }).boundingBox();
-    const check = await svgNodeBox(page, "Проверить число");
-    await dragViewer(page, { x: box.x + 60, y: box.y + box.height / 2 }, 0, head.y + head.height + 28 - check.y);
-    await hideZoomPill(dlg);
+    const head = await dlg.locator(".doc-head").boundingBox();
+    const diamond = await svgNodeBox(page, "Позиций не больше");
+    await dragViewer(page, { x: box.x + 40, y: box.y + box.height / 2 }, 0, head.y + head.height + 20 - diamond.y);
+    const bottom = box.y + Math.round(box.width / STAGE_RATIO);
+    for (const t of ["422", "Посчитать"]) {
+      const b = await svgNodeBox(page, t);
+      if (b.y + b.height > bottom - 4) warnings.push(`crop-logic.png: блок «${t}…» срезан нижним краем кадра`);
+    }
+    const fs = await dlg.locator("svg g.node").first().evaluate((g) => parseFloat(getComputedStyle(g.querySelector("p, span, div") ?? g).fontSize));
+    const z = await viewerZoom(dlg);
+    console.log(`  масштаб ${z}: текст схемы ${fs} px → ${(fs * parseInt(z) / 100 * STAGE_W / box.width).toFixed(1)} px на лендинге`);
     await shootFlat(page, "crop-logic.png", dlg, { cutText: false });
   } },
 
-  // Спецификация Order API: окно Swagger, операция создания заказа раскрыта, тело запроса —
-  // вкладкой «Schema» (пример значения в узком окне Swagger раскладывает столбцами).
-  "crop-openapi": { size: [960, 760], async run(page, s) {
+  // Спецификация Order API. Мысль кадра: видно, какие эндпоинты сервис отдаёт наружу. Окно
+  // спецификации (848 px): заголовок, описание и список операций целиком — «POST /orders»
+  // свёрнута, последняя «GET /orders/{order_id}» раскрыта (параметр пути, ниже ответы):
+  // раскрытая первая заслонила бы остальной список.
+  "crop-openapi": { size: [912, 760], async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
-    await page.locator('.np-card:has(h3:text-is("OpenAPI")) .np-doc-row').click();
+    await section(page, "OpenAPI").locator(".ds-row-main").first().click();
     const dlg = page.locator("dialog[open]");
-    await dlg.locator(".opblock-summary").first().click();
+    await dlg.locator(".opblock-summary").last().click();
     await dlg.locator(".opblock.is-open").first().waitFor();
-    await dlg.locator(".opblock.is-open").getByRole("tab", { name: "Schema" }).first().click();
     await settle(page, 800);
     await shootFlat(page, "crop-openapi.png", dlg);
   } },
 
-  // ER-диаграмма БД заказов во весь экран, приближена к таблице orders и её связям.
-  "crop-db": { size: [960, 760], async run(page, s) {
+  // ER-диаграмма БД заказов. Мысль кадра: таблицы, колонки и связи базы. Окно «Структура: БД
+  // заказов» (848 px, открывается в масштабе для чтения 90 %), масштаб на шаг мельче (78 %):
+  // таблица orders левым краем у поля окна — имя, типы и имена колонок, ключ; над ней линии
+  // связей order_id и таблицы order_items (её имя у левого края) и order_saga, которые на неё
+  // ссылаются. Пояснения колонок широкие, справа уходят за край окна.
+  "crop-db": { size: [896, 760], async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.ordersDb}`);
     await page.getByRole("button", { name: "Показать диаграмму" }).click();
-    const card = await scrollCardToTop(page, "Структура");
-    await card.locator("svg").first().waitFor();
-    await card.getByText("во весь экран").click();
+    await page.locator('button[title="Открыть диаграмму во весь экран"]').click();
     const dlg = page.locator("dialog[open]");
     await dlg.locator("svg").first().waitFor();
     await settle(page, 600);
-    // Таблица orders — почти во всю ширину окна, по центру; выше неё в кадре — линии
-    // связей и низ таблиц order_items и order_saga, которые на неё ссылаются
+    await dlg.getByRole("button", { name: "Уменьшить" }).click(); // шаг к центру, как щелчок по «−»
+    await page.waitForTimeout(400);
+    // Таблица order_items — левым краем у поля окна, верхом под шапкой: она в кадре целиком
+    // (типы, имена, ключи, комментарии). Ниже левая часть orders (типы, имена, ключ) и связь
+    // order_id между ними. Таблицы шире кадра из-за комментариев, обе целиком не входят: имя
+    // orders стоит по центру таблицы и остаётся за правым краем, order_saga в кадр не попадает.
     const box = await dlg.boundingBox();
-    const entity = () => dlg.locator('svg g.node[id*="-entity-orders-"]').first().boundingBox();
-    let e = await entity();
-    for (let i = 0; i < 20 && e.width * 1.15 <= box.width * 0.92; i++) {
-      await page.mouse.move(e.x + e.width / 2, e.y);
-      await page.mouse.wheel(0, -100);
-      await page.waitForTimeout(150);
-      e = await entity();
-    }
-    await dragViewer(page, { x: box.x + 40, y: box.y + box.height - 40 },
-      box.x + box.width / 2 - (e.x + e.width / 2), box.y + 300 - e.y);
-    await hideZoomPill(dlg);
+    const entity = (name) => dlg.locator(`svg g.node[id*="-entity-${name}-"]`).first();
+    const items = await entity("order_items").boundingBox();
+    await dragViewer(page, { x: box.x + box.width / 2, y: box.y + box.height - 40 }, box.x + 32 - items.x, box.y + 72 - items.y);
+    await dlg.locator('button[aria-label="Увеличить"]').first().evaluate((b) => { b.parentElement.style.visibility = "hidden"; }); // пилюля масштаба
+    // В кадре обязаны быть: имя order_items, левый край обеих таблиц (колонки типов и имён)
+    // и не меньше трёх строк orders; order_saga в кадр не заходит
+    const bottom = box.y + box.width / STAGE_RATIO;
+    const right = box.x + box.width;
+    const label = await entity("order_items").locator("text=order_items").first().boundingBox().catch(() => null);
+    if (!label || label.x < box.x || label.x + label.width > right || label.y + label.height > bottom) warnings.push("crop-db.png: имя таблицы order_items не в кадре");
+    const at = { items: await entity("order_items").boundingBox(), orders: await entity("orders").boundingBox(), saga: await entity("order_saga").boundingBox() };
+    if (at.items.x < box.x || at.items.y + at.items.height > bottom) warnings.push("crop-db.png: таблица order_items режется краем кадра слева или снизу");
+    if (at.orders.x < box.x || at.orders.x + 280 > right || at.orders.y + 130 > bottom) warnings.push("crop-db.png: левые колонки orders не в кадре");
+    if (at.saga.x < right && at.saga.y < bottom) warnings.push("crop-db.png: в кадр зашёл край order_saga");
+    const fs = await entity("orders").evaluate((g) => parseFloat(getComputedStyle(g.querySelector("p, span, div, text") ?? g).fontSize));
+    const z = await viewerZoom(dlg);
+    console.log(`  масштаб ${z}: текст таблицы ${fs} px → ${(fs * parseInt(z) / 100 * STAGE_W / box.width).toFixed(1)} px на лендинге`);
     await shootFlat(page, "crop-db.png", dlg, { cutText: false });
   } },
 
-  // Канал Kafka catalog.product-events: тип, гарантия, хранение, поля сообщения.
-  "crop-broker": { size: [960, 900], async run(page, s) {
+  // Канал Kafka catalog.product-events на странице брокера. Мысль кадра: у канала описаны поля
+  // сообщения и видно, кто публикует и кто читает. Раздел «Каналы», канал раскрыт: назначение,
+  // ключ, гарантия и срок хранения, поля, «Кто публикует / кто потребляет». Окно 960 px с
+  // деревом в полосе: колонка документа 848 px, текст на лендинге не мельче 11 px.
+  "crop-broker": { size: [960, 900], dsf: 1696 / 880, async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.kafka}`);
     await collapseTree(page);
-    await page.locator(`.bch-channel[data-flip-id="${s.channelId}"] .bch-chev`).click();
-    await scrollCardToTop(page, "Каналы");
+    const sec = section(page, "Каналы");
+    const items = sec.locator(".fact-item");
+    // Имя канала у архитектора — в поле (значение не текст), у читателя — текстом
+    const i = await items.evaluateAll((els, name) => els.findIndex((e) =>
+      (e.querySelector('textarea[aria-label="Канал"]')?.value ?? e.querySelector(".fact-name")?.textContent ?? "").trim() === name), CHANNEL);
+    if (i < 0) throw new Error(`на странице нет канала «${CHANNEL}»`);
+    await items.nth(i).getByRole("button", { name: "Развернуть канал" }).click();
+    await items.nth(i).getByText("Кто публикует / кто потребляет").waitFor();
+    await scrollToTop(page, sec, 100); // ниже шапки приложения с полем врезки
     await settle(page, 400);
-    await shootFlat(page, "crop-broker.png", page.locator('.np-card:has(h3:text-is("Каналы"))').first());
+    // Блок кадра — раздел до раскрытого канала включительно: следующий канал не в кадр
+    await shootBlock(page, "crop-broker.png", sec, items.nth(i));
   } },
 
-  // Конфигурация Order API: параметры, дефолты из кода, «что переключает», пометки «зависит».
-  "crop-config": { size: [960, 900], async run(page, s) {
+  // Конфигурация Order API. Мысль кадра: параметры конфигурации с пояснением и со схемами,
+  // которые от них зависят. Раздел «Конфигурация»: параметр, тип, обязательность, значение по
+  // умолчанию из кода, «что переключает» и строки «Зависит: …» под ним. Окно 912 px с деревом
+  // в полосе: колонка документа 802 px — в 748 px имя MAX_ITEMS_PER_ORDER у архитектора уже
+  // переносится; пояснения переносятся, и раздел заполняет кадр плотнее, чем в 848 px.
+  // Ширина кадра 834 px даёт после плотности ровно 1696×1102, как у соседних врезок.
+  "crop-config": { size: [914, 900], dsf: 1696 / 834, async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
     await collapseTree(page);
-    const card = await scrollCardToTop(page, "Конфигурация");
+    const sec = section(page, "Конфигурация");
+    await sec.getByText(/^Зависит:/).first().waitFor();
+    await scrollToTop(page, sec, 100); // ниже шапки приложения с полем врезки
     await settle(page, 400);
-    await shootFlat(page, "crop-config.png", card);
+    await shootBlock(page, "crop-config.png", sec);
   } },
 
-  // Ссылка на источник: свойства Order API на его странице — якорь (репозиторий и путь).
-  // Кадр уже карточки (значения — в её левой части): плотность выше, чтобы в пикселях он был
-  // не уже соседних врезок (1696 px) и на сайте заполнял окно вкладок так же, как они.
-  "crop-anchor": { size: [960, 900], dsf: 2 * 848 / 660, async run(page, s) {
+  // Источник Order API. Мысль кадра: у объекта записано, откуда он взялся — репозиторий и
+  // путь. Шапка страницы (путь, имя, описание) и свойства со строкой «Источник»
+  // («github.com/yarmarka/orders / services/order-api» целиком). Окно 760 px с деревом в
+  // полосе: свойства встают одной колонкой, и шапка со свойствами заполняет кадр.
+  "crop-anchor": { size: [760, 900], dsf: 1696 / 680, async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
     await collapseTree(page);
-    await page.getByText("github.com/yarmarka/orders").first().waitFor();
-    const card = await scrollCardToTop(page, "Свойства");
+    await page.getByText("github.com/yarmarka/orders / services/order-api").first().waitFor();
+    const head = page.locator(".np-header");
+    await scrollToTop(page, head, 100); // ниже шапки приложения с полем врезки
     await settle(page, 400);
-    await shootFlat(page, "crop-anchor.png", card, { maxWidth: 660 }); // значения — в левой части карточки
+    await shootBlock(page, "crop-anchor.png", head, page.locator(".np-props"));
+  } },
+
+  // Живая схема лендинга на телефоне (≤700 px лендинг вставляет картинку вместо iframe):
+  // embed.html свежей сборки (npm run build:embed → frontend/dist-embed, путь — --embed) в
+  // инертном виде, окно 640×640. Приглашение «Нажмите, чтобы…» и кнопки холста скрыты
+  // стилем (кадр — сама схема), пульс подсказки на лупе стоит (animations: disabled).
+  // Бэкенд не нужен: страница отвечает себе сама (src/embed/staticBackend).
+  embed: { size: [640, 640], async run(page) {
+    const server = await serveDir(EMBED_DIR);
+    try {
+      await page.goto(`http://127.0.0.1:${server.address().port}/embed.html`);
+      await page.locator(".react-flow__node").first().waitFor();
+      await settle(page);
+      await page.addStyleTag({ content: ".esb-activate, .lp-done, .lg-seg, .react-flow__controls, .react-flow__panel, .sleg-btn { display: none !important; }" });
+      const n = await page.locator(".react-flow__node").count();
+      console.log(`  узлов на холсте: ${n}`);
+      await shoot(page, "embed-still.png");
+    } finally {
+      server.close();
+    }
   } },
 };
 
 // ── Прогон ───────────────────────────────────────────────────────────────────
 const pw = await import(PW_MODULE);
 const { chromium } = pw.default;
-const token = await login();
-const scene = await resolveScene(token);
+const names = Object.keys(SHOTS).filter((n) => !ONLY || ONLY.includes(n));
+const needStand = names.some((n) => !LOCAL.has(n));
+const token = needStand ? await login() : null;
+const scene = needStand ? await resolveScene(token) : null;
 mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch({
   executablePath: existsSync(CHROME) ? CHROME : undefined,
@@ -1002,17 +972,23 @@ const browser = await chromium.launch({
   headless: true,
 });
 console.log(`Проект «${PROJECT_NAME}» → ${OUT}`);
-for (const [name, shot] of Object.entries(SHOTS)) {
-  if (ONLY && !ONLY.includes(name)) continue;
-  // Сцена мока — только на своём моке; на моке — только его сцены
+for (const name of names) {
+  const shot = SHOTS[name];
+  // Сцена мока — только на своём моке; на моке — только его сцены; живая схема — с --embed
   const owner = MOCK_OF[name] ?? null;
-  if (owner !== (MOCK ? PROJECT_NAME : null)) {
+  if (LOCAL.has(name)) {
+    if (!EMBED_DIR || !existsSync(join(EMBED_DIR, "embed.html"))) {
+      console.log(`• ${name}: пропуск — нужна сборка живой схемы (--embed frontend/dist-embed после npm run build:embed)`);
+      continue;
+    }
+  } else if (owner !== (MOCK ? PROJECT_NAME : null)) {
     console.log(`• ${name}: пропуск — ${owner ? `снимается на моке «${owner}» (--project "${owner}")` : `на моке «${PROJECT_NAME}» этой сцены нет`}`);
     continue;
   }
   console.log(`• ${name}`);
   const before = blocked.length;
-  const { ctx, page } = await newPage(browser, token, scene.pid, shot.size[0], shot.size[1], name, shot.dsf);
+  const local = LOCAL.has(name);
+  const { ctx, page } = await newPage(browser, local ? null : token, local ? null : scene.pid, shot.size[0], shot.size[1], name, shot.dsf);
   try {
     await shot.run(page, scene);
   } catch (e) {

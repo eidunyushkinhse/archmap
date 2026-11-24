@@ -166,7 +166,8 @@ archmap/
 │   │                      # синтетические сцены, батарея сценариев на живом стеке, построчный профиль конвейера
 │   ├── refresh-demo-template.py  # обновление пакета демо-шаблона из живого эталона в БД
 │   ├── seed-alerts-demo.py  # стенд, на котором горят все классы алертов
-│   ├── landing-shots.mjs / landing-videos.mjs / landing-embed-scene.mjs  # кадры, видео и живая схема лендинга
+│   ├── landing-shots.mjs / landing-videos.mjs / landing-embed-scene.mjs  # кадры, видео и живая схема лендинга;
+│   │                      # landing-serve.mjs — локальный просмотр лендинга (сервер с Range: без него ролик не перематывается)
 │   ├── c4-compare/        # измеритель сверки C4-схем (QA импорта)
 │   └── fixtures/          # mock-import.yaml — фикстура кадров лендинга
 ├── deploy/                # поставка (DEPLOY.md)

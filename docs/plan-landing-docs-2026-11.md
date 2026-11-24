@@ -128,7 +128,9 @@ dev-базе рядом с эталоном и нужны для будущих 
    (Веб-кабинет, API кассы 1/2) и Кластер B (API кассы 2/2, Фискализатор), снизу БД чеков
    (Managed PostgreSQL); RabbitMQ и БД по центру ряда. Двигать по одной карточке так, чтобы
    рамки не наезжали друг на друга: перекрытие рамок раздвигает их, и карточка уезжает.
-5. Съёмка: `node scripts/landing-shots.mjs --only status --project "Уведомления заказов"`,
+5. (С 2026-11-24 съёмка, размеры окон и проверки роликов описаны в
+   `docs/plan-landing-redesign-2026-11.md` §4; ниже прежний порядок.)
+   Съёмка: `node scripts/landing-shots.mjs --only status --project "Уведомления заказов"`,
    `node scripts/landing-shots.mjs --only deploy-canvas --project "Онлайн-касса"` и под Xvfb
    `node scripts/landing-videos.mjs --only status --project "Уведомления заказов"` (проверки
    ролика: первый и последний кадр совпадают, PSNR выше 45 дБ; yuv420p; размер). Окно сцены
