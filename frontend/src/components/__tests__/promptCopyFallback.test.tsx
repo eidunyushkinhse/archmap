@@ -8,22 +8,22 @@ import PromptCopyButton from "../docsImport/PromptCopyButton";
 import { CopyFailed } from "../../lib/copyText";
 
 describe("PromptCopyButton: буфер недоступен", () => {
-  it("текст промпта показывается для ручного копирования", async () => {
-    const copy = vi.fn(() => Promise.reject(new CopyFailed("ТЕКСТ ПРОМПТА")));
-    render(<PromptCopyButton label="Скопировать промпт" copiedLabel="Скопировано" kind="primary" copy={copy} />);
+  it("текст задания показывается для ручного копирования", async () => {
+    const copy = vi.fn(() => Promise.reject(new CopyFailed("ТЕКСТ ЗАДАНИЯ")));
+    render(<PromptCopyButton label="Скопировать задание" copiedLabel="Скопировано" kind="primary" copy={copy} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));
+    await userEvent.click(screen.getByRole("button", { name: "Скопировать задание" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("скопируйте");
-    expect(screen.getByLabelText("Текст промпта")).toHaveValue("ТЕКСТ ПРОМПТА");
-    expect(screen.getByRole("button", { name: "Скопировать промпт" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Текст задания")).toHaveValue("ТЕКСТ ЗАДАНИЯ");
+    expect(screen.getByRole("button", { name: "Скопировать задание" })).toBeInTheDocument();
   });
 
   it("прочий отказ (запрос промпта) — без поля, его показывает окно", async () => {
     const copy = vi.fn(() => Promise.reject(new Error("500")));
-    render(<PromptCopyButton label="Скопировать промпт" copiedLabel="Скопировано" kind="primary" copy={copy} />);
-    await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));
+    render(<PromptCopyButton label="Скопировать задание" copiedLabel="Скопировано" kind="primary" copy={copy} />);
+    await userEvent.click(screen.getByRole("button", { name: "Скопировать задание" }));
     await Promise.resolve();
-    expect(screen.queryByLabelText("Текст промпта")).toBeNull();
+    expect(screen.queryByLabelText("Текст задания")).toBeNull();
   });
 });

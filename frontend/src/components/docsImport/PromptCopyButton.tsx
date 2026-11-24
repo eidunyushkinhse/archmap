@@ -85,7 +85,7 @@ export default function PromptCopyButton({ label, copiedLabel, kind, copy, disab
             readOnly
             value={manual}
             className="pcb-area"
-            aria-label="Текст промпта"
+            aria-label="Текст задания"
             onFocus={(e) => e.currentTarget.select()}
             ref={(el) => el?.select()}
           />
