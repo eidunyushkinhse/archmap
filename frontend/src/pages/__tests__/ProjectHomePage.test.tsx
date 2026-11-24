@@ -18,13 +18,19 @@ vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 // onEdit блока (вход в экран схемы из строки заголовка) — маркером: передан ли и куда ведёт.
+// Пропсы блока целиком — наружу (перераскладка схемы корня).
+const schemaProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: ({ title, notice, empty, onEdit }: { title: string; notice?: string | null; empty?: ReactNode; onEdit?: () => void }) => (
-    <div data-testid="schema" data-title={title} data-notice={notice ?? ""} data-edit={onEdit ? "есть" : "нет"}>
-      {empty}
-      {onEdit && <button type="button" data-testid="schema-edit" onClick={onEdit} />}
-    </div>
-  ),
+  default: (p: { title: string; notice?: string | null; empty?: ReactNode; onEdit?: () => void }) => {
+    schemaProps.current = p;
+    const { title, notice, empty, onEdit } = p;
+    return (
+      <div data-testid="schema" data-title={title} data-notice={notice ?? ""} data-edit={onEdit ? "есть" : "нет"}>
+        {empty}
+        {onEdit && <button type="button" data-testid="schema-edit" onClick={onEdit} />}
+      </div>
+    );
+  },
 }));
 // Панель версий — маркер с пропсами: здесь проверяется вход из ⋯-меню проекта, сама
 // панель покрыта своим тестом (VersionsPanel.test).
@@ -268,5 +274,34 @@ describe("ProjectHomePage: вход в экран схемы", () => {
       </ProjectRoleContext.Provider>,
     );
     expect(await screen.findByTestId("schema")).toHaveAttribute("data-edit", "нет");
+  });
+});
+
+// «Переразложить» схемы корня (кнопка в углу холста): страница сбрасывает раскладку вида
+// корня запросом сервера, растит токен (холст анимирует переезд) и перечитывает уровень.
+describe("ProjectHomePage: «Переразложить» схемы корня", () => {
+  const withNodes = { ...graph, nodes: [{ id: "a", name: "Заказы", shape: "service" }] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
+    vi.mocked(processesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(withNodes as never);
+    vi.mocked(nodesApi.relayoutLevel).mockResolvedValue(undefined);
+  });
+
+  it("архитектор: сброс вида корня, токен блоку схемы, уровень перечитан", async () => {
+    render(
+      <ProjectRoleContext.Provider value="owner">
+        <ProjectHomePage {...props} isArchitect />
+      </ProjectRoleContext.Provider>,
+    );
+    await screen.findByTestId("schema");
+    expect(schemaProps.current?.relayoutToken).toBe(0);
+    const relayout = schemaProps.current?.onRelayout as () => void;
+    await act(async () => { relayout(); });
+    expect(nodesApi.relayoutLevel).toHaveBeenCalledWith(null);
+    await waitFor(() => expect(schemaProps.current?.relayoutToken).toBe(1));
+    expect(nodesApi.getGraph).toHaveBeenCalledTimes(2);
   });
 });

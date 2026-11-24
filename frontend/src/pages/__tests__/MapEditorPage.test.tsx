@@ -160,7 +160,11 @@ const transitionProps = vi.hoisted(() => ({ current: null as Record<string, unkn
 vi.mock("../../components/TransitionConfirm", () => ({
   default: (p: Record<string, unknown>) => { transitionProps.current = p; return null; },
 }));
-vi.mock("../../components/RelayoutConfirm", () => ({ default: () => <div data-testid="relayout-confirm" /> }));
+// Окно «Переразложить уровень»: заглушка отдаёт наружу onDone (сброс без настоящего окна).
+const relayoutProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+vi.mock("../../components/RelayoutConfirm", () => ({
+  default: (p: Record<string, unknown>) => { relayoutProps.current = p; return <div data-testid="relayout-confirm" />; },
+}));
 // Кнопка «Рекомендации» (алерты): метка присутствия + кнопка, дёргающая
 // onOpenProcess — как строка процессного класса (AL26/AL27) в настоящей панели.
 // realAlerts.current — настоящая кнопка с панелью (тест Escape при открытой панели).
@@ -334,6 +338,21 @@ describe("MapEditorPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Переразложить уровень" }));
     expect(screen.getByTestId("relayout-confirm")).toBeInTheDocument();
+  });
+
+  it("подтверждённый сброс: токен холсту, уровень перечитан, история очищена", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")] }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    expect(levelGraphProps.current?.relayoutToken).toBe(0);
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Переразложить уровень" }));
+    const done = relayoutProps.current?.onDone as () => void;
+    await act(async () => { done(); });
+    expect(screen.queryByTestId("relayout-confirm")).toBeNull();
+    expect(levelGraphProps.current?.relayoutToken).toBe(1);
+    expect(nodesApi.getGraph).toHaveBeenCalledTimes(2);
+    expect(historyMock.clear).toHaveBeenCalled();
   });
 
   it("читателю: подписи связей в меню есть, «Переразложить уровень» и «Принять переход» нет", async () => {
