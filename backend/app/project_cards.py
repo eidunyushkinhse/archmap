@@ -157,9 +157,13 @@ def _previews(db: Session, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, Proj
                 )
                 for _nid, node_uuid, ext in kept
             ],
+            # Связи — в постоянном порядке (по id концов): множество отдаёт их в порядке
+            # хэшей строк, а он свой у каждого процесса сервера. Превью без сохранённых
+            # позиций раскладывает ELK, чувствительный к порядку связей, и карточка проекта
+            # перерисовывалась после перезапуска (находка 2026-11-24).
             edges=[
                 ProjectPreviewEdge(source=kept_uuid[s], target=kept_uuid[t])
-                for (s, t) in edges
+                for (s, t) in sorted(edges)
                 if s in kept_uuid and t in kept_uuid
             ],
         )

@@ -89,6 +89,26 @@ def test_preview_projects_edges_to_root_ancestors(db):
     assert len(fresh.preview.edges) == 1  # проекция дала ровно одно ребро R1↔R2
 
 
+def test_preview_edges_in_stable_order(db):
+    """Связи превью идут в одном и том же порядке при каждом запуске сервера (находка
+    2026-11-24): их собирает множество, а порядок множества строк свой у каждого процесса.
+    Превью без сохранённых позиций раскладывает ELK, чувствительный к порядку связей, и
+    карточка проекта перерисовывалась после перезапуска. Порядок — по id концов."""
+    user = ensure_architect(db)
+    p = create_project(ProjectCreate(name="Порядок связей"), db=db, user=user)
+    roots = [Node(id=uuid.uuid4(), name=f"R{i}", project_id=p.id) for i in range(6)]
+    db.add_all(roots)
+    db.flush()
+    pairs = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0), (0, 3), (1, 4), (2, 5), (4, 0)]
+    for a, b in pairs:
+        db.add(Edge(id=uuid.uuid4(), source_id=roots[a].id, target_id=roots[b].id, project_id=p.id))
+    db.commit()
+
+    edges = [(e.source.hex, e.target.hex) for e in get_project(p.id, db=db, user=user).preview.edges]
+    assert len(edges) == len(pairs)
+    assert edges == sorted(edges)
+
+
 def test_template_start_removed(db):
     """Способ старта «Шаблон» снят 2026-09-30: каркасов нет, демо-пакет из API не
     сеется (его дождётся онбординг, app/demo_package.py). start="template:<id>"
