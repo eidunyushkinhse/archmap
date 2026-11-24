@@ -188,6 +188,13 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(canGoBack("final")).toBe(false);
     expect(canGoBack("welcome")).toBe(false);
   });
+
+  it("на первом шаге своего проекта «Назад» нет: создать проект ещё раз нельзя, шаг 14 — уже «Ярмарка»", () => {
+    expect(canGoBack("types")).toBe(false);
+    expect(canGoBack("create-system")).toBe(true);
+    // без кнопки «Назад» увела бы через погашенные шаги 15–16 на шаг 14
+    expect(run(at("types", { vars: OWN_VARS }), [BACK]).step).toBe("leave-yar");
+  });
 });
 
 describe("тур — пропуск ненайденных объектов", () => {

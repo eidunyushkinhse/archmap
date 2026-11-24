@@ -101,10 +101,12 @@ export function startState(variant: TourVariant): TourState {
   return { status: "running", step: "welcome", variant, dir: 1, vars: {} };
 }
 
-/** Кнопка «Назад» — со второго шага и до последнего (как в прототипе). */
+/** Кнопка «Назад» — со второго шага и до последнего (как в прототипе). Кроме первого
+ *  шага своего проекта (раунд 5): шаги 15–16 при созданном проекте не повторить, и
+ *  «Назад» молча уводил бы на шаг 14, в «Ярмарку». */
 export function canGoBack(step: StepId): boolean {
   const n = STEPS[step].n;
-  return n !== undefined && n > 1;
+  return n !== undefined && n > 1 && step !== "types";
 }
 
 const OWN_STEPS = new Set<StepId>([
