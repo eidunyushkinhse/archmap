@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
 import type { ViewLayout } from "../../types";
 import type { HistoryCommand } from "../graph/interaction/useHistory";
+import type { LayoutPatch } from "../graph/types";
 import { ApiError } from "../../api/client";
 import { resetHarness, apiNodesMock, historyMock, layoutAnimMock, pipelineClientMock, settle } from "./levelGraphHarness";
 import { renderGraph, baseProps } from "./levelGraphRender";
@@ -136,6 +137,29 @@ describe("LevelGraph orchestration: «Переразложить уровень�
     await flushPersist();
     expect(onPersistConflict).toHaveBeenCalledWith({ a: null, box: { x: null, y: null } });
     expect(historyMock.remove).not.toHaveBeenCalled();
+  });
+
+  it("переигровка 409 тоже отвергнута: окончательный отказ, ресинк и снятие команды", async () => {
+    apiNodesMock.viewsApi.saveLayout
+      .mockRejectedValueOnce(new ApiError(409, "stale view"))
+      .mockRejectedValueOnce(new ApiError(409, "stale view"));
+    const { props, rerenderWith, onPersistConflict } = await mount();
+    rerenderWith({ relayoutRequest: 1 });
+    const cmd = pushed();
+    await flushPersist();
+    expect(historyMock.remove).not.toHaveBeenCalled();
+    // хозяин ресинкнул и вернул тот же патч переигровкой
+    const patch = onPersistConflict.mock.calls[0]?.[0] as LayoutPatch | undefined;
+    const persistence = props.persistence;
+    if (!persistence || !patch) throw new Error("нет канала или патча переигровки");
+    rerenderWith({
+      relayoutRequest: 1,
+      persistence: { ...persistence, retryPatch: { patch, token: 1 } },
+    });
+    await flushPersist();
+    expect(apiNodesMock.viewsApi.saveLayout).toHaveBeenCalledTimes(2);
+    expect(persistence.onPersistError).toHaveBeenCalledOnce();
+    expect(historyMock.remove).toHaveBeenCalledWith(cmd);
   });
 
   it("без расстановки (только просмотр) запроса нет", async () => {

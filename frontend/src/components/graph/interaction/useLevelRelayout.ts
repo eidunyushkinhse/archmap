@@ -72,9 +72,9 @@ export function useLevelRelayout({ layout, commitLayout, history, enabled, reque
       undo: () => { if (commitLayout(restorePatch(before, layoutRef.current))) onMove(); },
       redo: () => { if (commitLayout(relayoutPatch(layoutRef.current))) onMove(); },
     };
-    // Сбой записи (сеть, отказ сервера не 409): канал ресинкает уровень и показывает
-    // плашку, а команда снимается — отмена не ведёт в пустоту (A6). 409 переигрывает
-    // хозяин без обратного вызова: команда остаётся и при повторном отказе (U26).
+    // Сбой записи (сеть, отказ сервера, отвергнутая переигровка 409): канал ресинкает
+    // уровень и показывает плашку, а команда снимается — отмена не ведёт в пустоту (A6).
+    // Удачная переигровка 409 команду оставляет (U26).
     if (!commitLayout(relayoutPatch(before), () => history.remove(cmd))) return;
     onMove();
     history.push(cmd);

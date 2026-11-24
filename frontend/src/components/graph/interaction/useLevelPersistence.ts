@@ -48,6 +48,11 @@ import {
   applyReaderLayer, EMPTY_LAYER, pendingSeeds, readerLayerPatch, type ReaderLayer,
 } from "./readerLayer";
 
+// Обратные вызовы окончательного отказа записи, ждущие переигровки 409 (history.md U26):
+// хозяин возвращает тот же объект патча (retryPatch), часто уже новому маунту холста после
+// ресинка, поэтому карта живёт в модуле, а ключ — сам патч.
+const failedOnRetry = new WeakMap<LayoutPatch, () => void>();
+
 interface UseLevelPersistenceArgs {
   containerId: string | null;
   isArchitect: boolean;
@@ -149,6 +154,9 @@ export function useLevelPersistence({
                 planPersistFailure(isConflict(e), origin, isRetry) === "retry-after-resync" &&
                 onPersistConflict
               ) {
+                // Отвергнутая переигровка — тоже окончательный отказ: вызов переживает путь
+                // через хозяина по идентичности патча.
+                if (onFailed) failedOnRetry.set(patch, onFailed);
                 onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
                 return;
               }
@@ -222,7 +230,9 @@ export function useLevelPersistence({
   useEffect(() => {
     if (!retryPatch || retryPatch.token === retryDoneRef.current) return;
     retryDoneRef.current = retryPatch.token;
-    commitLayout(retryPatch.patch, "user", true);
+    const onFailed = failedOnRetry.get(retryPatch.patch);
+    failedOnRetry.delete(retryPatch.patch);
+    commitLayout(retryPatch.patch, "user", true, onFailed);
   }, [retryPatch, commitLayout]);
   // СТАБИЛЬНАЯ обёртка коммита для долгоживущих замыканий (команды undo/redo в
   // истории живут произвольно долго): всегда зовёт СВЕЖИЙ commitLayout. Иначе
