@@ -27,7 +27,6 @@ import NodeTreePanel from "../components/NodeTreePanel";
 import "../components/NodeTreePanel.css";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
-import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph from "../components/LevelGraph";
 import type { DropFrameTarget, EdgeChoiceEnds, LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
@@ -119,12 +118,12 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
-  const [relayoutOpen, setRelayoutOpen] = useState(false);
   const [transitionOpen, setTransitionOpen] = useState(false);
   const [transitionToast, setTransitionToast] = useState<string | null>(null);
-  // Токен свершившейся переразкладки: LevelGraph режиссирует приход свежей
-  // раскладки чистым переездом узлов (анимация «Переразложить»).
-  const [relayoutToken, setRelayoutToken] = useState(0);
+  // Запрос «Переразложить уровень» из меню «Действия со схемой»: холст исполняет его сразу,
+  // без окна, своей командой истории (сброс каналом раскладки, переезд, Ctrl+Z возвращает
+  // расстановку; history.md U26). Историю перераскладка не чистит.
+  const [relayoutRequest, setRelayoutRequest] = useState(0);
   // Токен мутации (создание/удаление узлов и связей): LevelGraph перерисовывает
   // изменившиеся стрелки анимированно и рисует новые (окно мутаций, AN28а).
   const [mutationToken, setMutationToken] = useState(0);
@@ -971,7 +970,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         edgeLabelsHidden={edgeLabelsHidden}
         onToggleEdgeLabels={() => setEdgeLabelsHidden((v) => !v)}
         canRelayout={hasNodes}
-        onRelayout={() => setRelayoutOpen(true)}
+        onRelayout={() => setRelayoutRequest((t) => t + 1)}
         schemaView={hasStatusInfo ? schemaView : null}
         onSchemaView={setSchemaView}
         onAcceptTransition={() => setTransitionOpen(true)}
@@ -1018,7 +1017,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           ) : (
             <LevelGraph
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}
-              depth={breadcrumb.length} containerId={currentParentId} relayoutToken={relayoutToken}
+              depth={breadcrumb.length} containerId={currentParentId} relayoutRequest={relayoutRequest}
               mutationToken={mutationToken}
               ancestorNames={crumbs.map((b) => b.name)} ancestorIds={crumbs.map((b) => b.id)}
               ancestorElements={crumbs.map((b) => b.element_effective)}
@@ -1067,11 +1066,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       {pendingMultiDelete && (
         <NodesDeleteConfirm nodes={pendingMultiDelete} onCancel={() => setPendingMultiDelete(null)}
           onDeleted={(ids, snapshots) => { setPendingMultiDelete(null); handleNodesDeleted(ids, snapshots); }} />
-      )}
-      {relayoutOpen && (
-        <RelayoutConfirm containerId={currentParentId} levelName={currentParent?.name}
-          onCancel={() => setRelayoutOpen(false)}
-          onDone={() => { setRelayoutOpen(false); setRelayoutToken((t) => t + 1); load(currentParentId); history.clear(); }} />
       )}
       {transitionOpen && (
         <TransitionConfirm

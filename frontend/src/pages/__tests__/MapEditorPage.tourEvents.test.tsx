@@ -68,7 +68,6 @@ vi.mock("../../components/EdgeQuickCreate", () => ({
 vi.mock("../../components/NodeModal", () => ({ default: () => null }));
 vi.mock("../../components/NodeDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/NodesDeleteConfirm", () => ({ default: () => null }));
-vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
 vi.mock("../../components/SchemaAlerts", () => ({ default: () => null }));
 vi.mock("../../components/SchemaViewFilter", () => ({ SchemaViewFilter: () => null }));
 

@@ -24,13 +24,18 @@ export function useLevelHistory({
 }): { history: History; runUndo: () => void; runRedo: () => void } {
   const ownHistory = useHistory();
   const baseHistory = historyProp ?? ownHistory;
-  // Команды этого канваса (перемещения) ШТАМПУЕМ текущим containerId, чтобы
-  // кросс-уровневый Undo знал, на какой уровень вернуть пользователя перед откатом.
-  // Адаптер оборачивает только push; остальные методы — как есть.
+  // Команды этого канваса (перемещения, перераскладка) ШТАМПУЕМ текущим containerId,
+  // чтобы кросс-уровневый Undo знал, на какой уровень вернуть пользователя перед откатом.
+  // Штамп ставится на сам объект команды, а не на копию: команду, чья запись не прошла,
+  // снимают из истории по идентичности (remove, history.md U26). Адаптер оборачивает
+  // только push; остальные методы — как есть.
   const history = useMemo<History>(
     () => ({
       ...baseHistory,
-      push: (cmd) => baseHistory.push({ ...cmd, level: containerId ?? null }),
+      push: (cmd) => {
+        cmd.level = containerId ?? null;
+        baseHistory.push(cmd);
+      },
     }),
     [baseHistory, containerId],
   );

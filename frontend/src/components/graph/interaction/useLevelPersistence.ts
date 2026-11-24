@@ -58,15 +58,18 @@ interface UseLevelPersistenceArgs {
 
 export interface LevelPersistence {
   // Единая запись раскладки: дедуп+merge поверх зеркала → PUT + зеркало родителю.
-  // origin "derived" при 409 НЕ переигрывается (конвейер пересчитает сам).
+  // origin "derived" при 409 НЕ переигрывается (конвейер пересчитает сам). onFailed —
+  // запись этого батча окончательно не прошла (не 409 с переигровкой): уровень уже
+  // ресинкается, плашка показана; команда истории, чья это запись, снимает себя (U26).
   commitLayout: (
     patch: LayoutPatch,
     origin?: CommitOrigin,
     isRetry?: boolean,
+    onFailed?: () => void,
   ) => boolean;
   // Стабильная обёртка для долгоживущих замыканий (команды undo/redo): всегда зовёт
   // СВЕЖИЙ commitLayout (дедуп сравнивает с актуальным зеркалом, а не со снимком).
-  commitLayoutStable: (patch: LayoutPatch) => boolean;
+  commitLayoutStable: (patch: LayoutPatch, onFailed?: () => void) => boolean;
   // Последняя запись раскладки не прошла (не 409-переигровка): холст показывает плашку
   // — раньше узлы после ресинка молча прыгали назад (аудит R-11). Одна на серию отказов,
   // гаснет на следующей удачной записи или по крестику.
@@ -94,6 +97,7 @@ export function useLevelPersistence({
       patch: LayoutPatch,
       origin: CommitOrigin,
       isRetry: boolean,
+      onFailed?: () => void,
     ): void => {
       persistChainRef.current = persistChainRef.current
         .then(() => viewMeta?.current.refreshing)
@@ -123,6 +127,7 @@ export function useLevelPersistence({
               }
               setPersistFailed(true);
               void onPersistError?.(e);
+              onFailed?.();
             }),
         );
     },
@@ -133,6 +138,7 @@ export function useLevelPersistence({
       patch: LayoutPatch,
       origin: CommitOrigin = "user",
       isRetry = false,
+      onFailed?: () => void,
     ): boolean => {
       if (!isArchitect || !canArrange) return false;
       // Нормализация payload для сравнения с зеркалом: null-поля эквивалентны
@@ -153,7 +159,7 @@ export function useLevelPersistence({
         items[k] = merged;
       }
       if (Object.keys(items).length === 0) return false;
-      persistFenced(items, patch, origin, isRetry);
+      persistFenced(items, patch, origin, isRetry, onFailed);
       onLayoutChanged?.(items);
       return true;
     },
@@ -178,7 +184,7 @@ export function useLevelPersistence({
   const commitLayoutRef = useRef(commitLayout);
   useEffect(() => { commitLayoutRef.current = commitLayout; });
   const commitLayoutStable = useCallback(
-    (patch: LayoutPatch) => commitLayoutRef.current(patch),
+    (patch: LayoutPatch, onFailed?: () => void) => commitLayoutRef.current(patch, "user", false, onFailed),
     [],
   );
 

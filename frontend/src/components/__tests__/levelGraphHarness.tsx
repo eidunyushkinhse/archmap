@@ -360,6 +360,7 @@ export const historyMock = {
   canRedo: vi.fn((): boolean => false),
   beginGroup: vi.fn(),
   commitGroup: vi.fn(),
+  remove: vi.fn(),
   clear: vi.fn(),
 };
 export const useHistoryMock = { useHistory: () => historyMock };
@@ -439,7 +440,7 @@ export async function flushRaf(ms = 60): Promise<void> {
 // Реестр всех vi.fn для сброса в resetHarness (единый список).
 const ALL_MOCK_FNS = [
   layoutAnimMock.apply, layoutAnimMock.noteExpand, layoutAnimMock.noteCollapse,
-  layoutAnimMock.noteGesture, layoutAnimMock.cancel, layoutAnimMock.reset,
+  layoutAnimMock.noteRelayout, layoutAnimMock.noteGesture, layoutAnimMock.cancel, layoutAnimMock.reset,
   snapMock.handleNodesChange, snapMock.handleNodeDragStop,
   snapMock.handleSelectionDragStop, snapMock.noteDragStart,
   liveDragMock.begin, liveDragMock.move, liveDragMock.end, liveDragMock.restore,
@@ -450,7 +451,7 @@ const ALL_MOCK_FNS = [
   alignmentGuidesMock.setGuides, alignmentGuidesMock.clearGuides,
   historyMock.push, historyMock.undo, historyMock.redo, historyMock.peekUndo,
   historyMock.peekRedo, historyMock.canUndo, historyMock.canRedo,
-  historyMock.beginGroup, historyMock.commitGroup, historyMock.clear,
+  historyMock.beginGroup, historyMock.commitGroup, historyMock.remove, historyMock.clear,
   edgeConnectMock.handleConnectStart, edgeConnectMock.handleConnect,
   edgeConnectMock.handleConnectEnd, edgeConnectMock.isValidNewConnection,
   edgeConnectMock.handleReconnectStart, edgeConnectMock.handleReconnectEnd,

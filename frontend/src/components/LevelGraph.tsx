@@ -68,6 +68,7 @@ import { useLevelEdgeChoice } from "./graph/interaction/useLevelEdgeChoice";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
+import { useLevelRelayout } from "./graph/interaction/useLevelRelayout";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
 import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
 import { useOncePerViewToast } from "./graph/interaction/useOncePerViewToast";
@@ -177,6 +178,10 @@ interface LevelGraphProps {
   // после сброса): приход свежей раскладки режиссируется чистым переездом
   // видимых узлов/рамок (planRelayout), без сворачивания раскрытий.
   relayoutToken?: number;
+  // ЗАПРОС «Переразложить уровень» от хозяина, чья кнопка живёт вне холста (пункт меню
+  // редактора): рост токена — команда холста (useLevelRelayout, history.md U26): сброс
+  // каналом раскладки, переезд, шаг истории. Значение на маунте не исполняется.
+  relayoutRequest?: number;
   // Сигнал мутации страницы (создание/удаление узлов и связей, правка связи):
   // стрелки с изменившейся геометрией в следующем применении перерисовываются
   // анимированно (drawIn), новые — рисуются (окно мутаций, AN28а).
@@ -213,6 +218,7 @@ function LevelGraphInner({
   undo,
   onRelayout,
   relayoutToken,
+  relayoutRequest,
   mutationToken,
   projection,
 }: LevelGraphProps) {
@@ -459,6 +465,19 @@ function LevelGraphInner({
   // клавиши (только архитектор и не контекст — read-only).
   const { history, runUndo, runRedo } = useLevelHistory({
     historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: isArchitect && canArrange,
+  });
+
+  // «Переразложить уровень» — команда холста (history.md U26): сброс расстановки тем же
+  // каналом раскладки, переезд на сбросе, отмене и повторе, шаг истории; на страничных
+  // схемах переезд доигрывается анимированным центрированием (фит после оседания, гейт
+  // !animActive в эффекте центрирования). Запрос приходит от хозяина (relayoutRequest).
+  const noteRelayoutMove = useCallback(() => {
+    noteRelayout();
+    if (fitOnExpand) autoFitRef.current = performance.now();
+  }, [noteRelayout, fitOnExpand]);
+  useLevelRelayout({
+    layout: viewLayout, commitLayout: commitLayoutStable, history,
+    enabled: isArchitect && canArrange, request: relayoutRequest, onMove: noteRelayoutMove,
   });
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.

@@ -160,11 +160,6 @@ const transitionProps = vi.hoisted(() => ({ current: null as Record<string, unkn
 vi.mock("../../components/TransitionConfirm", () => ({
   default: (p: Record<string, unknown>) => { transitionProps.current = p; return null; },
 }));
-// Окно «Переразложить уровень»: заглушка отдаёт наружу onDone (сброс без настоящего окна).
-const relayoutProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
-vi.mock("../../components/RelayoutConfirm", () => ({
-  default: (p: Record<string, unknown>) => { relayoutProps.current = p; return <div data-testid="relayout-confirm" />; },
-}));
 // Кнопка «Рекомендации» (алерты): метка присутствия + кнопка, дёргающая
 // onOpenProcess — как строка процессного класса (AL26/AL27) в настоящей панели.
 // realAlerts.current — настоящая кнопка с панелью (тест Escape при открытой панели).
@@ -323,7 +318,7 @@ describe("MapEditorPage", () => {
     expect(mode().edgeLabelsHidden).toBe(before);
   });
 
-  it("«Переразложить уровень» — пункт меню редактора проекта: подтверждение, на пустом уровне выключен", async () => {
+  it("«Переразложить уровень» — пункт меню редактора проекта, на пустом уровне выключен", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     expect(screen.queryByTitle("Переразложить уровень")).toBeNull();
@@ -331,28 +326,20 @@ describe("MapEditorPage", () => {
     expect(screen.getByRole("menuitem", { name: "Переразложить уровень" })).toBeDisabled();
   });
 
-  it("«Переразложить уровень» открывает подтверждение", async () => {
+  // Решение владельца 2026-11-24 (задание П2): пункт срабатывает сразу, окна нет; сброс —
+  // команда холста (её шаг истории и переезд покрыты levelGraph.relayout.test.tsx).
+  // Уровень не перечитывается, история не чистится.
+  it("«Переразложить уровень» срабатывает сразу: окна нет, запрос уходит холсту, история цела", async () => {
     vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")] }) as never);
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
+    expect(levelGraphProps.current?.relayoutRequest).toBe(0);
     await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Переразложить уровень" }));
-    expect(screen.getByTestId("relayout-confirm")).toBeInTheDocument();
-  });
-
-  it("подтверждённый сброс: токен холсту, уровень перечитан, история очищена", async () => {
-    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")] }) as never);
-    render(<MapEditorPage {...props} nodeId={null} />);
-    await screen.findByTestId("level-graph");
-    expect(levelGraphProps.current?.relayoutToken).toBe(0);
-    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "Переразложить уровень" }));
-    const done = relayoutProps.current?.onDone as () => void;
-    await act(async () => { done(); });
-    expect(screen.queryByTestId("relayout-confirm")).toBeNull();
-    expect(levelGraphProps.current?.relayoutToken).toBe(1);
-    expect(nodesApi.getGraph).toHaveBeenCalledTimes(2);
-    expect(historyMock.clear).toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(levelGraphProps.current?.relayoutRequest).toBe(1);
+    expect(nodesApi.getGraph).toHaveBeenCalledTimes(1);
+    expect(historyMock.clear).not.toHaveBeenCalled();
   });
 
   it("читателю: подписи связей в меню есть, «Переразложить уровень» и «Принять переход» нет", async () => {
