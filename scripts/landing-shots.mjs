@@ -861,19 +861,25 @@ const SHOTS = {
     await settle(page, 600);
     await dlg.getByRole("button", { name: "Уменьшить" }).click(); // шаг к центру, как щелчок по «−»
     await page.waitForTimeout(400);
-    // Таблица orders — левым краем у поля окна; order_items над ней — верхом под шапкой окна
+    // Таблица order_items — левым краем у поля окна, верхом под шапкой: она в кадре целиком
+    // (типы, имена, ключи, комментарии). Ниже левая часть orders (типы, имена, ключ) и связь
+    // order_id между ними. Таблицы шире кадра из-за комментариев, обе целиком не входят: имя
+    // orders стоит по центру таблицы и остаётся за правым краем, order_saga в кадр не попадает.
     const box = await dlg.boundingBox();
     const entity = (name) => dlg.locator(`svg g.node[id*="-entity-${name}-"]`).first();
-    const orders = await entity("orders").boundingBox();
     const items = await entity("order_items").boundingBox();
-    await dragViewer(page, { x: box.x + box.width / 2, y: box.y + box.height - 40 }, box.x + 48 - orders.x, box.y + 72 - items.y);
+    await dragViewer(page, { x: box.x + box.width / 2, y: box.y + box.height - 40 }, box.x + 32 - items.x, box.y + 72 - items.y);
     await dlg.locator('button[aria-label="Увеличить"]').first().evaluate((b) => { b.parentElement.style.visibility = "hidden"; }); // пилюля масштаба
-    // Имена таблиц, которые обязаны попасть в кадр целиком
+    // В кадре обязаны быть: имя order_items, левый край обеих таблиц (колонки типов и имён)
+    // и не меньше трёх строк orders; order_saga в кадр не заходит
     const bottom = box.y + box.width / STAGE_RATIO;
-    for (const name of ["orders", "order_items"]) {
-      const label = await entity(name).locator(`text=${name}`).first().boundingBox().catch(() => null);
-      if (!label || label.x < box.x || label.x + label.width > box.x + box.width || label.y + label.height > bottom) warnings.push(`crop-db.png: имя таблицы ${name} не в кадре`);
-    }
+    const right = box.x + box.width;
+    const label = await entity("order_items").locator("text=order_items").first().boundingBox().catch(() => null);
+    if (!label || label.x < box.x || label.x + label.width > right || label.y + label.height > bottom) warnings.push("crop-db.png: имя таблицы order_items не в кадре");
+    const at = { items: await entity("order_items").boundingBox(), orders: await entity("orders").boundingBox(), saga: await entity("order_saga").boundingBox() };
+    if (at.items.x < box.x || at.items.y + at.items.height > bottom) warnings.push("crop-db.png: таблица order_items режется краем кадра слева или снизу");
+    if (at.orders.x < box.x || at.orders.x + 280 > right || at.orders.y + 130 > bottom) warnings.push("crop-db.png: левые колонки orders не в кадре");
+    if (at.saga.x < right && at.saga.y < bottom) warnings.push("crop-db.png: в кадр зашёл край order_saga");
     const fs = await entity("orders").evaluate((g) => parseFloat(getComputedStyle(g.querySelector("p, span, div, text") ?? g).fontSize));
     const z = await viewerZoom(dlg);
     console.log(`  масштаб ${z}: текст таблицы ${fs} px → ${(fs * parseInt(z) / 100 * STAGE_W / box.width).toFixed(1)} px на лендинге`);

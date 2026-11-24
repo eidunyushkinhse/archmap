@@ -46,6 +46,8 @@
 //   --display :N     дисплей Xvfb для x11 (по умолчанию :97)
 //   --trace          хронометраж: отметки дублей во времени готового файла (подгонка пауз)
 //   --keep-raw       оставить сырой захват и мастер без потерь во временном каталоге
+//   --keep-master    положить мастер без потерь рядом с роликом (vid-<name>.master.mkv, десятки
+//                    мегабайт): из него ролик перекодируется без пересъёмки; на лендинг не едет
 // ffmpeg ищется в FFMPEG, PATH и ~/.cache/archmap-ffmpeg/ffmpeg (статическая сборка с x264,
 // VP9 и x11grab); Xvfb — в XVFB и PATH.
 //
@@ -108,6 +110,7 @@ const SCALE = Number(argOf("--scale") ?? 1.5);
 // размера файла, что x11
 const CAP_DSF = CAPTURE === "cdp" ? 2 : SCALE;
 const KEEP_RAW = args.includes("--keep-raw");
+const KEEP_MASTER = args.includes("--keep-master");
 const FPS = Number(argOf("--fps") ?? (CAPTURE === "x11" ? 60 : 30));
 // crf 20 / 31: на 26 / 36 мелкий текст схем заметно мылится. Не влезет в бюджет (hero 2,5 МБ,
 // status 0,6 МБ на файл) — сначала сказать, качество текста молча не жертвовать.
@@ -964,7 +967,7 @@ function assemble(name, clips, loop) {
   const inputs = clips.flatMap((c) => ["-i", c.file]);
   const d = (n) => (n / FPS).toFixed(6);
   // входы — к одной сетке кадров и базе времени: xfade требует одинаковых
-  const parts = clips.map((c, i) => `[${i}:v]fps=${FPS},settb=AVTB,format=gbrp[v${i}]`);
+  const parts = clips.map((_, i) => `[${i}:v]fps=${FPS},settb=AVTB,format=gbrp[v${i}]`);
   const starts = [0];
   let acc = clips[0].n, cur = "[v0]";
   for (let i = 1; i < clips.length; i++) {
@@ -990,16 +993,19 @@ function assemble(name, clips, loop) {
   return { master, starts, frames: acc };
 }
 // Готовые файлы из мастера: цвет — в BT.709 ТВ-диапазона с явной разметкой (без неё
-// браузеры гадают о матрице, и синий уезжает); ключевой кадр один, в начале: петлю не
-// перематывают, а каждый лишний ключевой кадр схемы — около 100 КБ. VP9 — в два прохода:
+// браузеры гадают о матрице, и синий уезжает). Ключевые кадры — в начале и на первом чистом
+// кадре каждой сцены (keys, секунды): подписи сцен под роликом перематывают к ним, и с одним
+// ключевым кадром на ролик перемотка к последней сцене ждала декодирования тысячи кадров
+// (до 0,6 с). Других ключевых кадров нет: каждый стоит около 100 КБ. VP9 — в два прохода:
 // опорные alt-ref кадры libvpx строит только во втором. Постер — первый кадр (JPEG).
 // Петля растворением (hero): три последних кадра H.264 — с постоянным квантователем 16.
 // Первый кадр — ключевой и выходит чище соседей, а последний, P-кадр после растворения, на
 // crf 20 отличался от него на 38 дБ (шов петли мигал); 45 дБ стоят около 70 КБ.
-function encode(name, master, frames, loop) {
+function encode(name, master, frames, loop, keys = []) {
   const vf = "scale=out_color_matrix=bt709:out_range=tv:flags=lanczos,setsar=1,format=yuv420p";
   const common = ["-i", master, "-an", "-vf", vf,
-    "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv", "-g", "9999"];
+    "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv", "-g", "9999",
+    ...(keys.length ? ["-force_key_frames", keys.map((t) => t.toFixed(4)).join(",")] : [])];
   const base = join(OUT, `vid-${name}`);
   const passlog = join(TMP, `vp9-${name}`);
   const vp9 = [...common, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(CRF_WEBM), "-deadline", "good",
@@ -1214,13 +1220,15 @@ for (const { name, v, takes } of jobs) {
     });
     const { master, starts, frames } = assemble(name, clips, v.loop);
     tmpFiles.push(master);
-    const r = encode(name, master, frames, v.loop);
+    // Начала сцен в готовом файле (подписи сцен под роликом): сцена начинается растворением
+    // в первый кадр её первого дубля (в starts[i] — первый кадр растворения). Первый чистый
+    // кадр сцены — через CROSS секунд, на нём ключевой кадр файла
+    const named = v.takes.map((t, i) => ({ scene: t.scene, at: starts[i] })).filter((x, i, a) => x.scene && (i === 0 || a[i - 1].scene !== x.scene));
+    // (минус полкадра: ffmpeg ставит ключевой кадр на первый кадр не раньше названного времени)
+    const r = encode(name, master, frames, v.loop, named.slice(1).map((x) => x.at + CROSS - 0.5 / FPS));
     const dur = frames / FPS;
     results.push({ name, files: r.files, dur, sizes: r.sizes });
     console.log(`  ✓ ${r.files.join(", ")}  ${dur.toFixed(2)} с, ${mb(r.sizes[0])} / ${mb(r.sizes[1])}, ${size.join("×")}`);
-    // Начала сцен в готовом файле (подписи сцен под роликом): сцена начинается растворением
-    // в первый кадр её первого дубля (в starts[i] — первый кадр растворения)
-    const named = v.takes.map((t, i) => ({ scene: t.scene, at: starts[i] })).filter((x, i, a) => x.scene && (i === 0 || a[i - 1].scene !== x.scene));
     if (named.length) console.log(`  сцены: ${named.map((x) => `${x.scene} ${x.at.toFixed(2)}`).join(" · ")}  data-scenes="${named.map((x) => x.at.toFixed(2)).join(",")}"`);
     if (TRACE) {
       console.log("  хронометраж (с от начала файла):");
@@ -1233,6 +1241,7 @@ for (const { name, v, takes } of jobs) {
       });
       if (v.loop) console.log(`    ${(dur - v.loop - 1 / FPS).toFixed(2)}  растворение ${v.loop} с в первый кадр`);
     }
+    if (KEEP_MASTER) { copyFileSync(master, join(OUT, `vid-${name}.master.mkv`)); console.log(`    мастер без потерь: ${join(OUT, `vid-${name}.master.mkv`)}`); }
     if (KEEP_RAW) console.log(`    мастер: ${master}; сырой захват: ${takes.map((j) => j.raw ?? j.dir).join(", ")}`);
   } catch (e) {
     results.push({ name, error: e.message }); console.log(`  ✗ ${name}: ${e.message}`);
