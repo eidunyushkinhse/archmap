@@ -3,7 +3,7 @@
 // созданных объектов и их подстановка, короткий проход при уже созданном проекте.
 import { describe, it, expect } from "vitest";
 import {
-  availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState,
+  availability, canGoBack, expandTarget, fitTarget, focusTarget, onScreen, reduceTour, screenHash, startState,
   stepTexts, stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
@@ -80,6 +80,16 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(focusTarget(at("expand-own", { vars: OWN_VARS }), ENV)).toBe("s1");
     expect(focusTarget(at("drag"), ENV)).toBeNull();
     expect(focusTarget(at("inside", { vars: OWN_VARS }), ENV)).toBeNull();
+  });
+
+  it("раскрытые «Заказы» — камера вписывает рамку вместе с объектом в ней; без «Оркестратора» — нет", () => {
+    expect(fitTarget(at("service-expanded"), ENV)).toEqual(["c0de-03", "c0de-07"]);
+    expect(fitTarget(at("expand-service"), ENV)).toBeNull();
+    const objects = new Map(OBJECTS);
+    objects.delete(YAR_ORCH);
+    expect(fitTarget(at("service-expanded"), { ...ENV, yarObjects: objects })).toBeNull();
+    // наблюдение после лупы — как у шага 6, но без отъезда ко всему слою (DemoTour)
+    expect(STEPS["service-expanded"]).toMatchObject({ watchMs: STEPS["expand-service"].watchMs });
   });
 
   it("дерево: раскрыл «Заказы» — открой «Оркестратор заказа»; его страница — документация", () => {

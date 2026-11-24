@@ -405,13 +405,15 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Счётчик токенов locate: пульс пере-триггерится на каждый новый запрос.
   const locateSeq = useRef(1);
 
-  // Обучающий тур ведёт камеру: к объекту шага крупно (лупа мелкая на отдалённом холсте)
-  // или ко всему слою (показать, к чему привело раскрытие) — тем же locate, что
-  // «Показать на схеме», без вспышки: цель тур подсвечивает сам (tourBus).
+  // Обучающий тур ведёт камеру: к объекту шага крупно (лупа мелкая на отдалённом холсте),
+  // ко всему слою (показать, к чему привело раскрытие) или к раскрытой рамке целиком —
+  // тем же locate, что «Показать на схеме», без вспышки: цель тур подсвечивает сам (tourBus).
   useEffect(() => onTourFocusRequest((f) => {
-    setLocate(f.kind === "level"
-      ? { kind: "level", ids: [], token: ++locateSeq.current, flash: false }
-      : { kind: "node", ids: [f.id], token: ++locateSeq.current, flash: false });
+    const token = ++locateSeq.current;
+    setLocate(f.kind === "level" ? { kind: "level", ids: [], token, flash: false }
+      // несколько целей — группа: вписывается их общая рамка с запасом
+      : f.kind === "nodes" ? { kind: "group", ids: f.ids, token, flash: false }
+      : { kind: "node", ids: [f.id], token, flash: false });
   }), []);
 
   // Алерты схемы — в интерфейсе «Рекомендации» (кнопка в шапке, архитектор).

@@ -495,6 +495,26 @@ describe("DemoTour — плавные переходы", () => {
     off();
   });
 
+  it("раскрытые «Заказы» (шаг 7): наблюдение без отъезда ко всему слою, затем рамка целиком вместе с объектом в ней", async () => {
+    window.location.hash = `/p/${YAR}/map`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "service-expanded", variant: "full", dir: 1, vars: {} }));
+    const asks: TourFocus[] = [];
+    const off = onTourFocusRequest((f) => { asks.push(f); });
+    const frame = rfNode("c0de-03", { x: 400, y: 100, w: 500, h: 360 });
+    frame.className = "react-flow__node react-flow__node-frame";
+    rfNode("c0de-07", { x: 430, y: 140, w: 160, h: 80 });
+    render(<DemoTour />);
+    await tick(1000);
+    expect(asks).toEqual([]); // камера остаётся там, где нажали лупу
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await tick(800);
+    expect(asks).toEqual([{ kind: "nodes", ids: ["c0de-03", "c0de-07"] }]);
+    await tick(1000);
+    expect(screen.getByRole("dialog", { name: "Система раскрыта прямо на схеме" })).toBeInTheDocument();
+    expect(asks).toHaveLength(1);
+    off();
+  });
+
   it("без анимаций (prefers-reduced-motion) — вырез на новой цели в ближайшем кадре", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     target("schema-block", { x: 100, y: 100, w: 200, h: 120 });

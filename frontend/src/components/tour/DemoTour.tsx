@@ -17,7 +17,7 @@ import {
   onTourEvent, requestTourFocus, requestTourLevel, type TourBusEvent,
 } from "./tourBus";
 import {
-  availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState, stepTexts,
+  availability, canGoBack, expandTarget, fitTarget, focusTarget, onScreen, reduceTour, screenHash, startState, stepTexts,
   stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "./tourMachine";
@@ -362,7 +362,8 @@ function TourRuntime({ userId }: { userId: string }) {
         && now - enteredAtRef.current < step.watchMs;
       if (watching && !done.fit) {
         done.fit = true;
-        requestTourFocus({ kind: "level" });
+        // Шаг вписывает свою цель сам (fit): камера остаётся там, где нажали лупу.
+        if (!step.fit) requestTourFocus({ kind: "level" });
       }
       if (!watching && done.fit && watchEndAtRef.current === 0) watchEndAtRef.current = now;
       if (step.kind === "start" || step.kind === "end") {
@@ -379,9 +380,17 @@ function TourRuntime({ userId }: { userId: string }) {
             requestTourFocus({ kind: "node", id });
           }
         }
+        // Цель целиком (fit): раскрытая рамка вместе с объектом внутри — когда оба на холсте.
+        if (step.fit && screenOk && !dialog && !done.focus) {
+          const ids = fitTarget(st, en);
+          if (ids && ids.every((id) => document.querySelector(rfNodeSel(id)))) {
+            done.focus = true;
+            requestTourFocus({ kind: "nodes", ids });
+          }
+        }
         const tctx = { yarProjectId: en.yarProjectId, yarObjects: en.yarObjects, vars: st.vars };
         // Блок страницы (scroll): прокручиваем так, чтобы он встал верхом под шапку, и ждём,
-        // пока страница встанет, — до тех пор цели как бы нет (затемнение держится без
+        // пока страница встанет. До тех пор цели как бы нет (затемнение держится без
         // выреза), но и «карточки сбоку» нет: цель на месте, страница едет к ней.
         const scrollEl = screenOk && !dialog && step.target?.kind === "tour" && step.target.scroll
           ? document.querySelector(`[data-tour="${step.target.key}"]`)

@@ -323,6 +323,15 @@ export function focusTarget(state: TourState, env: TourEnv): string | null {
   }
 }
 
+/** Какие объекты шаг вписывает в камеру вместе на входе (fit; null — не вписывает или
+ *  объекта «Ярмарки» нет). */
+export function fitTarget(state: TourState, env: TourEnv): string[] | null {
+  const names = STEPS[state.step].fit;
+  if (!names) return null;
+  const ids = names.map((name) => env.yarObjects?.get(name));
+  return ids.every((id): id is string => !!id) ? ids : null;
+}
+
 /** Чью ветку шаг ждёт раскрытой в дереве слева (null — шаг не про дерево). */
 export function treeExpandTarget(state: TourState, env: TourEnv): string | null {
   return state.step === "tree" ? env.yarObjects?.get(YAR_ORDERS) ?? null : null;
