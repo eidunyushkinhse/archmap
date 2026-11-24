@@ -19,7 +19,7 @@ import hashlib
 import json
 import uuid
 import zlib
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from typing import Any, Protocol
 
 from sqlalchemy import or_, select
@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import processes, tree
 from app.database import Base
+from app.deployment import site_path
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
@@ -151,21 +152,6 @@ def _path(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> str:
     return processes.node_path(all_nodes, node_id) if node_id in all_nodes else ""
 
 
-def _site_path(sites: Mapping[uuid.UUID, tuple[str, uuid.UUID | None]], site_id: uuid.UUID) -> str:
-    """Путь площадки именами от корневой («Облако / Кластер prod») по карте площадок
-    проекта «id → (имя, родитель)». Подъём с seen: данные снимков и импорта бывают
-    циклическими, и цикл даёт обрезанный путь, а не зависание. Площадки нет в карте
-    (гонка с удалением) — пустой путь."""
-    names: list[str] = []
-    seen: set[uuid.UUID] = set()
-    cur: uuid.UUID | None = site_id
-    while cur is not None and cur in sites and cur not in seen:
-        seen.add(cur)
-        name, cur = sites[cur]
-        names.append(name)
-    return " / ".join(reversed(names))
-
-
 def _version_instances(
     db: Session, project_id: uuid.UUID, rows: list[DeploymentInstanceSnapshot]
 ) -> list[VersionInstance]:
@@ -180,7 +166,7 @@ def _version_instances(
         ).filter(DeploymentSite.project_id == project_id)
     }
     return _by_id(
-        VersionInstance(**i.model_dump(), site_path=_site_path(sites, i.site_id)) for i in rows
+        VersionInstance(**i.model_dump(), site_path=site_path(sites, i.site_id)) for i in rows
     )
 
 

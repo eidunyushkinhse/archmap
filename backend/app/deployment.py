@@ -288,6 +288,21 @@ def site_refs(
     return out
 
 
+def site_path(sites: Mapping[uuid.UUID, tuple[str, uuid.UUID | None]], site_id: uuid.UUID) -> str:
+    """Путь площадки именами от корневой («Облако / Кластер prod») по карте площадок
+    проекта «id → (имя, родитель)». Подъём с seen: данные снимков и импорта бывают
+    циклическими, и цикл даёт обрезанный путь, а не зависание. Площадки нет в карте
+    (гонка с удалением) — пустой путь."""
+    names: list[str] = []
+    seen: set[uuid.UUID] = set()
+    cur: uuid.UUID | None = site_id
+    while cur is not None and cur in sites and cur not in seen:
+        seen.add(cur)
+        name, cur = sites[cur]
+        names.append(name)
+    return " / ".join(reversed(names))
+
+
 def project_sites(db: Session, project_id: uuid.UUID) -> list[DeploymentSite]:
     """Площадки проекта в порядке имени (затем id) — единый порядок для списка, графа и
     строк размещения: от него зависит и порядок экземпляров единицы."""
