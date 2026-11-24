@@ -86,4 +86,17 @@ describe("место карточки", () => {
     const at = placeCard({ x: 0, y: 0, w: 1440, h: 900 }, [], CARD, VIEW);
     expect(at).toEqual({ x: VIEW.w - CARD.w - 16, y: VIEW.h - CARD.h - 16 });
   });
+
+  it("рядом с целью места нет — угол не поверх того, что не закрывать; поверх все — правый нижний", () => {
+    // вкладка в шапке, под ней полоса участников и первый шаг процесса во всю ширину
+    const tab = { x: 420, y: 8, w: 90, h: 40 };
+    const heads = { x: 250, y: 100, w: 1190, h: 70 };
+    const rightBlock = { x: 900, y: 500, w: 540, h: 400 };
+    const at = placeCard(tab, [tab, heads], CARD, VIEW);
+    expect(at).toEqual({ x: VIEW.w - CARD.w - 16, y: VIEW.h - CARD.h - 16 });
+    // правый низ занят — левый низ
+    expect(placeCard(tab, [tab, heads, rightBlock], CARD, VIEW)).toEqual({ x: 16, y: VIEW.h - CARD.h - 16 });
+    const all = { x: 0, y: 60, w: 1440, h: 840 };
+    expect(placeCard(tab, [tab, all], CARD, VIEW)).toEqual({ x: VIEW.w - CARD.w - 16, y: VIEW.h - CARD.h - 16 });
+  });
 });

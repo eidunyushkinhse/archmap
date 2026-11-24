@@ -115,8 +115,33 @@ function resolveEdgeWith(a: string, b: string, ids: readonly string[]): Resolved
   return { elements: [edge.el, ...parts.map((p) => p.el)], holes: [hole], anchor: hole, avoid: [hole] };
 }
 
-/** Часть составной цели в DOM: элемент data-tour, холст редактора, узел «система». */
-function findPart(part: TargetPart, systemId: string | undefined): { el: Element; rect: Rect } | null {
+/** Что карточка не закрывает на диаграмме процесса: полосу участников и первый шаг —
+ *  самую верхнюю подпись вместе с её стрелкой (невидимые копии подписей для замера
+ *  ширины живут вне диаграммы). */
+function processKeep(diagram: Element): Rect[] {
+  const keep: Rect[] = [];
+  const heads = diagram.querySelector(".seq-heads");
+  const headsRect = heads ? visibleRect(heads) : null;
+  if (headsRect) keep.push(headsRect);
+  let first: { el: Element; rect: Rect } | null = null;
+  for (const el of Array.from(diagram.querySelectorAll(".seq-label:not(.seq-label--measure)"))) {
+    const rect = visibleRect(el);
+    if (rect && (!first || rect.y < first.rect.y)) first = { el, rect };
+  }
+  if (first) {
+    const mid = first.el.getAttribute("data-mid");
+    const arrow = mid ? diagram.querySelector(`[data-arrow="${mid}"]`) : null;
+    const arrowRect = arrow ? visibleRect(arrow) : null;
+    keep.push(union([first.rect, ...(arrowRect ? [arrowRect] : [])]) ?? first.rect);
+  }
+  return keep;
+}
+
+/** Часть составной цели в DOM: элемент data-tour, холст редактора, узел «система»,
+ *  диаграмма процесса (keep — что на ней карточка не закрывает). */
+function findPart(
+  part: TargetPart, systemId: string | undefined,
+): { el: Element; rect: Rect; keep?: Rect[] } | null {
   switch (part.kind) {
     case "tour":
       return firstVisible(byTour(part.key));
@@ -124,6 +149,10 @@ function findPart(part: TargetPart, systemId: string | undefined): { el: Element
       return firstVisible(".react-flow");
     case "system":
       return systemId ? firstVisible(rfNode(systemId)) : null;
+    case "process": {
+      const hit = firstVisible(byTour("process-diagram"));
+      return hit ? { ...hit, keep: processKeep(hit.el) } : null;
+    }
   }
 }
 
@@ -138,7 +167,8 @@ function resolvePair(main: TargetPart, zone: TargetPart, systemId: string | unde
   if (!z) return { elements: [m.el], holes: [mainHole], anchor: mainHole, avoid: [mainHole] };
   const zoneHole: Hole = { ...padHole(z.rect, "rect"), quiet: true };
   return {
-    elements: [m.el, z.el], holes: [mainHole, zoneHole], anchor: mainHole, avoid: [mainHole], soft: [zoneHole],
+    elements: [m.el, z.el], holes: [mainHole, zoneHole], anchor: mainHole, avoid: [mainHole, ...(z.keep ?? [])],
+    soft: [zoneHole],
   };
 }
 

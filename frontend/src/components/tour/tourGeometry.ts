@@ -114,7 +114,8 @@ type Side = "right" | "left" | "bottom" | "top";
  * Мелкие цели (кнопки шапки) — сначала снизу, крупные — сначала справа, как в
  * прототипе. soft — то, что карточке лучше не закрывать (зона второго выреза): сперва
  * ищем место вне avoid и soft, не нашлось — вне avoid. Ни одна сторона не подошла —
- * правый нижний угол окна.
+ * угол окна не поверх avoid (правый нижний, левый нижний, правый верхний, левый
+ * верхний), а если поверх avoid все четыре — правый нижний.
  */
 export function placeCard(
   anchor: Rect,
@@ -127,9 +128,20 @@ export function placeCard(
     const strict = placeBeside(anchor, [...avoid, ...soft], card, view);
     if (strict) return strict;
   }
+  return placeBeside(anchor, avoid, card, view) ?? placeCorner(avoid, card, view);
+}
+
+/** Угол окна для карточки, которой не нашлось места рядом с целью: первый не поверх
+ *  avoid, иначе правый нижний. */
+function placeCorner(
+  avoid: readonly Rect[],
+  card: { w: number; h: number },
+  view: { w: number; h: number },
+): { x: number; y: number } {
   const m = CARD_MARGIN;
-  return placeBeside(anchor, avoid, card, view)
-    ?? { x: Math.max(m, view.w - card.w - m), y: Math.max(m, view.h - card.h - m) };
+  const right = Math.max(m, view.w - card.w - m), bottom = Math.max(m, view.h - card.h - m);
+  const corners = [{ x: right, y: bottom }, { x: m, y: bottom }, { x: right, y: m }, { x: m, y: m }];
+  return corners.find((c) => !avoid.some((a) => overlaps({ ...c, w: card.w, h: card.h }, a))) ?? corners[0];
 }
 
 /** Сторона рядом с anchor, где карточка целиком в окне и не поверх avoid (null — нет). */

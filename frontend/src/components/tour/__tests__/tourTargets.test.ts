@@ -88,6 +88,30 @@ describe("составные цели", () => {
     expect(resolveTarget(target, CTX)).toBeNull();
   });
 
+  it("диаграмма процесса — зона; карточка не закрывает полосу участников и первый шаг со стрелкой", () => {
+    const host = el(
+      '<div data-tour="mode-proc"></div>'
+      + '<div data-tour="process-diagram"><div class="seq-heads"></div>'
+      + '<svg><g data-arrow="m2"></g><g data-arrow="m1"></g></svg>'
+      + '<div class="seq-label" data-mid="m2"></div><div class="seq-label" data-mid="m1"></div></div>',
+    );
+    withRect(host.querySelector('[data-tour="mode-proc"]')!, { x: 420, y: 8, w: 90, h: 40 });
+    withRect(host.querySelector('[data-tour="process-diagram"]')!, { x: 250, y: 100, w: 760, h: 660 });
+    withRect(host.querySelector(".seq-heads")!, { x: 250, y: 100, w: 760, h: 70 });
+    withRect(host.querySelector('[data-mid="m1"]')!, { x: 300, y: 190, w: 140, h: 36 });
+    withRect(host.querySelector('[data-mid="m2"]')!, { x: 500, y: 260, w: 140, h: 18 });
+    withRect(host.querySelector('[data-arrow="m1"]')!, { x: 280, y: 230, w: 300, h: 10 });
+    withRect(host.querySelector('[data-arrow="m2"]')!, { x: 480, y: 282, w: 300, h: 10 });
+    const res = resolveTarget({ kind: "pair", main: { kind: "tour", key: "mode-proc" }, zone: { kind: "process" } }, CTX)!;
+    expect(res.holes).toHaveLength(2);
+    expect(res.holes[1]).toMatchObject({ x: 244, y: 94, quiet: true });
+    expect(res.avoid).toEqual([
+      res.holes[0],
+      { x: 250, y: 100, w: 760, h: 70 },
+      { x: 280, y: 190, w: 300, h: 50 },
+    ]);
+  });
+
   it("рамка системы — зона второго выреза", () => {
     const host = el('<div data-tour="palette:system"></div><div class="react-flow__node" data-id="s1"></div>');
     withRect(host.querySelector('[data-tour="palette:system"]')!, { x: 20, y: 600, w: 200, h: 40 });

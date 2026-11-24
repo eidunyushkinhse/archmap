@@ -99,7 +99,10 @@ export type Screen =
 export type TargetPart =
   | { kind: "tour"; key: string }
   | { kind: "canvas" }
-  | { kind: "system" };
+  | { kind: "system" }
+  /** диаграмма открытого процесса: карточка не закрывает полосу участников и первый
+   *  шаг (подпись со стрелкой), с них диаграмму и читают */
+  | { kind: "process" };
 
 /** Что подсвечивается. Разбор в DOM — tourTargets.ts. */
 export type Target =
@@ -271,7 +274,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   },
   processes: {
     id: "processes", kind: "info", n: 12, screen: { kind: "yar-shell" }, mode: "proc",
-    target: { kind: "pair", main: { kind: "tour", key: "mode-proc" }, zone: { kind: "tour", key: "process-diagram" } },
+    target: { kind: "pair", main: { kind: "tour", key: "mode-proc" }, zone: { kind: "process" } },
     title: "Бизнес-процессы",
     body: "На схеме архитектуры неудобно показывать бизнес-процессы. Зато удобно на диаграмме последовательности. В разделе «Процессы» есть конструктор таких диаграмм, в котором вы можете собрать сценарии вашей системы шаг за шагом: какие сервисы участвуют и что передают друг другу.",
   },
