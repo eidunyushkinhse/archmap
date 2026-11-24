@@ -28,7 +28,7 @@ export default function VersionMermaid({ text }: { text: string }) {
   return (
     <section className="ds-win-block" aria-label="Текст диаграммы">
       <div className="vp-mmd-row">
-        <span className="vp-mmd-hint">Текст диаграммы Mermaid. Вставленный в «Заменить из Mermaid», он вернёт процесс к этому варианту.</span>
+        <span className="vp-mmd-hint">Чтобы вернуть этот вариант процесса, вставьте текст в «Заменить из Mermaid».</span>
         <button type="button" className="ds-btn" onClick={() => void copy()}>
           {copied ? "Скопировано" : "Скопировать"}
         </button>

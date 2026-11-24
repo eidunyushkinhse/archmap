@@ -78,7 +78,7 @@ describe("элемент-процесс версии: текст диаграм�
     await userEvent.click(segs[1]);
     expect(screen.getAllByRole("row")).toHaveLength(3);
     expect(codeText()).toBe(OLD);
-    expect(screen.getByText(/вернёт процесс к этому варианту/)).toHaveClass("vp-mmd-hint");
+    expect(screen.getByText(/Чтобы вернуть этот вариант процесса/)).toHaveClass("vp-mmd-hint");
 
     await userEvent.click(segs[2]);
     expect(codeText()).toBe(NEW);
