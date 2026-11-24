@@ -332,6 +332,36 @@ export function fitTarget(state: TourState, env: TourEnv): string[] | null {
   return ids.every((id): id is string => !!id) ? ids : null;
 }
 
+// Уровень редактора своего проекта на шаге (раунд 5, docs/tasks/demo-tour-5.md): после
+// перезагрузки редактор открывается в корне, а шаги 23–24 идут внутри системы.
+const ROOT_LEVEL_STEPS = new Set<StepId>([
+  "types", "create-system", "add-peer", "connect", "context-diagram", "enter-system",
+  "context-edge", "expand-own", "inside",
+]);
+const SYSTEM_LEVEL_STEPS = new Set<StepId>(["add-child", "rehang"]);
+
+/** Уровень редактора своего проекта, которого ждёт шаг: null — корень, id — внутри
+ *  системы; undefined — шаг уровня не задаёт (шаги «Ярмарки»; «Проект» в шапке
+ *  засчитывается и тогда, когда редактор уже в корне). */
+export function stepLevel(state: TourState): string | null | undefined {
+  if (ROOT_LEVEL_STEPS.has(state.step)) return null;
+  if (SYSTEM_LEVEL_STEPS.has(state.step)) return state.vars.systemId;
+  return undefined;
+}
+
+// Шаги, чей экран живёт только в памяти страницы: после перезагрузки его нет, и тур
+// возвращается на шаг, который этот экран открывает (окно «Новый проект»).
+const RELOAD_BACK: Partial<Record<StepId, StepId>> = { "create-blank": "new-project" };
+
+/** Сохранённое состояние после перезагрузки страницы: шаг окна «Новый проект» — снова
+ *  «Начните свой проект» (и точка паузы на нём — тоже). */
+export function restoredState(state: TourState): TourState {
+  const back = state.status === "done" ? undefined : RELOAD_BACK[state.step];
+  if (!back) return state;
+  const pause = state.pause?.step === state.step ? { ...state.pause, step: back } : state.pause;
+  return { ...state, step: back, ...(pause ? { pause } : {}) };
+}
+
 /** Чью ветку шаг ждёт раскрытой в дереве слева (null — шаг не про дерево). */
 export function treeExpandTarget(state: TourState, env: TourEnv): string | null {
   return state.step === "tree" ? env.yarObjects?.get(YAR_ORDERS) ?? null : null;

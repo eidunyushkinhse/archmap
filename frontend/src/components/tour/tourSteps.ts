@@ -255,6 +255,8 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   "tree-open": {
     id: "tree-open", kind: "act", n: 9, screen: { kind: "yar-node", name: YAR_ORDERS },
     needs: [YAR_ORDERS, YAR_ORCH], mode: "schema", target: { kind: "yar-tree", name: YAR_ORCH, part: "row" },
+    // раунд 5: после перезагрузки ветка «Заказы» свёрнута, и строки «Оркестратора» нет
+    treeOpen: YAR_ORDERS,
     title: "Откройте страницу объекта",
     body: "Здесь вся документация объекта.",
     action: "Нажмите «Оркестратор заказа».",

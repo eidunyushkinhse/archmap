@@ -3,8 +3,8 @@
 // созданных объектов и их подстановка, короткий проход при уже созданном проекте.
 import { describe, it, expect } from "vitest";
 import {
-  availability, canGoBack, expandTarget, fitTarget, focusTarget, onScreen, reduceTour, screenHash, startState,
-  stepTexts, stepTotal, treeExpandTarget, treeOpenTarget,
+  availability, canGoBack, expandTarget, fitTarget, focusTarget, onScreen, reduceTour, restoredState, screenHash,
+  startState, stepLevel, stepTexts, stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
 import { parseTourState } from "../tourPersist";
@@ -438,6 +438,36 @@ describe("тур — маршрут и хранение", () => {
     const wrong = at("create-system", { vars: { ownProjectId: OWN }, wrongAt: "create-system" });
     expect(parseTourState(JSON.stringify(wrong))).toEqual(wrong);
     expect(parseTourState(JSON.stringify({ ...wrong, wrongAt: "nope" }))?.wrongAt).toBeUndefined();
+  });
+});
+
+// Перезагрузка страницы посреди тура (раунд 5, docs/tasks/demo-tour-5.md): тур возвращает
+// экран и уровень, которых ждёт шаг.
+describe("тур — перезагрузка", () => {
+  it("уровень своего редактора: корень, внутри системы или любой", () => {
+    for (const id of ["types", "create-system", "connect", "enter-system", "context-edge", "expand-own", "inside"] as const) {
+      expect(stepLevel(at(id, { vars: OWN_VARS }))).toBeNull();
+    }
+    expect(stepLevel(at("add-child", { vars: OWN_VARS }))).toBe("s1");
+    expect(stepLevel(at("rehang", { vars: OWN_VARS }))).toBe("s1");
+    // «Проект» в шапке засчитывается и в корне; шаги «Ярмарки» уровень не задают
+    expect(stepLevel(at("go-up", { vars: OWN_VARS }))).toBeUndefined();
+    expect(stepLevel(at("service-expanded"))).toBeUndefined();
+    expect(stepLevel(at("tree-open"))).toBeUndefined();
+  });
+
+  it("окно «Новый проект» живёт в памяти — после перезагрузки снова «Начните свой проект»", () => {
+    expect(restoredState(at("create-blank"))).toEqual(at("new-project"));
+    const paused = at("create-blank", { status: "paused", pause: { step: "create-blank", hash: "#/projects" } });
+    expect(restoredState(paused)).toMatchObject({ status: "paused", step: "new-project", pause: { step: "new-project", hash: "#/projects" } });
+    const s = at("tree-open");
+    expect(restoredState(s)).toBe(s);
+    const done = at("create-blank", { status: "done" });
+    expect(restoredState(done)).toBe(done);
+  });
+
+  it("шаг 9 сам раскрывает ветку «Заказы»: после перезагрузки она свёрнута", () => {
+    expect(treeOpenTarget(at("tree-open"), ENV)).toBe("c0de-03");
   });
 });
 

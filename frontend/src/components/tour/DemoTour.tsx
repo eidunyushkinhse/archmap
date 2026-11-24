@@ -18,7 +18,7 @@ import {
 } from "./tourBus";
 import {
   availability, canGoBack, expandTarget, fitTarget, focusTarget, onScreen, reduceTour, screenHash, startState, stepTexts,
-  stepTotal, treeExpandTarget, treeOpenTarget,
+  restoredState, stepLevel, stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
@@ -83,7 +83,21 @@ function reducer(state: TourState, msg: Msg): TourState {
 
 function initTour(userId: string): TourState {
   dropStaleTours(userId);
-  return loadTour(userId) ?? startState("full");
+  const saved = loadTour(userId);
+  return saved ? restoredState(saved) : startState("full");
+}
+
+/** Уровень, на который вернуть редактор, когда он откроется: шаг, ради которого
+ *  (сменился — не возвращаем), проект и уровень (null — корень). */
+interface PendingLevel { step: StepId; projectId: string | null; level: string | null }
+
+/** Перезагрузка страницы посреди своего проекта (раунд 5): редактор откроется в корне, а
+ *  шаг может ждать уровень системы — его вернёт первое событие «level». */
+function reloadLevel(state: TourState): PendingLevel | undefined {
+  const level = state.status === "running" ? stepLevel(state) : undefined;
+  return level !== undefined && state.vars.ownProjectId
+    ? { step: state.step, projectId: state.vars.ownProjectId, level }
+    : undefined;
 }
 
 /** Ключ вида для сравнения кадров: перерисовываем, только когда что-то сдвинулось. */
@@ -136,9 +150,10 @@ function TourRuntime({ userId }: { userId: string }) {
   // Последний слой редактора, о котором сообщила шина (проект:слой).
   const lastLevelRef = useRef<string | null>(null);
   // Слой, открытый в редакторе сейчас (undefined — не в редакторе), и слой, на который
-  // «Продолжить обучение» вернёт, когда редактор откроется (undefined — никуда).
+  // «Продолжить обучение» или перезагрузка вернут, когда редактор откроется (undefined —
+  // никуда).
   const levelRef = useRef<string | null | undefined>(undefined);
-  const pendingLevelRef = useRef<string | null | undefined>(undefined);
+  const pendingLevelRef = useRef<PendingLevel | undefined>(reloadLevel(raw));
   // Layout-эффекты: кадровый цикл (rAF) обязан увидеть новый шаг уже в ближайшем кадре,
   // а пассивные эффекты могут прийти после него.
   useLayoutEffect(() => { stateRef.current = state; }, [state]);
@@ -175,11 +190,12 @@ function TourRuntime({ userId }: { userId: string }) {
       case "level": {
         if (!pid) return;
         levelRef.current = e.levelId;
-        // Редактор открылся после «Продолжить обучение» — на слой, где взяли паузу.
+        // Редактор открылся после «Продолжить обучение» или перезагрузки — на слой, где
+        // взяли паузу или которого ждёт шаг. Шаг с тех пор сменился — уже не нужно.
         const want = pendingLevelRef.current;
-        if (want !== undefined) {
+        if (want !== undefined && want.projectId === pid) {
           pendingLevelRef.current = undefined;
-          if (want !== e.levelId) requestTourLevel(want);
+          if (want.step === stateRef.current.step && want.level !== e.levelId) requestTourLevel(want.level);
         }
         const key = `${pid}:${e.levelId ?? ""}`;
         if (lastLevelRef.current === key) return;
@@ -239,8 +255,9 @@ function TourRuntime({ userId }: { userId: string }) {
     if (at.level !== undefined) {
       // слой знает только открытый редактор: здесь он открыт — просим сразу, иначе —
       // когда откроется (событие «level»)
-      if (levelRef.current === undefined || window.location.hash !== at.hash) pendingLevelRef.current = at.level;
-      else if (levelRef.current !== at.level) requestTourLevel(at.level);
+      if (levelRef.current === undefined || window.location.hash !== at.hash) {
+        pendingLevelRef.current = { step: at.step, projectId: routeProject(parseTourRoute(at.hash)), level: at.level };
+      } else if (levelRef.current !== at.level) requestTourLevel(at.level);
     }
     if (window.location.hash !== at.hash) window.location.hash = at.hash;
   }), []);
@@ -287,11 +304,12 @@ function TourRuntime({ userId }: { userId: string }) {
   }, [running, inYar, state.step]);
 
   // ── Вход в шаг: отметка времени и переход на экран шага ──
-  // После перезагрузки страницы на сохранённом шаге никуда не ведём: пользователь мог
-  // уйти в сторону сам, шаг подождёт его на своём экране. Продолжение после паузы —
-  // тоже вход в шаг: режим, прокрутка и подводка к цели делаются заново, а пока тур на
-  // паузе, он никуда не уводит.
-  const navForRef = useRef<StepId | null>(raw.step);
+  // Перезагрузка страницы посреди тура — тоже вход в шаг (раунд 5): тур ведёт на экран
+  // шага, как «Продолжить обучение» после паузы, а уровень редактора возвращает событие
+  // «level» (pendingLevelRef). Продолжение после паузы — тоже вход в шаг: режим,
+  // прокрутка и подводка к цели делаются заново, а пока тур на паузе, он никуда не
+  // уводит (после перезагрузки на паузе — тоже: экран паузы вернёт «Продолжить»).
+  const navForRef = useRef<StepId | null>(raw.status === "running" ? null : raw.step);
   // Разовые действия входа в шаг: режим оболочки выставлен, страница прокручена к цели
   // (scroll — прокрутка этого входа, tourScroll.ts), уже раскрытый узел засчитан, камера
   // отведена ко всему слою (fit) и подведена к цели (focus); treeClosed — ветка дерева

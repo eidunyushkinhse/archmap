@@ -32,7 +32,7 @@ vi.mock("../../../api/nodes", () => ({
 }));
 
 import DemoTour from "../DemoTour";
-import { emitTourEvent, onTourFocusRequest, type TourFocus } from "../tourBus";
+import { emitTourEvent, onTourFocusRequest, onTourLevelRequest, type TourFocus } from "../tourBus";
 import { stepTotal } from "../tourMachine";
 import { tourKey } from "../tourPersist";
 import { getTourPaused, getTourTypeLock, requestTourRestart, requestTourResume } from "../tourStore";
@@ -337,6 +337,63 @@ describe("DemoTour", () => {
     expect(asks).toHaveLength(1);
     off();
     view.unmount();
+  });
+
+  it("перезагрузка внутри системы своего проекта: тур ведёт в редактор и возвращает уровень системы", async () => {
+    window.location.hash = `/p/${OWN}`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "add-child", variant: "full", dir: 1,
+      vars: { ownProjectId: OWN, systemId: "s1", systemName: "Магазин", peerId: "p1", peerName: "Читатель" },
+    }));
+    const levels: (string | null)[] = [];
+    const off = onTourLevelRequest((level) => { levels.push(level); });
+    render(<DemoTour />);
+    await waitFor(() => expect(window.location.hash).toBe(`#/p/${OWN}/map`));
+    act(() => { window.dispatchEvent(new HashChangeEvent("hashchange")); });
+    // редактор открылся в корне — тур просит уровень системы, один раз
+    act(() => emitTourEvent({ type: "level", levelId: null }));
+    expect(levels).toEqual(["s1"]);
+    act(() => emitTourEvent({ type: "level", levelId: "s1" }));
+    act(() => emitTourEvent({ type: "level", levelId: null }));
+    expect(levels).toEqual(["s1"]);
+    off();
+  });
+
+  it("перезагрузка на шаге в корне своего проекта — редактор уже там, уровень не трогаем", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "enter-system", variant: "full", dir: 1, vars: { ownProjectId: OWN, systemId: "s1" },
+    }));
+    const levels: (string | null)[] = [];
+    const off = onTourLevelRequest((level) => { levels.push(level); });
+    render(<DemoTour />);
+    act(() => emitTourEvent({ type: "level", levelId: null }));
+    expect(levels).toEqual([]);
+    expect(window.location.hash).toBe(`#/p/${OWN}/map`);
+    off();
+  });
+
+  it("перезагрузка на окне «Новый проект» — снова шаг «Начните свой проект»", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "create-blank", variant: "full", dir: 1, vars: {} }));
+    target("new-project", { x: 800, y: 80, w: 140, h: 36 });
+    render(<DemoTour />);
+    expect(await screen.findByRole("dialog", { name: "Начните свой проект" })).toBeInTheDocument();
+    expect(stored()).toMatchObject({ status: "running", step: "new-project" });
+  });
+
+  it("шаг 9 после перезагрузки: ветка «Заказы» свёрнута — тур её раскрывает, строка «Оркестратора» в вырезе", async () => {
+    window.location.hash = `/p/${YAR}/nodes/c0de-03`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "tree-open", variant: "full", dir: 1, vars: {} }));
+    const chev = target("tree-chev:c0de-03", { x: 10, y: 120, w: 26, h: 28 });
+    chev.setAttribute("aria-expanded", "false");
+    chev.addEventListener("click", () => {
+      chev.setAttribute("aria-expanded", "true");
+      target("tree-row:c0de-07", { x: 30, y: 150, w: 220, h: 28 });
+    });
+    render(<DemoTour />);
+    const card = await screen.findByRole("dialog", { name: "Откройте страницу объекта" }, { timeout: 3000 });
+    await waitFor(() => expect(card).not.toHaveClass("tour-card--docked"));
+    expect(chev.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("цели нет на экране — после паузы карточка сбоку без затемнения", async () => {
