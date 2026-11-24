@@ -7,7 +7,7 @@
 // единица (контейнер, лист или с компонентами) или цельная система одной карточкой;
 // без размещения — в пунктирной группе. Уровень (объём холста) — из адреса
 // #/p/<pid>/deploy/<уровень?>, в тулбаре — путь уровня крошками (звенья-предки ведут на
-// свой уровень) и справа значки «Площадки», «Переразложить» (архитектор) и тумблер
+// свой уровень) и справа значки «Площадки», «Переразложить» и тумблер
 // «Подписи связей» (CV32: холст в управляемом режиме, свой тумблер в углу не рисует).
 // Архитектору — расстановка (драг, персист ключами deploy:…, undo), «Переразложить» и
 // размещение; читателю — расстановка на время просмотра без записи (задание П2). Связи — как на холсте объектов: двойной клик по стрелке
@@ -366,18 +366,16 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             <button type="button" className="ds-icon-btn" onClick={() => setSitesOpen(true)} title="Площадки" aria-label="Площадки">
               <SiteKindIcon kind="other" size={17} />
             </button>
-            {isArchitect && (
-              <button
-                type="button"
-                className="ds-icon-btn"
-                onClick={() => setRelayoutRequest((t) => t + 1)}
-                disabled={!hasObjects}
-                title="Переразложить уровень"
-                aria-label="Переразложить"
-              >
-                <RelayoutIcon />
-              </button>
-            )}
+            <button
+              type="button"
+              className="ds-icon-btn"
+              onClick={() => setRelayoutRequest((t) => t + 1)}
+              disabled={!hasObjects}
+              title="Переразложить уровень"
+              aria-label="Переразложить"
+            >
+              <RelayoutIcon />
+            </button>
             <button
               type="button"
               className="ds-icon-btn"

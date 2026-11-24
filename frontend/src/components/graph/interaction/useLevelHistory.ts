@@ -19,7 +19,7 @@ export function useLevelHistory({
   containerId: string | null;
   // Undo/Redo — ручной жест: изменённые пересчётом стрелки перерисовываются анимированно.
   noteGesture: () => void;
-  // Клавиши — только архитектору и не в контексте (read-only).
+  // Клавиши — там, где расстановка доступна (обеим ролям), не в контексте (read-only).
   keysEnabled: boolean;
 }): { history: History; runUndo: () => void; runRedo: () => void } {
   const ownHistory = useHistory();

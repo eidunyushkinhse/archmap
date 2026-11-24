@@ -50,15 +50,25 @@ describe("LevelGraph orchestration: кнопки и клавиши истори�
     expect(historyMock.redo).toHaveBeenCalledOnce();
   });
 
-  it("читатель: кнопок отмены нет, клавиши историю не трогают", async () => {
+  // С задания П2 (решение владельца 2026-11-24) у читателя с расстановкой та же история:
+  // отменяются его перемещения и перераскладки на время просмотра.
+  it("читатель на схеме с расстановкой: те же кнопки отмены и клавиши", async () => {
     await renderGraph({ isArchitect: false, mode: PAGE });
+    expect(screen.getByRole("button", { name: "Отменить" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Вернуть" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(historyMock.undo).toHaveBeenCalledOnce();
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(historyMock.redo).toHaveBeenCalledOnce();
+  });
+
+  it("без расстановки (только просмотр): кнопок отмены и клавиш нет ни у одной роли", async () => {
+    await renderGraph({ mode: { readOnly: true } });
+    expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
+    resetHarness();
+    await renderGraph({ isArchitect: false, mode: { readOnly: true } });
     expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
     fireEvent.keyDown(window, { key: "z", ctrlKey: true });
     expect(historyMock.undo).not.toHaveBeenCalled();
-  });
-
-  it("без расстановки (только просмотр): кнопок отмены нет и у архитектора", async () => {
-    await renderGraph({ mode: { readOnly: true } });
-    expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
   });
 });

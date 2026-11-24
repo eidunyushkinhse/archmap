@@ -49,8 +49,8 @@ export function readerLayerPatch(patch: LayoutPatch, effective: ViewLayout): Rec
   return out;
 }
 
-/** Засев, накопленный до первой правки читателя, — только ключам, у которых позиции в
- *  действующей раскладке нет (архитектор мог успеть сохранить свою). */
+/** Засев, накопленный до первой правки читателя, достаётся только ключам без позиции в
+ *  действующей раскладке (архитектор мог успеть сохранить свою). */
 export function pendingSeeds(seeds: Record<string, Pos | null>, effective: ViewLayout): Record<string, Pos> {
   const out: Record<string, Pos> = {};
   for (const [k, pos] of Object.entries(seeds)) {

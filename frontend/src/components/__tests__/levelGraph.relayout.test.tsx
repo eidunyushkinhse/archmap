@@ -8,7 +8,7 @@ import { act, fireEvent, screen } from "@testing-library/react";
 import type { ViewLayout } from "../../types";
 import type { HistoryCommand } from "../graph/interaction/useHistory";
 import { ApiError } from "../../api/client";
-import { resetHarness, apiNodesMock, historyMock, layoutAnimMock, settle } from "./levelGraphHarness";
+import { resetHarness, apiNodesMock, historyMock, layoutAnimMock, pipelineClientMock, settle } from "./levelGraphHarness";
 import { renderGraph, baseProps } from "./levelGraphRender";
 
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
@@ -163,6 +163,31 @@ describe("LevelGraph orchestration: «Переразложить уровень�
     onLayoutChanged.mockClear();
     act(() => { cmd.undo(); });
     expect(onLayoutChanged).toHaveBeenCalledWith({ a: { x: 10, y: 20 }, box: { expanded: true, x: 5, y: 6 } });
+  });
+
+  // Читатель (задание П2): та же команда, но слоем холста — ни записи, ни зеркала.
+  it("читатель: сброс и отмена — слоем холста, без записи; шаг истории тот же", async () => {
+    const { onLayoutChanged } = await mount({
+      isArchitect: false, mode: { readOnly: true, arrangeOnly: true, relayoutButton: true },
+    });
+    const runs = () => pipelineClientMock.computeViewLayoutOffThread.mock.calls;
+    const lastLayout = () => (runs().at(-1)?.[0] as { viewLayout: ViewLayout }).viewLayout;
+    act(() => { fireEvent.click(screen.getByRole("button", { name: "Переразложить" })); });
+    await settle(1);
+    expect(lastLayout()).toEqual({ box: { expanded: true } });
+    const cmd = pushed();
+    expect(cmd.label).toBe("Переразложить уровень");
+    expect(layoutAnimMock.noteRelayout).toHaveBeenCalledOnce();
+    act(() => { cmd.undo(); });
+    await settle(1);
+    expect(lastLayout()).toEqual(SAVED);
+    act(() => { cmd.redo(); });
+    await settle(1);
+    expect(lastLayout()).toEqual({ box: { expanded: true } });
+    expect(layoutAnimMock.noteRelayout).toHaveBeenCalledTimes(3);
+    await flushPersist();
+    expect(onLayoutChanged).not.toHaveBeenCalled();
+    expect(apiNodesMock.viewsApi.saveLayout).not.toHaveBeenCalled();
   });
 
   it("кнопки в углу нет без флага (редактор, «Развёртывание») и без расстановки", async () => {

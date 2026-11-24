@@ -342,7 +342,10 @@ describe("MapEditorPage", () => {
     expect(historyMock.clear).not.toHaveBeenCalled();
   });
 
-  it("читателю: подписи связей в меню есть, «Переразложить уровень» и «Принять переход» нет", async () => {
+  // С задания П2 (решение владельца 2026-11-24) читатель переразлагает уровень на время
+  // просмотра: пункт тот же, запрос уходит холсту (записи у читателя нет —
+  // levelGraph.relayout.test.tsx). «Принять переход» по-прежнему только архитектору.
+  it("читателю: подписи связей и «Переразложить уровень» в меню есть, «Принять переход» нет", async () => {
     role.current = "reader";
     try {
       vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("a")], has_status_info: true }) as never);
@@ -350,7 +353,9 @@ describe("MapEditorPage", () => {
       await screen.findByTestId("level-graph");
       await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
       expect(screen.getByRole("menuitem", { name: /подписи связей/ })).toBeInTheDocument();
-      expect(screen.queryByRole("menuitem", { name: "Переразложить уровень" })).toBeNull();
+      await userEvent.click(screen.getByRole("menuitem", { name: "Переразложить уровень" }));
+      expect(levelGraphProps.current?.relayoutRequest).toBe(1);
+      expect(screen.queryByRole("dialog")).toBeNull();
       expect(screen.queryByRole("button", { name: "Принять переход" })).toBeNull();
       // Выход читателя — вторичная «Закрыть» (фаза 13д): «Готово» и главной кнопки нет.
       expect(screen.getByRole("button", { name: "Закрыть" })).toBeInTheDocument();
@@ -358,6 +363,36 @@ describe("MapEditorPage", () => {
     } finally {
       role.current = "owner";
     }
+  });
+
+  // История читателя живёт уровнем: его слой расстановки смена уровня забывает, и шаги
+  // уходят вместе с ним (иначе сквозная отмена уводила бы к шагу, которого нет).
+  it("читатель: смена уровня чистит историю; у архитектора история сквозная", async () => {
+    role.current = "reader";
+    try {
+      vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("box")] }) as never);
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      historyMock.clear.mockClear();
+      vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ nodes: [node("inner", { parent_id: "box" })] }) as never);
+      const drill = levelGraphProps.current?.drill as { onDrillDown: (n: Node) => void };
+      act(() => { drill.onDrillDown(node("box")); });
+      await waitFor(() => expect((levelGraphProps.current?.nodes as Node[]).map((n) => n.id)).toEqual(["inner"]));
+      expect(historyMock.clear).toHaveBeenCalled();
+    } finally {
+      role.current = "owner";
+    }
+  });
+
+  it("архитектор: смена уровня историю не чистит (U14)", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("box")] }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ nodes: [node("inner", { parent_id: "box" })] }) as never);
+    const drill = levelGraphProps.current?.drill as { onDrillDown: (n: Node) => void };
+    act(() => { drill.onDrillDown(node("box")); });
+    await waitFor(() => expect((levelGraphProps.current?.nodes as Node[]).map((n) => n.id)).toEqual(["inner"]));
+    expect(historyMock.clear).not.toHaveBeenCalled();
   });
 
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {

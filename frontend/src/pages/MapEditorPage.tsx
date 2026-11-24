@@ -149,6 +149,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const isArchitect = canEditProject(useProjectRole());
   const currentParent = breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
   const currentParentId = currentParent?.id ?? null;
+  // История читателя живёт уровнем (задание П2): его перемещения и перераскладки — слой
+  // холста, который смена уровня забывает, поэтому и их шаги уходят вместе с ним. Иначе
+  // сквозная отмена (U12) уводила бы читателя на прежний уровень к шагу, которого нет.
+  useEffect(() => { if (!isArchitect) history.clear(); }, [currentParentId, isArchitect, history]);
 
   // ── Палитра и бросок по месту назначения (приёмка Ф12 2026-10-31) ──
   // Цель броска проверяет тип: те же правила поля «Тип», что у окна «Новый объект»

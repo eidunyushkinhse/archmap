@@ -449,7 +449,7 @@ function LevelGraphInner({
   // История Undo/Redo: адаптер со штампом уровня, запуск отмены/повтора и глобальные
   // клавиши (только архитектор и не контекст — read-only).
   const { history, runUndo, runRedo } = useLevelHistory({
-    historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: isArchitect && canArrange,
+    historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: canArrange,
   });
 
   // «Переразложить уровень» — команда холста (history.md U26): сброс расстановки тем же
@@ -465,7 +465,7 @@ function LevelGraphInner({
   }, [noteRelayout, fitOnExpand]);
   const relayout = useLevelRelayout({
     layout: viewLayout, commitLayout: commitLayoutStable, history,
-    enabled: isArchitect && canArrange, request: relayoutRequest, onMove: noteRelayoutMove,
+    enabled: canArrange, request: relayoutRequest, onMove: noteRelayoutMove,
   });
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
@@ -1134,12 +1134,13 @@ function LevelGraphInner({
           </marker>
         </defs>
       </svg>
-      {/* Тулбар Undo/Redo (архитектор, расстановка доступна). Кнопка надёжнее клавиш —
-          не зависит от фокуса. Гейт canArrange (= arrangeOnly || !readOnly): тулбар
-          виден и в редакторе, и на страничных схемах с персистом (arrangeOnly), но
-          скрыт у наблюдателя. Обе зовут дисптчеры из MapEditorPage (кросс-уровневый
-          редирект); на страницах (undo-бандл не передан) — локальная ownHistory. */}
-      {isArchitect && canArrange && (
+      {/* Тулбар Undo/Redo (расстановка доступна, обеим ролям: у читателя отменяются его
+          перемещения и перераскладки на время просмотра, задание П2). Кнопка надёжнее
+          клавиш — не зависит от фокуса. Гейт canArrange (= arrangeOnly || !readOnly):
+          тулбар виден в редакторе, на страничных схемах и в «Развёртывании». Обе зовут
+          дисптчеры из MapEditorPage (кросс-уровневый редирект); на страницах (undo-бандл
+          не передан) — локальная ownHistory. */}
+      {canArrange && (
         <HistoryToolbar onUndo={runUndo} onRedo={runRedo} canUndo={history.canUndo()} canRedo={history.canRedo()} />
       )}
       {/* ПРАВЫЙ верхний угол: «Переразложить» (страничные схемы, mode.relayoutButton,
