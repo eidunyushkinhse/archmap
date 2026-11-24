@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import type { ViewLayout } from "../../types";
-import { resetHarness, apiNodesMock, pipelineClientMock, pipeline, settle } from "./levelGraphHarness";
+import { resetHarness, apiNodesMock, pipelineClientMock, pipeline, rfProps, settle } from "./levelGraphHarness";
 import { renderGraph, getCb, baseProps } from "./levelGraphRender";
 
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
@@ -115,6 +115,33 @@ describe("LevelGraph orchestration: расстановка читателя бе
     rerenderWith({ containerId: "c1", viewLayout: SAVED });
     await settle();
     expect(lastPipelineLayout()).toEqual(SAVED);
+  });
+
+  // Доработка П2 (решение архитектора): на просмотровых поверхностях (схемы страниц,
+  // «Развёртывание») читатель тянет холст ЛЕВОЙ кнопкой, как до П2, и рамки выделения
+  // по перетаскиванию пустого места у него нет; объект он двигает за сам объект.
+  it("читатель: пан левой, объект при этом двигается", async () => {
+    const { onLayoutChanged } = await mountReader();
+    expect(rfProps.current.panOnDrag).toBe(true);
+    expect(rfProps.current.selectionOnDrag).toBe(false);
+    expect(rfProps.current.nodesDraggable).toBe(true);
+    act(() => { getCb().commitLayout({ b: { x: 320, y: 60 } }); });
+    await settle();
+    expect(lastPipelineLayout()).toEqual({ ...SAVED, b: { x: 320, y: 60 } });
+    expect(onLayoutChanged).not.toHaveBeenCalled();
+    expect(apiNodesMock.viewsApi.saveLayout).not.toHaveBeenCalled();
+  });
+
+  it("архитектор на той же схеме: пан правой, левая тянет рамку выделения", async () => {
+    await renderGraph({ mode: PAGE, viewLayout: SAVED });
+    expect(rfProps.current.panOnDrag).toEqual([2]);
+    expect(rfProps.current.selectionOnDrag).toBe(true);
+  });
+
+  it("читатель в редакторе (схема на всё окно, без readOnly): пан правой и рамка, как до П2", async () => {
+    await mountReader({ mode: {} });
+    expect(rfProps.current.panOnDrag).toEqual([2]);
+    expect(rfProps.current.selectionOnDrag).toBe(true);
   });
 
   it("без расстановки (только просмотр) — ничего", async () => {

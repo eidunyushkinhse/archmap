@@ -257,6 +257,12 @@ function LevelGraphInner({
   // canStructure — создание/удаление связей и узлов, дроп шаблонов.
   const canArrange = arrangeOnly || !isReadOnly;
   const canStructure = !isReadOnly;
+  // Читатель на просмотровых поверхностях (схемы страниц, «Развёртывание» — readOnly):
+  // холст тянется ЛЕВОЙ кнопкой, как до задания П2, потому что смотреть схему — его
+  // главный жест. Расстановка при этом работает за сам объект (драг, Ctrl/⌘-группа,
+  // стрелки); рамки выделения по перетаскиванию пустого места у него нет (canvas.md CV1).
+  // В редакторе у читателя readOnly нет: там, как и раньше, пан правой и рамка.
+  const readerViewPan = isReadOnly && !isArchitect;
   // Инспекция связей — просмотр, не правка: доступна и в read-only, если явно
   // включена (встроенные блоки). Дефолт — прежнее поведение (гейт readOnly).
   const canInspectEdges = edgesInspectable ?? !isReadOnly;
@@ -1268,9 +1274,10 @@ function LevelGraphInner({
         // ЛЕВАЯ кнопка тянет рамку прямоугольного выделения нескольких узлов
         // (selectionOnDrag). Ctrl/⌘ добавляет/убирает узлы из выделения кликом.
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
-        // частично. В read-only без драга узлов — панорамирование левой кнопкой.
-        panOnDrag={dragNodes ? PAN_RIGHT_BUTTON : (isReadOnly ? true : PAN_RIGHT_BUTTON)}
-        selectionOnDrag={dragNodes && canArrange && !picking}
+        // частично. В read-only без драга узлов и у читателя на просмотровых
+        // поверхностях (readerViewPan) — панорамирование левой кнопкой, без рамки.
+        panOnDrag={dragNodes && !readerViewPan ? PAN_RIGHT_BUTTON : (isReadOnly ? true : PAN_RIGHT_BUTTON)}
+        selectionOnDrag={dragNodes && canArrange && !picking && !readerViewPan}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={MULTI_SELECT_KEYS}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
