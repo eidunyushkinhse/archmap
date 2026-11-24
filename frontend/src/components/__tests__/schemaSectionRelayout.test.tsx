@@ -1,12 +1,14 @@
-// Раздел «Схема» страницы объекта: «Переразложить» (кнопка в углу холста). Блок схемы
-// и поллинг заглушены: здесь проверяется оркестрация раздела.
-import { act, render, screen, waitFor } from "@testing-library/react";
+// Раздел «Схема» страницы объекта: «Переразложить» (кнопка в углу холста) с 2026-11-24 —
+// команда самого холста (history.md U26): сброс вида фокуса каналом раскладки по персисту,
+// который раздел отдаёт блоку. Своего сброса и перечитывания у раздела нет. Блок схемы и
+// поллинг заглушены: здесь проверяется оркестрация раздела.
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SchemaSection from "../nodePage/SchemaSection";
 import { nodesApi } from "../../api/nodes";
 import type { Node } from "../../types";
 
-vi.mock("../../api/nodes", () => ({ nodesApi: { getContextGraph: vi.fn(), relayoutContext: vi.fn() } }));
+vi.mock("../../api/nodes", () => ({ nodesApi: { getContextGraph: vi.fn() } }));
 vi.mock("../../pages/useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 const schemaProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 vi.mock("../EmbeddedSchemaBlock", () => ({
@@ -23,10 +25,9 @@ describe("SchemaSection: «Переразложить»", () => {
       edges: [{ id: "e1", label: "зовёт", technology: null, source_id: "n1", target_id: "x", version: 1 }],
       layout: { n1: { x: 0, y: 0 } }, version: 1, graph_rev: 1, meta_rev: 1,
     } as never);
-    vi.mocked(nodesApi.relayoutContext).mockResolvedValue(undefined);
   });
 
-  it("архитектор: сброс вида фокуса, токен блоку схемы, контекст перечитан", async () => {
+  it("архитектор: блоку схемы — персист вида фокуса, своего сброса у раздела нет", async () => {
     render(
       <SchemaSection
         node={node("n1", "Заказы")} ancestors={[]} isArchitect onNavigateNode={vi.fn()}
@@ -34,11 +35,10 @@ describe("SchemaSection: «Переразложить»", () => {
       />,
     );
     await screen.findByTestId("schema");
-    expect(schemaProps.current?.relayoutToken).toBe(0);
-    const relayout = schemaProps.current?.onRelayout as () => void;
-    await act(async () => { relayout(); });
-    expect(nodesApi.relayoutContext).toHaveBeenCalledWith("n1");
-    await waitFor(() => expect(schemaProps.current?.relayoutToken).toBe(1));
-    expect(nodesApi.getContextGraph).toHaveBeenCalledTimes(2);
+    expect(schemaProps.current?.persistence).toBeDefined();
+    expect(schemaProps.current?.layoutViewId).toBe("n1");
+    expect(schemaProps.current).not.toHaveProperty("onRelayout");
+    expect(schemaProps.current).not.toHaveProperty("relayoutToken");
+    expect(nodesApi.getContextGraph).toHaveBeenCalledTimes(1);
   });
 });

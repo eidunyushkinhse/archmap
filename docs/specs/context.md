@@ -110,10 +110,14 @@ _read_view_layout/_ghost_registry); фронт `components/nodePage/SchemaSectio
   (view_id = focus.id); наблюдатель — read-only. Структурное редактирование
   (создание/удаление узлов и связей, хэндлы, quick-connect) выключено для
   ОБЕИХ ролей (canStructure=false: readOnly=true, arrangeOnly=isArchitect).
-  «Переразложить» на странице сбрасывает позиции вида фокуса
-  (POST /nodes/{id}/context-relayout); раскрытия переживают сброс (V31/C28),
-  переезд узлов доигрывается анимированным центрированием схемы (AN28г).
-  [код: EmbeddedSchemaBlock + useLevelPersistence с layoutViewId]
+  «Переразложить» на странице (кнопка в углу холста, mode.relayoutButton) с
+  2026-11-24 — команда холста (history.md U26, view.md V32): срабатывает сразу,
+  сбрасывает позиции вида фокуса каналом раскладки, отменяется кнопкой «Отменить»
+  холста и Ctrl+Z; раскрытия переживают сброс (V31/C28), переезд узлов доигрывается
+  анимированным центрированием схемы (AN28г). Ручка POST /nodes/{id}/context-relayout
+  остаётся для MCP и скриптов, страница её не зовёт. [код: EmbeddedSchemaBlock +
+  useLevelPersistence с layoutViewId; тест: embeddedSchemaMode.test.tsx,
+  levelGraph.relayout.test.tsx, levelGraph.autoFit.test.tsx]
 - **X14.** (v2, 2026-08-02) Инлайн-раскрытия на странице СОХРАНЯЮТСЯ как часть
   раскладки вида фокуса (expanded-флаги в view_layout, view_id = focus.id) и
   восстанавливаются при перезаходе. «Переразложить» сохраняет и их —

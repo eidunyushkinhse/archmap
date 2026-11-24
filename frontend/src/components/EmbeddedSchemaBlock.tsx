@@ -47,11 +47,6 @@ interface Props {
   // («Редактировать»), читателю тот же экран в режиме просмотра («Развернуть»). Не передан —
   // кнопки нет (пустой проект).
   onEdit?: () => void;
-  // «Переразложить» → сброс раскладки вида фокуса (архитектор, только с персистом)
-  onRelayout?: () => void;
-  // Токен свершившейся переразкладки (инкрементит хозяин после сброса): приход
-  // свежей раскладки анимируется чистым переездом узлов.
-  relayoutToken?: number;
   // Токен мутации страницы (правка/создание/удаление связей и узлов): стрелки с
   // изменившейся геометрией перерисовываются анимированно, новые рисуются (AN28а).
   mutationToken?: number;
@@ -74,7 +69,7 @@ interface Props {
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, ancestorElements, ancestorExternals, depth, isArchitect,
-  schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
+  schemaView, onSchemaViewChange, onNavigateNode, onEdit, mutationToken,
   showViewFilter, empty, title, notice,
 }: Props) {
   const [active, setActive] = useState(false);
@@ -153,6 +148,9 @@ export default function EmbeddedSchemaBlock({
     // полного пути + модалка выбора у пучка из нескольких связей.
     edgesInspectable: true,
     schemaView,
+    // «Переразложить» в углу холста: команда самого холста (сброс каналом раскладки,
+    // переезд, шаг истории — history.md U26); видна там, где расстановка доступна.
+    relayoutButton: true,
   }), [schemaView, persistence]);
 
   // Панели у страничной схемы нет: двойной клик по любому узлу — свёрнутому контейнеру
@@ -230,8 +228,6 @@ export default function EmbeddedSchemaBlock({
                 mode={mode}
                 drill={drill}
                 edgeCallbacks={edgeCallbacks}
-                onRelayout={onRelayout}
-                relayoutToken={relayoutToken}
                 mutationToken={mutationToken}
               />
             </div>

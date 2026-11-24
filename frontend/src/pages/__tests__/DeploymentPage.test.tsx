@@ -1,8 +1,8 @@
 // DeploymentPage (режим «Развёртывание», docs/tasks/deployment-view.md): загрузка графа
 // уровня из адреса → холст получает проекцию (состав площадок, предел вложенности,
 // пометки, реестр концов), панель выделения считает объекты без повторов, «Снять
-// выделение» — токеном холсту, «Переразложить» шлёт null-батч ключей deploy: и
-// возвращает свёрнутость площадок, смена уровня и вход в контейнер — навигацией,
+// выделение» — токеном холсту, «Переразложить» — запросом холсту (сброс и его отмена —
+// команда холста, history.md U26), смена уровня и вход в контейнер — навигацией,
 // двойной клик по объекту ведёт на страницу объекта. Ф6: дерево слева (уровень, показ
 // объекта), путь уровня текстом, режим размещения щелчком по площадке, контейнер целиком.
 // Приёмка 2026-10-27: глубина цвета карточек — архитектурная (depths от глубины уровня),
@@ -334,38 +334,18 @@ describe("DeploymentPage", () => {
     expect(screen.getByTestId("sites-dialog")).toHaveAttribute("data-architect", "false");
   });
 
-  it("«Переразложить» шлёт null-батч всех ключей deploy: вида с версией и перечитывает граф", async () => {
+  // Решение владельца 2026-11-24 (задание П2): сброс ключей deploy: (D16) со свёрнутостью
+  // площадок (D25), его fence, 409 и отмена — команда холста (levelGraph.relayout.test.tsx,
+  // levelRelayout.test.ts). Страница сама ничего не пишет и граф не перечитывает.
+  it("«Переразложить» отдаёт запрос холсту: страница не пишет и граф не перечитывает", async () => {
     await setup();
+    expect(props().relayoutRequest).toBe(0);
     await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
-    await waitFor(() => expect(viewsApi.saveLayout).toHaveBeenCalledWith(
-      null, { "deploy:a@s1": null, "deploy:site:s1": null }, 7,
-    ));
-    await waitFor(() => expect(deploymentApi.graph).toHaveBeenCalledTimes(2));
-    expect(props().relayoutToken).toBe(1);
-  });
-
-  it("«Переразложить» не раскрывает свёрнутые площадки: вторым батчем возвращает expanded: false", async () => {
-    await setup(true, graph({
-      layout: { "deploy:a@s1": { x: 10, y: 20 }, "deploy:site:s1": { x: 0, y: 0, expanded: false } },
-    }));
+    expect(props().relayoutRequest).toBe(1);
     await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
-    await waitFor(() => expect(viewsApi.saveLayout).toHaveBeenCalledTimes(2));
-    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(1, null, { "deploy:a@s1": null, "deploy:site:s1": null }, 7);
-    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(2, null, { "deploy:site:s1": { expanded: false } }, 8);
-    await waitFor(() => expect(props().relayoutToken).toBe(1));
-  });
-
-  it("«Переразложить» при 409: перечитать и повторить оба батча один раз", async () => {
-    await setup(true, graph({
-      layout: { "deploy:site:s1": { expanded: false } },
-    }));
-    vi.mocked(viewsApi.saveLayout).mockRejectedValueOnce(new ApiError(409, "Расположение объектов только что изменили в другом окне"));
-    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
-    await waitFor(() => expect(viewsApi.saveLayout).toHaveBeenCalledTimes(3));
-    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(2, null, { "deploy:site:s1": null }, 7);
-    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(3, null, { "deploy:site:s1": { expanded: false } }, 8);
-    await waitFor(() => expect(props().relayoutToken).toBe(1));
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(props().relayoutRequest).toBe(2);
+    expect(viewsApi.saveLayout).not.toHaveBeenCalled();
+    expect(deploymentApi.graph).toHaveBeenCalledTimes(1);
   });
 
   it("двойной клик по карточке объекта → страница объекта; по площадке — ничего", async () => {
@@ -652,16 +632,6 @@ describe("DeploymentPage", () => {
   it("холст — цель обучающего тура (data-tour=deploy-diagram)", async () => {
     await setup();
     expect(screen.getByTestId("level-graph").closest('[data-tour="deploy-diagram"]')).not.toBeNull();
-  });
-
-  it("отказ «Переразложить» — строкой с role=alert в тулбаре; смена уровня её снимает", async () => {
-    vi.mocked(viewsApi.saveLayout).mockRejectedValue(new ApiError(500, "Сервер недоступен"));
-    const { goTo } = await setup();
-    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось переразложить. Сервер недоступен");
-    goTo("c1");
-    await waitFor(() => expect(props().containerId).toBe("c1"));
-    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("нет объектов — «Переразложить» заперта", async () => {

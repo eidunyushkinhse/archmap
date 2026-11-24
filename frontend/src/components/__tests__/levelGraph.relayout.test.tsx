@@ -4,7 +4,7 @@
 // возвращает позиции до сброса, повтор раскладывает снова; запись, окончательно не
 // прошедшая, снимает команду. Зависимости — levelGraphHarness; канал настоящий.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import type { ViewLayout } from "../../types";
 import type { HistoryCommand } from "../graph/interaction/useHistory";
 import { ApiError } from "../../api/client";
@@ -143,5 +143,33 @@ describe("LevelGraph orchestration: «Переразложить уровень�
     rerenderWith({ relayoutRequest: 1 });
     expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
     expect(historyMock.push).not.toHaveBeenCalled();
+  });
+
+  // Страничные схемы и полноэкранная схема страницы: кнопка в углу холста (relayoutButton)
+  // жмёт ту же команду; отмена — своей кнопкой холста (история страницы своя).
+  it("кнопка в углу холста страницы: сброс, шаг истории; «Отменить» возвращает расстановку", async () => {
+    historyMock.canUndo.mockReturnValue(true); // шаг в истории есть — кнопка отмены активна
+    const { rerenderWith, onLayoutChanged } = await mount({
+      mode: { readOnly: true, arrangeOnly: true, relayoutButton: true },
+    });
+    act(() => { fireEvent.click(screen.getByRole("button", { name: "Переразложить" })); });
+    expect(onLayoutChanged).toHaveBeenCalledWith({ a: null, box: { x: null, y: null, expanded: true } });
+    const cmd = pushed();
+    expect(cmd.label).toBe("Переразложить уровень");
+    // «Отменить» холста зовёт историю, а команда возвращает позиции до сброса
+    fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
+    expect(historyMock.undo).toHaveBeenCalledOnce();
+    rerenderWith({ mode: { readOnly: true, arrangeOnly: true, relayoutButton: true }, viewLayout: { box: { expanded: true } } });
+    onLayoutChanged.mockClear();
+    act(() => { cmd.undo(); });
+    expect(onLayoutChanged).toHaveBeenCalledWith({ a: { x: 10, y: 20 }, box: { expanded: true, x: 5, y: 6 } });
+  });
+
+  it("кнопки в углу нет без флага (редактор, «Развёртывание») и без расстановки", async () => {
+    await mount();
+    expect(screen.queryByRole("button", { name: "Переразложить" })).toBeNull();
+    resetHarness();
+    await mount({ mode: { readOnly: true, relayoutButton: true } });
+    expect(screen.queryByRole("button", { name: "Переразложить" })).toBeNull();
   });
 });

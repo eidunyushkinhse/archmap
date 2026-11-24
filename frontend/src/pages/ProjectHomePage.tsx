@@ -2,10 +2,9 @@
 // Редизайн (направление А «Документ»), та же колонка, что у страницы объекта: шапка —
 // название, меню ⋯ справа, описание; раздел «Схема» — корневой уровень; раздел
 // «Процессы» — строками, без процессов его нет.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
-import { nodesApi } from "../api/nodes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import type { LevelPersistenceProps, NavigateMap } from "../components/graph/types";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
@@ -85,18 +84,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     };
   }, [isArchitect, lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
 
-  // «Переразложить»: сброс раскладки корневого уровня → перезагрузка (свежий ELK).
-  // Реф-замок от повторных кликов (relayout идемпотентен, но незачем спамить).
-  const relayoutInflight = useRef(false);
-  // Токен свершившегося сброса: блок схемы анимирует переезд на авто-позиции.
-  const [relayoutToken, setRelayoutToken] = useState(0);
-  const handleRelayout = useCallback(() => {
-    if (relayoutInflight.current) return;
-    relayoutInflight.current = true;
-    nodesApi.relayoutLevel(null)
-      .then(() => { setRelayoutToken((t) => t + 1); return lvl.reload(); })
-      .finally(() => { relayoutInflight.current = false; });
-  }, [lvl]);
 
   const loadFailure = meta.error ?? lvl.error;
   if (loadFailure) {
@@ -177,8 +164,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
           schemaView={schemaView}
           onSchemaViewChange={setSchemaView}
           onNavigateNode={onNavigateNode}
-          onRelayout={handleRelayout}
-          relayoutToken={relayoutToken}
           showViewFilter={hasStatusInfo}
           onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
           empty={

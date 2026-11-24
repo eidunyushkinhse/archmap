@@ -15,7 +15,7 @@ import { useRemoteSync } from "../useRemoteSync";
 
 vi.mock("../../api/projects", () => ({ projectsApi: { get: vi.fn() } }));
 vi.mock("../../api/processes", () => ({ processesApi: { list: vi.fn() } }));
-vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn(), relayoutLevel: vi.fn() } }));
+vi.mock("../../api/nodes", () => ({ nodesApi: { getGraph: vi.fn() } }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 // onEdit блока (вход в экран схемы из строки заголовка) — маркером: передан ли и куда ведёт.
 // Пропсы блока целиком — наружу (перераскладка схемы корня).
@@ -277,8 +277,9 @@ describe("ProjectHomePage: вход в экран схемы", () => {
   });
 });
 
-// «Переразложить» схемы корня (кнопка в углу холста): страница сбрасывает раскладку вида
-// корня запросом сервера, растит токен (холст анимирует переезд) и перечитывает уровень.
+// «Переразложить» схемы корня (кнопка в углу холста) с 2026-11-24 — команда самого холста
+// (history.md U26): сброс каналом раскладки по персисту, который страница отдаёт блоку.
+// Своего сброса и перечитывания уровня у страницы нет.
 describe("ProjectHomePage: «Переразложить» схемы корня", () => {
   const withNodes = { ...graph, nodes: [{ id: "a", name: "Заказы", shape: "service" }] };
 
@@ -287,21 +288,18 @@ describe("ProjectHomePage: «Переразложить» схемы корня"
     vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Ярмарка", description: null } as never);
     vi.mocked(processesApi.list).mockResolvedValue([]);
     vi.mocked(nodesApi.getGraph).mockResolvedValue(withNodes as never);
-    vi.mocked(nodesApi.relayoutLevel).mockResolvedValue(undefined);
   });
 
-  it("архитектор: сброс вида корня, токен блоку схемы, уровень перечитан", async () => {
+  it("архитектор: блоку схемы — персист вида корня, своего сброса у страницы нет", async () => {
     render(
       <ProjectRoleContext.Provider value="owner">
         <ProjectHomePage {...props} isArchitect />
       </ProjectRoleContext.Provider>,
     );
     await screen.findByTestId("schema");
-    expect(schemaProps.current?.relayoutToken).toBe(0);
-    const relayout = schemaProps.current?.onRelayout as () => void;
-    await act(async () => { relayout(); });
-    expect(nodesApi.relayoutLevel).toHaveBeenCalledWith(null);
-    await waitFor(() => expect(schemaProps.current?.relayoutToken).toBe(1));
-    expect(nodesApi.getGraph).toHaveBeenCalledTimes(2);
+    expect(schemaProps.current?.persistence).toBeDefined();
+    expect(schemaProps.current).not.toHaveProperty("onRelayout");
+    expect(schemaProps.current).not.toHaveProperty("relayoutToken");
+    expect(nodesApi.getGraph).toHaveBeenCalledTimes(1);
   });
 });

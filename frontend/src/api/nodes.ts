@@ -32,12 +32,6 @@ export const nodesApi = {
   // level-конвейером, что и обычный уровень.
   getContextGraph: (id: string): Promise<GraphResponse> =>
     api.get<GraphResponse>(`/nodes/${id}/context-graph`),
-  // «Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
-  // (view_id = id узла) — позиции и инлайн-раскрытия → свежий ELK. Соседние виды
-  // (другие страницы, уровни редактора) нетронуты. 204 No Content; после вызова
-  // контекст нужно перезагрузить (getContextGraph).
-  relayoutContext: (id: string): Promise<void> =>
-    api.post(`/nodes/${id}/context-relayout`, {}),
   // Процессы с участием узла или его поддерева — секция «Участвует в процессах»
   // страницы объекта (форма — ProcessListItem, как у списка процессов).
   getNodeProcesses: (id: string): Promise<ProcessListItem[]> =>
@@ -88,11 +82,6 @@ export const nodesApi = {
   // объектов.
   transferPreview: (id: string): Promise<TransferDocsPreview> =>
     api.get<TransferDocsPreview>(`/nodes/${id}/docs/transfer-preview`),
-  // «Переразложить уровень»: стирает ВСЕ строки view_layout уровня (позиции
-  // локалов и гостей, раскрытия expanded, легаси) → возврат к авто-виду.
-  // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.
-  relayoutLevel: (containerId: string | null): Promise<void> =>
-    api.post(containerId ? `/nodes/${containerId}/relayout` : `/nodes/relayout`, {}),
 };
 
 // Именованные схемы логики узла (node_docs). Полные доки (с контентом) тянутся

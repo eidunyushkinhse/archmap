@@ -1,13 +1,13 @@
 // Оркестрационные тесты АВТО-ЦЕНТРИРОВАНИЯ страничных схем (fitOnExpand).
 // Фиксируют контракт запроса на анимированное центрирование (autoFitRef):
-//   • «Переразложить» (relayoutToken) на странице → фит с анимацией по ПРИШЕДШЕЙ
-//     раскладке (не по старой геометрии момента клика);
-//   • редактор-карта (без fitOnExpand) тот же токен игнорирует;
+//   • «Переразложить» на странице (кнопка в углу холста, команда холста history.md U26)
+//     → фит с анимацией по ПРИШЕДШЕЙ раскладке (не по старой геометрии момента клика);
+//   • редактор-карта (без fitOnExpand) тот же сброс (запрос хозяина) не центрирует;
 //   • протухший запрос (AUTO_FIT_TTL_MS — ожидавшегося прогона не случилось) не
 //     центрирует схему на следующей смене раскладки.
 // RF/конвейер замоканы; fitView — vi.fn из harness.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import LevelGraph from "../LevelGraph";
 import type { Node as AppNode } from "../../types";
 import { resetHarness, rf, rfProps, settle, pipeline } from "./levelGraphHarness";
@@ -39,6 +39,16 @@ vi.mock("../graph/interaction/useEdgeConnect", async () => (await import("./leve
 const NODE = {
   id: "a", name: "A", parent_id: null, shape: "service", is_external: false,
 } as AppNode;
+
+// Страничная схема с расстановкой: кнопка «Переразложить» в углу холста.
+const PAGE_MODE = { readOnly: true, arrangeOnly: true, relayoutButton: true, fitOnExpand: true };
+// Сохранённая позиция узла: сбрасывать есть что.
+const SAVED = { a: { x: 10, y: 20 } };
+
+// «Переразложить» кнопкой в углу холста страницы.
+function clickRelayout(): void {
+  act(() => { fireEvent.click(screen.getByRole("button", { name: "Переразложить" })); });
+}
 
 // Дать раскладке осесть и прогнать цепочку попыток фита: тихое окно откладывает
 // старт до FIT_QUIET_MS тишины, лимит — FIT_ATTEMPTS × 140мс.
@@ -74,41 +84,44 @@ describe("LevelGraph orchestration: авто-центрирование стра
   });
 
   it("«Переразложить» на странице (fitOnExpand): свежая раскладка → анимированный фит", async () => {
-    const page: LevelGraphProps = { ...base, mode: { fitOnExpand: true } };
+    const page: LevelGraphProps = { ...base, viewLayout: SAVED, mode: PAGE_MODE };
     const { rerender } = render(<LevelGraph {...page} />);
     await runFit();
     // До сброса центрирования нет — запроса никто не взводил.
     expect(rf.fitView).not.toHaveBeenCalled();
 
-    // Сброс раскладки: страница инкрементит токен, следом приходит свежая раскладка
-    // (рефетч даёт новый viewLayout → прогон конвейера → applyLayout).
+    // Сброс раскладки: кнопка холста пишет сброс каналом, следом хозяин кладёт
+    // зеркало (новый viewLayout → прогон конвейера → applyLayout).
+    clickRelayout();
     freshLayout();
-    rerender(<LevelGraph {...page} relayoutToken={1} viewLayout={{}} />);
+    rerender(<LevelGraph {...page} viewLayout={{}} />);
     await runFit();
 
     expect(rf.fitView).toHaveBeenCalledTimes(1);
     expect(rf.fitView).toHaveBeenCalledWith({ padding: 0.1, maxZoom: 1.0, duration: 420 });
   });
 
-  it("редактор-карта (без fitOnExpand): тот же токен не центрирует", async () => {
-    const { rerender } = render(<LevelGraph {...base} />);
+  it("редактор-карта (без fitOnExpand): тот же сброс не центрирует", async () => {
+    const editor: LevelGraphProps = { ...base, viewLayout: SAVED };
+    const { rerender } = render(<LevelGraph {...editor} relayoutRequest={0} />);
     await runFit();
 
+    rerender(<LevelGraph {...editor} relayoutRequest={1} />);
     freshLayout();
-    rerender(<LevelGraph {...base} relayoutToken={1} viewLayout={{}} />);
+    rerender(<LevelGraph {...editor} relayoutRequest={1} viewLayout={{}} />);
     await runFit();
 
     expect(rf.fitView).not.toHaveBeenCalled();
   });
 
   it("протухший запрос (ожидавшегося прогона нет дольше TTL) схему не дёргает", async () => {
-    const page: LevelGraphProps = { ...base, mode: { fitOnExpand: true } };
+    const page: LevelGraphProps = { ...base, viewLayout: SAVED, mode: PAGE_MODE };
     const { rerender } = render(<LevelGraph {...page} />);
     await runFit();
 
-    // Сброс раскладку не изменил (позиции совпали → скип по layoutSig): прогона,
-    // который забрал бы запрос, не пришло — запрос висит.
-    rerender(<LevelGraph {...page} relayoutToken={1} />);
+    // Сброс записан, а раскладка не изменилась (позиции совпали → скип по layoutSig):
+    // прогона, который забрал бы запрос, не пришло — запрос висит.
+    clickRelayout();
     await runFit();
     expect(rf.fitView).not.toHaveBeenCalled();
 
@@ -116,7 +129,7 @@ describe("LevelGraph orchestration: авто-центрирование стра
     // запрос центрирование НЕ вызывает.
     await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
     freshLayout();
-    rerender(<LevelGraph {...page} relayoutToken={1} viewLayout={{}} />);
+    rerender(<LevelGraph {...page} viewLayout={{}} />);
     await runFit();
 
     expect(rf.fitView).not.toHaveBeenCalled();

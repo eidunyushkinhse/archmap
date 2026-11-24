@@ -171,16 +171,10 @@ interface LevelGraphProps {
   // Undo/Redo: history, onUndo, onRedo (общая история + дисптчеры страницы-хозяина;
   // без бандла канвас заводит локальную историю). Состав — LevelUndoProps.
   undo?: LevelUndoProps;
-  // «Переразложить» — canvas-кнопка в правом верхнем углу холста (архитектор).
-  // Передан → кнопка видна; редактор-карта НЕ передаёт (у него своя в топбаре).
-  onRelayout?: () => void;
-  // Сигнал свершившейся переразкладки (токен инкрементится страницей-хозяином
-  // после сброса): приход свежей раскладки режиссируется чистым переездом
-  // видимых узлов/рамок (planRelayout), без сворачивания раскрытий.
-  relayoutToken?: number;
   // ЗАПРОС «Переразложить уровень» от хозяина, чья кнопка живёт вне холста (пункт меню
-  // редактора): рост токена — команда холста (useLevelRelayout, history.md U26): сброс
-  // каналом раскладки, переезд, шаг истории. Значение на маунте не исполняется.
+  // редактора, значок тулбара «Развёртывания»): рост токена — команда холста
+  // (useLevelRelayout, history.md U26): сброс каналом раскладки, переезд, шаг истории.
+  // Значение на маунте не исполняется. Кнопка в углу холста страниц — mode.relayoutButton.
   relayoutRequest?: number;
   // Сигнал мутации страницы (создание/удаление узлов и связей, правка связи):
   // стрелки с изменившейся геометрией в следующем применении перерисовываются
@@ -216,8 +210,6 @@ function LevelGraphInner({
   delete: deleteCallbacks,
   drop,
   undo,
-  onRelayout,
-  relayoutToken,
   relayoutRequest,
   mutationToken,
   projection,
@@ -233,6 +225,7 @@ function LevelGraphInner({
     readOnly = false, edgesInspectable, nodesDraggable: nodesDraggableProp,
     arrangeOnly = false, ignorePersistedExpanded = false, fitOnLoad = false,
     fitOnExpand = false, schemaView = "all", edgeLabelsHidden: edgeLabelsHiddenMode,
+    relayoutButton = false,
   } = mode ?? {};
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange } = drill;
   const {
@@ -388,17 +381,6 @@ function LevelGraphInner({
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
   // (свежую раскладку нового уровня применит сборщик).
   useEffect(() => { resetAnim(); }, [containerId, resetAnim]);
-  // «Переразложить»: страница-хозяин свершила сброс (токен) — интент держится в
-  // хуке до прихода свежего прогона и режиссирует его чистым переездом. На
-  // страничных схемах (fitOnExpand) сброс раскладки — ещё и запрос на анимированное
-  // центрирование: состав прежний, но геометрия новая, и результат хочется видеть
-  // целиком по центру — как после раскрытия/сворачивания. Фит идёт ПОСЛЕ оседания
-  // переезда (гейт !animActive в эффекте центрирования), не поверх него.
-  useEffect(() => {
-    if (!relayoutToken) return;
-    noteRelayout();
-    if (fitOnExpand) autoFitRef.current = performance.now();
-  }, [relayoutToken, noteRelayout, fitOnExpand]);
   // Мутация страницы (создание/удаление узлов и связей): окно мутаций — стрелки
   // с изменившейся геометрией перерисуются анимированно, новые нарисуются (AN28а).
   useEffect(() => { if (mutationToken) noteMutation(); }, [mutationToken, noteMutation]);
@@ -468,14 +450,17 @@ function LevelGraphInner({
   });
 
   // «Переразложить уровень» — команда холста (history.md U26): сброс расстановки тем же
-  // каналом раскладки, переезд на сбросе, отмене и повторе, шаг истории; на страничных
-  // схемах переезд доигрывается анимированным центрированием (фит после оседания, гейт
-  // !animActive в эффекте центрирования). Запрос приходит от хозяина (relayoutRequest).
+  // каналом раскладки, переезд на сбросе, отмене и повторе (интент держится в хуке
+  // анимации до прихода свежего прогона), шаг истории. На страничных схемах
+  // (fitOnExpand) переезд — ещё и запрос на анимированное центрирование: состав прежний,
+  // геометрия новая, результат хочется видеть целиком по центру, как после раскрытия.
+  // Фит идёт ПОСЛЕ оседания переезда (гейт !animActive в эффекте центрирования). Запрос
+  // приходит от хозяина (relayoutRequest) или от кнопки в углу холста (relayoutButton).
   const noteRelayoutMove = useCallback(() => {
     noteRelayout();
     if (fitOnExpand) autoFitRef.current = performance.now();
   }, [noteRelayout, fitOnExpand]);
-  useLevelRelayout({
+  const relayout = useLevelRelayout({
     layout: viewLayout, commitLayout: commitLayoutStable, history,
     enabled: isArchitect && canArrange, request: relayoutRequest, onMove: noteRelayoutMove,
   });
@@ -1154,14 +1139,14 @@ function LevelGraphInner({
       {isArchitect && canArrange && (
         <HistoryToolbar onUndo={runUndo} onRedo={runRedo} canUndo={history.canUndo()} canRedo={history.canRedo()} />
       )}
-      {/* ПРАВЫЙ верхний угол: «Переразложить» (архитектор, передан onRelayout) +
-          тумблер «Скрыть подписи связей» (CV32, все роли — просмотровый режим, не
-          правка). Стилистика едина с тулбаром Undo/Redo (тот же класс lg-seg).
-          Редактор-карта не передаёт onRelayout И владеет тумблером сама (управляемый
-          mode.edgeLabelsHidden): её угол холста занят рейлом алертов (AL10), поэтому
-          там обе кнопки живут в топбаре, а здесь угол остаётся пустым. */}
+      {/* ПРАВЫЙ верхний угол: «Переразложить» (страничные схемы, mode.relayoutButton,
+          там, где расстановка доступна) + тумблер «Скрыть подписи связей» (CV32, все
+          роли — просмотровый режим, не правка). Стилистика едина с тулбаром Undo/Redo
+          (тот же класс lg-seg). Редактор-карта и «Развёртывание» кнопку не просят и
+          владеют тумблером сами (управляемый mode.edgeLabelsHidden): их кнопки живут в
+          шапке и тулбаре страницы, а здесь угол остаётся пустым. */}
       <ViewToolbar
-        onRelayout={isArchitect ? onRelayout : undefined}
+        onRelayout={relayoutButton ? relayout : undefined}
         labels={edgeLabelsHiddenMode === undefined ? { hidden: labelsHidden, onToggle: toggleEdgeLabels } : undefined}
       />
       {/* Легенда статусов и переключатель «Вид схемы» живут в правой панели схемы
