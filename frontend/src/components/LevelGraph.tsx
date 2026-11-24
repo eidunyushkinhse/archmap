@@ -447,7 +447,7 @@ function LevelGraphInner({
   const { guides, setGuides, clearGuides } = useAlignmentGuides();
 
   // История Undo/Redo: адаптер со штампом уровня, запуск отмены/повтора и глобальные
-  // клавиши (только архитектор и не контекст — read-only).
+  // клавиши (там, где расстановка доступна, обеим ролям; не контекст — read-only).
   const { history, runUndo, runRedo } = useLevelHistory({
     historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: canArrange,
   });
