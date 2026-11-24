@@ -2,6 +2,9 @@
 // что уходит в буфер по каждой «Скопировать» и что видно, когда браузер не дал скопировать.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import IssuedTokenView from "../IssuedTokenView";
 import { ciSnippet } from "../ciSignal";
@@ -140,6 +143,25 @@ describe("вид «Токен выпущен»", () => {
     for (const b of copyButtons()) expect(b.className).toBe("ds-btn");
     expect(screen.getByRole("button", { name: "Готово" }).className).toBe("ds-btn ds-btn--primary");
     expect(document.querySelectorAll(".ds-win [style]")).toHaveLength(0);
+  });
+
+  // Находка 8 (2026-11-24): строка CLI и длинные строки задания CI уходили за край блока и
+  // читались только прокруткой вбок. jsdom раскладку не считает: правило читаем текстом, а
+  // что «Скопировать» берёт исходный текст без переносов, проверяем по буферу.
+  it("длинные строки блока переносятся внутри него, копируется исходный текст", async () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "userDialogs.css"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const pre = css.split("}").find((chunk) => chunk.split("{")[0].trim() === ".ud-pre")?.split("{")[1] ?? "";
+    expect(pre).toContain("white-space: pre-wrap");
+    expect(pre).toContain("overflow-wrap: anywhere");
+    expect(pre).not.toContain("overflow-x");
+
+    render(<IssuedTokenView issued={{ token: token({ name: "CI", ci_only: true }), secret: SECRET }} onDone={vi.fn()} />);
+    const gitlab = ciSnippet("gitlab", window.location.origin);
+    expect(screen.getByTestId("issued-gitlab")).toHaveClass("ud-pre");
+    expect(screen.getByTestId("issued-gitlab").textContent).toBe(gitlab);
+    await userEvent.click(copyButtons()[1]);
+    expect(copyText).toHaveBeenLastCalledWith(gitlab);
   });
 
   it("отказ буфера — строкой предупреждения ds-warn", async () => {
