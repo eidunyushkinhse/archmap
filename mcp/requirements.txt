@@ -4,4 +4,4 @@
 mcp==1.30.0
 httpx==0.28.1
 # PyYAML — разбор манифеста архива в archmap_export_archive (tools.py).
-PyYAML==6.0.3
+PyYAML==6.0.4
