@@ -116,6 +116,40 @@ describe("TourLayer", () => {
     expect(handlers.onFinish).toHaveBeenCalledOnce();
   });
 
+  // Правки владельца 2026-11-25: в финалах абзац со ссылкой на сайт документации, на своём
+  // месте между абзацами; ссылка — в новой вкладке, тур её нажатием не завершается.
+  it("финал полного прохода: три абзаца, второй — ссылка на документацию в новой вкладке", () => {
+    const { handlers } = renderLayer("final", view({ phase: "center" }));
+    const card = screen.getByRole("dialog", { name: "Теперь вы знаете, с чего начать" });
+    expect([...card.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
+      "Мы показали самое важное, но это только верхушка айсберга.",
+      "Всё остальное вы найдёте здесь: docs.archmap.tech",
+      "Пройти обучение заново можно кнопкой «Обучение» в шапке.",
+    ]);
+    const link = screen.getByRole("link", { name: "docs.archmap.tech" });
+    expect(link).toHaveAttribute("href", "https://docs.archmap.tech/");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link.parentElement).toBe(card.querySelectorAll("p")[1]);
+    expect(card.textContent).not.toContain("откроются на практике");
+    fireEvent.click(link);
+    expect(handlers.onFinish).not.toHaveBeenCalled();
+    expect(handlers.onShade).not.toHaveBeenCalled();
+  });
+
+  it("короткий финал: текст и вторым абзацем та же ссылка", () => {
+    renderLayer("final-short", view({ phase: "center" }));
+    const card = screen.getByRole("dialog", { name: "Готово" });
+    expect([...card.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
+      "Свой проект у вас уже есть. Продолжайте в нём.",
+      "Всё остальное вы найдёте здесь: docs.archmap.tech",
+    ]);
+    const link = screen.getByRole("link", { name: "docs.archmap.tech" });
+    expect(link).toHaveAttribute("href", "https://docs.archmap.tech/");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
   // Состав и порядок кнопок карточки по виду шага: начало, обычный, с действием, конец.
   const buttonsOf = (title: string) =>
     [...screen.getByRole("dialog", { name: title }).querySelectorAll("button")].map((b) => b.textContent);

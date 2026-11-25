@@ -4,7 +4,7 @@
 // Кнопки хода — кнопки нового языка (ui/ds.css): «Начать», «Далее», «Завершить» главные,
 // «Назад» вторичная; «Пропустить» — тихая кнопка-текст (tour.css).
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { placeCard } from "./tourGeometry";
 import { leaveGhost } from "./tourGhost";
 import { takeExitToPill } from "./tourStore";
@@ -74,11 +74,23 @@ export default function TourCard({
 
   const isStart = step.kind === "start";
   const isEnd = step.kind === "end";
+  // Абзацы текста и абзац со ссылкой на своём месте (финалы: сайт документации). Ссылка
+  // открывается в новой вкладке: тур остаётся на месте, «Завершить» не засчитывается.
+  const paras: ReactNode[] = texts.body ? texts.body.split("\n").map((para, i) => <p key={i}>{para}</p>) : [];
+  const link = step.link;
+  if (link) {
+    paras.splice(Math.min(link.after, paras.length), 0, (
+      <p key="link">
+        {link.lead}
+        <a className="tour-link" href={link.href} target="_blank" rel="noopener noreferrer">{link.label}</a>
+      </p>
+    ));
+  }
   return (
     <div ref={ref} className={cls} style={style} role="dialog" aria-label={texts.title}>
       {count && <span className="tour-count">{count}</span>}
       <h3>{texts.title}</h3>
-      {texts.body && texts.body.split("\n").map((para, i) => <p key={i}>{para}</p>)}
+      {paras}
       {texts.note && <p className="tour-note">{texts.note}</p>}
       {texts.action && <p className="tour-do">{texts.action}</p>}
       {texts.retry && <p className="tour-retry" role="status">{texts.retry}</p>}
